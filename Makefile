@@ -37,11 +37,11 @@ hook:
 godeps:
 	GOPATH=$(GOPATH) $(GO) get github.com/rogpeppe/godeps
 
-easyjson:
+easyjson: dependencies
 	GOPATH=$(GOPATH) $(GO) get -d github.com/mailru/easyjson/...
 	GOPATH=$(GOPATH) $(GO) build -o ./vendor/bin/easyjson ./vendor/src/github.com/mailru/easyjson/easyjson/main.go
 
-dependencies: hook godeps easyjson src/signaling/continentmap.go
+dependencies: hook godeps src/signaling/continentmap.go
 	GOPATH=$(GOPATH) ./vendor/bin/godeps -u dependencies.tsv
 
 dependencies.tsv: godeps
@@ -82,7 +82,7 @@ coverhtml: dependencies vet common
 %_easyjson.go: %.go
 	PATH=$(shell dirname $(GO)):$(PATH) GOPATH=$(GOPATH) ./vendor/bin/easyjson -all $*.go
 
-common: \
+common: easyjson \
 	src/signaling/api_signaling_easyjson.go \
 	src/signaling/api_backend_easyjson.go \
 	src/signaling/natsclient_easyjson.go \
