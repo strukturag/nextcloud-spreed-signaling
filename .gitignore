@@ -1,0 +1,11 @@
+bin/
+vendor/
+
+*_easyjson.go
+*.prof
+*.socket
+*.tar.gz
+
+cover.out
+server.conf
+src/signaling/continentmap.go

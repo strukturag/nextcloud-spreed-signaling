@@ -1,0 +1,112 @@
+[http]
+# IP and port to listen on for HTTP requests.
+# Comment line to disable the listener.
+#listen = 127.0.0.1:8080
+
+# HTTP socket read timeout in seconds.
+#readtimeout = 15
+
+# HTTP socket write timeout in seconds.
+#writetimeout = 15
+
+[https]
+# IP and port to listen on for HTTPS requests.
+# Comment line to disable the listener.
+#listen = 127.0.0.1:8443
+
+# HTTPS socket read timeout in seconds.
+#readtimeout = 15
+
+# HTTPS socket write timeout in seconds.
+#writetimeout = 15
+
+# Certificate / private key to use for the HTTPS server.
+certificate = /etc/nginx/ssl/server.crt
+key = /etc/nginx/ssl/server.key
+
+[app]
+# Set to "true" to install pprof debug handlers.
+# See "https://golang.org/pkg/net/http/pprof/" for further information.
+debug = false
+
+[sessions]
+# Secret value used to generate checksums of sessions. This should be a random
+# string of 32 or 64 bytes.
+hashkey = the-secret-for-session-checksums
+
+# Optional key for encrypting data in the sessions. Must be either 16, 24 or
+# 32 bytes.
+# If no key is specified, data will not be encrypted (not recommended).
+blockkey = -encryption-key-
+
+[clients]
+# Shared secret for connections from internal clients. This must be the same
+# value as configured in the respective internal services.
+internalsecret = the-shared-secret-for-internal-clients
+
+[backend]
+# Comma-separated list of hostnames that are allowed to be used as backend
+# endpoints.
+allowed = nextcloud.domain.invalid
+
+# Allow any hostname as backend endpoint. This is extremely insecure and should
+# only be used while running the benchmark client against the server.
+allowall = false
+
+# Shared secret for requests from and to the backend servers. This must be the
+# same value as configured in the Nextcloud admin ui.
+secret = the-shared-secret
+
+# Timeout in seconds for requests to the backend.
+timeout = 10
+
+# Maximum number of concurrent backend connections per host.
+connectionsperhost = 8
+
+# If set to "true", certificate validation of backend endpoints will be skipped.
+# This should only be enabled during development, e.g. to work with self-signed
+# certificates.
+#skipverify = false
+
+[nats]
+# Url of NATS backend to use. This can also be a list of URLs to connect to
+# multiple backends. For local development, this can be set to ":loopback:"
+# to process NATS messages internally instead of sending them through an
+# external NATS backend.
+#url = nats://localhost:4222
+
+[mcu]
+# The type of the MCU to use. Currently only "janus" is supported.
+type = janus
+
+# The URL to the websocket endpoint of the MCU server. Leave empty to disable
+# MCU functionality.
+url =
+
+# The maximum bitrate per publishing stream (in bits per second).
+# Defaults to 1 mbit/sec.
+#maxstreambitrate = 1048576
+
+# The maximum bitrate per screensharing stream (in bits per second).
+# Default is 2 mbit/sec.
+#maxscreenbitrate = 2097152
+
+[turn]
+# API key that the MCU will need to send when requesting TURN credentials.
+#apikey = the-api-key-for-the-rest-service
+
+# The shared secret to use for generating TURN credentials. This must be the
+# same as on the TURN server.
+#secret = 6d1c17a7-c736-4e22-b02c-e2955b7ecc64
+
+# A comma-separated list of TURN servers to use. Leave empty to disable the
+# TURN REST API.
+#servers = turn:1.2.3.4:9991?transport=udp,turn:1.2.3.4:9991?transport=tcp
+
+[geoip]
+# License key to use when downloading the MaxMind GeoIP database. You can
+# register an account at "https://www.maxmind.com/en/geolite2/signup" for
+# free. See "https://dev.maxmind.com/geoip/geoip2/geolite2/"" for further
+# information.
+# Leave empty to disable GeoIP lookups.
+#license =
