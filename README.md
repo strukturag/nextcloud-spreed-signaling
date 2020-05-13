@@ -16,6 +16,10 @@ dependencies are fetched automatically while building.
 
     $ make build
 
+or on FreeBSD
+
+    $ gmake build
+
 Afterwards the binary is created as `bin/signaling`.
 
 
