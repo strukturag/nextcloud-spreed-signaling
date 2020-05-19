@@ -1,0 +1,32 @@
+version: '3'
+
+services:
+  spreedbackend:
+    build: .
+    volumes:
+      - ./server.conf:/config/server.conf
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - nats
+      - janus
+      - coturn
+  nats:
+    image: nats:2.1
+    volumes:
+      - ./gnatsd.conf:/config/gnatsd.conf
+    command: ["-c", "/config/gnatsd.conf"]
+    network_mode: host
+    restart: unless-stopped
+  janus:
+    build: docker/janus
+    command: ["janus"]
+    network_mode: host
+    restart: unless-stopped
+  coturn:
+    build: docker/coturn
+    network_mode: host
+    environment:
+      REALM: nextcloud.domain.invalid
+      STATIC_SECRET: static_secret_same_in_server_conf
+    restart: unless-stopped
