@@ -1,0 +1,11 @@
+[Unit]
+Description=Nextcloud Talk signaling server
+
+[Service]
+ExecStart=/usr/bin/signaling --config /etc/signaling/server.conf
+User=signaling
+Group=signaling
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
