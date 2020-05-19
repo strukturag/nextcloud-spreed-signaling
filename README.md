@@ -42,6 +42,35 @@ directory, but a different path can be passed through the `--config` option.
 
     $ ./bin/signaling --config /etc/signaling/server.conf
 
+### Running as daemon
+
+#### systemd
+
+Create a dedicated user:
+
+```bash
+sudo useradd --system \
+    --gid signaling \
+    --shell /usr/sbin/nologin \
+    --comment "Standalone signaling server for Nextcloud Talk." \
+    signaling
+```
+
+Copy `server.conf.in` to `/etc/signaling/server.conf` and fix permissions:
+
+```bash
+sudo chmod 600 /etc/signaling/server.conf
+sudo chown signaling: /etc/signaling/server.conf
+```
+
+Copy `dist/init/systemd/signaling.service` to `/etc/systemd/system/signaling.service` (adjust abs. path in `ExecStart` to match your binary location!)
+
+Enable and start service:
+
+```bash
+systemctl enable signaling.service
+systemctl start signaling.service
+```
 
 ## Setup of NATS server
 
