@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.7
+#!/usr/bin/env python3
 #
 # Standalone signaling server for the Nextcloud Spreed app.
 # Copyright (C) 2019 struktur AG
