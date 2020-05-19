@@ -196,6 +196,34 @@ interface on port `8080` below):
 
     </VirtualHost>
 
+### Caddy
+
+#### v1
+
+[Caddy (v1)](https://caddyserver.com/v1/) configuration:
+
+```
+myserver.domain.invalid {
+  proxy /standalone-signaling/ http://127.0.0.1:8080 {
+    without /standalone-signaling
+    transparent
+    websocket
+  }
+}
+```
+
+#### v2
+
+[Caddy (v2)](https://caddyserver.com/) configuration:
+
+```
+myserver.domain.invalid {
+  route /standalone-signaling/* {
+    uri strip_prefix /standalone-signaling
+    reverse_proxy /standalone-signaling/* http://127.0.0.1:8080
+  }
+}
+```
 
 ## Setup of Nextcloud Talk
 
