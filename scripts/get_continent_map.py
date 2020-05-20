@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
 # Standalone signaling server for the Nextcloud Spreed app.
 # Copyright (C) 2019 struktur AG
@@ -51,7 +51,7 @@ else:
 
 def generate_map(filename):
   data = subprocess.check_output([
-    '/usr/bin/curl',
+    'curl',
     '-L',
     URL,
   ])
