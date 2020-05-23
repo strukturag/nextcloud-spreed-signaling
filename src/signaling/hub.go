@@ -733,7 +733,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 		return
 	}
 
-	// Make sure client doesn't get disconencted while calling auth backend.
+	// Make sure client doesn't get disconnected while calling auth backend.
 	h.mu.Lock()
 	delete(h.expectHelloClients, client)
 	h.mu.Unlock()

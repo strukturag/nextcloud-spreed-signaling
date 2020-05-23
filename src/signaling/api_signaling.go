@@ -249,7 +249,7 @@ func (m *HelloClientMessage) CheckValid() error {
 				return err
 			}
 		default:
-			return fmt.Errorf("unsupport auth type")
+			return fmt.Errorf("unsupported auth type")
 		}
 	}
 	return nil
