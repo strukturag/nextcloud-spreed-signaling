@@ -234,7 +234,7 @@ type JanusGateway struct {
 	Sessions map[uint64]*JanusSession
 
 	// Access to the Sessions map should be synchronized with the Gateway.Lock()
-	// and Gateway.Unlock() methods provided by the embeded sync.Mutex.
+	// and Gateway.Unlock() methods provided by the embedded sync.Mutex.
 	sync.Mutex
 
 	conn         *websocket.Conn
@@ -578,7 +578,7 @@ type JanusSession struct {
 	Handles map[uint64]*JanusHandle
 
 	// Access to the Handles map should be synchronized with the Session.Lock()
-	// and Session.Unlock() methods provided by the embeded sync.Mutex.
+	// and Session.Unlock() methods provided by the embedded sync.Mutex.
 	sync.Mutex
 
 	gateway *JanusGateway

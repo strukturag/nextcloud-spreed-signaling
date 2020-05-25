@@ -1039,7 +1039,7 @@ retry:
 			case msg := <-wakeupChan:
 				var message NatsMessage
 				if err := p.mcu.nats.Decode(msg, &message); err != nil {
-					log.Printf("Error decoding wakup NATS message %s (%s)\n", string(msg.Data), err)
+					log.Printf("Error decoding wakeup NATS message %s (%s)\n", string(msg.Data), err)
 					goto wait
 				} else if message.Type != "connected" {
 					log.Printf("Unsupported NATS message waiting for publisher %s: %+v\n", p.publisher, message)
