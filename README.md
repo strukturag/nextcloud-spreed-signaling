@@ -11,8 +11,11 @@ information on the API of the signaling server.
 
 ## Building
 
-You will need at least go 1.6 to build the signaling server. All other
-dependencies are fetched automatically while building.
+### Requirements
+
+* Go >= 1.6
+* curl
+* python3
 
     $ make build
 
@@ -22,6 +25,17 @@ or on FreeBSD
 
 Afterwards the binary is created as `bin/signaling`.
 
+### Build with docker
+
+```bash
+docker run --rm -it -v $PWD:/host --name golang golang:latest
+apt-get update && apt-get -y install python3
+go get github.com/strukturag/nextcloud-spreed-signaling
+cd src/github.com/strukturag/nextcloud-spreed-signaling/
+make build
+chown -R "$(stat -c %u /host):$(stat -c %g /host)" bin
+cp -r bin /host/
+```
 
 ## Configuration
 
