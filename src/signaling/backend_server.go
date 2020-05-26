@@ -88,8 +88,8 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 			return nil, fmt.Errorf("Need a shared TURN secret if TURN servers are configured.")
 		}
 
-		log.Printf("Using \"%s\" as TURN API key", turnapikey)
-		log.Printf("Using \"%s\" as shared TURN secret", turnsecret)
+		log.Printf("Using configured TURN API key")
+		log.Printf("Using configured shared TURN secret")
 		for _, s := range turnserverslist {
 			log.Printf("Adding \"%s\" as TURN server", s)
 		}
