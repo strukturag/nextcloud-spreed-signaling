@@ -110,3 +110,8 @@ url =
 # information.
 # Leave empty to disable GeoIP lookups.
 #license =
+
+[stats]
+# Comma-separated list of IP addresses that are allowed to access the stats
+# endpoint. Leave empty (or commented) to only allow access from "127.0.0.1".
+#allowed_ips =
