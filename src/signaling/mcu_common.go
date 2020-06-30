@@ -45,6 +45,8 @@ type Mcu interface {
 	Start() error
 	Stop()
 
+	GetStats() interface{}
+
 	NewPublisher(ctx context.Context, listener McuListener, id string, streamType string) (McuPublisher, error)
 	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType string) (McuSubscriber, error)
 }

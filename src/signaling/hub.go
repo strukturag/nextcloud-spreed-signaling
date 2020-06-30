@@ -1413,6 +1413,22 @@ func (h *Hub) processRoomParticipants(message *BackendServerRoomRequest) {
 	room.PublishUsersChanged(message.Participants.Changed, message.Participants.Users)
 }
 
+func (h *Hub) GetStats() map[string]interface{} {
+	result := make(map[string]interface{})
+	h.ru.RLock()
+	result["rooms"] = len(h.rooms)
+	h.ru.RUnlock()
+	h.mu.Lock()
+	result["sessions"] = len(h.sessions)
+	h.mu.Unlock()
+	if h.mcu != nil {
+		if stats := h.mcu.GetStats(); stats != nil {
+			result["mcu"] = stats
+		}
+	}
+	return result
+}
+
 func getRealUserIP(r *http.Request) string {
 	// Note this function assumes it is running behind a trusted proxy, so
 	// the headers can be trusted.

@@ -41,6 +41,10 @@ func (m *TestMCU) Start() error {
 func (m *TestMCU) Stop() {
 }
 
+func (m *TestMCU) GetStats() interface{} {
+	return nil
+}
+
 func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string) (McuPublisher, error) {
 	return nil, fmt.Errorf("Not implemented")
 }

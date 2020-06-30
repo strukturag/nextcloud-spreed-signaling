@@ -159,6 +159,8 @@ type mcuJanus struct {
 
 	reconnectTimer    *time.Timer
 	reconnectInterval time.Duration
+
+	connectedSince time.Time
 }
 
 func NewMcuJanus(url string, config *goconf.ConfigFile, nats NatsClient) (Mcu, error) {
@@ -303,6 +305,7 @@ func (m *mcuJanus) Start() error {
 		return err
 	}
 	log.Println("Created Janus session", m.session.Id)
+	m.connectedSince = time.Now()
 
 	if m.handle, err = m.session.Attach(ctx, pluginVideoRoom); err != nil {
 		m.disconnect()
@@ -344,6 +347,31 @@ loop:
 func (m *mcuJanus) Stop() {
 	m.disconnect()
 	m.reconnectTimer.Stop()
+}
+
+type mcuJanusConnectionStats struct {
+	Url        string     `json:"url"`
+	Connected  bool       `json:"connected"`
+	Publishers int64      `json:"publishers"`
+	Clients    int64      `json:"clients"`
+	Uptime     *time.Time `json:"uptime,omitempty"`
+}
+
+func (m *mcuJanus) GetStats() interface{} {
+	result := mcuJanusConnectionStats{
+		Url: m.url,
+	}
+	if m.session != nil {
+		result.Connected = true
+		result.Uptime = &m.connectedSince
+	}
+	m.mu.Lock()
+	result.Publishers = int64(len(m.publisherRoomIds))
+	m.mu.Unlock()
+	m.muClients.Lock()
+	result.Clients = int64(len(m.clients))
+	m.muClients.Unlock()
+	return result
 }
 
 func (m *mcuJanus) sendKeepalive() {

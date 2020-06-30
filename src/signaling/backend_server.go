@@ -30,6 +30,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"reflect"
 	"strings"
@@ -49,6 +50,7 @@ const (
 )
 
 type BackendServer struct {
+	hub          *Hub
 	nats         NatsClient
 	roomSessions RoomSessions
 
@@ -61,6 +63,8 @@ type BackendServer struct {
 	turnsecret  []byte
 	turnvalid   time.Duration
 	turnservers []string
+
+	statsAllowedIps map[string]bool
 }
 
 func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
@@ -95,7 +99,26 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 		}
 	}
 
+	statsAllowed, _ := config.GetString("stats", "allowed_ips")
+	var statsAllowedIps map[string]bool
+	if statsAllowed == "" {
+		log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
+		statsAllowedIps = map[string]bool{
+			"127.0.0.1": true,
+		}
+	} else {
+		log.Printf("Only allowing access to the stats endpoing from %s", statsAllowed)
+		statsAllowedIps = make(map[string]bool)
+		for _, ip := range strings.Split(statsAllowed, ",") {
+			ip = strings.TrimSpace(ip)
+			if ip != "" {
+				statsAllowedIps[ip] = true
+			}
+		}
+	}
+
 	return &BackendServer{
+		hub:          hub,
 		nats:         hub.nats,
 		roomSessions: hub.roomSessions,
 		version:      version,
@@ -107,6 +130,8 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 		turnsecret:  []byte(turnsecret),
 		turnvalid:   turnvalid,
 		turnservers: turnserverslist,
+
+		statsAllowedIps: statsAllowedIps,
 	}, nil
 }
 
@@ -124,6 +149,7 @@ func (b *BackendServer) Start(r *mux.Router) error {
 	s := r.PathPrefix("/api/v1").Subrouter()
 	s.HandleFunc("/welcome", b.setComonHeaders(b.welcomeFunc)).Methods("GET")
 	s.HandleFunc("/room/{roomid}", b.setComonHeaders(b.validateBackendRequest(b.roomHandler))).Methods("POST")
+	s.HandleFunc("/stats", b.setComonHeaders(b.validateStatsRequest(b.statsHandler))).Methods("GET")
 
 	// Provide a REST service to get TURN credentials.
 	// See https://tools.ietf.org/html/draft-uberti-behave-turn-rest-00
@@ -523,4 +549,36 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 	w.WriteHeader(http.StatusOK)
 	// TODO(jojo): Return better response struct.
 	w.Write([]byte("{}"))
+}
+
+func (b *BackendServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		addr := getRealUserIP(r)
+		if strings.Contains(addr, ":") {
+			if host, _, err := net.SplitHostPort(addr); err == nil {
+				addr = host
+			}
+		}
+		if !b.statsAllowedIps[addr] {
+			http.Error(w, "Authentication check failed", http.StatusForbidden)
+			return
+		}
+
+		f(w, r)
+	}
+}
+
+func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
+	stats := b.hub.GetStats()
+	statsData, err := json.MarshalIndent(stats, "", "  ")
+	if err != nil {
+		log.Printf("Could not serialize stats %+v: %s", stats, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	w.Write(statsData)
 }
