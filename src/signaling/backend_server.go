@@ -291,14 +291,17 @@ func (b *BackendServer) sendRoomInvite(roomid string, userids []string, properti
 	}
 }
 
-func (b *BackendServer) sendRoomDisinvite(roomid string, userids []string, sessionids []string) {
+func (b *BackendServer) sendRoomDisinvite(roomid string, reason string, userids []string, sessionids []string) {
 	msg := &ServerMessage{
 		Type: "event",
 		Event: &EventServerMessage{
 			Target: "roomlist",
 			Type:   "disinvite",
-			Disinvite: &RoomEventServerMessage{
-				RoomId: roomid,
+			Disinvite: &RoomDisinviteEventServerMessage{
+				RoomEventServerMessage: RoomEventServerMessage{
+					RoomId: roomid,
+				},
+				Reason: reason,
 			},
 		},
 	}
@@ -519,14 +522,14 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 		b.sendRoomInvite(roomid, request.Invite.UserIds, request.Invite.Properties)
 		b.sendRoomUpdate(roomid, request.Invite.UserIds, request.Invite.AllUserIds, request.Invite.Properties)
 	case "disinvite":
-		b.sendRoomDisinvite(roomid, request.Disinvite.UserIds, request.Disinvite.SessionIds)
+		b.sendRoomDisinvite(roomid, DisinviteReasonDisinvited, request.Disinvite.UserIds, request.Disinvite.SessionIds)
 		b.sendRoomUpdate(roomid, request.Disinvite.UserIds, request.Disinvite.AllUserIds, request.Disinvite.Properties)
 	case "update":
 		err = b.nats.PublishBackendServerRoomRequest("backend.room."+roomid, &request)
 		b.sendRoomUpdate(roomid, nil, request.Update.UserIds, request.Update.Properties)
 	case "delete":
 		err = b.nats.PublishBackendServerRoomRequest("backend.room."+roomid, &request)
-		b.sendRoomDisinvite(roomid, request.Delete.UserIds, nil)
+		b.sendRoomDisinvite(roomid, DisinviteReasonDeleted, request.Delete.UserIds, nil)
 	case "incall":
 		err = b.sendRoomIncall(roomid, &request)
 	case "participants":

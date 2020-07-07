@@ -598,7 +598,7 @@ func (c *TestClient) RunUntilRoomlistUpdate(ctx context.Context) (*RoomEventServ
 	}
 }
 
-func checkMessageRoomlistDisinvite(message *ServerMessage) (*RoomEventServerMessage, error) {
+func checkMessageRoomlistDisinvite(message *ServerMessage) (*RoomDisinviteEventServerMessage, error) {
 	if err := checkMessageType(message, "event"); err != nil {
 		return nil, err
 	} else if message.Event.Target != "roomlist" {
@@ -610,7 +610,7 @@ func checkMessageRoomlistDisinvite(message *ServerMessage) (*RoomEventServerMess
 	return message.Event.Disinvite, nil
 }
 
-func (c *TestClient) RunUntilRoomlistDisinvite(ctx context.Context) (*RoomEventServerMessage, error) {
+func (c *TestClient) RunUntilRoomlistDisinvite(ctx context.Context) (*RoomDisinviteEventServerMessage, error) {
 	if message, err := c.RunUntilMessage(ctx); err != nil {
 		return nil, err
 	} else {
