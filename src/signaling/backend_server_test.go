@@ -123,6 +123,7 @@ func performBackendRequest(url string, body []byte) (*http.Response, error) {
 	check := CalculateBackendChecksum(rnd, body, testBackendSecret)
 	request.Header.Set("Spreed-Signaling-Random", rnd)
 	request.Header.Set("Spreed-Signaling-Checksum", check)
+	request.Header.Set("Spreed-Signaling-Backend", url)
 	client := &http.Client{}
 	return client.Do(request)
 }
@@ -212,6 +213,56 @@ func TestBackendServer_InvalidAuth(t *testing.T) {
 	}
 }
 
+func TestBackendServer_OldCompatAuth(t *testing.T) {
+	_, _, _, _, _, server, shutdown := CreateBackendServerForTest(t)
+	defer shutdown()
+
+	roomId := "the-room-id"
+	userid := "the-user-id"
+	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
+	msg := &BackendServerRoomRequest{
+		Type: "invite",
+		Invite: &BackendRoomInviteRequest{
+			UserIds: []string{
+				userid,
+			},
+			AllUserIds: []string{
+				userid,
+			},
+			Properties: &roomProperties,
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request, err := http.NewRequest("POST", server.URL+"/api/v1/room/"+roomId, bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	rnd := newRandomString(32)
+	check := CalculateBackendChecksum(rnd, data, testBackendSecret)
+	request.Header.Set("Spreed-Signaling-Random", rnd)
+	request.Header.Set("Spreed-Signaling-Checksum", check)
+	client := &http.Client{}
+	res, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("Expected error response, got %s: %s", res.Status, string(body))
+	}
+}
+
 func TestBackendServer_InvalidBody(t *testing.T) {
 	_, _, _, _, _, server, shutdown := CreateBackendServerForTest(t)
 	defer shutdown()
@@ -260,14 +311,20 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 }
 
 func TestBackendServer_RoomInvite(t *testing.T) {
-	_, _, n, _, _, server, shutdown := CreateBackendServerForTest(t)
+	_, _, n, hub, _, server, shutdown := CreateBackendServerForTest(t)
 	defer shutdown()
+
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	userid := "test-userid"
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
+	backend := hub.backend.GetBackend(u)
 
 	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(userid)
+	subject := GetSubjectForUserId(userid, backend)
 	sub, err := n.Subscribe(subject, natsChan)
 	if err != nil {
 		t.Fatal(err)
@@ -321,6 +378,13 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 	_, _, n, hub, _, server, shutdown := CreateBackendServerForTest(t)
 	defer shutdown()
 
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	backend := hub.backend.GetBackend(u)
+
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 	if err := client.SendHello(testDefaultUserId); err != nil {
@@ -355,7 +419,7 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
 	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(testDefaultUserId)
+	subject := GetSubjectForUserId(testDefaultUserId, backend)
 	sub, err := n.Subscribe(subject, natsChan)
 	if err != nil {
 		t.Fatal(err)
@@ -556,9 +620,18 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 	_, _, n, hub, _, server, shutdown := CreateBackendServerForTest(t)
 	defer shutdown()
 
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	room, err := hub.createRoom(roomId, &emptyProperties)
+	backend := hub.backend.GetBackend(u)
+	if backend == nil {
+		t.Fatalf("Did not find backend")
+	}
+	room, err := hub.createRoom(roomId, &emptyProperties, backend)
 	if err != nil {
 		t.Fatalf("Could not create room: %s", err)
 	}
@@ -568,7 +641,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
 	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(userid)
+	subject := GetSubjectForUserId(userid, backend)
 	sub, err := n.Subscribe(subject, natsChan)
 	if err != nil {
 		t.Fatal(err)
@@ -629,16 +702,25 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 	_, _, n, hub, _, server, shutdown := CreateBackendServerForTest(t)
 	defer shutdown()
 
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	if _, err := hub.createRoom(roomId, &emptyProperties); err != nil {
+	backend := hub.backend.GetBackend(u)
+	if backend == nil {
+		t.Fatalf("Did not find backend")
+	}
+	if _, err := hub.createRoom(roomId, &emptyProperties, backend); err != nil {
 		t.Fatalf("Could not create room: %s", err)
 	}
 
 	userid := "test-userid"
 
 	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(userid)
+	subject := GetSubjectForUserId(userid, backend)
 	sub, err := n.Subscribe(subject, natsChan)
 	if err != nil {
 		t.Fatal(err)

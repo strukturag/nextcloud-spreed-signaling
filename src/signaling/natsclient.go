@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -61,6 +62,13 @@ type NatsClient interface {
 	PublishBackendServerRoomRequest(subject string, message *BackendServerRoomRequest) error
 
 	Decode(msg *nats.Msg, v interface{}) error
+}
+
+// The NATS client doesn't work if a subject contains spaces. As the room id
+// can have an arbitrary format, we need to make sure the subject is valid.
+// See "https://github.com/nats-io/nats.js/issues/158" for a similar report.
+func GetEncodedSubject(prefix string, suffix string) string {
+	return prefix + "." + base64.StdEncoding.EncodeToString([]byte(suffix))
 }
 
 type natsClient struct {

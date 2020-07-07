@@ -36,8 +36,9 @@ var (
 )
 
 type SessionIdData struct {
-	Sid     uint64
-	Created time.Time
+	Sid       uint64
+	Created   time.Time
+	BackendId string
 }
 
 type Session interface {
@@ -49,6 +50,7 @@ type Session interface {
 	UserId() string
 	UserData() *json.RawMessage
 
+	Backend() *Backend
 	BackendUrl() string
 	ParsedBackendUrl() *url.URL
 

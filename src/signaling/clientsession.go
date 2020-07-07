@@ -22,7 +22,6 @@
 package signaling
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"log"
 	"net/url"
@@ -59,6 +58,7 @@ type ClientSession struct {
 	supportsPermissions bool
 	permissions         map[Permission]bool
 
+	backend          *Backend
 	backendUrl       string
 	parsedBackendUrl *url.URL
 
@@ -83,7 +83,7 @@ type ClientSession struct {
 	pendingClientMessages []*NatsMessage
 }
 
-func NewClientSession(hub *Hub, privateId string, publicId string, data *SessionIdData, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
+func NewClientSession(hub *Hub, privateId string, publicId string, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
 	s := &ClientSession{
 		hub:       hub,
 		privateId: privateId,
@@ -95,6 +95,7 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 		userId:     auth.UserId,
 		userData:   auth.User,
 
+		backend:          backend,
 		backendUrl:       hello.Auth.Url,
 		parsedBackendUrl: hello.Auth.parsedUrl,
 
@@ -195,6 +196,10 @@ func (s *ClientSession) SetPermissions(permissions []Permission) {
 	s.permissions = p
 	s.supportsPermissions = true
 	log.Printf("Permissions of session %s changed: %s", s.PublicId(), permissions)
+}
+
+func (s *ClientSession) Backend() *Backend {
+	return s.backend
 }
 
 func (s *ClientSession) BackendUrl() string {
@@ -301,11 +306,12 @@ func (s *ClientSession) closeAndWait(wait bool) {
 	}
 }
 
-func GetSubjectForUserId(userId string) string {
-	// The NATS client doesn't work if a subject contains spaces. As the user id
-	// can have an arbitrary format, we need to make sure the subject is valid.
-	// See "https://github.com/nats-io/nats.js/issues/158" for a similar report.
-	return "user." + base64.StdEncoding.EncodeToString([]byte(userId))
+func GetSubjectForUserId(userId string, backend *Backend) string {
+	if backend == nil || backend.IsCompat() {
+		return GetEncodedSubject("user", userId)
+	} else {
+		return GetEncodedSubject("user", userId+"|"+backend.Id())
+	}
 }
 
 func (s *ClientSession) SubscribeNats(n NatsClient) error {
@@ -314,7 +320,7 @@ func (s *ClientSession) SubscribeNats(n NatsClient) error {
 
 	var err error
 	if s.userId != "" {
-		if s.userSubscription, err = n.Subscribe(GetSubjectForUserId(s.userId), s.natsReceiver); err != nil {
+		if s.userSubscription, err = n.Subscribe(GetSubjectForUserId(s.userId, s.backend), s.natsReceiver); err != nil {
 			return err
 		}
 	}
@@ -331,7 +337,7 @@ func (s *ClientSession) SubscribeRoomNats(n NatsClient, roomid string, roomSessi
 	defer s.mu.Unlock()
 
 	var err error
-	if s.roomSubscription, err = n.Subscribe("room."+roomid, s.natsReceiver); err != nil {
+	if s.roomSubscription, err = n.Subscribe(GetSubjectForRoomId(roomid, s.Backend()), s.natsReceiver); err != nil {
 		return err
 	}
 

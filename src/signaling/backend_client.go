@@ -44,11 +44,9 @@ var (
 )
 
 type BackendClient struct {
-	transport    *http.Transport
-	whitelist    map[string]bool
-	whitelistAll bool
-	secret       []byte
-	version      string
+	transport *http.Transport
+	version   string
+	backends  *BackendConfiguration
 
 	mu sync.Mutex
 
@@ -57,39 +55,15 @@ type BackendClient struct {
 }
 
 func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string) (*BackendClient, error) {
-	whitelist := make(map[string]bool)
-	whitelistAll, _ := config.GetBool("backend", "allowall")
-	if whitelistAll {
-		log.Println("WARNING: All backend hostnames are allowed, only use for development!")
-	} else {
-		urls, _ := config.GetString("backend", "allowed")
-		for _, u := range strings.Split(urls, ",") {
-			u = strings.TrimSpace(u)
-			if idx := strings.IndexByte(u, '/'); idx != -1 {
-				log.Printf("WARNING: Removing path from allowed hostname \"%s\", check your configuration!", u)
-				u = u[:idx]
-			}
-			if u != "" {
-				whitelist[strings.ToLower(u)] = true
-			}
-		}
-		if len(whitelist) == 0 {
-			log.Println("WARNING: No backend hostnames are allowed, check your configuration!")
-		} else {
-			hosts := make([]string, 0, len(whitelist))
-			for u := range whitelist {
-				hosts = append(hosts, u)
-			}
-			log.Printf("Allowed backend hostnames: %s\n", hosts)
-		}
+	backends, err := NewBackendConfiguration(config)
+	if err != nil {
+		return nil, err
 	}
 
 	skipverify, _ := config.GetBool("backend", "skipverify")
 	if skipverify {
 		log.Println("WARNING: Backend verification is disabled!")
 	}
-
-	secret, _ := config.GetString("backend", "secret")
 
 	tlsconfig := &tls.Config{
 		InsecureSkipVerify: skipverify,
@@ -100,11 +74,9 @@ func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost in
 	}
 
 	return &BackendClient{
-		transport:    transport,
-		whitelist:    whitelist,
-		whitelistAll: whitelistAll,
-		secret:       []byte(secret),
-		version:      version,
+		transport: transport,
+		version:   version,
+		backends:  backends,
 
 		maxConcurrentRequestsPerHost: maxConcurrentRequestsPerHost,
 		clients: make(map[string]*HttpClientPool),
@@ -135,13 +107,24 @@ func (b *BackendClient) getPool(url *url.URL) (*HttpClientPool, error) {
 	return pool, nil
 }
 
-func (b *BackendClient) IsUrlAllowed(u *url.URL) bool {
-	if u == nil {
-		// Reject all invalid URLs.
-		return false
-	}
+func (b *BackendClient) IsCompatBackend() bool {
+	return b.backends.IsCompatBackend()
+}
 
-	return b.whitelistAll || b.whitelist[u.Host]
+func (b *BackendClient) GetCommonSecret() []byte {
+	return b.backends.GetCommonSecret()
+}
+
+func (b *BackendClient) GetBackend(u *url.URL) *Backend {
+	return b.backends.GetBackend(u)
+}
+
+func (b *BackendClient) GetBackends() []*Backend {
+	return b.backends.GetBackends()
+}
+
+func (b *BackendClient) IsUrlAllowed(u *url.URL) bool {
+	return b.backends.IsUrlAllowed(u)
 }
 
 func isOcsRequest(u *url.URL) bool {
@@ -304,6 +287,11 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		return fmt.Errorf("No url passed to perform JSON request %+v", request)
 	}
 
+	secret := b.backends.GetSecret(u)
+	if secret == nil {
+		return fmt.Errorf("No backend secret configured for for %s", u)
+	}
+
 	pool, err := b.getPool(u)
 	if err != nil {
 		log.Printf("Could not get client pool for host %s: %s\n", u.Host, err)
@@ -338,7 +326,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	req.Header.Set("User-Agent", "nextcloud-spreed-signaling/"+b.version)
 
 	// Add checksum so the backend can validate the request.
-	AddBackendChecksum(req, data, b.secret)
+	AddBackendChecksum(req, data, secret)
 
 	resp, err := performRequestWithRedirects(ctx, c, req, data)
 	if err != nil {

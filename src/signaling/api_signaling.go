@@ -196,6 +196,20 @@ const (
 type ClientTypeInternalAuthParams struct {
 	Random string `json:"random"`
 	Token  string `json:"token"`
+
+	Backend       string `json:"backend"`
+	parsedBackend *url.URL
+}
+
+func (p *ClientTypeInternalAuthParams) CheckValid() error {
+	if p.Backend == "" {
+		return fmt.Errorf("backend missing")
+	} else if u, err := url.Parse(p.Backend); err != nil {
+		return err
+	} else {
+		p.parsedBackend = u
+	}
+	return nil
 }
 
 type HelloClientMessageAuth struct {
@@ -246,6 +260,8 @@ func (m *HelloClientMessage) CheckValid() error {
 			}
 		case HelloClientTypeInternal:
 			if err := json.Unmarshal(*m.Auth.Params, &m.Auth.internalParams); err != nil {
+				return err
+			} else if err := m.Auth.internalParams.CheckValid(); err != nil {
 				return err
 			}
 		default:

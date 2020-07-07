@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
@@ -32,6 +33,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -57,19 +59,16 @@ type BackendServer struct {
 	version        string
 	welcomeMessage string
 
-	secret []byte
-
 	turnapikey  string
 	turnsecret  []byte
 	turnvalid   time.Duration
 	turnservers []string
 
 	statsAllowedIps map[string]bool
+	invalidSecret   []byte
 }
 
 func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
-	secret, _ := config.GetString("backend", "secret")
-
 	turnapikey, _ := config.GetString("turn", "apikey")
 	turnsecret, _ := config.GetString("turn", "secret")
 	turnservers, _ := config.GetString("turn", "servers")
@@ -117,21 +116,24 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 		}
 	}
 
+	invalidSecret := make([]byte, 32)
+	if _, err := rand.Read(invalidSecret); err != nil {
+		return nil, err
+	}
+
 	return &BackendServer{
 		hub:          hub,
 		nats:         hub.nats,
 		roomSessions: hub.roomSessions,
 		version:      version,
 
-		secret: []byte(secret),
-
-		turnapikey: turnapikey,
-
+		turnapikey:  turnapikey,
 		turnsecret:  []byte(turnsecret),
 		turnvalid:   turnvalid,
 		turnservers: turnserverslist,
 
 		statsAllowedIps: statsAllowedIps,
+		invalidSecret:   invalidSecret,
 	}, nil
 }
 
@@ -148,7 +150,7 @@ func (b *BackendServer) Start(r *mux.Router) error {
 	}
 	s := r.PathPrefix("/api/v1").Subrouter()
 	s.HandleFunc("/welcome", b.setComonHeaders(b.welcomeFunc)).Methods("GET")
-	s.HandleFunc("/room/{roomid}", b.setComonHeaders(b.validateBackendRequest(b.roomHandler))).Methods("POST")
+	s.HandleFunc("/room/{roomid}", b.setComonHeaders(b.parseRequestBody(b.roomHandler))).Methods("POST")
 	s.HandleFunc("/stats", b.setComonHeaders(b.validateStatsRequest(b.statsHandler))).Methods("GET")
 
 	// Provide a REST service to get TURN credentials.
@@ -236,7 +238,7 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 	w.Write(data)
 }
 
-func (b *BackendServer) validateBackendRequest(f func(http.ResponseWriter, *http.Request, []byte)) func(http.ResponseWriter, *http.Request) {
+func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Request, []byte)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Sanity checks
 		if r.ContentLength == -1 {
@@ -265,16 +267,12 @@ func (b *BackendServer) validateBackendRequest(f func(http.ResponseWriter, *http
 			http.Error(w, "Could not read body", http.StatusBadRequest)
 			return
 		}
-		if !ValidateBackendChecksum(r, body, b.secret) {
-			http.Error(w, "Authentication check failed", http.StatusForbidden)
-			return
-		}
 
 		f(w, r, body)
 	}
 }
 
-func (b *BackendServer) sendRoomInvite(roomid string, userids []string, properties *json.RawMessage) {
+func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids []string, properties *json.RawMessage) {
 	msg := &ServerMessage{
 		Type: "event",
 		Event: &EventServerMessage{
@@ -287,11 +285,11 @@ func (b *BackendServer) sendRoomInvite(roomid string, userids []string, properti
 		},
 	}
 	for _, userid := range userids {
-		b.nats.PublishMessage(GetSubjectForUserId(userid), msg)
+		b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg)
 	}
 }
 
-func (b *BackendServer) sendRoomDisinvite(roomid string, reason string, userids []string, sessionids []string) {
+func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reason string, userids []string, sessionids []string) {
 	msg := &ServerMessage{
 		Type: "event",
 		Event: &EventServerMessage{
@@ -306,7 +304,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, reason string, userids 
 		},
 	}
 	for _, userid := range userids {
-		b.nats.PublishMessage(GetSubjectForUserId(userid), msg)
+		b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg)
 	}
 
 	timeout := time.Second
@@ -330,7 +328,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, reason string, userids 
 	wg.Wait()
 }
 
-func (b *BackendServer) sendRoomUpdate(roomid string, notified_userids []string, all_userids []string, properties *json.RawMessage) {
+func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified_userids []string, all_userids []string, properties *json.RawMessage) {
 	msg := &ServerMessage{
 		Type: "event",
 		Event: &EventServerMessage{
@@ -352,7 +350,7 @@ func (b *BackendServer) sendRoomUpdate(roomid string, notified_userids []string,
 			continue
 		}
 
-		b.nats.PublishMessage(GetSubjectForUserId(userid), msg)
+		b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg)
 	}
 }
 
@@ -431,7 +429,7 @@ func (b *BackendServer) fixupUserSessions(cache *ConcurrentStringStringMap, user
 	return result
 }
 
-func (b *BackendServer) sendRoomIncall(roomid string, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
 	timeout := time.Second
 
 	var cache ConcurrentStringStringMap
@@ -444,10 +442,10 @@ func (b *BackendServer) sendRoomIncall(roomid string, request *BackendServerRoom
 		return nil
 	}
 
-	return b.nats.PublishBackendServerRoomRequest("backend.room."+roomid, request)
+	return b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), request)
 }
 
-func (b *BackendServer) sendRoomParticipantsUpdate(roomid string, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomParticipantsUpdate(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
 	timeout := time.Second
 
 	// Convert (Nextcloud) session ids to signaling session ids.
@@ -497,14 +495,62 @@ loop:
 	}
 	wg.Wait()
 
-	return b.nats.PublishBackendServerRoomRequest("backend.room."+roomid, request)
+	return b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), request)
 }
 
-func (b *BackendServer) sendRoomMessage(roomid string, request *BackendServerRoomRequest) error {
-	return b.nats.PublishBackendServerRoomRequest("backend.room."+roomid, request)
+func (b *BackendServer) sendRoomMessage(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
+	return b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), request)
 }
 
 func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body []byte) {
+	v := mux.Vars(r)
+	roomid := v["roomid"]
+
+	var backend *Backend
+	backendUrl := r.Header.Get(HeaderBackendServer)
+	if backendUrl != "" {
+		if u, err := url.Parse(backendUrl); err == nil {
+			backend = b.hub.backend.GetBackend(u)
+		}
+
+		if backend == nil {
+			// Unknown backend URL passed, return immediately.
+			http.Error(w, "Authentication check failed", http.StatusForbidden)
+			return
+		}
+	}
+
+	var secret []byte
+	if backend == nil {
+		if b.hub.backend.IsCompatBackend() {
+			// Old-style configuration using a single secret for all backends.
+			secret = b.hub.backend.GetCommonSecret()
+		} else {
+			// Old-style Talk, find backend that created the checksum.
+			// TODO(fancycode): Remove once all supported Talk versions send the backend header.
+			for _, b := range b.hub.backend.GetBackends() {
+				if ValidateBackendChecksum(r, body, b.Secret()) {
+					backend = b
+					break
+				}
+			}
+
+			if backend == nil {
+				http.Error(w, "Authentication check failed", http.StatusForbidden)
+				return
+			}
+
+			secret = backend.Secret()
+		}
+	} else {
+		secret = backend.Secret()
+	}
+
+	if !ValidateBackendChecksum(r, body, secret) {
+		http.Error(w, "Authentication check failed", http.StatusForbidden)
+		return
+	}
+
 	var request BackendServerRoomRequest
 	if err := json.Unmarshal(body, &request); err != nil {
 		log.Printf("Error decoding body %s: %s\n", string(body), err)
@@ -514,28 +560,26 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 
 	request.ReceivedTime = time.Now().UnixNano()
 
-	v := mux.Vars(r)
-	roomid := v["roomid"]
 	var err error
 	switch request.Type {
 	case "invite":
-		b.sendRoomInvite(roomid, request.Invite.UserIds, request.Invite.Properties)
-		b.sendRoomUpdate(roomid, request.Invite.UserIds, request.Invite.AllUserIds, request.Invite.Properties)
+		b.sendRoomInvite(roomid, backend, request.Invite.UserIds, request.Invite.Properties)
+		b.sendRoomUpdate(roomid, backend, request.Invite.UserIds, request.Invite.AllUserIds, request.Invite.Properties)
 	case "disinvite":
-		b.sendRoomDisinvite(roomid, DisinviteReasonDisinvited, request.Disinvite.UserIds, request.Disinvite.SessionIds)
-		b.sendRoomUpdate(roomid, request.Disinvite.UserIds, request.Disinvite.AllUserIds, request.Disinvite.Properties)
+		b.sendRoomDisinvite(roomid, backend, DisinviteReasonDisinvited, request.Disinvite.UserIds, request.Disinvite.SessionIds)
+		b.sendRoomUpdate(roomid, backend, request.Disinvite.UserIds, request.Disinvite.AllUserIds, request.Disinvite.Properties)
 	case "update":
-		err = b.nats.PublishBackendServerRoomRequest("backend.room."+roomid, &request)
-		b.sendRoomUpdate(roomid, nil, request.Update.UserIds, request.Update.Properties)
+		err = b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), &request)
+		b.sendRoomUpdate(roomid, backend, nil, request.Update.UserIds, request.Update.Properties)
 	case "delete":
-		err = b.nats.PublishBackendServerRoomRequest("backend.room."+roomid, &request)
-		b.sendRoomDisinvite(roomid, DisinviteReasonDeleted, request.Delete.UserIds, nil)
+		err = b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), &request)
+		b.sendRoomDisinvite(roomid, backend, DisinviteReasonDeleted, request.Delete.UserIds, nil)
 	case "incall":
-		err = b.sendRoomIncall(roomid, &request)
+		err = b.sendRoomIncall(roomid, backend, &request)
 	case "participants":
-		err = b.sendRoomParticipantsUpdate(roomid, &request)
+		err = b.sendRoomParticipantsUpdate(roomid, backend, &request)
 	case "message":
-		err = b.sendRoomMessage(roomid, &request)
+		err = b.sendRoomMessage(roomid, backend, &request)
 	default:
 		http.Error(w, "Unsupported request type: "+request.Type, http.StatusBadRequest)
 		return

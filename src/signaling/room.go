@@ -47,9 +47,10 @@ var (
 )
 
 type Room struct {
-	id   string
-	hub  *Hub
-	nats NatsClient
+	id      string
+	hub     *Hub
+	nats    NatsClient
+	backend *Backend
 
 	properties *json.RawMessage
 	roomType   int
@@ -72,18 +73,43 @@ type Room struct {
 	lastNatsRoomRequests map[string]int64
 }
 
-func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient) (*Room, error) {
+func GetSubjectForRoomId(roomId string, backend *Backend) string {
+	if backend == nil || backend.IsCompat() {
+		return GetEncodedSubject("room", roomId)
+	} else {
+		return GetEncodedSubject("room", roomId+"|"+backend.Id())
+	}
+}
+
+func GetSubjectForBackendRoomId(roomId string, backend *Backend) string {
+	if backend == nil || backend.IsCompat() {
+		return GetEncodedSubject("backend.room", roomId)
+	} else {
+		return GetEncodedSubject("backend.room", roomId+"|"+backend.Id())
+	}
+}
+
+func getRoomIdForBackend(id string, backend *Backend) string {
+	if id == "" {
+		return ""
+	}
+
+	return backend.Id() + "|" + id
+}
+
+func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient, backend *Backend) (*Room, error) {
 	natsReceiver := make(chan *nats.Msg, 64)
-	backendSubscription, err := n.Subscribe("backend.room."+roomId, natsReceiver)
+	backendSubscription, err := n.Subscribe(GetSubjectForBackendRoomId(roomId, backend), natsReceiver)
 	if err != nil {
 		close(natsReceiver)
 		return nil, err
 	}
 
 	room := &Room{
-		id:   roomId,
-		hub:  hub,
-		nats: n,
+		id:      roomId,
+		hub:     hub,
+		nats:    n,
+		backend: backend,
 
 		properties: properties,
 
@@ -113,6 +139,10 @@ func (r *Room) Properties() *json.RawMessage {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.properties
+}
+
+func (r *Room) Backend() *Backend {
+	return r.backend
 }
 
 func (r *Room) run() {
@@ -278,7 +308,7 @@ func (r *Room) RemoveSession(session Session) bool {
 }
 
 func (r *Room) publish(message *ServerMessage) {
-	r.nats.PublishMessage("room."+r.id, message)
+	r.nats.PublishMessage(GetSubjectForRoomId(r.id, r.backend), message)
 }
 
 func (r *Room) UpdateProperties(properties *json.RawMessage) {
