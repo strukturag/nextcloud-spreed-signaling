@@ -11,8 +11,15 @@ information on the API of the signaling server.
 
 ## Building
 
-You will need at least go 1.6 to build the signaling server. All other
-dependencies are fetched automatically while building.
+The following tools are required for building the signaling server.
+
+- curl
+- git
+- go >= 1.6
+- make
+- python3
+
+All other dependencies are fetched automatically while building.
 
     $ make build
 
