@@ -399,6 +399,17 @@ type RoomEventServerMessage struct {
 	Users   []map[string]interface{} `json:"users,omitempty"`
 }
 
+const (
+	DisinviteReasonDisinvited = "disinvited"
+	DisinviteReasonDeleted    = "deleted"
+)
+
+type RoomDisinviteEventServerMessage struct {
+	RoomEventServerMessage
+
+	Reason string `json:"reason"`
+}
+
 type RoomEventMessage struct {
 	RoomId string           `json:"roomid"`
 	Data   *json.RawMessage `json:"data,omitempty"`
@@ -414,9 +425,9 @@ type EventServerMessage struct {
 	Change []*EventServerMessageSessionEntry `json:"change,omitempty"`
 
 	// Used for target "roomlist" / "participants"
-	Invite    *RoomEventServerMessage `json:"invite,omitempty"`
-	Disinvite *RoomEventServerMessage `json:"disinvite,omitempty"`
-	Update    *RoomEventServerMessage `json:"update,omitempty"`
+	Invite    *RoomEventServerMessage          `json:"invite,omitempty"`
+	Disinvite *RoomDisinviteEventServerMessage `json:"disinvite,omitempty"`
+	Update    *RoomEventServerMessage          `json:"update,omitempty"`
 
 	// Used for target "message"
 	Message *RoomEventMessage `json:"message,omitempty"`

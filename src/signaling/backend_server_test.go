@@ -402,6 +402,8 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 		t.Errorf("Expected room %s, got %+v", roomId, event)
 	} else if event.Disinvite.Properties != nil {
 		t.Errorf("Room properties should be omitted, got %s", string(*event.Disinvite.Properties))
+	} else if event.Disinvite.Reason != "disinvited" {
+		t.Errorf("Reason should be disinvited, got %s", event.Disinvite.Reason)
 	}
 
 	if message, err := client.RunUntilRoomlistDisinvite(ctx); err != nil {
@@ -679,6 +681,8 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 		t.Errorf("Expected room %s, got %+v", roomId, event)
 	} else if event.Disinvite.Properties != nil {
 		t.Errorf("Room properties should be omitted, got %s", string(*event.Disinvite.Properties))
+	} else if event.Disinvite.Reason != "deleted" {
+		t.Errorf("Reason should be deleted, got %s", event.Disinvite.Reason)
 	}
 
 	// TODO: Use event to wait for NATS messages.
