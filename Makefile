@@ -31,6 +31,10 @@ ifneq ($(TEST),)
 TESTARGS := $(TESTARGS) -run $(TEST)
 endif
 
+ifneq ($(COUNT),)
+TESTARGS := $(TESTARGS) -count $(COUNT)
+endif
+
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
