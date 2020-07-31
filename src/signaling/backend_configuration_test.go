@@ -128,7 +128,7 @@ func TestIsUrlAllowed(t *testing.T) {
 	testBackends(t, cfg, valid_urls, invalid_urls)
 }
 
-func TestIsUrlAllowed_EmptyWhitelist(t *testing.T) {
+func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
 	valid_urls := []string{}
 	invalid_urls := []string{
 		"http://domain.invalid",
@@ -145,7 +145,7 @@ func TestIsUrlAllowed_EmptyWhitelist(t *testing.T) {
 	testUrls(t, cfg, valid_urls, invalid_urls)
 }
 
-func TestIsUrlAllowed_WhitelistAll(t *testing.T) {
+func TestIsUrlAllowed_AllowAll(t *testing.T) {
 	valid_urls := []string{
 		"http://domain.invalid",
 		"https://domain.invalid",
