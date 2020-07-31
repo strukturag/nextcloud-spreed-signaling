@@ -41,7 +41,7 @@ easyjson: dependencies
 	GOPATH=$(GOPATH) $(GO) get -d github.com/mailru/easyjson/...
 	GOPATH=$(GOPATH) $(GO) build -o ./vendor/bin/easyjson ./vendor/src/github.com/mailru/easyjson/easyjson/main.go
 
-dependencies: hook godeps src/signaling/continentmap.go
+dependencies: hook godeps
 	GOPATH=$(GOPATH) ./vendor/bin/godeps -u dependencies.tsv
 
 dependencies.tsv: godeps
@@ -54,6 +54,14 @@ dependencies.tsv: godeps
 
 src/signaling/continentmap.go:
 	$(CURDIR)/scripts/get_continent_map.py $@
+
+check-continentmap:
+	set -e ;\
+	TMP=$$(mktemp -d) ;\
+	echo Make sure to remove $$TMP on error ;\
+	$(CURDIR)/scripts/get_continent_map.py $$TMP/continentmap.go ;\
+	diff -u src/signaling/continentmap.go $$TMP/continentmap.go ;\
+	rm -rf $$TMP
 
 get:
 	GOPATH=$(GOPATH) $(GO) get $(PACKAGE)
@@ -98,7 +106,6 @@ server: dependencies common
 
 clean:
 	rm -f src/signaling/*_easyjson.go
-	rm -f src/signaling/continentmap.go
 
 build: server
 

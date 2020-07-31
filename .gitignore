@@ -8,4 +8,3 @@ vendor/
 
 cover.out
 server.conf
-src/signaling/continentmap.go

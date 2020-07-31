@@ -66,6 +66,7 @@ def generate_map(filename):
   out.write('package signaling\n')
   out.write('\n')
   out.write('// This file has been automatically generated, do not modify.\n')
+  out.write('// Source: %s\n' % (URL))
   out.write('\n')
   out.write('var (\n')
   out.write('\tContinentMap map[string][]string = map[string][]string{\n')

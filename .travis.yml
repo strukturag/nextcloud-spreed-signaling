@@ -19,6 +19,7 @@ cache:
 install:
   - make godeps
   - make dependencies
+  - if [[ "$TRAVIS_EVENT_TYPE" == "cron" ]]; then make check-continentmap; fi
 
 script:
   - make client
