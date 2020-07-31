@@ -1068,11 +1068,13 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 
 		data, err := json.Marshal(msg)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		defer res.Body.Close()
 		body, err := ioutil.ReadAll(res.Body)
@@ -1119,11 +1121,13 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 
 		data, err := json.Marshal(msg)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		defer res.Body.Close()
 		body, err := ioutil.ReadAll(res.Body)
@@ -1136,6 +1140,9 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	}()
 
 	wg.Wait()
+	if t.Failed() {
+		return
+	}
 
 	msg1_a, err := client1.RunUntilMessage(ctx)
 	if err != nil {
@@ -1176,8 +1183,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second+100*time.Millisecond)
 	defer cancel2()
 
-	msg1_c, err := client1.RunUntilMessage(ctx2)
-	if msg1_c != nil {
+	if msg1_c, _ := client1.RunUntilMessage(ctx2); msg1_c != nil {
 		if in_call_2, err := checkMessageParticipantsInCall(msg1_c); err != nil {
 			t.Error(err)
 		} else if len(in_call_2.Users) != 2 {
@@ -1187,8 +1193,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 
 	ctx3, cancel3 := context.WithTimeout(context.Background(), time.Second+100*time.Millisecond)
 	defer cancel3()
-	msg2_c, err := client2.RunUntilMessage(ctx3)
-	if msg2_c != nil {
+	if msg2_c, _ := client2.RunUntilMessage(ctx3); msg2_c != nil {
 		if in_call_2, err := checkMessageParticipantsInCall(msg2_c); err != nil {
 			t.Error(err)
 		} else if len(in_call_2.Users) != 2 {

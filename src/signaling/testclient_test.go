@@ -233,7 +233,8 @@ func NewTestClient(t *testing.T, server *httptest.Server, hub *Hub) *TestClient 
 				readErrorChan <- err
 				return
 			} else if messageType != websocket.TextMessage {
-				t.Fatalf("Expect text message, got %d", messageType)
+				t.Errorf("Expect text message, got %d", messageType)
+				return
 			}
 
 			messageChan <- data

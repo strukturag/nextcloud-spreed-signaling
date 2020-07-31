@@ -100,7 +100,6 @@ type Hub struct {
 	upgrader websocket.Upgrader
 	cookie   *securecookie.SecureCookie
 	info     *HelloServerMessageServer
-	version  string
 
 	stopped  int32
 	stopChan chan bool
@@ -456,13 +455,13 @@ func (h *Hub) GetSessionByPublicId(sessionId string) Session {
 	}
 
 	h.mu.Lock()
-	session, _ := h.sessions[data.Sid]
+	session := h.sessions[data.Sid]
 	h.mu.Unlock()
 	return session
 }
 
 func (h *Hub) checkExpiredSessions(now time.Time) {
-	for s, _ := range h.expiredSessions {
+	for s := range h.expiredSessions {
 		if s.IsExpired(now) {
 			h.mu.Unlock()
 			log.Printf("Closing expired session %s (private=%s)", s.PublicId(), s.PrivateId())

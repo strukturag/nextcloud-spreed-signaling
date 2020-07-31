@@ -288,8 +288,6 @@ func main() {
 		}
 	}
 
-	select {
-	case <-interrupt:
-		log.Println("Interrupted")
-	}
+	<-interrupt
+	log.Println("Interrupted")
 }

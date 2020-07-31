@@ -53,7 +53,6 @@ type Room struct {
 	backend *Backend
 
 	properties *json.RawMessage
-	roomType   int
 
 	closeChan chan bool
 	mu        *sync.RWMutex

@@ -430,13 +430,13 @@ func (gateway *JanusGateway) recv() {
 		decoder := json.NewDecoder(data)
 		decoder.UseNumber()
 		if err := decoder.Decode(&base); err != nil {
-			log.Printf("json.Unmarshal of %s: %s", string(decodeBuffer.Bytes()), err)
+			log.Printf("json.Unmarshal of %s: %s", decodeBuffer.String(), err)
 			continue
 		}
 
 		typeFunc, ok := msgtypes[base.Type]
 		if !ok {
-			log.Printf("Unknown message type received: %s", string(decodeBuffer.Bytes()))
+			log.Printf("Unknown message type received: %s", decodeBuffer.String())
 			continue
 		}
 
@@ -445,7 +445,7 @@ func (gateway *JanusGateway) recv() {
 		decoder = json.NewDecoder(data)
 		decoder.UseNumber()
 		if err := decoder.Decode(&msg); err != nil {
-			log.Printf("json.Unmarshal of %s: %s", string(decodeBuffer.Bytes()), err)
+			log.Printf("json.Unmarshal of %s: %s", decodeBuffer.String(), err)
 			continue // Decode error
 		}
 
@@ -461,7 +461,7 @@ func (gateway *JanusGateway) recv() {
 				session := gateway.Sessions[base.Session]
 				gateway.Unlock()
 				if session == nil {
-					log.Printf("Unable to deliver message %s. Session %d gone?", string(decodeBuffer.Bytes()), base.Session)
+					log.Printf("Unable to deliver message %s. Session %d gone?", decodeBuffer.String(), base.Session)
 					continue
 				}
 
@@ -470,7 +470,7 @@ func (gateway *JanusGateway) recv() {
 				handle := session.Handles[base.Handle]
 				session.Unlock()
 				if handle == nil {
-					log.Printf("Unable to deliver message %s. Handle %d gone?", string(decodeBuffer.Bytes()), base.Handle)
+					log.Printf("Unable to deliver message %s. Handle %d gone?", decodeBuffer.String(), base.Handle)
 					continue
 				}
 
