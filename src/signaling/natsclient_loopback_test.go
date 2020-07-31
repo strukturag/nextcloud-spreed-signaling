@@ -88,7 +88,8 @@ func TestLoopbackNatsClient_Subscribe(t *testing.T) {
 				if total == max {
 					err := sub.Unsubscribe()
 					if err != nil {
-						t.Fatal("Unsubscribe failed with err:", err)
+						t.Errorf("Unsubscribe failed with err: %s", err)
+						return
 					}
 					ch <- true
 				}
@@ -135,10 +136,12 @@ func TestLoopbackNatsClient_Request(t *testing.T) {
 	go func() {
 		msg := <-dest
 		if err := client.Publish(msg.Reply, []byte("world")); err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		if err := sub.Unsubscribe(); err != nil {
-			t.Fatal("Unsubscribe failed with err:", err)
+			t.Error("Unsubscribe failed with err:", err)
+			return
 		}
 	}()
 	reply, err := client.Request("foo", []byte("hello"), 1*time.Second)
@@ -182,10 +185,12 @@ func TestLoopbackNatsClient_RequestTimeout(t *testing.T) {
 		msg := <-dest
 		time.Sleep(200 * time.Millisecond)
 		if err := client.Publish(msg.Reply, []byte("world")); err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		if err := sub.Unsubscribe(); err != nil {
-			t.Fatal("Unsubscribe failed with err:", err)
+			t.Error("Unsubscribe failed with err:", err)
+			return
 		}
 	}()
 	reply, err := client.Request("foo", []byte("hello"), 100*time.Millisecond)

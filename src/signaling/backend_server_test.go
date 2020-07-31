@@ -1068,11 +1068,13 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 
 		data, err := json.Marshal(msg)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		defer res.Body.Close()
 		body, err := ioutil.ReadAll(res.Body)
@@ -1119,11 +1121,13 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 
 		data, err := json.Marshal(msg)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		defer res.Body.Close()
 		body, err := ioutil.ReadAll(res.Body)
@@ -1136,6 +1140,9 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	}()
 
 	wg.Wait()
+	if t.Failed() {
+		return
+	}
 
 	msg1_a, err := client1.RunUntilMessage(ctx)
 	if err != nil {
