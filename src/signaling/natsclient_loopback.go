@@ -148,13 +148,11 @@ func (c *LoopbackNatsClient) Request(subject string, data []byte, timeout time.D
 		c.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		select {
-		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				err = nats.ErrTimeout
-			} else {
-				err = ctx.Err()
-			}
+		<-ctx.Done()
+		if ctx.Err() == context.DeadlineExceeded {
+			err = nats.ErrTimeout
+		} else {
+			err = ctx.Err()
 		}
 		c.mu.Lock()
 		return nil, err
