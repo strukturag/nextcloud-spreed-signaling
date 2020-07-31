@@ -245,7 +245,7 @@ func (m *mcuJanus) doReconnect() {
 	m.mu.Unlock()
 
 	m.muClients.Lock()
-	for client, _ := range m.clients {
+	for client := range m.clients {
 		go client.NotifyReconnected()
 	}
 	m.muClients.Unlock()
