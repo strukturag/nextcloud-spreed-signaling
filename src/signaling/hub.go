@@ -565,7 +565,7 @@ func (h *Hub) processNewClient(client *Client) {
 	h.startExpectHello(client)
 }
 
-func (h *Hub) processRegister(client *Client, message *ClientMessage, auth *BackendClientResponse) {
+func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *Backend, auth *BackendClientResponse) {
 	if !client.IsConnected() {
 		// Client disconnected while waiting for "hello" response.
 		return
@@ -584,8 +584,9 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, auth *Back
 		sid = atomic.AddUint64(&h.sid, 1)
 	}
 	sessionIdData := &SessionIdData{
-		Sid:     sid,
-		Created: time.Now(),
+		Sid:       sid,
+		Created:   time.Now(),
+		BackendId: backend.Id(),
 	}
 	privateSessionId, err := h.encodeSessionId(sessionIdData, privateSessionName)
 	if err != nil {
@@ -600,14 +601,14 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, auth *Back
 
 	userId := auth.Auth.UserId
 	if userId != "" {
-		log.Printf("Register user %s from %s in %s (%s) %s (private=%s)", userId, client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
+		log.Printf("Register user %s@%s from %s in %s (%s) %s (private=%s)", userId, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
 	} else if message.Hello.Auth.Type != HelloClientTypeClient {
-		log.Printf("Register %s from %s in %s (%s) %s (private=%s)", message.Hello.Auth.Type, client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
+		log.Printf("Register %s@%s from %s in %s (%s) %s (private=%s)", message.Hello.Auth.Type, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
 	} else {
-		log.Printf("Register anonymous from %s in %s (%s) %s (private=%s)", client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
+		log.Printf("Register anonymous@%s from %s in %s (%s) %s (private=%s)", backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
 	}
 
-	session, err := NewClientSession(h, privateSessionId, publicSessionId, sessionIdData, message.Hello, auth.Auth)
+	session, err := NewClientSession(h, privateSessionId, publicSessionId, sessionIdData, backend, message.Hello, auth.Auth)
 	if err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		return
@@ -754,7 +755,8 @@ func (h *Hub) processHelloClient(client *Client, message *ClientMessage) {
 	defer h.startExpectHello(client)
 
 	url := message.Hello.Auth.parsedUrl
-	if !h.backend.IsUrlAllowed(url) {
+	backend := h.backend.GetBackend(url)
+	if backend == nil {
 		client.SendMessage(message.NewErrorServerMessage(InvalidBackendUrl))
 		return
 	}
@@ -772,7 +774,7 @@ func (h *Hub) processHelloClient(client *Client, message *ClientMessage) {
 
 	// TODO(jojo): Validate response
 
-	h.processRegister(client, message, &auth)
+	h.processRegister(client, message, backend, &auth)
 }
 
 func (h *Hub) processHelloInternal(client *Client, message *ClientMessage) {
@@ -792,11 +794,17 @@ func (h *Hub) processHelloInternal(client *Client, message *ClientMessage) {
 		return
 	}
 
+	backend := h.backend.GetBackend(message.Hello.Auth.internalParams.parsedBackend)
+	if backend == nil {
+		client.SendMessage(message.NewErrorServerMessage(InvalidBackendUrl))
+		return
+	}
+
 	auth := &BackendClientResponse{
 		Type: "auth",
 		Auth: &BackendClientAuthResponse{},
 	}
-	h.processRegister(client, message, auth)
+	h.processRegister(client, message, backend, auth)
 }
 
 func (h *Hub) disconnectByRoomSessionId(roomSessionId string) {
@@ -852,7 +860,7 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 	}
 
 	if session != nil {
-		if room := h.getRoom(roomId); room != nil && room.HasSession(session) {
+		if room := h.getRoomForBackend(roomId, session.Backend()); room != nil && room.HasSession(session) {
 			// Session already is in that room, no action needed.
 			return
 		}
@@ -896,26 +904,43 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 	h.processJoinRoom(client, message, &room)
 }
 
+func (h *Hub) getRoomForBackend(id string, backend *Backend) *Room {
+	internalRoomId := getRoomIdForBackend(id, backend)
+
+	h.ru.RLock()
+	defer h.ru.RUnlock()
+	return h.rooms[internalRoomId]
+}
+
 func (h *Hub) getRoom(id string) *Room {
 	h.ru.RLock()
 	defer h.ru.RUnlock()
-	return h.rooms[id]
+	// TODO: The same room might exist on different backends.
+	for _, room := range h.rooms {
+		if room.Id() == id {
+			return room
+		}
+	}
+
+	return nil
 }
 
 func (h *Hub) removeRoom(room *Room) {
+	internalRoomId := getRoomIdForBackend(room.Id(), room.Backend())
 	h.ru.Lock()
-	delete(h.rooms, room.Id())
+	delete(h.rooms, internalRoomId)
 	h.ru.Unlock()
 }
 
-func (h *Hub) createRoom(id string, properties *json.RawMessage) (*Room, error) {
+func (h *Hub) createRoom(id string, properties *json.RawMessage, backend *Backend) (*Room, error) {
 	// Note the write lock must be held.
-	room, err := NewRoom(id, properties, h, h.nats)
+	room, err := NewRoom(id, properties, h, h.nats, backend)
 	if err != nil {
 		return nil, err
 	}
 
-	h.rooms[id] = room
+	internalRoomId := getRoomIdForBackend(id, backend)
+	h.rooms[internalRoomId] = room
 	return room, nil
 }
 
@@ -937,6 +962,7 @@ func (h *Hub) processJoinRoom(client *Client, message *ClientMessage, room *Back
 	session.LeaveRoom(true)
 
 	roomId := room.Room.RoomId
+	internalRoomId := getRoomIdForBackend(roomId, session.Backend())
 	if err := session.SubscribeRoomNats(h.nats, roomId, message.Room.SessionId); err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		// The client (implicitly) left the room due to an error.
@@ -945,10 +971,10 @@ func (h *Hub) processJoinRoom(client *Client, message *ClientMessage, room *Back
 	}
 
 	h.ru.Lock()
-	r, found := h.rooms[roomId]
+	r, found := h.rooms[internalRoomId]
 	if !found {
 		var err error
-		if r, err = h.createRoom(roomId, room.Room.Properties); err != nil {
+		if r, err = h.createRoom(roomId, room.Room.Properties, session.Backend()); err != nil {
 			h.ru.Unlock()
 			client.SendMessage(message.NewWrappedErrorServerMessage(err))
 			// The client (implicitly) left the room due to an error.
@@ -1011,6 +1037,11 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 	case RecipientTypeSession:
 		data := h.decodeSessionId(msg.Recipient.SessionId, publicSessionName)
 		if data != nil {
+			if data.BackendId != session.Backend().Id() {
+				// Clients are only allowed to send to sessions from the same backend.
+				return
+			}
+
 			if h.mcu != nil {
 				// Maybe this is a message to be processed by the MCU.
 				var data MessageClientMessageData
@@ -1054,12 +1085,12 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForUserId(msg.Recipient.UserId)
+			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
 	case RecipientTypeRoom:
 		if session != nil {
 			if room := session.GetRoom(); room != nil {
-				subject = "room." + room.Id()
+				subject = GetSubjectForRoomId(room.Id(), room.Backend())
 
 				if h.mcu != nil {
 					var data MessageClientMessageData
@@ -1190,12 +1221,12 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForUserId(msg.Recipient.UserId)
+			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
 	case RecipientTypeRoom:
 		if session != nil {
 			if room := session.GetRoom(); room != nil {
-				subject = "room." + room.Id()
+				subject = GetSubjectForRoomId(room.Id(), room.Backend())
 			}
 		}
 	}

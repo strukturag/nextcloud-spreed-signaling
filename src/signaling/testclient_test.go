@@ -376,10 +376,12 @@ func (c *TestClient) SendHelloInternal() error {
 	mac := hmac.New(sha256.New, testInternalSecret)
 	mac.Write([]byte(random))
 	token := hex.EncodeToString(mac.Sum(nil))
+	backend := c.server.URL
 
 	params := ClientTypeInternalAuthParams{
-		Random: random,
-		Token:  token,
+		Random:  random,
+		Token:   token,
+		Backend: backend,
 	}
 	return c.SendHelloParams("", "internal", params)
 }

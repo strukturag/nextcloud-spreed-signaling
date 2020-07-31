@@ -35,71 +35,6 @@ import (
 	"golang.org/x/net/context"
 )
 
-func testUrls(t *testing.T, client *BackendClient, valid_urls []string, invalid_urls []string) {
-	for _, u := range valid_urls {
-		parsed, err := url.ParseRequestURI(u)
-		if err != nil {
-			t.Errorf("The url %s should be valid, got %s", u, err)
-			continue
-		}
-		if !client.IsUrlAllowed(parsed) {
-			t.Errorf("The url %s should be allowed", u)
-		}
-	}
-	for _, u := range invalid_urls {
-		parsed, _ := url.ParseRequestURI(u)
-		if client.IsUrlAllowed(parsed) {
-			t.Errorf("The url %s should not be allowed", u)
-		}
-	}
-}
-
-func TestIsUrlAllowed(t *testing.T) {
-	valid_urls := []string{
-		"http://domain.invalid",
-		"https://domain.invalid",
-	}
-	invalid_urls := []string{
-		"http://otherdomain.invalid",
-		"https://otherdomain.invalid",
-		"domain.invalid",
-	}
-	client := &BackendClient{
-		whitelistAll: false,
-		whitelist: map[string]bool{
-			"domain.invalid": true,
-		},
-	}
-	testUrls(t, client, valid_urls, invalid_urls)
-}
-
-func TestIsUrlAllowed_EmptyWhitelist(t *testing.T) {
-	valid_urls := []string{}
-	invalid_urls := []string{
-		"http://domain.invalid",
-		"https://domain.invalid",
-		"domain.invalid",
-	}
-	client := &BackendClient{
-		whitelistAll: false,
-	}
-	testUrls(t, client, valid_urls, invalid_urls)
-}
-
-func TestIsUrlAllowed_WhitelistAll(t *testing.T) {
-	valid_urls := []string{
-		"http://domain.invalid",
-		"https://domain.invalid",
-	}
-	invalid_urls := []string{
-		"domain.invalid",
-	}
-	client := &BackendClient{
-		whitelistAll: true,
-	}
-	testUrls(t, client, valid_urls, invalid_urls)
-}
-
 func TestPostOnRedirect(t *testing.T) {
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
@@ -142,17 +77,20 @@ func TestPostOnRedirect(t *testing.T) {
 	server := httptest.NewServer(r)
 	defer server.Close()
 
-	config := &goconf.ConfigFile{}
+	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := goconf.NewConfigFile()
+	config.AddOption("backend", "allowed", u.Host)
+	config.AddOption("backend", "secret", string(testBackendSecret))
 	client, err := NewBackendClient(config, 1, "0.0")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	ctx := context.Background()
-	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
-	if err != nil {
-		t.Fatal(err)
-	}
 	request := map[string]string{
 		"foo": "bar",
 	}

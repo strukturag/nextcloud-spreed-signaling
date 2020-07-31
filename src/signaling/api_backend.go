@@ -36,6 +36,7 @@ const (
 
 	HeaderBackendSignalingRandom   = "Spreed-Signaling-Random"
 	HeaderBackendSignalingChecksum = "Spreed-Signaling-Checksum"
+	HeaderBackendServer            = "Spreed-Signaling-Backend"
 )
 
 func newRandomString(length int) string {

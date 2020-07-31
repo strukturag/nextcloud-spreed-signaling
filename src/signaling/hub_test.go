@@ -62,7 +62,25 @@ func getTestConfig(server *httptest.Server) (*goconf.ConfigFile, error) {
 	return config, nil
 }
 
-func CreateHubForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Server, func()) {
+func getTestConfigWithMultipleBackends(server *httptest.Server) (*goconf.ConfigFile, error) {
+	config, err := getTestConfig(server)
+	if err != nil {
+		return nil, err
+	}
+
+	config.RemoveOption("backend", "allowed")
+	config.RemoveOption("backend", "secret")
+	config.AddOption("backend", "backends", "backend1, backend2")
+
+	config.AddOption("backend1", "url", server.URL+"/one")
+	config.AddOption("backend1", "secret", string(testBackendSecret))
+
+	config.AddOption("backend2", "url", server.URL+"/two/")
+	config.AddOption("backend2", "secret", string(testBackendSecret))
+	return config, nil
+}
+
+func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, NatsClient, *mux.Router, *httptest.Server, func()) {
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
@@ -71,7 +89,7 @@ func CreateHubForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Se
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := getTestConfig(server)
+	config, err := getConfigFunc(server)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +109,17 @@ func CreateHubForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Se
 		server.Close()
 	}
 
+	return h, nats, r, server, shutdown
+}
+
+func CreateHubForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Server, func()) {
+	return CreateHubForTestWithConfig(t, getTestConfig)
+}
+
+func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Server, func()) {
+	h, nats, r, server, shutdown := CreateHubForTestWithConfig(t, getTestConfigWithMultipleBackends)
+	registerBackendHandlerUrl(t, r, "/one")
+	registerBackendHandlerUrl(t, r, "/two")
 	return h, nats, r, server, shutdown
 }
 
@@ -212,7 +241,11 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 }
 
 func registerBackendHandler(t *testing.T, router *mux.Router) {
-	router.HandleFunc("/", validateBackendChecksum(t, func(w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+	registerBackendHandlerUrl(t, router, "/")
+}
+
+func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
+	router.HandleFunc(url, validateBackendChecksum(t, func(w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
 		switch request.Type {
 		case "auth":
 			return processAuthRequest(t, w, r, request)
@@ -316,6 +349,41 @@ func TestClientHelloWithSpaces(t *testing.T) {
 	} else {
 		if hello.Hello.UserId != userId {
 			t.Errorf("Expected \"%s\", got %+v", userId, hello.Hello)
+		}
+		if hello.Hello.SessionId == "" {
+			t.Errorf("Expected session id, got %+v", hello.Hello)
+		}
+	}
+}
+
+func TestClientHelloAllowAll(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(server)
+		if err != nil {
+			return nil, err
+		}
+
+		config.RemoveOption("backend", "allowed")
+		config.AddOption("backend", "allowall", "true")
+		return config, nil
+	})
+	defer shutdown()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	if hello, err := client.RunUntilHello(ctx); err != nil {
+		t.Error(err)
+	} else {
+		if hello.Hello.UserId != testDefaultUserId {
+			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
 		}
 		if hello.Hello.SessionId == "" {
 			t.Errorf("Expected session id, got %+v", hello.Hello)
@@ -1692,8 +1760,8 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 			"inCall":    1,
 		},
 	}
-	room, found := hub.rooms[roomId]
-	if !found {
+	room := hub.getRoom(roomId)
+	if room == nil {
 		t.Fatalf("Could not find room %s", roomId)
 	}
 	room.PublishUsersInCallChanged(users, users)
@@ -2029,5 +2097,183 @@ func TestClientSendOfferPermissions(t *testing.T) {
 		}
 	} else {
 		t.Errorf("Expected no payload, got %+v", msg)
+	}
+}
+
+func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
+	// Clients can't send messages to sessions connected from other backends.
+	hub, _, _, server, shutdown := CreateHubWithMultipleBackendsForTest(t)
+	defer shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	params1 := TestBackendClientAuthParams{
+		UserId: "user1",
+	}
+	if err := client1.SendHelloParams(server.URL+"/one", "client", params1); err != nil {
+		t.Fatal(err)
+	}
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+
+	params2 := TestBackendClientAuthParams{
+		UserId: "user2",
+	}
+	if err := client2.SendHelloParams(server.URL+"/two", "client", params2); err != nil {
+		t.Fatal(err)
+	}
+	hello2, err := client2.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recipient1 := MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}
+	recipient2 := MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello2.Hello.SessionId,
+	}
+
+	data1 := "from-1-to-2"
+	client1.SendMessage(recipient2, data1)
+	data2 := "from-2-to-1"
+	client2.SendMessage(recipient1, data2)
+
+	var payload string
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel2()
+	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err != nil {
+		if err != NoMessageReceivedError {
+			t.Error(err)
+		}
+	} else {
+		t.Errorf("Expected no payload, got %+v", payload)
+	}
+
+	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel3()
+	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err != nil {
+		if err != NoMessageReceivedError {
+			t.Error(err)
+		}
+	} else {
+		t.Errorf("Expected no payload, got %+v", payload)
+	}
+}
+
+func TestNoSameRoomOnDifferentBackends(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubWithMultipleBackendsForTest(t)
+	defer shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	params1 := TestBackendClientAuthParams{
+		UserId: "user1",
+	}
+	if err := client1.SendHelloParams(server.URL+"/one", "client", params1); err != nil {
+		t.Fatal(err)
+	}
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+
+	params2 := TestBackendClientAuthParams{
+		UserId: "user2",
+	}
+	if err := client2.SendHelloParams(server.URL+"/two", "client", params2); err != nil {
+		t.Fatal(err)
+	}
+	hello2, err := client2.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+	msg1, err := client1.RunUntilMessage(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+	if err := client1.checkMessageJoined(msg1, hello1.Hello); err != nil {
+		t.Error(err)
+	}
+
+	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+	msg2, err := client2.RunUntilMessage(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+	if err := client2.checkMessageJoined(msg2, hello2.Hello); err != nil {
+		t.Error(err)
+	}
+
+	hub.ru.RLock()
+	roomCount := 0
+	for _, room := range hub.rooms {
+		defer room.Close()
+		roomCount++
+	}
+	hub.ru.RUnlock()
+
+	if roomCount != 2 {
+		t.Errorf("Expected 2 rooms, got %d", roomCount)
+	}
+
+	recipient := MessageClientMessageRecipient{
+		Type: "room",
+	}
+
+	data1 := "from-1-to-2"
+	client1.SendMessage(recipient, data1)
+	data2 := "from-2-to-1"
+	client2.SendMessage(recipient, data2)
+
+	var payload string
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel2()
+	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err != nil {
+		if err != NoMessageReceivedError {
+			t.Error(err)
+		}
+	} else {
+		t.Errorf("Expected no payload, got %+v", payload)
+	}
+
+	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel3()
+	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err != nil {
+		if err != NoMessageReceivedError {
+			t.Error(err)
+		}
+	} else {
+		t.Errorf("Expected no payload, got %+v", payload)
 	}
 }

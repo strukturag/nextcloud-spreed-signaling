@@ -194,11 +194,7 @@ loop:
 			break loop
 		default:
 			// The internal room has been updated with the new properties.
-			hub.ru.Lock()
-			room, found := hub.rooms[roomId]
-			hub.ru.Unlock()
-
-			if !found {
+			if room := hub.getRoom(roomId); room == nil {
 				err = fmt.Errorf("Room %s not found in hub", roomId)
 			} else if room.Properties() == nil || !bytes.Equal(*room.Properties(), roomProperties) {
 				err = fmt.Errorf("Expected room properties %s, got %+v", string(roomProperties), room.Properties())

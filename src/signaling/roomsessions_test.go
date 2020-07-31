@@ -56,6 +56,10 @@ func (s *DummySession) UserData() *json.RawMessage {
 	return nil
 }
 
+func (s *DummySession) Backend() *Backend {
+	return nil
+}
+
 func (s *DummySession) BackendUrl() string {
 	return ""
 }

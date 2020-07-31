@@ -45,17 +45,21 @@ blockkey = -encryption-key-
 internalsecret = the-shared-secret-for-internal-clients
 
 [backend]
-# Comma-separated list of hostnames that are allowed to be used as backend
-# endpoints.
-allowed = nextcloud.domain.invalid
+# Comma-separated list of backend ids from which clients are allowed to connect
+# from. Each backend will have isolated rooms, i.e. clients connecting to room
+# "abc12345" on backend 1 will be in a different room than clients connected to
+# a room with the same name on backend 2. Also sessions connected from different
+# backends will not be able to communicate with each other.
+#backends = backend-id, another-backend
 
 # Allow any hostname as backend endpoint. This is extremely insecure and should
 # only be used while running the benchmark client against the server.
 allowall = false
 
-# Shared secret for requests from and to the backend servers. This must be the
-# same value as configured in the Nextcloud admin ui.
-secret = the-shared-secret
+# Common shared secret for requests from and to the backend servers if
+# "allowall" is enabled. This must be the same value as configured in the
+# Nextcloud admin ui.
+# secret = the-shared-secret
 
 # Timeout in seconds for requests to the backend.
 timeout = 10
@@ -67,6 +71,24 @@ connectionsperhost = 8
 # This should only be enabled during development, e.g. to work with self-signed
 # certificates.
 #skipverify = false
+
+# Backend configurations as defined in the "[backend]" section above. The
+# section names must match the ids used in "backends" above.
+#[backend-id]
+# URL of the Nextcloud instance
+#url = https://cloud.domain.invalid
+
+# Shared secret for requests from and to the backend servers. This must be the
+# same value as configured in the Nextcloud admin ui.
+#secret = the-shared-secret
+
+#[another-backend]
+# URL of the Nextcloud instance
+#url = https://cloud.otherdomain.invalid
+
+# Shared secret for requests from and to the backend servers. This must be the
+# same value as configured in the Nextcloud admin ui.
+#secret = the-shared-secret
 
 [nats]
 # Url of NATS backend to use. This can also be a list of URLs to connect to

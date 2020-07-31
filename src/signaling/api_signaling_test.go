@@ -87,6 +87,7 @@ func TestClientMessage(t *testing.T) {
 }
 
 func TestHelloClientMessage(t *testing.T) {
+	internalAuthParams := []byte("{\"backend\":\"https://domain.invalid\"}")
 	valid_messages := []testCheckValid{
 		&HelloClientMessage{
 			Version: HelloVersion,
@@ -107,7 +108,7 @@ func TestHelloClientMessage(t *testing.T) {
 			Version: HelloVersion,
 			Auth: HelloClientMessageAuth{
 				Type:   "internal",
-				Params: &json.RawMessage{'{', '}'},
+				Params: (*json.RawMessage)(&internalAuthParams),
 			},
 		},
 		&HelloClientMessage{
@@ -143,6 +144,13 @@ func TestHelloClientMessage(t *testing.T) {
 			Auth: HelloClientMessageAuth{
 				Params: &json.RawMessage{'{', '}'},
 				Url:    "invalid-url",
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersion,
+			Auth: HelloClientMessageAuth{
+				Type:   "internal",
+				Params: &json.RawMessage{'{', '}'},
 			},
 		},
 		&HelloClientMessage{
