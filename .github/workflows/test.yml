@@ -53,10 +53,11 @@ jobs:
 
     - name: Coveralls Parallel
       uses: coverallsapp/github-action@v1.1.1
+      env:
+        COVERALLS_FLAG_NAME: run-${{ matrix.go-version }}
       with:
         path-to-lcov: cover.lcov
         github-token: ${{ secrets.github_token }}
-        flag-name: run-${{ matrix.go-version }}
         parallel: true
 
   finish:
