@@ -356,6 +356,41 @@ func TestClientHelloWithSpaces(t *testing.T) {
 	}
 }
 
+func TestClientHelloAllowAll(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(server)
+		if err != nil {
+			return nil, err
+		}
+
+		config.RemoveOption("backend", "allowed")
+		config.AddOption("backend", "allowall", "true")
+		return config, nil
+	})
+	defer shutdown()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	if hello, err := client.RunUntilHello(ctx); err != nil {
+		t.Error(err)
+	} else {
+		if hello.Hello.UserId != testDefaultUserId {
+			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
+		}
+		if hello.Hello.SessionId == "" {
+			t.Errorf("Expected session id, got %+v", hello.Hello)
+		}
+	}
+}
+
 func TestSessionIdsUnordered(t *testing.T) {
 	hub, _, _, server, shutdown := CreateHubForTest(t)
 	defer shutdown()

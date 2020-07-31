@@ -107,12 +107,8 @@ func (b *BackendClient) getPool(url *url.URL) (*HttpClientPool, error) {
 	return pool, nil
 }
 
-func (b *BackendClient) IsCompatBackend() bool {
-	return b.backends.IsCompatBackend()
-}
-
-func (b *BackendClient) GetCommonSecret() []byte {
-	return b.backends.GetCommonSecret()
+func (b *BackendClient) GetCompatBackend() *Backend {
+	return b.backends.GetCompatBackend()
 }
 
 func (b *BackendClient) GetBackend(u *url.URL) *Backend {

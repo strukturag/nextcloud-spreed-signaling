@@ -52,21 +52,25 @@ type BackendConfiguration struct {
 	backends map[string][]*Backend
 
 	// Deprecated
-	whitelistAll  bool
+	allowAll      bool
 	commonSecret  []byte
-	compatBackend bool
+	compatBackend *Backend
 }
 
 func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, error) {
-	whitelistAll, _ := config.GetBool("backend", "allowall")
+	allowAll, _ := config.GetBool("backend", "allowall")
 	commonSecret, _ := config.GetString("backend", "secret")
 	backends := make(map[string][]*Backend)
-	compatBackend := commonSecret != ""
-	if whitelistAll {
+	var compatBackend *Backend
+	if allowAll {
 		log.Println("WARNING: All backend hostnames are allowed, only use for development!")
+		compatBackend = &Backend{
+			id:     "compat",
+			secret: []byte(commonSecret),
+			compat: true,
+		}
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
 		seenIds := make(map[string]bool)
-		compatBackend = false
 		for _, id := range strings.Split(backendIds, ",") {
 			id = strings.TrimSpace(id)
 			if id == "" {
@@ -103,7 +107,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 		}
 	} else if allowedUrls, _ := config.GetString("backend", "allowed"); allowedUrls != "" {
 		// Old-style configuration, only hosts are configured and are using a common secret.
-		whitelist := make(map[string]bool)
+		allowMap := make(map[string]bool)
 		for _, u := range strings.Split(allowedUrls, ",") {
 			u = strings.TrimSpace(u)
 			if idx := strings.IndexByte(u, '/'); idx != -1 {
@@ -111,23 +115,22 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 				u = u[:idx]
 			}
 			if u != "" {
-				whitelist[strings.ToLower(u)] = true
+				allowMap[strings.ToLower(u)] = true
 			}
 		}
 
-		if len(whitelist) == 0 {
+		if len(allowMap) == 0 {
 			log.Println("WARNING: No backend hostnames are allowed, check your configuration!")
 		} else {
-			hosts := make([]string, 0, len(whitelist))
-			for host := range whitelist {
+			compatBackend = &Backend{
+				id:     "compat",
+				secret: []byte(commonSecret),
+				compat: true,
+			}
+			hosts := make([]string, 0, len(allowMap))
+			for host := range allowMap {
 				hosts = append(hosts, host)
-				backends[host] = []*Backend{
-					&Backend{
-						id:     "compat",
-						secret: []byte(commonSecret),
-						compat: true,
-					},
-				}
+				backends[host] = []*Backend{compatBackend}
 			}
 			if len(hosts) > 1 {
 				log.Println("WARNING: Using deprecated backend configuration. Please migrate the \"allowed\" setting to the new \"backends\" configuration.")
@@ -139,23 +142,22 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 	return &BackendConfiguration{
 		backends: backends,
 
-		whitelistAll:  whitelistAll,
+		allowAll:      allowAll,
 		commonSecret:  []byte(commonSecret),
 		compatBackend: compatBackend,
 	}, nil
 }
 
-func (b *BackendConfiguration) IsCompatBackend() bool {
+func (b *BackendConfiguration) GetCompatBackend() *Backend {
 	return b.compatBackend
-}
-
-func (b *BackendConfiguration) GetCommonSecret() []byte {
-	return b.commonSecret
 }
 
 func (b *BackendConfiguration) GetBackend(u *url.URL) *Backend {
 	entries, found := b.backends[u.Host]
 	if !found {
+		if b.allowAll {
+			return b.compatBackend
+		}
 		return nil
 	}
 
@@ -191,10 +193,6 @@ func (b *BackendConfiguration) IsUrlAllowed(u *url.URL) bool {
 		return false
 	}
 
-	if b.whitelistAll {
-		return true
-	}
-
 	backend := b.GetBackend(u)
 	return backend != nil
 }
@@ -203,10 +201,6 @@ func (b *BackendConfiguration) GetSecret(u *url.URL) []byte {
 	if u == nil {
 		// Reject all invalid URLs.
 		return nil
-	}
-
-	if b.whitelistAll {
-		return b.commonSecret
 	}
 
 	entry := b.GetBackend(u)

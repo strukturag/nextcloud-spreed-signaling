@@ -520,11 +520,10 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 		}
 	}
 
-	var secret []byte
 	if backend == nil {
-		if b.hub.backend.IsCompatBackend() {
+		if compatBackend := b.hub.backend.GetCompatBackend(); compatBackend != nil {
 			// Old-style configuration using a single secret for all backends.
-			secret = b.hub.backend.GetCommonSecret()
+			backend = compatBackend
 		} else {
 			// Old-style Talk, find backend that created the checksum.
 			// TODO(fancycode): Remove once all supported Talk versions send the backend header.
@@ -534,19 +533,15 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 					break
 				}
 			}
-
-			if backend == nil {
-				http.Error(w, "Authentication check failed", http.StatusForbidden)
-				return
-			}
-
-			secret = backend.Secret()
 		}
-	} else {
-		secret = backend.Secret()
+
+		if backend == nil {
+			http.Error(w, "Authentication check failed", http.StatusForbidden)
+			return
+		}
 	}
 
-	if !ValidateBackendChecksum(r, body, secret) {
+	if !ValidateBackendChecksum(r, body, backend.Secret()) {
 		http.Error(w, "Authentication check failed", http.StatusForbidden)
 		return
 	}
