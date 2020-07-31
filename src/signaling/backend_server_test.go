@@ -936,6 +936,10 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
+
+	// Give message processing some time.
+	time.Sleep(10 * time.Millisecond)
+
 	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
 		t.Fatal(err)
 	} else if room.Room.RoomId != roomId {
