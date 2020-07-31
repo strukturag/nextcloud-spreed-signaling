@@ -100,7 +100,6 @@ type Hub struct {
 	upgrader websocket.Upgrader
 	cookie   *securecookie.SecureCookie
 	info     *HelloServerMessageServer
-	version  string
 
 	stopped  int32
 	stopChan chan bool
