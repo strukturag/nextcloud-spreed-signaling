@@ -180,9 +180,7 @@ func (b *BackendConfiguration) GetBackend(u *url.URL) *Backend {
 func (b *BackendConfiguration) GetBackends() []*Backend {
 	var result []*Backend
 	for _, entries := range b.backends {
-		for _, entry := range entries {
-			result = append(result, entry)
-		}
+		result = append(result, entries...)
 	}
 	return result
 }
