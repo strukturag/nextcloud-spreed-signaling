@@ -259,7 +259,7 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 		t.Error(err)
 	}
 	if res.StatusCode != http.StatusOK {
-		t.Errorf("Expected error response, got %s: %s", res.Status, string(body))
+		t.Errorf("Expected success, got %s: %s", res.Status, string(body))
 	}
 }
 
