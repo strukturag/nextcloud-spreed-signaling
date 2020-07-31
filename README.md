@@ -1,6 +1,6 @@
 # Spreed standalone signaling server
 
-[![Build Status](https://travis-ci.org/strukturag/nextcloud-spreed-signaling.svg?branch=master)](https://travis-ci.org/strukturag/nextcloud-spreed-signaling)
+![Build Status](https://github.com/strukturag/nextcloud-spreed-signaling/workflows/test/badge.svg)
 
 This repository contains the standalone signaling server which can be used for
 Nextcloud Talk (https://apps.nextcloud.com/apps/spreed).

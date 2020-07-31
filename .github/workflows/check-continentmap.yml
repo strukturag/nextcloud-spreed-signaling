@@ -1,0 +1,15 @@
+name: check-continentmap
+
+on:
+  schedule:
+    - cron: "0 2 * * SUN"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Check continentmap
+      run: make check-continentmap
