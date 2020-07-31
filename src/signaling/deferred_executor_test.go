@@ -51,7 +51,8 @@ func TestDeferredExecutor_QueueSize(t *testing.T) {
 	})
 	b := time.Now()
 	delta := b.Sub(a)
-	if delta < delay {
+	// Allow one millisecond less delay to account for time variance on CI runners.
+	if delta+time.Millisecond < delay {
 		t.Errorf("Expected a delay of %s, got %s", delay, delta)
 	}
 }
