@@ -66,14 +66,13 @@ func (s *loopbackNatsSubscription) Unsubscribe() error {
 	return nil
 }
 
-func (s *loopbackNatsSubscription) queue(msg *nats.Msg) error {
+func (s *loopbackNatsSubscription) queue(msg *nats.Msg) {
 	s.cond.L.Lock()
 	s.incoming = append(s.incoming, msg)
 	if len(s.incoming) == 1 {
 		s.cond.Signal()
 	}
 	s.cond.L.Unlock()
-	return nil
 }
 
 func (s *loopbackNatsSubscription) run() {
