@@ -52,7 +52,7 @@ jobs:
           outfile: cover.lcov
 
     - name: Coveralls Parallel
-      uses: coverallsapp/github-action@master
+      uses: coverallsapp/github-action@v1.1.1
       with:
         path-to-lcov: cover.lcov
         github-token: ${{ secrets.github_token }}
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Coveralls Finished
-      uses: coverallsapp/github-action@master
+      uses: coverallsapp/github-action@v1.1.1
       with:
         github-token: ${{ secrets.github_token }}
         parallel-finished: true
