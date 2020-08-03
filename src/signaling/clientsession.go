@@ -661,7 +661,57 @@ func (s *ClientSession) processClientMessage(msg *nats.Msg) {
 		return
 	}
 
-	client.natsReceiver <- &message
+	s.processNatsMessage(client, &message)
+}
+
+func (s *ClientSession) processNatsMessage(client *Client, msg *NatsMessage) bool {
+	switch msg.Type {
+	case "message":
+		if msg.Message == nil {
+			log.Printf("Received NATS message without payload: %+v\n", msg)
+			return true
+		}
+
+		switch msg.Message.Type {
+		case "message":
+			if msg.Message.Message != nil &&
+				msg.Message.Message.Sender != nil &&
+				msg.Message.Message.Sender.SessionId == s.PublicId() {
+				// Don't send message back to sender (can happen if sent to user or room)
+				return true
+			}
+		case "control":
+			if msg.Message.Control != nil &&
+				msg.Message.Control.Sender != nil &&
+				msg.Message.Control.Sender.SessionId == s.PublicId() {
+				// Don't send message back to sender (can happen if sent to user or room)
+				return true
+			}
+		case "event":
+			if msg.Message.Event.Target == "participants" &&
+				msg.Message.Event.Type == "update" {
+				m := msg.Message.Event.Update
+				users := make(map[string]bool)
+				for _, entry := range m.Users {
+					users[entry["sessionId"].(string)] = true
+				}
+				for _, entry := range m.Changed {
+					if users[entry["sessionId"].(string)] {
+						continue
+					}
+					m.Users = append(m.Users, entry)
+				}
+				// TODO(jojo): Only send all users if current session id has
+				// changed its "inCall" flag to true.
+				m.Changed = nil
+			}
+		}
+
+		return client.writeMessage(msg.Message)
+	default:
+		log.Printf("Received NATS message with unsupported type %s: %+v\n", msg.Type, msg)
+		return true
+	}
 }
 
 func (s *ClientSession) combinePendingMessages(messages []*NatsMessage) ([]*NatsMessage, error) {
@@ -703,7 +753,7 @@ func (s *ClientSession) NotifySessionResumed(client *Client) {
 	log.Printf("Send %d pending messages to session %s", len(messages), s.PublicId())
 	had_participants_update := false
 	for _, message := range messages {
-		if !client.ProcessNatsMessage(message) {
+		if !s.processNatsMessage(client, message) {
 			break
 		}
 
