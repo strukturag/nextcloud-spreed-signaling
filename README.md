@@ -127,6 +127,31 @@ The maximum bandwidth per publishing stream can also be configured in the
 section `[mcu]`, see properties `maxstreambitrate` and `maxscreenbitrate`.
 
 
+### Use multiple Janus servers
+
+To scale the setup and add high availability, a signaling server can connect to
+one or multiple proxy servers that each provide access to a single Janus server.
+
+For that, set the `type` key in section `[mcu]` to `proxy` and set `url` to a
+space-separated list of URLs where a proxy server is running.
+
+Each signaling server that connects to a proxy needs a unique token id and a
+public / private RSA keypair. The token id must be configured as `token_id` in
+section `[mcu]`, the path to the private key file as `token_key`.
+
+
+### Setup of proxy server
+
+The proxy server is built with the standard make command `make build` as
+`bin/proxy` binary. Copy the `proxy.conf.in` as `proxy.conf` and edit section
+`[tokens]` to the list of allowed token ids and filenames of the public keys
+for each token id. See the comments in `proxy.conf.in` for other configuration
+options.
+
+When the proxy process receives a `SIGHUP` signal, the list of allowed token
+ids / public keys is reloaded.
+
+
 ## Setup of frontend webserver
 
 Usually the standalone signaling server is running behind a webserver that does
