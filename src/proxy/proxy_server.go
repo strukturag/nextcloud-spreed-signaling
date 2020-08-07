@@ -80,6 +80,7 @@ var (
 	UnsupportedCommand        = signaling.NewError("bad_request", "Unsupported command received.")
 	UnsupportedMessage        = signaling.NewError("bad_request", "Unsupported message received.")
 	UnsupportedPayload        = signaling.NewError("unsupported_payload", "Unsupported payload type.")
+	ShutdownScheduled         = signaling.NewError("shutdown_scheduled", "The server is scheduled to shutdown.")
 )
 
 type ProxyServer struct {
@@ -91,6 +92,9 @@ type ProxyServer struct {
 	mcu     signaling.Mcu
 	stopped uint32
 	load    int64
+
+	shutdownChannel   chan bool
+	shutdownScheduled uint32
 
 	upgrader websocket.Upgrader
 
@@ -185,6 +189,8 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile, na
 		country: country,
 
 		nats: nats,
+
+		shutdownChannel: make(chan bool, 1),
 
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  websocketReadBufferSize,
@@ -322,6 +328,11 @@ func (s *ProxyServer) updateLoad() {
 	}
 
 	atomic.StoreInt64(&s.load, load)
+	if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+		// Server is scheduled to shutdown, no need to update clients with current load.
+		return
+	}
+
 	msg := &signaling.ProxyServerMessage{
 		Type: "event",
 		Event: &signaling.EventProxyServerMessage{
@@ -370,6 +381,32 @@ func (s *ProxyServer) Stop() {
 	}
 
 	s.mcu.Stop()
+}
+
+func (s *ProxyServer) ShutdownChannel() chan bool {
+	return s.shutdownChannel
+}
+
+func (s *ProxyServer) ScheduleShutdown() {
+	if !atomic.CompareAndSwapUint32(&s.shutdownScheduled, 0, 1) {
+		return
+	}
+
+	msg := &signaling.ProxyServerMessage{
+		Type: "event",
+		Event: &signaling.EventProxyServerMessage{
+			Type: "shutdown-scheduled",
+		},
+	}
+	s.IterateSessions(func(session *ProxySession) {
+		session.sendMessage(msg)
+	})
+
+	if s.GetClientCount() == 0 {
+		go func() {
+			s.shutdownChannel <- true
+		}()
+	}
 }
 
 func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
@@ -511,6 +548,16 @@ func (s *ProxyServer) sendCurrentLoad(session *ProxySession) {
 	session.sendMessage(msg)
 }
 
+func (s *ProxyServer) sendShutdownScheduled(session *ProxySession) {
+	msg := &signaling.ProxyServerMessage{
+		Type: "event",
+		Event: &signaling.EventProxyServerMessage{
+			Type: "shutdown-scheduled",
+		},
+	}
+	session.sendMessage(msg)
+}
+
 func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 	if proxyDebugMessages {
 		log.Printf("Message: %s", string(data))
@@ -556,7 +603,11 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			}
 
 			log.Printf("Resumed session %s", session.PublicId())
-			s.sendCurrentLoad(session)
+			if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+				s.sendShutdownScheduled(session)
+			} else {
+				s.sendCurrentLoad(session)
+			}
 		} else {
 			var err error
 			if session, err = s.NewSession(message.Hello); err != nil {
@@ -592,7 +643,11 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			},
 		}
 		client.SendMessage(response)
-		s.sendCurrentLoad(session)
+		if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+			s.sendShutdownScheduled(session)
+		} else {
+			s.sendCurrentLoad(session)
+		}
 		return
 	}
 
@@ -613,6 +668,11 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 	cmd := message.Command
 	switch cmd.Type {
 	case "create-publisher":
+		if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+			session.sendMessage(message.NewErrorServerMessage(ShutdownScheduled))
+			return
+		}
+
 		id := uuid.New().String()
 		publisher, err := s.mcu.NewPublisher(ctx, session, id, cmd.StreamType)
 		if err == context.DeadlineExceeded {
@@ -901,6 +961,12 @@ func (s *ProxyServer) DeleteClient(id string, client signaling.McuClient) {
 	defer s.clientsLock.Unlock()
 	delete(s.clients, id)
 	delete(s.clientIds, client.Id())
+
+	if len(s.clients) == 0 && atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+		go func() {
+			s.shutdownChannel <- true
+		}()
+	}
 }
 
 func (s *ProxyServer) GetClientCount() int64 {

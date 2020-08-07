@@ -149,7 +149,9 @@ for each token id. See the comments in `proxy.conf.in` for other configuration
 options.
 
 When the proxy process receives a `SIGHUP` signal, the list of allowed token
-ids / public keys is reloaded.
+ids / public keys is reloaded. A `SIGUSR1` signal can be used to shutdown a
+proxy process gracefully after all clients have been disconnected. No new
+publishers will be accepted in this case.
 
 
 ## Setup of frontend webserver

@@ -68,6 +68,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 	signal.Notify(sigChan, syscall.SIGHUP)
+	signal.Notify(sigChan, syscall.SIGUSR1)
 
 	log.Printf("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
 
@@ -135,19 +136,26 @@ func main() {
 
 loop:
 	for {
-		switch sig := <-sigChan; sig {
-		case os.Interrupt:
-			log.Println("Interrupted")
-			break loop
-		case syscall.SIGHUP:
-			log.Printf("Received SIGHUP, reloading %s", *configFlag)
-			config, err := goconf.ReadConfigFile(*configFlag)
-			if err != nil {
-				log.Printf("Could not read configuration from %s: %s", *configFlag, err)
-				continue
+		select {
+		case sig := <-sigChan:
+			switch sig {
+			case os.Interrupt:
+				log.Println("Interrupted")
+				break loop
+			case syscall.SIGHUP:
+				log.Printf("Received SIGHUP, reloading %s", *configFlag)
+				if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
+					log.Printf("Could not read configuration from %s: %s", *configFlag, err)
+				} else {
+					proxy.Reload(config)
+				}
+			case syscall.SIGUSR1:
+				log.Printf("Received SIGUSR1, scheduling server to shutdown")
+				proxy.ScheduleShutdown()
 			}
-
-			proxy.Reload(config)
+		case <-proxy.ShutdownChannel():
+			log.Printf("All clients disconnected, shutting down")
+			break loop
 		}
 	}
 }
