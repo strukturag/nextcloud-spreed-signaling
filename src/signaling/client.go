@@ -25,7 +25,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"log"
-	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,14 +51,11 @@ const (
 )
 
 var (
-	_noCountry string  = "no-country"
-	noCountry  *string = &_noCountry
+	noCountry string = "no-country"
 
-	_loopback string  = "loopback"
-	loopback  *string = &_loopback
+	loopback string = "loopback"
 
-	_unknownCountry string  = "unknown-country"
-	unknownCountry  *string = &_unknownCountry
+	unknownCountry string = "unknown-country"
 )
 
 var (
@@ -72,8 +68,13 @@ var (
 	}
 )
 
+type WritableClientMessage interface {
+	json.Marshaler
+
+	CloseAfterSend(session Session) bool
+}
+
 type Client struct {
-	hub     *Hub
 	conn    *websocket.Conn
 	addr    string
 	agent   string
@@ -85,9 +86,13 @@ type Client struct {
 	mu sync.Mutex
 
 	closeChan chan bool
+
+	OnLookupCountry   func(*Client) string
+	OnClosed          func(*Client)
+	OnMessageReceived func(*Client, []byte)
 }
 
-func NewClient(hub *Hub, conn *websocket.Conn, remoteAddress string, agent string) (*Client, error) {
+func NewClient(conn *websocket.Conn, remoteAddress string, agent string) (*Client, error) {
 	remoteAddress = strings.TrimSpace(remoteAddress)
 	if remoteAddress == "" {
 		remoteAddress = "unknown remote address"
@@ -97,13 +102,25 @@ func NewClient(hub *Hub, conn *websocket.Conn, remoteAddress string, agent strin
 		agent = "unknown user agent"
 	}
 	client := &Client{
-		hub:       hub,
 		conn:      conn,
 		addr:      remoteAddress,
 		agent:     agent,
 		closeChan: make(chan bool, 1),
+
+		OnLookupCountry:   func(client *Client) string { return unknownCountry },
+		OnClosed:          func(client *Client) {},
+		OnMessageReceived: func(client *Client, data []byte) {},
 	}
 	return client, nil
+}
+
+func (c *Client) SetConn(conn *websocket.Conn, remoteAddress string) {
+	c.conn = conn
+	c.addr = remoteAddress
+	c.closeChan = make(chan bool, 1)
+	c.OnLookupCountry = func(client *Client) string { return unknownCountry }
+	c.OnClosed = func(client *Client) {}
+	c.OnMessageReceived = func(client *Client, data []byte) {}
 }
 
 func (c *Client) IsConnected() bool {
@@ -132,25 +149,7 @@ func (c *Client) UserAgent() string {
 
 func (c *Client) Country() string {
 	if c.country == nil {
-		if c.hub.geoip == nil {
-			c.country = unknownCountry
-			return *c.country
-		}
-		ip := net.ParseIP(c.RemoteAddr())
-		if ip == nil {
-			c.country = noCountry
-			return *c.country
-		} else if ip.IsLoopback() {
-			c.country = loopback
-			return *c.country
-		}
-
-		country, err := c.hub.geoip.LookupCountry(ip)
-		if err != nil {
-			log.Printf("Could not lookup country for %s", ip)
-			c.country = unknownCountry
-			return *c.country
-		}
+		country := c.OnLookupCountry(c)
 		c.country = &country
 	}
 
@@ -164,7 +163,7 @@ func (c *Client) Close() {
 
 	c.closeChan <- true
 
-	c.hub.processUnregister(c)
+	c.OnClosed(c)
 	c.SetSession(nil)
 
 	c.mu.Lock()
@@ -181,41 +180,6 @@ func (c *Client) SendError(e *Error) bool {
 		Error: e,
 	}
 	return c.SendMessage(message)
-}
-
-func (c *Client) SendRoom(message *ClientMessage, room *Room) bool {
-	response := &ServerMessage{
-		Type: "room",
-	}
-	if message != nil {
-		response.Id = message.Id
-	}
-	if room == nil {
-		response.Room = &RoomServerMessage{
-			RoomId: "",
-		}
-	} else {
-		response.Room = &RoomServerMessage{
-			RoomId:     room.id,
-			Properties: room.properties,
-		}
-	}
-	return c.SendMessage(response)
-}
-
-func (c *Client) SendHelloResponse(message *ClientMessage, session *ClientSession) bool {
-	response := &ServerMessage{
-		Id:   message.Id,
-		Type: "hello",
-		Hello: &HelloServerMessage{
-			Version:   HelloVersion,
-			SessionId: session.PublicId(),
-			ResumeId:  session.PrivateId(),
-			UserId:    session.UserId(),
-			Server:    c.hub.GetServerInfo(),
-		},
-	}
-	return c.SendMessage(response)
 }
 
 func (c *Client) SendByeResponse(message *ClientMessage) bool {
@@ -236,11 +200,11 @@ func (c *Client) SendByeResponseWithReason(message *ClientMessage, reason string
 	return c.SendMessage(response)
 }
 
-func (c *Client) SendMessage(message *ServerMessage) bool {
+func (c *Client) SendMessage(message WritableClientMessage) bool {
 	return c.writeMessage(message)
 }
 
-func (c *Client) readPump() {
+func (c *Client) ReadPump() {
 	defer func() {
 		c.Close()
 	}()
@@ -312,28 +276,7 @@ func (c *Client) readPump() {
 			break
 		}
 
-		var message ClientMessage
-		if err := message.UnmarshalJSON(decodeBuffer.Bytes()); err != nil {
-			if session := c.GetSession(); session != nil {
-				log.Printf("Error decoding message from client %s: %v", session.PublicId(), err)
-			} else {
-				log.Printf("Error decoding message from %s: %v", addr, err)
-			}
-			c.SendError(InvalidFormat)
-			continue
-		}
-
-		if err := message.CheckValid(); err != nil {
-			if session := c.GetSession(); session != nil {
-				log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
-			} else {
-				log.Printf("Invalid message %+v from %s: %v", message, addr, err)
-			}
-			c.SendMessage(message.NewErrorServerMessage(InvalidFormat))
-			continue
-		}
-
-		c.hub.processMessage(c, &message)
+		c.OnMessageReceived(c, decodeBuffer.Bytes())
 	}
 }
 
@@ -407,7 +350,7 @@ func (c *Client) writeError(e error) bool {
 	return false
 }
 
-func (c *Client) writeMessage(message *ServerMessage) bool {
+func (c *Client) writeMessage(message WritableClientMessage) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.conn == nil {
@@ -417,7 +360,7 @@ func (c *Client) writeMessage(message *ServerMessage) bool {
 	return c.writeMessageLocked(message)
 }
 
-func (c *Client) writeMessageLocked(message *ServerMessage) bool {
+func (c *Client) writeMessageLocked(message WritableClientMessage) bool {
 	if !c.writeInternal(message) {
 		return false
 	}
@@ -458,7 +401,7 @@ func (c *Client) sendPing() bool {
 	return true
 }
 
-func (c *Client) writePump() {
+func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
