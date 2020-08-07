@@ -29,6 +29,7 @@ import (
 
 const (
 	McuTypeJanus = "janus"
+	McuTypeProxy = "proxy"
 
 	McuTypeDefault = McuTypeJanus
 )

@@ -166,6 +166,8 @@ func main() {
 			switch mcuType {
 			case signaling.McuTypeJanus:
 				mcu, err = signaling.NewMcuJanus(mcuUrl, config, nats)
+			case signaling.McuTypeProxy:
+				mcu, err = signaling.NewMcuProxy(mcuUrl, config)
 			default:
 				log.Fatal("Unsupported MCU type: ", mcuType)
 			}

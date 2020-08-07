@@ -10,3 +10,4 @@ github.com/notedit/janus-go	git	8e6e2c423c03884d938d84442d37d6f6f5294197	2017-06
 github.com/oschwald/maxminddb-golang	git	1960b16a5147df3a4c61ac83b2f31cd8f811d609	2019-05-23T23:57:38Z
 golang.org/x/net	git	f01ecb60fe3835d80d9a0b7b2bf24b228c89260e	2017-07-11T18:12:19Z
 golang.org/x/sys	git	ac767d655b305d4e9612f5f6e33120b9176c4ad4	2018-07-15T08:55:29Z
+gopkg.in/dgrijalva/jwt-go.v3	git	06ea1031745cb8b3dab3f6a236daf2b0aa468b7e	2018-03-08T23:13:08Z
