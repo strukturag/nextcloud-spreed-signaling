@@ -90,6 +90,7 @@ type Client struct {
 	OnLookupCountry   func(*Client) string
 	OnClosed          func(*Client)
 	OnMessageReceived func(*Client, []byte)
+	OnRTTReceived     func(*Client, time.Duration)
 }
 
 func NewClient(conn *websocket.Conn, remoteAddress string, agent string) (*Client, error) {
@@ -110,6 +111,7 @@ func NewClient(conn *websocket.Conn, remoteAddress string, agent string) (*Clien
 		OnLookupCountry:   func(client *Client) string { return unknownCountry },
 		OnClosed:          func(client *Client) {},
 		OnMessageReceived: func(client *Client, data []byte) {},
+		OnRTTReceived:     func(client *Client, rtt time.Duration) {},
 	}
 	return client, nil
 }
@@ -234,6 +236,7 @@ func (c *Client) ReadPump() {
 			} else {
 				log.Printf("Client from %s has RTT of %d ms (%s)", addr, rtt_ms, rtt)
 			}
+			c.OnRTTReceived(c, rtt)
 		}
 		return nil
 	})
