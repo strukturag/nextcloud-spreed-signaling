@@ -109,10 +109,14 @@ server: dependencies common
 	mkdir -p $(BINDIR)
 	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/signaling ./src/server/...
 
+proxy: dependencies common
+	mkdir -p $(BINDIR)
+	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./src/proxy/...
+
 clean:
 	rm -f src/signaling/*_easyjson.go
 
-build: server
+build: server proxy
 
 tarball:
 	git archive \

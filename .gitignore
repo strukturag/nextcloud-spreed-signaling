@@ -2,9 +2,11 @@ bin/
 vendor/
 
 *_easyjson.go
+*.pem
 *.prof
 *.socket
 *.tar.gz
 
 cover.out
+proxy.conf
 server.conf

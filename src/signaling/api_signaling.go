@@ -278,6 +278,7 @@ const (
 type HelloServerMessageServer struct {
 	Version  string   `json:"version"`
 	Features []string `json:"features,omitempty"`
+	Country  string   `json:"country,omitempty"`
 }
 
 type HelloServerMessage struct {

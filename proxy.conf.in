@@ -1,0 +1,55 @@
+[http]
+# IP and port to listen on for HTTP requests.
+# Comment line to disable the listener.
+#listen = 127.0.0.1:9090
+
+[app]
+# Set to "true" to install pprof debug handlers.
+# See "https://golang.org/pkg/net/http/pprof/" for further information.
+#debug = false
+
+# ISO 3166 country this proxy is located at. This will be used by the signaling
+# servers to determine the closest proxy for publishers.
+#country = DE
+
+[sessions]
+# Secret value used to generate checksums of sessions. This should be a random
+# string of 32 or 64 bytes.
+hashkey = secret-for-session-checksums
+
+# Optional key for encrypting data in the sessions. Must be either 16, 24 or
+# 32 bytes.
+# If no key is specified, data will not be encrypted (not recommended).
+blockkey = -encryption-key-
+
+[nats]
+# Url of NATS backend to use. This can also be a list of URLs to connect to
+# multiple backends. For local development, this can be set to ":loopback:"
+# to process NATS messages internally instead of sending them through an
+# external NATS backend.
+#url = nats://localhost:4222
+
+[tokens]
+# Mapping of <tokenid> = <publickey> of signaling servers allowed to connect.
+#server1 = pubkey1.pem
+#server2 = pubkey2.pem
+
+[mcu]
+# The type of the MCU to use. Currently only "janus" is supported.
+type = janus
+
+# The URL to the websocket endpoint of the MCU server.
+url = ws://localhost:8188/
+
+# The maximum bitrate per publishing stream (in bits per second).
+# Defaults to 1 mbit/sec.
+#maxstreambitrate = 1048576
+
+# The maximum bitrate per screensharing stream (in bits per second).
+# Default is 2 mbit/sec.
+#maxscreenbitrate = 2097152
+
+[stats]
+# Comma-separated list of IP addresses that are allowed to access the stats
+# endpoint. Leave empty (or commented) to only allow access from "127.0.0.1".
+#allowed_ips =
