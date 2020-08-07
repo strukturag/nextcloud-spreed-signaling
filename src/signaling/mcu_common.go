@@ -22,6 +22,8 @@
 package signaling
 
 import (
+	"fmt"
+
 	"golang.org/x/net/context"
 )
 
@@ -31,8 +33,12 @@ const (
 	McuTypeDefault = McuTypeJanus
 )
 
+var (
+	ErrNotConnected = fmt.Errorf("Not connected")
+)
+
 type McuListener interface {
-	Session
+	PublicId() string
 
 	OnIceCandidate(client McuClient, candidate interface{})
 	OnIceCompleted(client McuClient)
@@ -44,6 +50,9 @@ type McuListener interface {
 type Mcu interface {
 	Start() error
 	Stop()
+
+	SetOnConnected(func())
+	SetOnDisconnected(func())
 
 	GetStats() interface{}
 

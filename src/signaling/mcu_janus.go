@@ -28,6 +28,7 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -64,8 +65,6 @@ var (
 		videoPublisherUserId:  streamTypeVideo,
 		screenPublisherUserId: streamTypeScreen,
 	}
-
-	ErrNotConnected = fmt.Errorf("Not connected")
 )
 
 func getPluginValue(data janus.PluginData, pluginName string, key string) interface{} {
@@ -161,7 +160,12 @@ type mcuJanus struct {
 	reconnectInterval time.Duration
 
 	connectedSince time.Time
+	onConnected    atomic.Value
+	onDisconnected atomic.Value
 }
+
+func emptyOnConnected()    {}
+func emptyOnDisconnected() {}
 
 func NewMcuJanus(url string, config *goconf.ConfigFile, nats NatsClient) (Mcu, error) {
 	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
@@ -190,6 +194,9 @@ func NewMcuJanus(url string, config *goconf.ConfigFile, nats NatsClient) (Mcu, e
 
 		reconnectInterval: initialReconnectInterval,
 	}
+	mcu.onConnected.Store(emptyOnConnected)
+	mcu.onDisconnected.Store(emptyOnDisconnected)
+
 	mcu.reconnectTimer = time.AfterFunc(mcu.reconnectInterval, mcu.doReconnect)
 	mcu.reconnectTimer.Stop()
 	if err := mcu.reconnect(); err != nil {
@@ -269,6 +276,7 @@ func (m *mcuJanus) scheduleReconnect(err error) {
 
 func (m *mcuJanus) ConnectionInterrupted() {
 	m.scheduleReconnect(nil)
+	m.notifyOnDisconnected()
 }
 
 func (m *mcuJanus) Start() error {
@@ -314,6 +322,8 @@ func (m *mcuJanus) Start() error {
 	log.Println("Created Janus handle", m.handle.Id)
 
 	go m.run()
+
+	m.notifyOnConnected()
 	return nil
 }
 
@@ -347,6 +357,32 @@ loop:
 func (m *mcuJanus) Stop() {
 	m.disconnect()
 	m.reconnectTimer.Stop()
+}
+
+func (m *mcuJanus) SetOnConnected(f func()) {
+	if f == nil {
+		f = emptyOnConnected
+	}
+
+	m.onConnected.Store(f)
+}
+
+func (m *mcuJanus) notifyOnConnected() {
+	f := m.onConnected.Load().(func())
+	f()
+}
+
+func (m *mcuJanus) SetOnDisconnected(f func()) {
+	if f == nil {
+		f = emptyOnDisconnected
+	}
+
+	m.onDisconnected.Store(f)
+}
+
+func (m *mcuJanus) notifyOnDisconnected() {
+	f := m.onDisconnected.Load().(func())
+	f()
 }
 
 type mcuJanusConnectionStats struct {

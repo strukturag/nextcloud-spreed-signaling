@@ -41,6 +41,12 @@ func (m *TestMCU) Start() error {
 func (m *TestMCU) Stop() {
 }
 
+func (m *TestMCU) SetOnConnected(f func()) {
+}
+
+func (m *TestMCU) SetOnDisconnected(f func()) {
+}
+
 func (m *TestMCU) GetStats() interface{} {
 	return nil
 }
