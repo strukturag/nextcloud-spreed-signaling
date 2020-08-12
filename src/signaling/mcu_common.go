@@ -48,6 +48,10 @@ type McuListener interface {
 	SubscriberClosed(subscriber McuSubscriber)
 }
 
+type McuInitiator interface {
+	Country() string
+}
+
 type Mcu interface {
 	Start() error
 	Stop()
@@ -57,7 +61,7 @@ type Mcu interface {
 
 	GetStats() interface{}
 
-	NewPublisher(ctx context.Context, listener McuListener, id string, streamType string) (McuPublisher, error)
+	NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, initiator McuInitiator) (McuPublisher, error)
 	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType string) (McuSubscriber, error)
 }
 

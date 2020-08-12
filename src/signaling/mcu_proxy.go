@@ -260,6 +260,7 @@ type mcuProxyConnection struct {
 	helloMsgId string
 	sessionId  string
 	load       int64
+	country    atomic.Value
 
 	callbacks map[string]func(*ProxyServerMessage)
 
@@ -289,6 +290,7 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string) (*mcuProxyConnection
 		publisherIds:      make(map[string]string),
 		subscribers:       make(map[string]*mcuProxySubscriber),
 	}
+	conn.country.Store("")
 	return conn, nil
 }
 
@@ -322,6 +324,10 @@ func (c *mcuProxyConnection) GetStats() *mcuProxyConnectionStats {
 
 func (c *mcuProxyConnection) Load() int64 {
 	return atomic.LoadInt64(&c.load)
+}
+
+func (c *mcuProxyConnection) Country() string {
+	return c.country.Load().(string)
 }
 
 func (c *mcuProxyConnection) IsShutdownScheduled() bool {
@@ -564,7 +570,19 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			c.scheduleReconnect()
 		case "hello":
 			c.sessionId = msg.Hello.SessionId
-			log.Printf("Received session %s from %s", c.sessionId, c.url)
+			country := ""
+			if msg.Hello.Server != nil {
+				if country = msg.Hello.Server.Country; country != "" && !IsValidCountry(country) {
+					log.Printf("Proxy %s sent invalid country %s in hello response", c.url, country)
+					country = ""
+				}
+			}
+			c.country.Store(country)
+			if country != "" {
+				log.Printf("Received session %s from %s (in %s)", c.sessionId, c.url, country)
+			} else {
+				log.Printf("Received session %s from %s", c.sessionId, c.url)
+			}
 		default:
 			log.Printf("Received unsupported hello response %+v from %s, reconnecting", msg, c.url)
 			c.scheduleReconnect()
@@ -930,7 +948,56 @@ func (l mcuProxyConnectionsList) Sort() {
 	sort.Sort(l)
 }
 
-func (m *mcuProxy) getSortedConnections() []*mcuProxyConnection {
+func ContinentsOverlap(a, b []string) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+
+	for _, checkA := range a {
+		for _, checkB := range b {
+			if checkA == checkB {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sortConnectionsForCountry(connections []*mcuProxyConnection, country string) []*mcuProxyConnection {
+	// Move connections in the same country to the start of the list.
+	sorted := make(mcuProxyConnectionsList, 0, len(connections))
+	unprocessed := make(mcuProxyConnectionsList, 0, len(connections))
+	for _, conn := range connections {
+		if country == conn.Country() {
+			sorted = append(sorted, conn)
+		} else {
+			unprocessed = append(unprocessed, conn)
+		}
+	}
+	if continents, found := ContinentMap[country]; found && len(unprocessed) > 1 {
+		remaining := make(mcuProxyConnectionsList, 0, len(unprocessed))
+		// Next up are connections on the same continent.
+		for _, conn := range unprocessed {
+			connCountry := conn.Country()
+			if IsValidCountry(connCountry) {
+				connContinents := ContinentMap[connCountry]
+				if ContinentsOverlap(continents, connContinents) {
+					sorted = append(sorted, conn)
+				} else {
+					remaining = append(remaining, conn)
+				}
+			} else {
+				remaining = append(remaining, conn)
+			}
+		}
+		unprocessed = remaining
+	}
+	// Add all other connections by load.
+	sorted = append(sorted, unprocessed...)
+	return sorted
+}
+
+func (m *mcuProxy) getSortedConnections(initiator McuInitiator) []*mcuProxyConnection {
 	connections := m.getConnections()
 	if len(connections) < 2 {
 		return connections
@@ -951,6 +1018,11 @@ func (m *mcuProxy) getSortedConnections() []*mcuProxyConnection {
 		connections = sorted
 	}
 
+	if initiator != nil {
+		if country := initiator.Country(); IsValidCountry(country) {
+			connections = sortConnectionsForCountry(connections, country)
+		}
+	}
 	return connections
 }
 
@@ -980,8 +1052,8 @@ func (m *mcuProxy) removeWaiter(id uint64) {
 	delete(m.publisherWaiters, id)
 }
 
-func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string) (McuPublisher, error) {
-	connections := m.getSortedConnections()
+func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, initiator McuInitiator) (McuPublisher, error) {
+	connections := m.getSortedConnections(initiator)
 	for _, conn := range connections {
 		if conn.IsShutdownScheduled() {
 			continue

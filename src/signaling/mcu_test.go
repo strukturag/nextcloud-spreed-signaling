@@ -51,7 +51,7 @@ func (m *TestMCU) GetStats() interface{} {
 	return nil
 }
 
-func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string) (McuPublisher, error) {
+func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, initiator McuInitiator) (McuPublisher, error) {
 	return nil, fmt.Errorf("Not implemented")
 }
 

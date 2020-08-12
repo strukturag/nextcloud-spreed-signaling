@@ -178,8 +178,11 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile, na
 	}
 
 	country, _ := config.GetString("app", "country")
-	if country != "" {
+	country = strings.ToUpper(country)
+	if signaling.IsValidCountry(country) {
 		log.Printf("Sending %s as country information", country)
+	} else if country != "" {
+		return nil, fmt.Errorf("Invalid country: %s", country)
 	} else {
 		log.Printf("Not sending country information")
 	}
@@ -664,6 +667,12 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 	}
 }
 
+type emptyInitiator struct{}
+
+func (i *emptyInitiator) Country() string {
+	return ""
+}
+
 func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, session *ProxySession, message *signaling.ProxyClientMessage) {
 	cmd := message.Command
 	switch cmd.Type {
@@ -674,7 +683,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		id := uuid.New().String()
-		publisher, err := s.mcu.NewPublisher(ctx, session, id, cmd.StreamType)
+		publisher, err := s.mcu.NewPublisher(ctx, session, id, cmd.StreamType, &emptyInitiator{})
 		if err == context.DeadlineExceeded {
 			log.Printf("Timeout while creating %s publisher %s for %s", cmd.StreamType, id, session.PublicId())
 			session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingPublisher))

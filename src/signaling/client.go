@@ -58,6 +58,21 @@ var (
 	unknownCountry string = "unknown-country"
 )
 
+func IsValidCountry(country string) bool {
+	switch country {
+	case "":
+		fallthrough
+	case noCountry:
+		fallthrough
+	case loopback:
+		fallthrough
+	case unknownCountry:
+		return false
+	default:
+		return true
+	}
+}
+
 var (
 	InvalidFormat = NewError("invalid_format", "Invalid data format.")
 

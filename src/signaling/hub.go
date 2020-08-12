@@ -1544,10 +1544,13 @@ func (h *Hub) lookupClientCountry(client *Client) string {
 
 	country, err := h.geoip.LookupCountry(ip)
 	if err != nil {
-		log.Printf("Could not lookup country for %s", ip)
+		log.Printf("Could not lookup country for %s: %s", ip, err)
 		return unknownCountry
 	}
 
+	if country == "" {
+		return unknownCountry
+	}
 	return country
 }
 
