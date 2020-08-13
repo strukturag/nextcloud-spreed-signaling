@@ -8,6 +8,8 @@ on:
 
 jobs:
   go:
+    env:
+      MAXMIND_GEOLITE2_LICENSE: ${{ secrets.MAXMIND_GEOLITE2_LICENSE }}
     strategy:
       matrix:
         go-version:
