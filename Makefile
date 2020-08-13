@@ -97,6 +97,7 @@ coverhtml: dependencies vet common
 common: easyjson \
 	src/signaling/api_signaling_easyjson.go \
 	src/signaling/api_backend_easyjson.go \
+	src/signaling/api_proxy_easyjson.go \
 	src/signaling/natsclient_easyjson.go \
 	src/signaling/room_easyjson.go
 
@@ -108,10 +109,14 @@ server: dependencies common
 	mkdir -p $(BINDIR)
 	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/signaling ./src/server/...
 
+proxy: dependencies common
+	mkdir -p $(BINDIR)
+	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./src/proxy/...
+
 clean:
 	rm -f src/signaling/*_easyjson.go
 
-build: server
+build: server proxy
 
 tarball:
 	git archive \

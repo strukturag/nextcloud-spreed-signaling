@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2019 struktur AG
+ * Copyright (C) 2020 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,42 +19,37 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package main
 
 import (
-	"fmt"
+	"sync/atomic"
+	"unsafe"
 
-	"golang.org/x/net/context"
+	"github.com/gorilla/websocket"
+
+	"signaling"
 )
 
-type TestMCU struct {
+type ProxyClient struct {
+	signaling.Client
+
+	proxy *ProxyServer
+
+	session unsafe.Pointer
 }
 
-func NewTestMCU() (Mcu, error) {
-	return &TestMCU{}, nil
+func NewProxyClient(proxy *ProxyServer, conn *websocket.Conn, addr string) (*ProxyClient, error) {
+	client := &ProxyClient{
+		proxy: proxy,
+	}
+	client.SetConn(conn, addr)
+	return client, nil
 }
 
-func (m *TestMCU) Start() error {
-	return nil
+func (c *ProxyClient) GetSession() *ProxySession {
+	return (*ProxySession)(atomic.LoadPointer(&c.session))
 }
 
-func (m *TestMCU) Stop() {
-}
-
-func (m *TestMCU) SetOnConnected(f func()) {
-}
-
-func (m *TestMCU) SetOnDisconnected(f func()) {
-}
-
-func (m *TestMCU) GetStats() interface{} {
-	return nil
-}
-
-func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, initiator McuInitiator) (McuPublisher, error) {
-	return nil, fmt.Errorf("Not implemented")
-}
-
-func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType string) (McuSubscriber, error) {
-	return nil, fmt.Errorf("Not implemented")
+func (c *ProxyClient) SetSession(session *ProxySession) {
+	atomic.StorePointer(&c.session, unsafe.Pointer(session))
 }

@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -633,7 +634,7 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 
 	h.setDecodedSessionId(privateSessionId, privateSessionName, sessionIdData)
 	h.setDecodedSessionId(publicSessionId, publicSessionName, sessionIdData)
-	client.SendHelloResponse(message, session)
+	h.sendHelloResponse(client, message, session)
 }
 
 func (h *Hub) processUnregister(client *Client) *ClientSession {
@@ -656,7 +657,28 @@ func (h *Hub) processUnregister(client *Client) *ClientSession {
 	return session
 }
 
-func (h *Hub) processMessage(client *Client, message *ClientMessage) {
+func (h *Hub) processMessage(client *Client, data []byte) {
+	var message ClientMessage
+	if err := message.UnmarshalJSON(data); err != nil {
+		if session := client.GetSession(); session != nil {
+			log.Printf("Error decoding message from client %s: %v", session.PublicId(), err)
+		} else {
+			log.Printf("Error decoding message from %s: %v", client.RemoteAddr(), err)
+		}
+		client.SendError(InvalidFormat)
+		return
+	}
+
+	if err := message.CheckValid(); err != nil {
+		if session := client.GetSession(); session != nil {
+			log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
+		} else {
+			log.Printf("Invalid message %+v from %s: %v", message, client.RemoteAddr(), err)
+		}
+		client.SendMessage(message.NewErrorServerMessage(InvalidFormat))
+		return
+	}
+
 	session := client.GetSession()
 	if session == nil {
 		if message.Type != "hello" {
@@ -664,24 +686,39 @@ func (h *Hub) processMessage(client *Client, message *ClientMessage) {
 			return
 		}
 
-		h.processHello(client, message)
+		h.processHello(client, &message)
 		return
 	}
 
 	switch message.Type {
 	case "room":
-		h.processRoom(client, message)
+		h.processRoom(client, &message)
 	case "message":
-		h.processMessageMsg(client, message)
+		h.processMessageMsg(client, &message)
 	case "control":
-		h.processControlMsg(client, message)
+		h.processControlMsg(client, &message)
 	case "bye":
-		h.processByeMsg(client, message)
+		h.processByeMsg(client, &message)
 	case "hello":
 		log.Printf("Ignore hello %+v for already authenticated connection %s", message.Hello, session.PublicId())
 	default:
 		log.Printf("Ignore unknown message %+v from %s", message, session.PublicId())
 	}
+}
+
+func (h *Hub) sendHelloResponse(client *Client, message *ClientMessage, session *ClientSession) bool {
+	response := &ServerMessage{
+		Id:   message.Id,
+		Type: "hello",
+		Hello: &HelloServerMessage{
+			Version:   HelloVersion,
+			SessionId: session.PublicId(),
+			ResumeId:  session.PrivateId(),
+			UserId:    session.UserId(),
+			Server:    h.GetServerInfo(),
+		},
+	}
+	return client.SendMessage(response)
 }
 
 func (h *Hub) processHello(client *Client, message *ClientMessage) {
@@ -728,7 +765,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 
 		log.Printf("Resume session from %s in %s (%s) %s (private=%s)", client.RemoteAddr(), client.Country(), client.UserAgent(), session.PublicId(), session.PrivateId())
 
-		client.SendHelloResponse(message, clientSession)
+		h.sendHelloResponse(client, message, clientSession)
 		clientSession.NotifySessionResumed(client)
 		return
 	}
@@ -839,6 +876,26 @@ func (h *Hub) disconnectByRoomSessionId(roomSessionId string) {
 	session.Close()
 }
 
+func (h *Hub) sendRoom(client *Client, message *ClientMessage, room *Room) bool {
+	response := &ServerMessage{
+		Type: "room",
+	}
+	if message != nil {
+		response.Id = message.Id
+	}
+	if room == nil {
+		response.Room = &RoomServerMessage{
+			RoomId: "",
+		}
+	} else {
+		response.Room = &RoomServerMessage{
+			RoomId:     room.id,
+			Properties: room.properties,
+		}
+	}
+	return client.SendMessage(response)
+}
+
 func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 	session := client.GetSession()
 	roomId := message.Room.RoomId
@@ -850,7 +907,7 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		// We can handle leaving a room directly.
 		if session.LeaveRoom(true) != nil {
 			// User was in a room before, so need to notify about leaving it.
-			client.SendRoom(message, nil)
+			h.sendRoom(client, message, nil)
 		}
 		if session.UserId() == "" && session.ClientType() != HelloClientTypeInternal {
 			h.startWaitAnonymousClientRoom(client)
@@ -965,7 +1022,7 @@ func (h *Hub) processJoinRoom(client *Client, message *ClientMessage, room *Back
 	if err := session.SubscribeRoomNats(h.nats, roomId, message.Room.SessionId); err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		// The client (implicitly) left the room due to an error.
-		client.SendRoom(nil, nil)
+		h.sendRoom(client, nil, nil)
 		return
 	}
 
@@ -978,7 +1035,7 @@ func (h *Hub) processJoinRoom(client *Client, message *ClientMessage, room *Back
 			client.SendMessage(message.NewWrappedErrorServerMessage(err))
 			// The client (implicitly) left the room due to an error.
 			session.UnsubscribeRoomNats()
-			client.SendRoom(nil, nil)
+			h.sendRoom(client, nil, nil)
 			return
 		}
 	}
@@ -992,7 +1049,7 @@ func (h *Hub) processJoinRoom(client *Client, message *ClientMessage, room *Back
 	if room.Room.Permissions != nil {
 		session.SetPermissions(*room.Room.Permissions)
 	}
-	client.SendRoom(message, r)
+	h.sendRoom(client, message, r)
 	h.notifyUserJoinedRoom(r, client, session, room.Room.Session)
 }
 
@@ -1427,7 +1484,7 @@ func (h *Hub) processRoomDeleted(message *BackendServerRoomRequest) {
 		switch sess := session.(type) {
 		case *ClientSession:
 			if client := sess.GetClient(); client != nil {
-				client.SendRoom(nil, nil)
+				h.sendRoom(client, nil, nil)
 			}
 		}
 	}
@@ -1477,6 +1534,26 @@ func getRealUserIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+func (h *Hub) lookupClientCountry(client *Client) string {
+	ip := net.ParseIP(client.RemoteAddr())
+	if ip == nil {
+		return noCountry
+	} else if ip.IsLoopback() {
+		return loopback
+	}
+
+	country, err := h.geoip.LookupCountry(ip)
+	if err != nil {
+		log.Printf("Could not lookup country for %s: %s", ip, err)
+		return unknownCountry
+	}
+
+	if country == "" {
+		return unknownCountry
+	}
+	return country
+}
+
 func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	addr := getRealUserIP(r)
 	agent := r.Header.Get("User-Agent")
@@ -1487,13 +1564,21 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewClient(h, conn, addr, agent)
+	client, err := NewClient(conn, addr, agent)
 	if err != nil {
 		log.Printf("Could not create client for %s: %s", addr, err)
 		return
 	}
 
+	if h.geoip != nil {
+		client.OnLookupCountry = h.lookupClientCountry
+	}
+	client.OnMessageReceived = h.processMessage
+	client.OnClosed = func(client *Client) {
+		h.processUnregister(client)
+	}
+
 	h.processNewClient(client)
-	go client.writePump()
-	go client.readPump()
+	go client.WritePump()
+	go client.ReadPump()
 }

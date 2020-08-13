@@ -98,20 +98,30 @@ connectionsperhost = 8
 #url = nats://localhost:4222
 
 [mcu]
-# The type of the MCU to use. Currently only "janus" is supported.
+# The type of the MCU to use. Currently only "janus" and "proxy" are supported.
 type = janus
 
-# The URL to the websocket endpoint of the MCU server. Leave empty to disable
-# MCU functionality.
+# For type "janus": the URL to the websocket endpoint of the MCU server.
+# For type "proxy": a space-separated list of proxy URLs to connect to.
+# Leave empty to disable MCU functionality.
 url =
 
-# The maximum bitrate per publishing stream (in bits per second).
+# For type "janus": the maximum bitrate per publishing stream (in bits per
+# second).
 # Defaults to 1 mbit/sec.
 #maxstreambitrate = 1048576
 
-# The maximum bitrate per screensharing stream (in bits per second).
+# For type "janus": the maximum bitrate per screensharing stream (in bits per
+# second).
 # Default is 2 mbit/sec.
 #maxscreenbitrate = 2097152
+
+# For type "proxy": the id of the token to use when connecting to proxy servers.
+#token_id = server1
+
+# For type "proxy": the private key for the configured token id to use when
+# connecting to proxy servers.
+#token_key = privkey.pem
 
 [turn]
 # API key that the MCU will need to send when requesting TURN credentials.

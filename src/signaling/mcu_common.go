@@ -22,17 +22,24 @@
 package signaling
 
 import (
+	"fmt"
+
 	"golang.org/x/net/context"
 )
 
 const (
 	McuTypeJanus = "janus"
+	McuTypeProxy = "proxy"
 
 	McuTypeDefault = McuTypeJanus
 )
 
+var (
+	ErrNotConnected = fmt.Errorf("Not connected")
+)
+
 type McuListener interface {
-	Session
+	PublicId() string
 
 	OnIceCandidate(client McuClient, candidate interface{})
 	OnIceCompleted(client McuClient)
@@ -41,13 +48,20 @@ type McuListener interface {
 	SubscriberClosed(subscriber McuSubscriber)
 }
 
+type McuInitiator interface {
+	Country() string
+}
+
 type Mcu interface {
 	Start() error
 	Stop()
 
+	SetOnConnected(func())
+	SetOnDisconnected(func())
+
 	GetStats() interface{}
 
-	NewPublisher(ctx context.Context, listener McuListener, id string, streamType string) (McuPublisher, error)
+	NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, initiator McuInitiator) (McuPublisher, error)
 	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType string) (McuSubscriber, error)
 }
 

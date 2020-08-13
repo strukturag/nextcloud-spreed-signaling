@@ -436,6 +436,10 @@ func (s *ClientSession) GetClient() *Client {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.getClientUnlocked()
+}
+
+func (s *ClientSession) getClientUnlocked() *Client {
 	return s.client
 }
 
@@ -554,9 +558,10 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 
 	publisher, found := s.publishers[streamType]
 	if !found {
+		client := s.getClientUnlocked()
 		s.mu.Unlock()
 		var err error
-		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), streamType)
+		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), streamType, client)
 		s.mu.Lock()
 		if err != nil {
 			return nil, err
