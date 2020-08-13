@@ -138,10 +138,16 @@ url =
 [geoip]
 # License key to use when downloading the MaxMind GeoIP database. You can
 # register an account at "https://www.maxmind.com/en/geolite2/signup" for
-# free. See "https://dev.maxmind.com/geoip/geoip2/geolite2/"" for further
+# free. See "https://dev.maxmind.com/geoip/geoip2/geolite2/" for further
 # information.
 # Leave empty to disable GeoIP lookups.
 #license =
+
+# Optional URL to download a MaxMind GeoIP database from. Will be generated if
+# "license" is provided above. Can be a "file://" url if a local file should
+# be used. Please note that the database must provide a country field when
+# looking up IP addresses.
+#url =
 
 [stats]
 # Comma-separated list of IP addresses that are allowed to access the stats

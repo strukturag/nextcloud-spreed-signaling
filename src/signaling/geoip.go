@@ -31,6 +31,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -56,16 +57,31 @@ func GetGeoIpDownloadUrl(license string) string {
 
 type GeoLookup struct {
 	url    string
+	isFile bool
 	client http.Client
 	mu     sync.Mutex
 
-	lastModified string
-	reader       *maxminddb.Reader
+	lastModifiedHeader string
+	lastModifiedTime   time.Time
+
+	reader *maxminddb.Reader
 }
 
-func NewGeoLookup(url string) (*GeoLookup, error) {
+func NewGeoLookupFromUrl(url string) (*GeoLookup, error) {
 	geoip := &GeoLookup{
 		url: url,
+	}
+	return geoip, nil
+}
+
+func NewGeoLookupFromFile(filename string) (*GeoLookup, error) {
+	geoip := &GeoLookup{
+		url:    filename,
+		isFile: true,
+	}
+	if err := geoip.Update(); err != nil {
+		geoip.Close()
+		return nil, err
 	}
 	return geoip, nil
 }
@@ -80,12 +96,52 @@ func (g *GeoLookup) Close() {
 }
 
 func (g *GeoLookup) Update() error {
+	if g.isFile {
+		return g.updateFile()
+	} else {
+		return g.updateUrl()
+	}
+}
+
+func (g *GeoLookup) updateFile() error {
+	info, err := os.Stat(g.url)
+	if err != nil {
+		return err
+	}
+
+	if info.ModTime().Equal(g.lastModifiedTime) {
+		return nil
+	}
+
+	reader, err := maxminddb.Open(g.url)
+	if err != nil {
+		return err
+	}
+
+	if err := reader.Verify(); err != nil {
+		return err
+	}
+
+	metadata := reader.Metadata
+	log.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
+
+	g.mu.Lock()
+	if g.reader != nil {
+		g.reader.Close()
+	}
+	g.reader = reader
+	g.lastModifiedTime = info.ModTime()
+	g.mu.Unlock()
+	return nil
+}
+
+func (g *GeoLookup) updateUrl() error {
 	request, err := http.NewRequest("GET", g.url, nil)
 	if err != nil {
 		return err
 	}
-	if g.lastModified != "" {
-		request.Header.Add("If-Modified-Since", g.lastModified)
+	if g.lastModifiedHeader != "" {
+		request.Header.Add("If-Modified-Since", g.lastModifiedHeader)
 	}
 	response, err := g.client.Do(request)
 	if err != nil {
@@ -150,7 +206,7 @@ func (g *GeoLookup) Update() error {
 		g.reader.Close()
 	}
 	g.reader = reader
-	g.lastModified = response.Header.Get("Last-Modified")
+	g.lastModifiedHeader = response.Header.Get("Last-Modified")
 	g.mu.Unlock()
 	return nil
 }
