@@ -1078,6 +1078,10 @@ retry:
 			var roomId uint64
 			handle, roomId, err = p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
 			if err != nil {
+				// Reconnection didn't work, need to unregister/remove subscriber
+				// so a new object will be created if the request is retried.
+				p.mcu.unregisterClient(p)
+				p.listener.SubscriberClosed(p)
 				callback(fmt.Errorf("Already connected as subscriber for %s, error during re-joining: %s", p.streamType, err), nil)
 				return
 			}
