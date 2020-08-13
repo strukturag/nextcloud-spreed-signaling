@@ -22,31 +22,23 @@
 package signaling
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"io"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
 )
 
-func TestGeoLookup(t *testing.T) {
-	license := os.Getenv("MAXMIND_GEOLITE2_LICENSE")
-	if license == "" {
-		t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
-	}
-
+func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
 	tests := map[string]string{
 		// Example from maxminddb-golang code.
 		"81.2.69.142": "GB",
 		// Local addresses don't have a country assigned.
 		"127.0.0.1": "",
-	}
-	reader, err := NewGeoLookup(GetGeoIpDownloadUrl(license))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reader.Close()
-
-	if err := reader.Update(); err != nil {
-		t.Fatal(err)
 	}
 
 	for ip, expected := range tests {
@@ -62,13 +54,32 @@ func TestGeoLookup(t *testing.T) {
 	}
 }
 
+func TestGeoLookup(t *testing.T) {
+	license := os.Getenv("MAXMIND_GEOLITE2_LICENSE")
+	if license == "" {
+		t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
+	}
+
+	reader, err := NewGeoLookupFromUrl(GetGeoIpDownloadUrl(license))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	if err := reader.Update(); err != nil {
+		t.Fatal(err)
+	}
+
+	testGeoLookupReader(t, reader)
+}
+
 func TestGeoLookupCaching(t *testing.T) {
 	license := os.Getenv("MAXMIND_GEOLITE2_LICENSE")
 	if license == "" {
 		t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
 	}
 
-	reader, err := NewGeoLookup(GetGeoIpDownloadUrl(license))
+	reader, err := NewGeoLookupFromUrl(GetGeoIpDownloadUrl(license))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,9 +121,74 @@ func TestGeoLookupContinent(t *testing.T) {
 }
 
 func TestGeoLookupCloseEmpty(t *testing.T) {
-	reader, err := NewGeoLookup("ignore-url")
+	reader, err := NewGeoLookupFromUrl("ignore-url")
 	if err != nil {
 		t.Fatal(err)
 	}
 	reader.Close()
+}
+
+func TestGeoLookupFromFile(t *testing.T) {
+	license := os.Getenv("MAXMIND_GEOLITE2_LICENSE")
+	if license == "" {
+		t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
+	}
+
+	url := GetGeoIpDownloadUrl(license)
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body := resp.Body
+	if strings.HasSuffix(url, ".gz") {
+		body, err = gzip.NewReader(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tmpfile, err := ioutil.TempFile("", "geoipdb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	tarfile := tar.NewReader(body)
+	foundDatabase := false
+	for {
+		header, err := tarfile.Next()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+
+		if !strings.HasSuffix(header.Name, ".mmdb") {
+			continue
+		}
+
+		if _, err := io.Copy(tmpfile, tarfile); err != nil {
+			tmpfile.Close()
+			t.Fatal(err)
+		}
+		if err := tmpfile.Close(); err != nil {
+			t.Fatal(err)
+		}
+		foundDatabase = true
+		break
+	}
+
+	if !foundDatabase {
+		t.Fatal("Did not find MaxMind database in tarball")
+	}
+
+	reader, err := NewGeoLookupFromFile(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	testGeoLookupReader(t, reader)
 }

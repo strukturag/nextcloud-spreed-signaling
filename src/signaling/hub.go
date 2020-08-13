@@ -209,8 +209,14 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 
 	var geoip *GeoLookup
 	if geoipUrl != "" {
-		log.Printf("Downloading GeoIP database from %s", geoipUrl)
-		geoip, err = NewGeoLookup(geoipUrl)
+		if strings.HasPrefix(geoipUrl, "file://") {
+			geoipUrl = geoipUrl[7:]
+			log.Printf("Using GeoIP database from %s", geoipUrl)
+			geoip, err = NewGeoLookupFromFile(geoipUrl)
+		} else {
+			log.Printf("Downloading GeoIP database from %s", geoipUrl)
+			geoip, err = NewGeoLookupFromUrl(geoipUrl)
+		}
 		if err != nil {
 			return nil, err
 		}
