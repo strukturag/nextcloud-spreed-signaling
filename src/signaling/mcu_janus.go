@@ -678,9 +678,9 @@ func (p *mcuJanusPublisher) handleConnected(event *janus.WebRTCUpMsg) {
 
 func (p *mcuJanusPublisher) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Publisher %s (%d) is reporting %d NACKs on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Nacks)
+		log.Printf("Publisher %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
 	} else {
-		log.Printf("Publisher %s (%d) is reporting %d NACKs on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Nacks)
+		log.Printf("Publisher %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
 	}
 }
 
@@ -966,9 +966,9 @@ func (p *mcuJanusSubscriber) handleConnected(event *janus.WebRTCUpMsg) {
 
 func (p *mcuJanusSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Subscriber %s (%d) is reporting %d NACKs on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Nacks)
+		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
 	} else {
-		log.Printf("Subscriber %s (%d) is reporting %d NACKs on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Nacks)
+		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
 	}
 }
 

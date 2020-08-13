@@ -450,7 +450,7 @@ func (gateway *JanusGateway) recv() {
 		}
 
 		// Pass message on from here
-		if base.Id == "" {
+		if base.ID == "" {
 			// Is this a Handle event?
 			if base.Handle == 0 {
 				// Nope. No idea what's going on...
@@ -478,9 +478,9 @@ func (gateway *JanusGateway) recv() {
 				go passMsg(handle.Events, msg)
 			}
 		} else {
-			id, err := strconv.ParseUint(base.Id, 10, 64)
+			id, err := strconv.ParseUint(base.ID, 10, 64)
 			if err != nil {
-				log.Printf("Could not decode transaction id %s: %s", base.Id, err)
+				log.Printf("Could not decode transaction id %s: %s", base.ID, err)
 				continue
 			}
 
@@ -558,7 +558,7 @@ func (gateway *JanusGateway) Create(ctx context.Context) (*JanusSession, error) 
 	// Create new session
 	session := new(JanusSession)
 	session.gateway = gateway
-	session.Id = success.Data.Id
+	session.Id = success.Data.ID
 	session.Handles = make(map[uint64]*JanusHandle)
 
 	// Store this session
@@ -615,7 +615,7 @@ func (session *JanusSession) Attach(ctx context.Context, plugin string) (*JanusH
 
 	handle := new(JanusHandle)
 	handle.session = session
-	handle.Id = success.Data.Id
+	handle.Id = success.Data.ID
 	handle.Events = make(chan interface{}, 8)
 
 	session.Lock()
