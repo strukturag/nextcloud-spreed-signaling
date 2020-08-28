@@ -18,7 +18,7 @@
 # Possible values:
 # - static: A mapping of token id -> public key is configured below.
 # - etcd: Token information are retrieved from an etcd cluster (see below).
-token_type = static
+tokentype = static
 
 [sessions]
 # Secret value used to generate checksums of sessions. This should be a random
