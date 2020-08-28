@@ -9,6 +9,7 @@ github.com/nats-io/go-nats	git	d4ca4c8b588d5da9c2ac82d6e445ce4feaba18ba	2017-06-
 github.com/nats-io/nuid	git	3cf34f9fca4e88afa9da8eabd75e3326c9941b44	2017-03-03T15:02:24Z
 github.com/notedit/janus-go	git	10eb8b95d1a0469ac8921c5ce5fb55b4c0d3ad7d	2020-05-17T10:12:15Z
 github.com/oschwald/maxminddb-golang	git	1960b16a5147df3a4c61ac83b2f31cd8f811d609	2019-05-23T23:57:38Z
+go.etcd.io/etcd	git	ae9734ed278b7a1a7dfc82e800471ebbf9fce56f	2020-08-24T19:11:28Z
 golang.org/x/net	git	f01ecb60fe3835d80d9a0b7b2bf24b228c89260e	2017-07-11T18:12:19Z
 golang.org/x/sys	git	ac767d655b305d4e9612f5f6e33120b9176c4ad4	2018-07-15T08:55:29Z
 gopkg.in/dgrijalva/jwt-go.v3	git	06ea1031745cb8b3dab3f6a236daf2b0aa468b7e	2018-03-08T23:13:08Z
