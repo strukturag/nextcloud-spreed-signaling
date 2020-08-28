@@ -15,7 +15,7 @@ The following tools are required for building the signaling server.
 
 - curl
 - git
-- go >= 1.6
+- go >= 1.10
 - make
 - python3
 
