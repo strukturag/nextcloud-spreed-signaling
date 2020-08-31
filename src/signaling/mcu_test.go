@@ -24,6 +24,8 @@ package signaling
 import (
 	"fmt"
 
+	"github.com/dlintw/goconf"
+
 	"golang.org/x/net/context"
 )
 
@@ -39,6 +41,9 @@ func (m *TestMCU) Start() error {
 }
 
 func (m *TestMCU) Stop() {
+}
+
+func (m *TestMCU) Reload(config *goconf.ConfigFile) {
 }
 
 func (m *TestMCU) SetOnConnected(f func()) {

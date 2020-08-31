@@ -34,6 +34,7 @@ import (
 	"runtime"
 	runtimepprof "runtime/pprof"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -47,7 +48,7 @@ import (
 var (
 	version = "unreleased"
 
-	config = flag.String("config", "server.conf", "config file to use")
+	configFlag = flag.String("config", "server.conf", "config file to use")
 
 	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 
@@ -98,8 +99,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, syscall.SIGHUP)
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -127,7 +129,7 @@ func main() {
 
 	log.Printf("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
 
-	config, err := goconf.ReadConfigFile(*config)
+	config, err := goconf.ReadConfigFile(*configFlag)
 	if err != nil {
 		log.Fatal("Could not read configuration: ", err)
 	}
@@ -184,8 +186,22 @@ func main() {
 			log.Printf("Could not initialize %s MCU at %s (%s) will retry in %s", mcuType, mcuUrl, err, mcuRetry)
 			mcuRetryTimer.Reset(mcuRetry)
 			select {
-			case <-interrupt:
-				log.Fatalf("Cancelled")
+			case sig := <-sigChan:
+				switch sig {
+				case os.Interrupt:
+					log.Fatalf("Cancelled")
+				case syscall.SIGHUP:
+					log.Printf("Received SIGHUP, reloading %s", *configFlag)
+					if config, err = goconf.ReadConfigFile(*configFlag); err != nil {
+						log.Printf("Could not read configuration from %s: %s", *configFlag, err)
+					} else {
+						mcuUrl, _ = config.GetString("mcu", "url")
+						mcuType, _ = config.GetString("mcu", "type")
+						if mcuType == "" {
+							mcuType = signaling.McuTypeDefault
+						}
+					}
+				}
 			case <-mcuRetryTimer.C:
 				// Retry connection
 				mcuRetry = mcuRetry * 2
@@ -290,6 +306,22 @@ func main() {
 		}
 	}
 
-	<-interrupt
-	log.Println("Interrupted")
+loop:
+	for {
+		select {
+		case sig := <-sigChan:
+			switch sig {
+			case os.Interrupt:
+				log.Println("Interrupted")
+				break loop
+			case syscall.SIGHUP:
+				log.Printf("Received SIGHUP, reloading %s", *configFlag)
+				if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
+					log.Printf("Could not read configuration from %s: %s", *configFlag, err)
+				} else {
+					hub.Reload(config)
+				}
+			}
+		}
+	}
 }

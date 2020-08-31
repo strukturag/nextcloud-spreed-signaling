@@ -24,6 +24,8 @@ package signaling
 import (
 	"fmt"
 
+	"github.com/dlintw/goconf"
+
 	"golang.org/x/net/context"
 )
 
@@ -55,6 +57,7 @@ type McuInitiator interface {
 type Mcu interface {
 	Start() error
 	Stop()
+	Reload(config *goconf.ConfigFile)
 
 	SetOnConnected(func())
 	SetOnDisconnected(func())
