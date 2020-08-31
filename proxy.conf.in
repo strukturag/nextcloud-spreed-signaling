@@ -17,7 +17,8 @@
 #
 # Possible values:
 # - static: A mapping of token id -> public key is configured below.
-token_type = static
+# - etcd: Token information are retrieved from an etcd cluster (see below).
+tokentype = static
 
 [sessions]
 # Secret value used to generate checksums of sessions. This should be a random
@@ -37,10 +38,29 @@ blockkey = -encryption-key-
 #url = nats://localhost:4222
 
 [tokens]
-# For token_type "static": Mapping of <tokenid> = <publickey> of signaling
+# For token type "static": Mapping of <tokenid> = <publickey> of signaling
 # servers allowed to connect.
 #server1 = pubkey1.pem
 #server2 = pubkey2.pem
+
+# For token type "etcd": Comma-separated list of static etcd endpoints to
+# connect to.
+#endpoints = 127.0.0.1:2379,127.0.0.1:22379,127.0.0.1:32379
+
+# For token type "etcd": Options to perform endpoint discovery through DNS SRV.
+# Only used if no endpoints are configured manually.
+#discoverysrv = example.com
+#discoveryservice = foo
+
+# For token type "etcd": Path to private key, client certificate and CA
+# certificate if TLS authentication should be used.
+#clientkey = /path/to/etcd-client.key
+#clientcert = /path/to/etcd-client.crt
+#cacert = /path/to/etcd-ca.crt
+
+# For token type "etcd": Format of key name to retrieve the public key from,
+# "%s" will be replaced with the token id.
+#keyformat = /signaling/proxy/tokens/%s/public-key
 
 [mcu]
 # The type of the MCU to use. Currently only "janus" is supported.

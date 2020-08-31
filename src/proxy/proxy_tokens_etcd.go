@@ -1,0 +1,212 @@
+/**
+ * Standalone signaling server for the Nextcloud Spreed app.
+ * Copyright (C) 2020 struktur AG
+ *
+ * @author Joachim Bauch <bauch@struktur.de>
+ *
+ * @license GNU AGPL version 3 or any later version
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"log"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/dlintw/goconf"
+
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/pkg/srv"
+	"go.etcd.io/etcd/pkg/transport"
+
+	"gopkg.in/dgrijalva/jwt-go.v3"
+
+	"signaling"
+)
+
+const (
+	tokenCacheSize = 4096
+)
+
+type tokenCacheEntry struct {
+	keyValue []byte
+	token    *ProxyToken
+}
+
+type tokensEtcd struct {
+	client atomic.Value
+
+	tokenFormat atomic.Value
+	tokenCache  *signaling.LruCache
+}
+
+func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
+	result := &tokensEtcd{
+		tokenCache: signaling.NewLruCache(tokenCacheSize),
+	}
+	if err := result.load(config, false); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (t *tokensEtcd) getClient() *clientv3.Client {
+	c := t.client.Load()
+	if c == nil {
+		return nil
+	}
+
+	return c.(*clientv3.Client)
+}
+
+func (t *tokensEtcd) getKey(id string) string {
+	format := t.tokenFormat.Load().(string)
+	return fmt.Sprintf(format, id)
+}
+
+func (t *tokensEtcd) Get(id string) (*ProxyToken, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	resp, err := t.getClient().Get(ctx, t.getKey(id))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Kvs) == 0 {
+		return nil, nil
+	} else if len(resp.Kvs) > 1 {
+		log.Printf("Received multiple keys for %s, using last", id)
+	}
+
+	keyValue := resp.Kvs[len(resp.Kvs)-1].Value
+	cached, _ := t.tokenCache.Get(id).(*tokenCacheEntry)
+	if cached == nil || !bytes.Equal(cached.keyValue, keyValue) {
+		// Parsed public keys are cached to avoid the parse overhead.
+		key, err := jwt.ParseRSAPublicKeyFromPEM(keyValue)
+		if err != nil {
+			return nil, fmt.Errorf("Could not parse public key for %s: %s", id, err)
+		}
+
+		cached = &tokenCacheEntry{
+			keyValue: keyValue,
+			token: &ProxyToken{
+				id:  id,
+				key: key,
+			},
+		}
+		t.tokenCache.Set(id, cached)
+	}
+
+	return cached.token, nil
+}
+
+func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
+	var endpoints []string
+	if endpointsString, _ := config.GetString("tokens", "endpoints"); endpointsString != "" {
+		for _, ep := range strings.Split(endpointsString, ",") {
+			ep := strings.TrimSpace(ep)
+			if ep != "" {
+				endpoints = append(endpoints, ep)
+			}
+		}
+	} else if discoverySrv, _ := config.GetString("tokens", "discoverysrv"); discoverySrv != "" {
+		discoveryService, _ := config.GetString("tokens", "discoveryservice")
+		clients, err := srv.GetClient("etcd-client", discoverySrv, discoveryService)
+		if err != nil {
+			if !ignoreErrors {
+				return fmt.Errorf("Could not discover endpoints for %s: %s", discoverySrv, err)
+			}
+		} else {
+			endpoints = clients.Endpoints
+		}
+	}
+
+	if len(endpoints) == 0 {
+		if !ignoreErrors {
+			return fmt.Errorf("No token endpoints configured")
+		}
+
+		log.Printf("No token endpoints configured, not changing client")
+	} else {
+		cfg := clientv3.Config{
+			Endpoints: endpoints,
+
+			// set timeout per request to fail fast when the target endpoint is unavailable
+			DialTimeout: time.Second,
+		}
+
+		clientKey, _ := config.GetString("tokens", "clientkey")
+		clientCert, _ := config.GetString("tokens", "clientcert")
+		caCert, _ := config.GetString("tokens", "cacert")
+		if clientKey != "" && clientCert != "" && caCert != "" {
+			tlsInfo := transport.TLSInfo{
+				CertFile:      clientCert,
+				KeyFile:       clientKey,
+				TrustedCAFile: caCert,
+			}
+			tlsConfig, err := tlsInfo.ClientConfig()
+			if err != nil {
+				if !ignoreErrors {
+					return fmt.Errorf("Could not setup TLS configuration: %s", err)
+				}
+
+				log.Printf("Could not setup TLS configuration, will be disabled (%s)", err)
+			} else {
+				cfg.TLS = tlsConfig
+			}
+		}
+
+		c, err := clientv3.New(cfg)
+		if err != nil {
+			if !ignoreErrors {
+				return err
+			}
+
+			log.Printf("Could not create new client from token endpoints %+v: %s", endpoints, err)
+		} else {
+			prev := t.getClient()
+			if prev != nil {
+				prev.Close()
+			}
+			t.client.Store(c)
+			log.Printf("Using token endpoints %+v", endpoints)
+		}
+	}
+
+	tokenFormat, _ := config.GetString("tokens", "keyformat")
+	if tokenFormat == "" {
+		tokenFormat = "/%s"
+	}
+
+	t.tokenFormat.Store(tokenFormat)
+	log.Printf("Using %s as token format", tokenFormat)
+	return nil
+}
+
+func (t *tokensEtcd) Reload(config *goconf.ConfigFile) {
+	t.load(config, true)
+}
+
+func (t *tokensEtcd) Close() {
+	if client := t.getClient(); client != nil {
+		client.Close()
+	}
+}

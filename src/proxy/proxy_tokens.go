@@ -28,6 +28,7 @@ import (
 )
 
 const (
+	TokenTypeEtcd   = "etcd"
 	TokenTypeStatic = "static"
 
 	TokenTypeDefault = TokenTypeStatic
@@ -42,4 +43,5 @@ type ProxyTokens interface {
 	Get(id string) (*ProxyToken, error)
 
 	Reload(config *goconf.ConfigFile)
+	Close()
 }

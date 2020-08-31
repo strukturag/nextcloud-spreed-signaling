@@ -131,12 +131,14 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile, na
 
 	var tokens ProxyTokens
 	var err error
-	tokenType, _ := config.GetString("app", "token_type")
+	tokenType, _ := config.GetString("app", "tokentype")
 	if tokenType == "" {
 		tokenType = TokenTypeDefault
 	}
 
 	switch tokenType {
+	case TokenTypeEtcd:
+		tokens, err = NewProxyTokensEtcd(config)
 	case TokenTypeStatic:
 		tokens, err = NewProxyTokensStatic(config)
 	default:
@@ -363,6 +365,7 @@ func (s *ProxyServer) Stop() {
 	}
 
 	s.mcu.Stop()
+	s.tokens.Close()
 }
 
 func (s *ProxyServer) ShutdownChannel() chan bool {

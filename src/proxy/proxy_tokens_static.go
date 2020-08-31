@@ -116,3 +116,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 func (t *tokensStatic) Reload(config *goconf.ConfigFile) {
 	t.load(config, true)
 }
+
+func (t *tokensStatic) Close() {
+	t.setTokenKeys(map[string]*ProxyToken{})
+}
