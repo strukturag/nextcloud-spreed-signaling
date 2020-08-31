@@ -371,6 +371,12 @@ func (h *Hub) Stop() {
 	}
 }
 
+func (h *Hub) Reload(config *goconf.ConfigFile) {
+	if h.mcu != nil {
+		h.mcu.Reload(config)
+	}
+}
+
 func reverseSessionId(s string) (string, error) {
 	// Note that we are assuming base64 encoded strings here.
 	decoded, err := base64.URLEncoding.DecodeString(s)

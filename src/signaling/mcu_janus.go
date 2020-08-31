@@ -359,6 +359,9 @@ func (m *mcuJanus) Stop() {
 	m.reconnectTimer.Stop()
 }
 
+func (m *mcuJanus) Reload(config *goconf.ConfigFile) {
+}
+
 func (m *mcuJanus) SetOnConnected(f func()) {
 	if f == nil {
 		f = emptyOnConnected
