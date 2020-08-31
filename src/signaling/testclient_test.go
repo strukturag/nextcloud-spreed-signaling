@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,8 +35,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-
-	"golang.org/x/net/context"
 )
 
 var (

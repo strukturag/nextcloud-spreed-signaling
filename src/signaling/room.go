@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log"
 	"net/url"
@@ -30,8 +31,6 @@ import (
 	"time"
 
 	"github.com/nats-io/go-nats"
-
-	"golang.org/x/net/context"
 )
 
 const (

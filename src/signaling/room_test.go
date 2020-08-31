@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -30,8 +31,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-
-	"golang.org/x/net/context"
 )
 
 func TestRoom_InCall(t *testing.T) {

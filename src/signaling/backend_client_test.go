@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
@@ -32,7 +33,6 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
-	"golang.org/x/net/context"
 )
 
 func TestPostOnRedirect(t *testing.T) {

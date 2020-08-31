@@ -23,14 +23,13 @@ package signaling
 
 import (
 	"bytes"
+	"context"
 	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/nats-io/go-nats"
-
-	"golang.org/x/net/context"
 )
 
 func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *testing.T) {

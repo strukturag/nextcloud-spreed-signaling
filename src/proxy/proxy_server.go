@@ -22,6 +22,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -41,8 +42,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
-
-	"golang.org/x/net/context"
 
 	"gopkg.in/dgrijalva/jwt-go.v3"
 

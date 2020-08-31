@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/url"
@@ -31,8 +32,6 @@ import (
 	"unsafe"
 
 	"github.com/nats-io/go-nats"
-
-	"golang.org/x/net/context"
 )
 
 var (

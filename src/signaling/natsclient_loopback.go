@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -29,8 +30,6 @@ import (
 	"time"
 
 	"github.com/nats-io/go-nats"
-
-	"golang.org/x/net/context"
 )
 
 type LoopbackNatsClient struct {

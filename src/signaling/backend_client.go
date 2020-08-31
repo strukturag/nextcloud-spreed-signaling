@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -35,7 +36,6 @@ import (
 	"sync"
 
 	"github.com/dlintw/goconf"
-	"golang.org/x/net/context"
 	"golang.org/x/net/context/ctxhttp"
 )
 

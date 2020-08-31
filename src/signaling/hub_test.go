@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
@@ -36,8 +37,6 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-
-	"golang.org/x/net/context"
 )
 
 const (

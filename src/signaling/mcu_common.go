@@ -22,11 +22,10 @@
 package signaling
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/dlintw/goconf"
-
-	"golang.org/x/net/context"
 )
 
 const (

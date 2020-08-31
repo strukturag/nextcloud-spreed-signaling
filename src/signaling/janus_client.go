@@ -30,6 +30,7 @@ package signaling
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -41,8 +42,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/notedit/janus-go"
-
-	"golang.org/x/net/context"
 )
 
 const (

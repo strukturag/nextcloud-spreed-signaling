@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -41,8 +42,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
-
-	"golang.org/x/net/context"
 )
 
 var (

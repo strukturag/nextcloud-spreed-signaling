@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -34,8 +35,6 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/nats-io/go-nats"
 	"github.com/notedit/janus-go"
-
-	"golang.org/x/net/context"
 )
 
 const (

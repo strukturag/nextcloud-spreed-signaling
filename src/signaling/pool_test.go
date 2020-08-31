@@ -22,11 +22,10 @@
 package signaling
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
-
-	"golang.org/x/net/context"
 )
 
 func TestHttpClientPool(t *testing.T) {

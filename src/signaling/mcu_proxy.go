@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"crypto/rsa"
 	"encoding/json"
 	"fmt"
@@ -37,8 +38,6 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/websocket"
-
-	"golang.org/x/net/context"
 
 	"gopkg.in/dgrijalva/jwt-go.v3"
 )

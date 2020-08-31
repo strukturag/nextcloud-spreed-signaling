@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
@@ -42,8 +43,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/nats-io/go-nats"
-
-	"golang.org/x/net/context"
 )
 
 var (

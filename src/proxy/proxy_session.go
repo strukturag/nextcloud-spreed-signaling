@@ -22,12 +22,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"signaling"
 )
