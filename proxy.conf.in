@@ -59,7 +59,8 @@ blockkey = -encryption-key-
 #cacert = /path/to/etcd-ca.crt
 
 # For token type "etcd": Format of key name to retrieve the public key from,
-# "%s" will be replaced with the token id.
+# "%s" will be replaced with the token id. Multiple possible formats can be
+# comma-separated.
 #keyformat = /signaling/proxy/tokens/%s/public-key
 
 [mcu]
