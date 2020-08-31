@@ -57,7 +57,7 @@ const (
 )
 
 func main() {
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+	log.SetFlags(log.Lshortfile)
 	flag.Parse()
 
 	if *showVersion {
