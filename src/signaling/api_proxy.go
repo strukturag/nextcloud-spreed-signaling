@@ -252,3 +252,19 @@ type EventProxyServerMessage struct {
 	ClientId string `json:"clientId,omitempty"`
 	Load     int64  `json:"load,omitempty"`
 }
+
+// Information on a proxy in the etcd cluster.
+
+type ProxyInformationEtcd struct {
+	Address string `json:"address"`
+}
+
+func (p *ProxyInformationEtcd) CheckValid() error {
+	if p.Address == "" {
+		return fmt.Errorf("address missing")
+	}
+	if p.Address[len(p.Address)-1] != '/' {
+		p.Address += "/"
+	}
+	return nil
+}
