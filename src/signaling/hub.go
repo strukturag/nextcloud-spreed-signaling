@@ -132,8 +132,9 @@ type Hub struct {
 	backendTimeout time.Duration
 	backend        *BackendClient
 
-	geoip         *GeoLookup
-	geoipUpdating int32
+	geoip          *GeoLookup
+	geoipOverrides map[*net.IPNet]string
+	geoipUpdating  int32
 }
 
 func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version string) (*Hub, error) {
@@ -207,6 +208,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 	}
 
 	var geoip *GeoLookup
+	var geoipOverrides map[*net.IPNet]string
 	if geoipUrl != "" {
 		if strings.HasPrefix(geoipUrl, "file://") {
 			geoipUrl = geoipUrl[7:]
@@ -218,6 +220,49 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 		}
 		if err != nil {
 			return nil, err
+		}
+
+		if options, _ := config.GetOptions("geoip-overrides"); len(options) > 0 {
+			geoipOverrides = make(map[*net.IPNet]string)
+			for _, option := range options {
+				var ip net.IP
+				var ipNet *net.IPNet
+				if strings.Contains(option, "/") {
+					ip, ipNet, err = net.ParseCIDR(option)
+					if err != nil {
+						return nil, fmt.Errorf("Could not parse CIDR %s: %s", option, err)
+					}
+				} else {
+					ip = net.ParseIP(option)
+					if ip == nil {
+						return nil, fmt.Errorf("Could not parse IP %s", option)
+					}
+
+					var mask net.IPMask
+					if ipv4 := ip.To4(); ipv4 != nil {
+						mask = net.CIDRMask(32, 32)
+					} else {
+						mask = net.CIDRMask(128, 128)
+					}
+					ipNet = &net.IPNet{
+						IP:   ip,
+						Mask: mask,
+					}
+				}
+
+				value, _ := config.GetString("geoip-overrides", option)
+				value = strings.ToUpper(strings.TrimSpace(value))
+				if value == "" {
+					log.Printf("IP %s doesn't have a country assigned, skipping", option)
+					continue
+				} else if !IsValidCountry(value) {
+					log.Printf("Country %s for IP %s is invalid, skipping", value, option)
+					continue
+				}
+
+				log.Printf("Using country %s for %s", value, ipNet)
+				geoipOverrides[ipNet] = value
+			}
 		}
 	} else {
 		log.Printf("Not using GeoIP database")
@@ -259,7 +304,8 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 		backendTimeout: backendTimeout,
 		backend:        backend,
 
-		geoip: geoip,
+		geoip:          geoip,
+		geoipOverrides: geoipOverrides,
 	}
 	hub.upgrader.CheckOrigin = hub.checkOrigin
 	r.HandleFunc("/spreed", func(w http.ResponseWriter, r *http.Request) {
@@ -1549,7 +1595,15 @@ func (h *Hub) lookupClientCountry(client *Client) string {
 	ip := net.ParseIP(client.RemoteAddr())
 	if ip == nil {
 		return noCountry
-	} else if ip.IsLoopback() {
+	}
+
+	for overrideNet, country := range h.geoipOverrides {
+		if overrideNet.Contains(ip) {
+			return country
+		}
+	}
+
+	if ip.IsLoopback() {
 		return loopback
 	}
 
