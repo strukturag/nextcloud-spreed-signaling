@@ -149,6 +149,12 @@ url =
 # looking up IP addresses.
 #url =
 
+[geoip-overrides]
+# Optional overrides for GeoIP lookups. The key is an IP address / range, the
+# value the associated country code.
+#127.0.0.1 = DE
+#192.168.0.0/24 = DE
+
 [stats]
 # Comma-separated list of IP addresses that are allowed to access the stats
 # endpoint. Leave empty (or commented) to only allow access from "127.0.0.1".
