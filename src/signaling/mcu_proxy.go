@@ -39,6 +39,10 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/websocket"
 
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/pkg/srv"
+	"go.etcd.io/etcd/pkg/transport"
+
 	"gopkg.in/dgrijalva/jwt-go.v3"
 )
 
@@ -53,6 +57,9 @@ const (
 	// Sort connections by load every 10 publishing requests or once per second.
 	connectionSortRequests = 10
 	connectionSortInterval = time.Second
+
+	proxyUrlTypeStatic = "static"
+	proxyUrlTypeEtcd   = "etcd"
 )
 
 type mcuProxyPubSubCommon struct {
@@ -871,6 +878,12 @@ type mcuProxy struct {
 	tokenId  string
 	tokenKey *rsa.PrivateKey
 
+	etcdMu    sync.Mutex
+	client    atomic.Value
+	keyPrefix atomic.Value
+	keyInfos  map[string]*ProxyInformationEtcd
+	urlToKey  map[string]string
+
 	connections    []*mcuProxyConnection
 	connectionsMap map[string]*mcuProxyConnection
 	connectionsMu  sync.RWMutex
@@ -884,7 +897,9 @@ type mcuProxy struct {
 	publisherWaiters   map[uint64]chan bool
 }
 
-func NewMcuProxy(baseUrl string, config *goconf.ConfigFile) (Mcu, error) {
+func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
+	urlType, _ := config.GetString("mcu", "urltype")
+
 	tokenId, _ := config.GetString("mcu", "token_id")
 	if tokenId == "" {
 		return nil, fmt.Errorf("No token id configured")
@@ -913,20 +928,41 @@ func NewMcuProxy(baseUrl string, config *goconf.ConfigFile) (Mcu, error) {
 		publisherWaiters: make(map[uint64]chan bool),
 	}
 
-	for _, u := range strings.Split(baseUrl, " ") {
-		conn, err := newMcuProxyConnection(mcu, u)
-		if err != nil {
+	switch urlType {
+	case proxyUrlTypeStatic:
+		mcuUrl, _ := config.GetString("mcu", "url")
+		for _, u := range strings.Split(mcuUrl, " ") {
+			conn, err := newMcuProxyConnection(mcu, u)
+			if err != nil {
+				return nil, err
+			}
+
+			mcu.connections = append(mcu.connections, conn)
+			mcu.connectionsMap[u] = conn
+		}
+		if len(mcu.connections) == 0 {
+			return nil, fmt.Errorf("No MCU proxy connections configured")
+		}
+	case proxyUrlTypeEtcd:
+		mcu.keyInfos = make(map[string]*ProxyInformationEtcd)
+		mcu.urlToKey = make(map[string]string)
+		if err := mcu.configureEtcd(config, false); err != nil {
 			return nil, err
 		}
-
-		mcu.connections = append(mcu.connections, conn)
-		mcu.connectionsMap[u] = conn
-	}
-	if len(mcu.connections) == 0 {
-		return nil, fmt.Errorf("No MCU proxy connections configured")
+	default:
+		return nil, fmt.Errorf("Unsupported proxy URL type %s", urlType)
 	}
 
 	return mcu, nil
+}
+
+func (m *mcuProxy) getEtcdClient() *clientv3.Client {
+	c := m.client.Load()
+	if c == nil {
+		return nil
+	}
+
+	return c.(*clientv3.Client)
 }
 
 func (m *mcuProxy) Start() error {
@@ -950,6 +986,104 @@ func (m *mcuProxy) Stop() {
 		defer cancel()
 		c.stop(ctx)
 	}
+}
+
+func (m *mcuProxy) configureEtcd(config *goconf.ConfigFile, ignoreErrors bool) error {
+	keyPrefix, _ := config.GetString("mcu", "keyprefix")
+	if keyPrefix == "" {
+		keyPrefix = "/%s"
+	}
+
+	var endpoints []string
+	if endpointsString, _ := config.GetString("mcu", "endpoints"); endpointsString != "" {
+		for _, ep := range strings.Split(endpointsString, ",") {
+			ep := strings.TrimSpace(ep)
+			if ep != "" {
+				endpoints = append(endpoints, ep)
+			}
+		}
+	} else if discoverySrv, _ := config.GetString("mcu", "discoverysrv"); discoverySrv != "" {
+		discoveryService, _ := config.GetString("mcu", "discoveryservice")
+		clients, err := srv.GetClient("etcd-client", discoverySrv, discoveryService)
+		if err != nil {
+			if !ignoreErrors {
+				return fmt.Errorf("Could not discover endpoints for %s: %s", discoverySrv, err)
+			}
+		} else {
+			endpoints = clients.Endpoints
+		}
+	}
+
+	if len(endpoints) == 0 {
+		if !ignoreErrors {
+			return fmt.Errorf("No proxy URL endpoints configured")
+		}
+
+		log.Printf("No proxy URL endpoints configured, not changing client")
+	} else {
+		cfg := clientv3.Config{
+			Endpoints: endpoints,
+
+			// set timeout per request to fail fast when the target endpoint is unavailable
+			DialTimeout: time.Second,
+		}
+
+		clientKey, _ := config.GetString("mcu", "clientkey")
+		clientCert, _ := config.GetString("mcu", "clientcert")
+		caCert, _ := config.GetString("mcu", "cacert")
+		if clientKey != "" && clientCert != "" && caCert != "" {
+			tlsInfo := transport.TLSInfo{
+				CertFile:      clientCert,
+				KeyFile:       clientKey,
+				TrustedCAFile: caCert,
+			}
+			tlsConfig, err := tlsInfo.ClientConfig()
+			if err != nil {
+				if !ignoreErrors {
+					return fmt.Errorf("Could not setup TLS configuration: %s", err)
+				}
+
+				log.Printf("Could not setup TLS configuration, will be disabled (%s)", err)
+			} else {
+				cfg.TLS = tlsConfig
+			}
+		}
+
+		c, err := clientv3.New(cfg)
+		if err != nil {
+			if !ignoreErrors {
+				return err
+			}
+
+			log.Printf("Could not create new client from proxy URL endpoints %+v: %s", endpoints, err)
+		} else {
+			prev := m.getEtcdClient()
+			if prev != nil {
+				prev.Close()
+			}
+			m.client.Store(c)
+			log.Printf("Using proxy URL endpoints %+v", endpoints)
+
+			ch := c.Watch(clientv3.WithRequireLeader(context.Background()), keyPrefix, clientv3.WithPrefix())
+			go m.processWatches(ch)
+
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+
+				response, err := c.Get(ctx, keyPrefix, clientv3.WithPrefix())
+				if err != nil {
+					log.Printf("Could not get initial list of proxy URLs: %s", err)
+				} else {
+					for _, ev := range response.Kvs {
+						m.addEtcdProxy(string(ev.Key), ev.Value)
+					}
+				}
+			}()
+		}
+	}
+
+	return nil
 }
 
 func (m *mcuProxy) Reload(config *goconf.ConfigFile) {
@@ -999,6 +1133,98 @@ func (m *mcuProxy) Reload(config *goconf.ConfigFile) {
 
 	if changed {
 		atomic.StoreInt64(&m.nextSort, 0)
+	}
+}
+
+func (m *mcuProxy) processWatches(ch clientv3.WatchChan) {
+	for response := range ch {
+		for _, ev := range response.Events {
+			switch ev.Type {
+			case clientv3.EventTypePut:
+				m.addEtcdProxy(string(ev.Kv.Key), ev.Kv.Value)
+			case clientv3.EventTypeDelete:
+				m.removeEtcdProxy(string(ev.Kv.Key))
+			default:
+				log.Printf("Unsupported event %s %q -> %q", ev.Type, ev.Kv.Key, ev.Kv.Value)
+			}
+		}
+	}
+}
+
+func (m *mcuProxy) addEtcdProxy(key string, data []byte) {
+	var info ProxyInformationEtcd
+	if err := json.Unmarshal(data, &info); err != nil {
+		log.Printf("Could not decode proxy information %s: %s", string(data), err)
+		return
+	}
+	if err := info.CheckValid(); err != nil {
+		log.Printf("Received invalid proxy information %s: %s", string(data), err)
+		return
+	}
+
+	m.etcdMu.Lock()
+	defer m.etcdMu.Unlock()
+
+	prev, found := m.keyInfos[key]
+	if found && info.Address != prev.Address {
+		// Address of a proxy has changed.
+		m.removeEtcdProxyLocked(key)
+	}
+
+	if otherKey, found := m.urlToKey[info.Address]; found && otherKey != key {
+		log.Printf("Address %s is already registered for key %s, ignoring %s", info.Address, otherKey, key)
+		return
+	}
+
+	m.connectionsMu.Lock()
+	defer m.connectionsMu.Unlock()
+	if conn, found := m.connectionsMap[info.Address]; found {
+		m.keyInfos[key] = &info
+		m.urlToKey[info.Address] = key
+		conn.stopCloseIfEmpty()
+	} else {
+		conn, err := newMcuProxyConnection(m, info.Address)
+		if err != nil {
+			log.Printf("Could not create proxy connection to %s: %s", info.Address, err)
+			return
+		}
+
+		if err := conn.start(); err != nil {
+			log.Printf("Could not start new connection to %s: %s", info.Address, err)
+			return
+		}
+
+		log.Printf("Adding new connection to %s (from %s)", info.Address, key)
+		m.keyInfos[key] = &info
+		m.urlToKey[info.Address] = key
+		m.connections = append(m.connections, conn)
+		m.connectionsMap[info.Address] = conn
+		atomic.StoreInt64(&m.nextSort, 0)
+	}
+}
+
+func (m *mcuProxy) removeEtcdProxy(key string) {
+	m.etcdMu.Lock()
+	defer m.etcdMu.Unlock()
+
+	m.removeEtcdProxyLocked(key)
+}
+
+func (m *mcuProxy) removeEtcdProxyLocked(key string) {
+	info, found := m.keyInfos[key]
+	if !found {
+		return
+	}
+
+	delete(m.keyInfos, key)
+	delete(m.urlToKey, info.Address)
+
+	log.Printf("Removing connection to %s (from %s)", info.Address, key)
+
+	m.connectionsMu.RLock()
+	defer m.connectionsMu.RUnlock()
+	if conn, found := m.connectionsMap[info.Address]; found {
+		go conn.closeIfEmpty()
 	}
 }
 
