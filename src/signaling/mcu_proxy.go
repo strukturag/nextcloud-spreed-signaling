@@ -661,6 +661,8 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 		c.processPayload(msg)
 	case "event":
 		c.processEvent(msg)
+	case "bye":
+		c.processBye(msg)
 	default:
 		log.Printf("Unsupported message received from %s: %+v", c.url, msg)
 	}
@@ -732,6 +734,17 @@ func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 	}
 
 	log.Printf("Received event for unknown client %+v from %s", event, c.url)
+}
+
+func (c *mcuProxyConnection) processBye(msg *ProxyServerMessage) {
+	bye := msg.Bye
+	switch bye.Reason {
+	case "session_resumed":
+		log.Printf("Session %s on %s was resumed by other client, resetting", c.sessionId, c.url)
+		c.sessionId = ""
+	default:
+		log.Printf("Received bye with unsupported reason from %s %+v", c.url, bye)
+	}
 }
 
 func (c *mcuProxyConnection) sendHello() error {
