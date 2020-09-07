@@ -122,7 +122,7 @@ connectionsperhost = 8
 # Possible values:
 # - static: A space-separated list of proxy URLs is given in the "url" option.
 # - etcd: Proxy URLs are retrieved from an etcd cluster (see below).
-#urltype = "static"
+#urltype = static
 
 # For type "proxy": the id of the token to use when connecting to proxy servers.
 #token_id = server1
