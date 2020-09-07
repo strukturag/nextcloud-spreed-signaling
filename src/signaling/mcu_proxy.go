@@ -626,6 +626,7 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			log.Printf("Hello connection to %s failed with %+v, reconnecting", c.url, msg.Error)
 			c.scheduleReconnect()
 		case "hello":
+			resumed := c.sessionId == msg.Hello.SessionId
 			c.sessionId = msg.Hello.SessionId
 			country := ""
 			if msg.Hello.Server != nil {
@@ -635,7 +636,9 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 				}
 			}
 			c.country.Store(country)
-			if country != "" {
+			if resumed {
+				log.Printf("Resumed session %s on %s", c.sessionId, c.url)
+			} else if country != "" {
 				log.Printf("Received session %s from %s (in %s)", c.sessionId, c.url, country)
 			} else {
 				log.Printf("Received session %s from %s", c.sessionId, c.url)
