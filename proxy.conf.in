@@ -20,16 +20,6 @@
 # - etcd: Token information are retrieved from an etcd cluster (see below).
 tokentype = static
 
-[sessions]
-# Secret value used to generate checksums of sessions. This should be a random
-# string of 32 or 64 bytes.
-hashkey = secret-for-session-checksums
-
-# Optional key for encrypting data in the sessions. Must be either 16, 24 or
-# 32 bytes.
-# If no key is specified, data will not be encrypted (not recommended).
-blockkey = -encryption-key-
-
 [nats]
 # Url of NATS backend to use. This can also be a list of URLs to connect to
 # multiple backends. For local development, this can be set to ":loopback:"

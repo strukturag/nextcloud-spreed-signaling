@@ -23,6 +23,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -108,24 +109,14 @@ type ProxyServer struct {
 }
 
 func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile, nats signaling.NatsClient) (*ProxyServer, error) {
-	hashKey, _ := config.GetString("sessions", "hashkey")
-	switch len(hashKey) {
-	case 32:
-	case 64:
-	default:
-		log.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
+	hashKey := make([]byte, 64)
+	if _, err := rand.Read(hashKey); err != nil {
+		return nil, fmt.Errorf("Could not generate random hash key: %s", err)
 	}
 
-	blockKey, _ := config.GetString("sessions", "blockkey")
-	blockBytes := []byte(blockKey)
-	switch len(blockKey) {
-	case 0:
-		blockBytes = nil
-	case 16:
-	case 24:
-	case 32:
-	default:
-		return nil, fmt.Errorf("The sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
+	blockKey := make([]byte, 32)
+	if _, err := rand.Read(blockKey); err != nil {
+		return nil, fmt.Errorf("Could not generate random block key: %s", err)
 	}
 
 	var tokens ProxyTokens
@@ -191,7 +182,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile, na
 		tokens:          tokens,
 		statsAllowedIps: statsAllowedIps,
 
-		cookie:   securecookie.New([]byte(hashKey), blockBytes).MaxAge(0),
+		cookie:   securecookie.New(hashKey, blockKey).MaxAge(0),
 		sessions: make(map[uint64]*ProxySession),
 
 		clients:   make(map[string]signaling.McuClient),
