@@ -539,7 +539,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 				session = s.GetSession(data.Sid)
 			}
 
-			if session == nil {
+			if session == nil || resumeId != session.PublicId() {
 				client.SendMessage(message.NewErrorServerMessage(signaling.NoSuchSession))
 				return
 			}
