@@ -944,6 +944,10 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 		publisherWaiters: make(map[uint64]chan bool),
 	}
 
+	if urlType == "" {
+		urlType = proxyUrlTypeStatic
+	}
+
 	switch urlType {
 	case proxyUrlTypeStatic:
 		mcuUrl, _ := config.GetString("mcu", "url")
