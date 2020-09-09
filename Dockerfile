@@ -10,7 +10,7 @@ FROM alpine:3.11
 
 ENV CONFIG=/config/server.conf
 RUN adduser -D spreedbackend && \
-    apk add --no-cache --no-cache ca-certificates libc6-compat libstdc++
+    apk add --no-cache ca-certificates libc6-compat libstdc++
 USER spreedbackend
 COPY --from=builder /workdir/bin/signaling /usr/local/signaling
 COPY ./server.conf.in /config/server.conf
