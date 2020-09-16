@@ -816,6 +816,10 @@ func (c *mcuProxyConnection) performAsyncRequest(ctx context.Context, msg *Proxy
 }
 
 func (c *mcuProxyConnection) performSyncRequest(ctx context.Context, msg *ProxyClientMessage) (*ProxyServerMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	errChan := make(chan error, 1)
 	responseChan := make(chan *ProxyServerMessage, 1)
 	c.performAsyncRequest(ctx, msg, func(err error, response *ProxyServerMessage) {
