@@ -550,6 +550,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			}
 
 			log.Printf("Resumed session %s", session.PublicId())
+			session.MarkUsed()
 			if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
 				s.sendShutdownScheduled(session)
 			} else {
