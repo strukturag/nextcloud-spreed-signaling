@@ -639,7 +639,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		log.Printf("Created %s publisher %s as %s", cmd.StreamType, publisher.Id(), id)
+		log.Printf("Created %s publisher %s as %s for %s", cmd.StreamType, publisher.Id(), id, session.PublicId())
 		session.StorePublisher(ctx, id, publisher)
 		s.StoreClient(id, publisher)
 
@@ -665,7 +665,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		log.Printf("Created %s subscriber %s as %s", cmd.StreamType, subscriber.Id(), id)
+		log.Printf("Created %s subscriber %s as %s for %s", cmd.StreamType, subscriber.Id(), id, session.PublicId())
 		session.StoreSubscriber(ctx, id, subscriber)
 		s.StoreClient(id, subscriber)
 
