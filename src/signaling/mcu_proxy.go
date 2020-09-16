@@ -63,6 +63,8 @@ const (
 
 	initialWaitDelay = time.Second
 	maxWaitDelay     = 8 * time.Second
+
+	defaultProxyTimeoutSeconds = 2
 )
 
 type mcuProxyPubSubCommon struct {
@@ -912,6 +914,7 @@ type mcuProxy struct {
 	connectionsMu  sync.RWMutex
 	connRequests   int64
 	nextSort       int64
+	proxyTimeout   time.Duration
 
 	mu         sync.RWMutex
 	publishers map[string]*mcuProxyConnection
@@ -940,11 +943,19 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 		return nil, fmt.Errorf("Could not parse private key from %s: %s", tokenKeyFilename, err)
 	}
 
+	proxyTimeoutSeconds, _ := config.GetInt("mcu", "proxytimeout")
+	if proxyTimeoutSeconds <= 0 {
+		proxyTimeoutSeconds = defaultProxyTimeoutSeconds
+	}
+	proxyTimeout := time.Duration(proxyTimeoutSeconds) * time.Second
+	log.Printf("Using a timeout of %s for proxy requests", proxyTimeout)
+
 	mcu := &mcuProxy{
 		tokenId:  tokenId,
 		tokenKey: tokenKey,
 
 		connectionsMap: make(map[string]*mcuProxyConnection),
+		proxyTimeout:   proxyTimeout,
 
 		publishers: make(map[string]*mcuProxyConnection),
 
@@ -1490,7 +1501,9 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 			continue
 		}
 
-		publisher, err := conn.newPublisher(ctx, listener, id, streamType)
+		subctx, cancel := context.WithTimeout(ctx, m.proxyTimeout)
+		defer cancel()
+		publisher, err := conn.newPublisher(subctx, listener, id, streamType)
 		if err != nil {
 			log.Printf("Could not create %s publisher for %s on %s: %s", streamType, id, conn.url, err)
 			continue

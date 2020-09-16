@@ -116,6 +116,9 @@ connectionsperhost = 8
 # Default is 2 mbit/sec.
 #maxscreenbitrate = 2097152
 
+# For type "proxy": timeout in seconds for requests to the proxy server.
+#proxytimeout = 2
+
 # For type "proxy": type of URL configuration for proxy servers.
 # Defaults to "static".
 #
