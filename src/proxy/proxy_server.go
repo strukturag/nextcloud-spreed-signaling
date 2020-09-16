@@ -427,7 +427,12 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client.OnClosed = s.clientClosed
+	client.OnClosed = func(c *signaling.Client) {
+		if session := client.GetSession(); session != nil {
+			session.MarkUsed()
+		}
+		s.clientClosed(c)
+	}
 	client.OnMessageReceived = func(c *signaling.Client, data []byte) {
 		s.processMessage(client, data)
 	}
