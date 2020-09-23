@@ -420,6 +420,7 @@ func (h *Hub) Reload(config *goconf.ConfigFile) {
 	if h.mcu != nil {
 		h.mcu.Reload(config)
 	}
+	h.backend.Reload(config)
 }
 
 func reverseSessionId(s string) (string, error) {

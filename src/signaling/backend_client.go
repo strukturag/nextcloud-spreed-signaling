@@ -83,6 +83,10 @@ func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost in
 	}, nil
 }
 
+func (b *BackendClient) Reload(config *goconf.ConfigFile) {
+	b.backends.Reload(config)
+}
+
 func (b *BackendClient) getPool(url *url.URL) (*HttpClientPool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
