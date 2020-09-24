@@ -149,6 +149,8 @@ func (p *mcuProxyPublisher) Close(ctx context.Context) {
 		log.Printf("Could not delete publisher %s at %s: %s", p.proxyId, p.conn.url, err)
 		return
 	}
+
+	log.Printf("Delete publisher %s at %s", p.proxyId, p.conn.url)
 }
 
 func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
@@ -222,6 +224,8 @@ func (s *mcuProxySubscriber) Close(ctx context.Context) {
 		log.Printf("Could not delete subscriber %s at %s: %s", s.proxyId, s.conn.url, err)
 		return
 	}
+
+	log.Printf("Delete subscriber %s at %s", s.proxyId, s.conn.url)
 }
 
 func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
