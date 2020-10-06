@@ -200,6 +200,11 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 }
 
 func (b *BackendConfiguration) Reload(config *goconf.ConfigFile) {
+	if b.compatBackend != nil {
+		log.Println("Old-style configuration active, reload is not supported")
+		return
+	}
+
 	if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
 		configuredHosts := getConfiguredHosts(backendIds, config)
 
