@@ -120,13 +120,17 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 	}, nil
 }
 
-func (b *BackendConfiguration) RemoveBackend(host string) {
+func (b *BackendConfiguration) RemoveBackendsForHost(host string) {
+	if oldBackends := b.backends[host]; len(oldBackends) > 0 {
+		for _, backend := range oldBackends {
+			log.Printf("Backend %s removed for %s", backend.id, backend.url)
+		}
+	}
 	delete(b.backends, host)
 }
 
 func (b *BackendConfiguration) UpsertHost(host string, backends []*Backend) {
-	existingIndex := 0
-	for _, existingBackend := range b.backends[host] {
+	for existingIndex, existingBackend := range b.backends[host] {
 		found := false
 		index := 0
 		for _, newBackend := range backends {
@@ -134,16 +138,26 @@ func (b *BackendConfiguration) UpsertHost(host string, backends []*Backend) {
 				found = true
 				backends = append(backends[:index], backends[index+1:]...)
 				break
+			} else if newBackend.id == existingBackend.id {
+				found = true
+				b.backends[host][existingIndex] = newBackend
+				backends = append(backends[:index], backends[index+1:]...)
+				log.Printf("Backend %s updated for %s", newBackend.id, newBackend.url)
+				break
 			}
 			index++
 		}
 		if !found {
+			removed := b.backends[host][existingIndex]
+			log.Printf("Backend %s removed for %s", removed.id, removed.url)
 			b.backends[host] = append(b.backends[host][:existingIndex], b.backends[host][existingIndex+1:]...)
 		}
-		existingIndex++
 	}
 
 	b.backends[host] = append(b.backends[host], backends...)
+	for _, added := range backends {
+		log.Printf("Backend %s added for %s", added.id, added.url)
+	}
 }
 
 func getConfiguredBackendIDs(backendIds string) (ids []string) {
@@ -211,7 +225,7 @@ func (b *BackendConfiguration) Reload(config *goconf.ConfigFile) {
 		// remove backends that are no longer configured
 		for hostname := range b.backends {
 			if _, ok := configuredHosts[hostname]; !ok {
-				b.RemoveBackend(hostname)
+				b.RemoveBackendsForHost(hostname)
 			}
 		}
 
