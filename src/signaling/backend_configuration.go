@@ -71,7 +71,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 			compat: true,
 		}
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
-		for host, configuredBackends := range getConfiguredHosts(config) {
+		for host, configuredBackends := range getConfiguredHosts(backendIds, config) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
 				log.Printf("Backend %s added for %s", be.id, be.url)
@@ -146,26 +146,28 @@ func (b *BackendConfiguration) UpsertHost(host string, backends []*Backend) {
 	b.backends[host] = append(b.backends[host], backends...)
 }
 
-func getConfiguredBackendIDs(config *goconf.ConfigFile) (ids map[string]bool) {
-	ids = make(map[string]bool)
+func getConfiguredBackendIDs(backendIds string) (ids []string) {
+	seen := make(map[string]bool)
 
-	if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
-		for _, id := range strings.Split(backendIds, ",") {
-			id = strings.TrimSpace(id)
-			if id == "" {
-				continue
-			}
-
-			ids[id] = true
+	for _, id := range strings.Split(backendIds, ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
 		}
+
+		if seen[id] {
+			continue
+		}
+		ids = append(ids, id)
+		seen[id] = true
 	}
 
 	return ids
 }
 
-func getConfiguredHosts(config *goconf.ConfigFile) (hosts map[string][]*Backend) {
+func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map[string][]*Backend) {
 	hosts = make(map[string][]*Backend)
-	for id := range getConfiguredBackendIDs(config) {
+	for _, id := range getConfiguredBackendIDs(backendIds) {
 		u, _ := config.GetString(id, "url")
 		if u == "" {
 			log.Printf("Backend %s is missing or incomplete, skipping", id)
@@ -199,7 +201,7 @@ func getConfiguredHosts(config *goconf.ConfigFile) (hosts map[string][]*Backend)
 
 func (b *BackendConfiguration) Reload(config *goconf.ConfigFile) {
 	if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
-		configuredHosts := getConfiguredHosts(config)
+		configuredHosts := getConfiguredHosts(backendIds, config)
 
 		// remove backends that are no longer configured
 		for hostname := range b.backends {

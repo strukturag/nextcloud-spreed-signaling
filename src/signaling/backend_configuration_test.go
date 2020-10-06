@@ -165,6 +165,30 @@ func TestIsUrlAllowed_AllowAll(t *testing.T) {
 	testUrls(t, cfg, valid_urls, invalid_urls)
 }
 
+type ParseBackendIdsTestcase struct {
+	s   string
+	ids []string
+}
+
+func TestParseBackendIds(t *testing.T) {
+	testcases := []ParseBackendIdsTestcase{
+		ParseBackendIdsTestcase{"", nil},
+		ParseBackendIdsTestcase{"backend1", []string{"backend1"}},
+		ParseBackendIdsTestcase{" backend1 ", []string{"backend1"}},
+		ParseBackendIdsTestcase{"backend1,", []string{"backend1"}},
+		ParseBackendIdsTestcase{"backend1,backend1", []string{"backend1"}},
+		ParseBackendIdsTestcase{"backend1, backend2", []string{"backend1", "backend2"}},
+		ParseBackendIdsTestcase{"backend1,backend2, backend1", []string{"backend1", "backend2"}},
+	}
+
+	for _, test := range testcases {
+		ids := getConfiguredBackendIDs(test.s)
+		if !reflect.DeepEqual(ids, test.ids) {
+			t.Errorf("List of ids differs, expected %+v, got %+v", test.ids, ids)
+		}
+	}
+}
+
 func TestBackendReloadChangeExistingURL(t *testing.T) {
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
