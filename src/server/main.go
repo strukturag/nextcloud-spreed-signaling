@@ -159,12 +159,16 @@ func main() {
 	if mcuType == "" && mcuUrl != "" {
 		log.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
 		mcuType = signaling.McuTypeJanus
+	} else if mcuType == signaling.McuTypeJanus && mcuUrl == "" {
+		log.Printf("WARNING: Old-style MCU configuration detected with type but no url, disabling")
+		mcuType = ""
 	}
 
 	if mcuType != "" {
 		var mcu signaling.Mcu
 		mcuRetry := initialMcuRetry
 		mcuRetryTimer := time.NewTimer(mcuRetry)
+	mcuTypeLoop:
 		for {
 			switch mcuType {
 			case signaling.McuTypeJanus:
@@ -201,6 +205,10 @@ func main() {
 						if mcuType == "" && mcuUrl != "" {
 							log.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
 							mcuType = signaling.McuTypeJanus
+						} else if mcuType == signaling.McuTypeJanus && mcuUrl == "" {
+							log.Printf("WARNING: Old-style MCU configuration detected with type but no url, disabling")
+							mcuType = ""
+							break mcuTypeLoop
 						}
 					}
 				}
@@ -212,10 +220,12 @@ func main() {
 				}
 			}
 		}
-		defer mcu.Stop()
+		if mcu != nil {
+			defer mcu.Stop()
 
-		log.Printf("Using %s MCU", mcuType)
-		hub.SetMcu(mcu)
+			log.Printf("Using %s MCU", mcuType)
+			hub.SetMcu(mcu)
+		}
 	}
 
 	go hub.Run()
