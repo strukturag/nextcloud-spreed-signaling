@@ -165,6 +165,61 @@ func TestIsUrlAllowed_AllowAll(t *testing.T) {
 	testUrls(t, cfg, valid_urls, invalid_urls)
 }
 
+type ParseBackendIdsTestcase struct {
+	s   string
+	ids []string
+}
+
+func TestParseBackendIds(t *testing.T) {
+	testcases := []ParseBackendIdsTestcase{
+		ParseBackendIdsTestcase{"", nil},
+		ParseBackendIdsTestcase{"backend1", []string{"backend1"}},
+		ParseBackendIdsTestcase{" backend1 ", []string{"backend1"}},
+		ParseBackendIdsTestcase{"backend1,", []string{"backend1"}},
+		ParseBackendIdsTestcase{"backend1,backend1", []string{"backend1"}},
+		ParseBackendIdsTestcase{"backend1, backend2", []string{"backend1", "backend2"}},
+		ParseBackendIdsTestcase{"backend1,backend2, backend1", []string{"backend1", "backend2"}},
+	}
+
+	for _, test := range testcases {
+		ids := getConfiguredBackendIDs(test.s)
+		if !reflect.DeepEqual(ids, test.ids) {
+			t.Errorf("List of ids differs, expected %+v, got %+v", test.ids, ids)
+		}
+	}
+}
+
+func TestBackendReloadNoChange(t *testing.T) {
+	original_config := goconf.NewConfigFile()
+	original_config.AddOption("backend", "backends", "backend1, backend2")
+	original_config.AddOption("backend", "allowall", "false")
+	original_config.AddOption("backend1", "url", "http://domain1.invalid")
+	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
+	original_config.AddOption("backend2", "url", "http://domain2.invalid")
+	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
+	o_cfg, err := NewBackendConfiguration(original_config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	new_config := goconf.NewConfigFile()
+	new_config.AddOption("backend", "backends", "backend1, backend2")
+	new_config.AddOption("backend", "allowall", "false")
+	new_config.AddOption("backend1", "url", "http://domain1.invalid")
+	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
+	new_config.AddOption("backend2", "url", "http://domain2.invalid")
+	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
+	n_cfg, err := NewBackendConfiguration(new_config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	o_cfg.Reload(original_config)
+	if !reflect.DeepEqual(n_cfg, o_cfg) {
+		t.Error("BackendConfiguration should be equal after Reload")
+	}
+}
+
 func TestBackendReloadChangeExistingURL(t *testing.T) {
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -267,13 +322,13 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	}
 }
 
-func TestBackendReloadRemove(t *testing.T) {
+func TestBackendReloadRemoveHost(t *testing.T) {
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
 	original_config.AddOption("backend1", "url", "http://domain1.invalid")
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	original_config.AddOption("backend2", "url", "http://domain1.invalid")
+	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
 	o_cfg, err := NewBackendConfiguration(original_config)
 	if err != nil {
@@ -290,6 +345,41 @@ func TestBackendReloadRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	original_config.RemoveOption("backend", "backends")
+	original_config.AddOption("backend", "backends", "backend1")
+	original_config.RemoveSection("backend2")
+
+	o_cfg.Reload(original_config)
+	if !reflect.DeepEqual(n_cfg, o_cfg) {
+		t.Error("BackendConfiguration should be equal after Reload")
+	}
+}
+
+func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
+	original_config := goconf.NewConfigFile()
+	original_config.AddOption("backend", "backends", "backend1, backend2")
+	original_config.AddOption("backend", "allowall", "false")
+	original_config.AddOption("backend1", "url", "http://domain1.invalid/foo/")
+	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
+	original_config.AddOption("backend2", "url", "http://domain1.invalid/bar/")
+	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
+	o_cfg, err := NewBackendConfiguration(original_config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	new_config := goconf.NewConfigFile()
+	new_config.AddOption("backend", "backends", "backend1")
+	new_config.AddOption("backend", "allowall", "false")
+	new_config.AddOption("backend1", "url", "http://domain1.invalid/foo/")
+	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
+	n_cfg, err := NewBackendConfiguration(new_config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original_config.RemoveOption("backend", "backends")
+	original_config.AddOption("backend", "backends", "backend1")
 	original_config.RemoveSection("backend2")
 
 	o_cfg.Reload(original_config)
