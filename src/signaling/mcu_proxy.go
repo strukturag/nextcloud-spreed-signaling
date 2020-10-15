@@ -317,6 +317,8 @@ type mcuProxyConnectionStats struct {
 	Connected  bool       `json:"connected"`
 	Publishers int64      `json:"publishers"`
 	Clients    int64      `json:"clients"`
+	Load       *int64     `json:"load,omitempty"`
+	Shutdown   *bool      `json:"shutdown,omitempty"`
 	Uptime     *time.Time `json:"uptime,omitempty"`
 }
 
@@ -328,6 +330,10 @@ func (c *mcuProxyConnection) GetStats() *mcuProxyConnectionStats {
 	if c.conn != nil {
 		result.Connected = true
 		result.Uptime = &c.connectedSince
+		load := c.Load()
+		result.Load = &load
+		shutdown := c.IsShutdownScheduled()
+		result.Shutdown = &shutdown
 	}
 	c.mu.Unlock()
 	c.publishersLock.RLock()

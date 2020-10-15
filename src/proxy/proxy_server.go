@@ -948,6 +948,7 @@ func (s *ProxyServer) GetClientId(client signaling.McuClient) string {
 func (s *ProxyServer) getStats() map[string]interface{} {
 	result := map[string]interface{}{
 		"sessions": s.GetSessionsCount(),
+		"load":     atomic.LoadInt64(&s.load),
 		"mcu":      s.mcu.GetStats(),
 	}
 	return result
