@@ -50,6 +50,8 @@ type ClientMessage struct {
 	Message *MessageClientMessage `json:"message,omitempty"`
 
 	Control *ControlClientMessage `json:"control,omitempty"`
+
+	Internal *InternalClientMessage `json:"internal,omitempty"`
 }
 
 func (m *ClientMessage) CheckValid() error {
@@ -80,6 +82,12 @@ func (m *ClientMessage) CheckValid() error {
 		if m.Control == nil {
 			return fmt.Errorf("control missing")
 		} else if err := m.Control.CheckValid(); err != nil {
+			return err
+		}
+	case "internal":
+		if m.Internal == nil {
+			return fmt.Errorf("internal missing")
+		} else if err := m.Internal.CheckValid(); err != nil {
 			return err
 		}
 	}
@@ -191,6 +199,8 @@ func (e *Error) Error() string {
 const (
 	HelloClientTypeClient   = "client"
 	HelloClientTypeInternal = "internal"
+
+	HelloClientTypeVirtual = "virtual"
 )
 
 type ClientTypeInternalAuthParams struct {
@@ -272,7 +282,18 @@ func (m *HelloClientMessage) CheckValid() error {
 }
 
 const (
+	// Features for all clients.
 	ServerFeatureMcu = "mcu"
+
+	// Features for internal clients only.
+	ServerFeatureInternalVirtualSessions = "virtual-sessions"
+)
+
+var (
+	DefaultFeatures         []string
+	DefaultFeaturesInternal []string = []string{
+		ServerFeatureInternalVirtualSessions,
+	}
 )
 
 type HelloServerMessageServer struct {
@@ -388,7 +409,8 @@ type MessageServerMessageData struct {
 }
 
 type MessageServerMessage struct {
-	Sender *MessageServerMessageSender `json:"sender"`
+	Sender    *MessageServerMessageSender    `json:"sender"`
+	Recipient *MessageClientMessageRecipient `json:"recipient,omitempty"`
 
 	Data *json.RawMessage `json:"data"`
 }
@@ -399,10 +421,109 @@ type ControlClientMessage struct {
 	MessageClientMessage
 }
 
+func (m *ControlClientMessage) CheckValid() error {
+	if err := m.MessageClientMessage.CheckValid(); err != nil {
+		return err
+	}
+	return nil
+}
+
 type ControlServerMessage struct {
-	Sender *MessageServerMessageSender `json:"sender"`
+	Sender    *MessageServerMessageSender    `json:"sender"`
+	Recipient *MessageClientMessageRecipient `json:"recipient,omitempty"`
 
 	Data *json.RawMessage `json:"data"`
+}
+
+// Type "internal"
+
+type CommonSessionInternalClientMessage struct {
+	SessionId string `json:"sessionid"`
+
+	RoomId string `json:"roomid"`
+}
+
+func (m *CommonSessionInternalClientMessage) CheckValid() error {
+	if m.SessionId == "" {
+		return fmt.Errorf("sessionid missing")
+	}
+	if m.RoomId == "" {
+		return fmt.Errorf("roomid missing")
+	}
+	return nil
+}
+
+type AddSessionInternalClientMessage struct {
+	CommonSessionInternalClientMessage
+
+	UserId string           `json:"userid,omitempty"`
+	User   *json.RawMessage `json:"user,omitempty"`
+	Flags  uint32           `json:"flags,omitempty"`
+}
+
+func (m *AddSessionInternalClientMessage) CheckValid() error {
+	if err := m.CommonSessionInternalClientMessage.CheckValid(); err != nil {
+		return err
+	}
+	return nil
+}
+
+type UpdateSessionInternalClientMessage struct {
+	CommonSessionInternalClientMessage
+
+	Flags *uint32 `json:"flags,omitempty"`
+}
+
+func (m *UpdateSessionInternalClientMessage) CheckValid() error {
+	if err := m.CommonSessionInternalClientMessage.CheckValid(); err != nil {
+		return err
+	}
+	return nil
+}
+
+type RemoveSessionInternalClientMessage struct {
+	CommonSessionInternalClientMessage
+}
+
+func (m *RemoveSessionInternalClientMessage) CheckValid() error {
+	if err := m.CommonSessionInternalClientMessage.CheckValid(); err != nil {
+		return err
+	}
+	return nil
+}
+
+type InternalClientMessage struct {
+	Type string `json:"type"`
+
+	AddSession *AddSessionInternalClientMessage `json:"addsession,omitempty"`
+
+	UpdateSession *UpdateSessionInternalClientMessage `json:"updatesession,omitempty"`
+
+	RemoveSession *RemoveSessionInternalClientMessage `json:"removesession,omitempty"`
+}
+
+func (m *InternalClientMessage) CheckValid() error {
+	switch m.Type {
+	case "addsession":
+		if m.AddSession == nil {
+			return fmt.Errorf("addsession missing")
+		} else if err := m.AddSession.CheckValid(); err != nil {
+			return err
+		}
+	case "updatesession":
+		if m.UpdateSession == nil {
+			return fmt.Errorf("updatesession missing")
+		} else if err := m.UpdateSession.CheckValid(); err != nil {
+			return err
+		}
+	case "removesession":
+		if m.RemoveSession == nil {
+			return fmt.Errorf("removesession missing")
+		} else if err := m.RemoveSession.CheckValid(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Type "event"

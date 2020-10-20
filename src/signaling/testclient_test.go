@@ -527,6 +527,10 @@ func (c *TestClient) RunUntilRoom(ctx context.Context, roomId string) error {
 }
 
 func (c *TestClient) checkMessageJoined(message *ServerMessage, hello *HelloServerMessage) error {
+	return c.checkMessageJoinedSession(message, hello.SessionId, hello.UserId)
+}
+
+func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId string, userId string) error {
 	if err := checkMessageType(message, "event"); err != nil {
 		return err
 	} else if message.Event.Target != "room" {
@@ -537,12 +541,12 @@ func (c *TestClient) checkMessageJoined(message *ServerMessage, hello *HelloServ
 		return fmt.Errorf("Expected one join event entry, got %+v", message.Event)
 	} else {
 		evt := message.Event.Join[0]
-		if evt.SessionId != hello.SessionId {
+		if sessionId != "" && evt.SessionId != sessionId {
 			return fmt.Errorf("Expected join session id %+v, got %+v",
-				getPubliceSessionIdData(c.hub, hello.SessionId), getPubliceSessionIdData(c.hub, evt.SessionId))
+				getPubliceSessionIdData(c.hub, sessionId), getPubliceSessionIdData(c.hub, evt.SessionId))
 		}
-		if evt.UserId != hello.UserId {
-			return fmt.Errorf("Expected join user id %s, got %+v", hello.UserId, evt)
+		if evt.UserId != userId {
+			return fmt.Errorf("Expected join user id %s, got %+v", userId, evt)
 		}
 	}
 	return nil
@@ -557,6 +561,10 @@ func (c *TestClient) RunUntilJoined(ctx context.Context, hello *HelloServerMessa
 }
 
 func (c *TestClient) checkMessageRoomLeave(message *ServerMessage, hello *HelloServerMessage) error {
+	return c.checkMessageRoomLeaveSession(message, hello.SessionId)
+}
+
+func (c *TestClient) checkMessageRoomLeaveSession(message *ServerMessage, sessionId string) error {
 	if err := checkMessageType(message, "event"); err != nil {
 		return err
 	} else if message.Event.Target != "room" {
@@ -565,9 +573,9 @@ func (c *TestClient) checkMessageRoomLeave(message *ServerMessage, hello *HelloS
 		return fmt.Errorf("Expected event type leave, got %+v", message.Event)
 	} else if len(message.Event.Leave) != 1 {
 		return fmt.Errorf("Expected one leave event entry, got %+v", message.Event)
-	} else if message.Event.Leave[0] != hello.SessionId {
+	} else if message.Event.Leave[0] != sessionId {
 		return fmt.Errorf("Expected leave session id %+v, got %+v",
-			getPubliceSessionIdData(c.hub, hello.SessionId), getPubliceSessionIdData(c.hub, message.Event.Leave[0]))
+			getPubliceSessionIdData(c.hub, sessionId), getPubliceSessionIdData(c.hub, message.Event.Leave[0]))
 	}
 	return nil
 }

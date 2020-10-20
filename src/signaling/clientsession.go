@@ -82,6 +82,8 @@ type ClientSession struct {
 	pendingClientMessages        []*ServerMessage
 	hasPendingChat               bool
 	hasPendingParticipantsUpdate bool
+
+	virtualSessions map[*VirtualSession]bool
 }
 
 func NewClientSession(hub *Hub, privateId string, publicId string, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
@@ -96,13 +98,18 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 		userId:     auth.UserId,
 		userData:   auth.User,
 
-		backend:          backend,
-		backendUrl:       hello.Auth.Url,
-		parsedBackendUrl: hello.Auth.parsedUrl,
+		backend: backend,
 
 		natsReceiver: make(chan *nats.Msg, 64),
 		stopRun:      make(chan bool, 1),
 		runStopped:   make(chan bool, 1),
+	}
+	if s.clientType == HelloClientTypeInternal {
+		s.backendUrl = hello.Auth.internalParams.Backend
+		s.parsedBackendUrl = hello.Auth.internalParams.parsedBackend
+	} else {
+		s.backendUrl = hello.Auth.Url
+		s.parsedBackendUrl = hello.Auth.parsedUrl
 	}
 	if err := s.SubscribeNats(hub.nats); err != nil {
 		return nil, err
@@ -293,6 +300,12 @@ func (s *ClientSession) closeAndWait(wait bool) {
 		s.sessionSubscription.Unsubscribe()
 		s.sessionSubscription = nil
 	}
+	go func(virtualSessions map[*VirtualSession]bool) {
+		for session, _ := range virtualSessions {
+			session.Close()
+		}
+	}(s.virtualSessions)
+	s.virtualSessions = nil
 	s.releaseMcuObjects()
 	s.clearClientLocked(nil)
 	if atomic.CompareAndSwapInt32(&s.running, 1, 0) {
@@ -782,4 +795,19 @@ func (s *ClientSession) NotifySessionResumed(client *Client) {
 			room.NotifySessionResumed(client)
 		}
 	}
+}
+
+func (s *ClientSession) AddVirtualSession(session *VirtualSession) {
+	s.mu.Lock()
+	if s.virtualSessions == nil {
+		s.virtualSessions = make(map[*VirtualSession]bool)
+	}
+	s.virtualSessions[session] = true
+	s.mu.Unlock()
+}
+
+func (s *ClientSession) RemoveVirtualSession(session *VirtualSession) {
+	s.mu.Lock()
+	delete(s.virtualSessions, session)
+	s.mu.Unlock()
 }

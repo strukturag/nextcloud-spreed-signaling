@@ -183,6 +183,21 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 			t.Fatal(err)
 		}
 
+		if r.Header.Get("OCS-APIRequest") != "" {
+			var ocs OcsResponse
+			ocs.Ocs = &OcsBody{
+				Meta: OcsMeta{
+					Status:     "ok",
+					StatusCode: http.StatusOK,
+					Message:    http.StatusText(http.StatusOK),
+				},
+				Data: (*json.RawMessage)(&data),
+			}
+			if data, err = json.Marshal(ocs); err != nil {
+				t.Fatal(err)
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(data)
@@ -239,22 +254,44 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	return response
 }
 
+func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+	if request.Type != "session" || request.Session == nil {
+		t.Fatalf("Expected an session backend request, got %+v", request)
+	}
+
+	// TODO(jojo): Evaluate request.
+
+	response := &BackendClientResponse{
+		Type: "session",
+		Session: &BackendClientSessionResponse{
+			Version: BackendVersion,
+			RoomId:  request.Session.RoomId,
+		},
+	}
+	return response
+}
+
 func registerBackendHandler(t *testing.T, router *mux.Router) {
 	registerBackendHandlerUrl(t, router, "/")
 }
 
 func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
-	router.HandleFunc(url, validateBackendChecksum(t, func(w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+	handleFunc := validateBackendChecksum(t, func(w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
 		switch request.Type {
 		case "auth":
 			return processAuthRequest(t, w, r, request)
 		case "room":
 			return processRoomRequest(t, w, r, request)
+		case "session":
+			return processSessionRequest(t, w, r, request)
 		default:
 			t.Fatalf("Unsupported request received: %+v", request)
 			return nil
 		}
-	}))
+	})
+
+	router.HandleFunc(url, handleFunc)
+	router.HandleFunc("/ocs/v2.php/apps/spreed/api/v1/signaling/backend", handleFunc)
 }
 
 func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {

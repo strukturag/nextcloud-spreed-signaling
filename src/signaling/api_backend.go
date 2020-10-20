@@ -155,6 +155,8 @@ type BackendClientRequest struct {
 	Room *BackendClientRoomRequest `json:"room,omitempty"`
 
 	Ping *BackendClientPingRequest `json:"ping,omitempty"`
+
+	Session *BackendClientSessionRequest `json:"session,omitempty"`
 }
 
 func NewBackendClientAuthRequest(params *json.RawMessage) *BackendClientRequest {
@@ -177,6 +179,8 @@ type BackendClientResponse struct {
 	Room *BackendClientRoomResponse `json:"room,omitempty"`
 
 	Ping *BackendClientRingResponse `json:"ping,omitempty"`
+
+	Session *BackendClientSessionResponse `json:"session,omitempty"`
 }
 
 type BackendClientAuthResponse struct {
@@ -247,6 +251,37 @@ func NewBackendClientPingRequest(roomid string, entries []BackendPingEntry) *Bac
 type BackendClientRingResponse struct {
 	Version string `json:"version"`
 	RoomId  string `json:"roomid"`
+}
+
+type BackendClientSessionRequest struct {
+	Version   string           `json:"version"`
+	RoomId    string           `json:"roomid"`
+	Action    string           `json:"action"`
+	SessionId string           `json:"sessionid"`
+	UserId    string           `json:"userid,omitempty"`
+	User      *json.RawMessage `json:"user,omitempty"`
+}
+
+type BackendClientSessionResponse struct {
+	Version string `json:"version"`
+	RoomId  string `json:"roomid"`
+}
+
+func NewBackendClientSessionRequest(roomid string, action string, sessionid string, msg *AddSessionInternalClientMessage) *BackendClientRequest {
+	request := &BackendClientRequest{
+		Type: "session",
+		Session: &BackendClientSessionRequest{
+			Version:   BackendVersion,
+			RoomId:    roomid,
+			Action:    action,
+			SessionId: sessionid,
+		},
+	}
+	if msg != nil {
+		request.Session.UserId = msg.UserId
+		request.Session.User = msg.User
+	}
+	return request
 }
 
 type OcsMeta struct {
