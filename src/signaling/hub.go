@@ -1517,7 +1517,7 @@ func (h *Hub) sendMcuMessageResponse(client *Client, session *ClientSession, mes
 	}
 
 	if response_message != nil {
-		client.SendMessage(response_message)
+		session.SendMessage(response_message)
 	}
 }
 
