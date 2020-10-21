@@ -29,6 +29,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -291,7 +292,10 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 	})
 
 	router.HandleFunc(url, handleFunc)
-	router.HandleFunc("/ocs/v2.php/apps/spreed/api/v1/signaling/backend", handleFunc)
+	if !strings.HasSuffix(url, "/") {
+		url += "/"
+	}
+	router.HandleFunc(url+"ocs/v2.php/apps/spreed/api/v1/signaling/backend", handleFunc)
 }
 
 func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {

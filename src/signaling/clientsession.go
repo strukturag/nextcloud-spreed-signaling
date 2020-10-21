@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,6 +41,8 @@ var (
 
 	// Warn if a session has 32 or more pending messages.
 	warnPendingMessagesCount = 32
+
+	PathToOcsSignalingBackend = "ocs/v2.php/apps/spreed/api/v1/signaling/backend"
 )
 
 type ClientSession struct {
@@ -111,6 +114,20 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 		s.backendUrl = hello.Auth.Url
 		s.parsedBackendUrl = hello.Auth.parsedUrl
 	}
+	if !strings.Contains(s.backendUrl, "/ocs/v2.php/") {
+		backendUrl := s.backendUrl
+		if !strings.HasSuffix(backendUrl, "/") {
+			backendUrl += "/"
+		}
+		backendUrl += PathToOcsSignalingBackend
+		if u, err := url.Parse(backendUrl); err != nil {
+			return nil, err
+		} else {
+			s.backendUrl = backendUrl
+			s.parsedBackendUrl = u
+		}
+	}
+
 	if err := s.SubscribeNats(hub.nats); err != nil {
 		return nil, err
 	}
