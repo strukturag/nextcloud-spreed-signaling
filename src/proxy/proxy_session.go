@@ -48,11 +48,11 @@ type ProxySession struct {
 
 	publishersLock sync.Mutex
 	publishers     map[string]signaling.McuPublisher
-	publisherIds   map[string]string
+	publisherIds   map[signaling.McuPublisher]string
 
 	subscribersLock sync.Mutex
 	subscribers     map[string]signaling.McuSubscriber
-	subscriberIds   map[string]string
+	subscriberIds   map[signaling.McuSubscriber]string
 }
 
 func NewProxySession(proxy *ProxyServer, sid uint64, id string) *ProxySession {
@@ -63,10 +63,10 @@ func NewProxySession(proxy *ProxyServer, sid uint64, id string) *ProxySession {
 		lastUsed: time.Now().UnixNano(),
 
 		publishers:   make(map[string]signaling.McuPublisher),
-		publisherIds: make(map[string]string),
+		publisherIds: make(map[signaling.McuPublisher]string),
 
 		subscribers:   make(map[string]signaling.McuSubscriber),
-		subscriberIds: make(map[string]string),
+		subscriberIds: make(map[signaling.McuSubscriber]string),
 	}
 }
 
@@ -200,20 +200,20 @@ func (s *ProxySession) StorePublisher(ctx context.Context, id string, publisher 
 	defer s.publishersLock.Unlock()
 
 	s.publishers[id] = publisher
-	s.publisherIds[publisher.Id()] = id
+	s.publisherIds[publisher] = id
 }
 
 func (s *ProxySession) DeletePublisher(publisher signaling.McuPublisher) string {
 	s.publishersLock.Lock()
 	defer s.publishersLock.Unlock()
 
-	id, found := s.publisherIds[publisher.Id()]
+	id, found := s.publisherIds[publisher]
 	if !found {
 		return ""
 	}
 
 	delete(s.publishers, id)
-	delete(s.publisherIds, publisher.Id())
+	delete(s.publisherIds, publisher)
 	return id
 }
 
@@ -222,20 +222,20 @@ func (s *ProxySession) StoreSubscriber(ctx context.Context, id string, subscribe
 	defer s.subscribersLock.Unlock()
 
 	s.subscribers[id] = subscriber
-	s.subscriberIds[subscriber.Id()] = id
+	s.subscriberIds[subscriber] = id
 }
 
 func (s *ProxySession) DeleteSubscriber(subscriber signaling.McuSubscriber) string {
 	s.subscribersLock.Lock()
 	defer s.subscribersLock.Unlock()
 
-	id, found := s.subscriberIds[subscriber.Id()]
+	id, found := s.subscriberIds[subscriber]
 	if !found {
 		return ""
 	}
 
 	delete(s.subscribers, id)
-	delete(s.subscriberIds, subscriber.Id())
+	delete(s.subscriberIds, subscriber)
 	return id
 }
 
@@ -249,7 +249,7 @@ func (s *ProxySession) clearPublishers() {
 		}
 	}(s.publishers)
 	s.publishers = make(map[string]signaling.McuPublisher)
-	s.publisherIds = make(map[string]string)
+	s.publisherIds = make(map[signaling.McuPublisher]string)
 }
 
 func (s *ProxySession) clearSubscribers() {
@@ -262,7 +262,7 @@ func (s *ProxySession) clearSubscribers() {
 		}
 	}(s.subscribers)
 	s.subscribers = make(map[string]signaling.McuSubscriber)
-	s.subscriberIds = make(map[string]string)
+	s.subscriberIds = make(map[signaling.McuSubscriber]string)
 }
 
 func (s *ProxySession) NotifyDisconnected() {
