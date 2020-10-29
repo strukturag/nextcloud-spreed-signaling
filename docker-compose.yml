@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
   janus:
     build: docker/janus
-    command: ["janus"]
+    command: ["janus", "--full-trickle"]
     network_mode: host
     restart: unless-stopped
   coturn:
