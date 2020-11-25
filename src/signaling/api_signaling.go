@@ -453,12 +453,19 @@ func (m *CommonSessionInternalClientMessage) CheckValid() error {
 	return nil
 }
 
+type AddSessionOptions struct {
+	ActorId   string `json:"actorId,omitempty"`
+	ActorType string `json:"actorType,omitempty"`
+}
+
 type AddSessionInternalClientMessage struct {
 	CommonSessionInternalClientMessage
 
 	UserId string           `json:"userid,omitempty"`
 	User   *json.RawMessage `json:"user,omitempty"`
 	Flags  uint32           `json:"flags,omitempty"`
+
+	Options *AddSessionOptions `json:"options,omitempy"`
 }
 
 func (m *AddSessionInternalClientMessage) CheckValid() error {
@@ -483,6 +490,8 @@ func (m *UpdateSessionInternalClientMessage) CheckValid() error {
 
 type RemoveSessionInternalClientMessage struct {
 	CommonSessionInternalClientMessage
+
+	UserId string `json:"userid,omitempty"`
 }
 
 func (m *RemoveSessionInternalClientMessage) CheckValid() error {
@@ -553,6 +562,12 @@ type RoomEventMessage struct {
 	Data   *json.RawMessage `json:"data,omitempty"`
 }
 
+type RoomFlagsServerMessage struct {
+	RoomId    string `json:"roomid"`
+	SessionId string `json:"sessionid"`
+	Flags     uint32 `json:"flags"`
+}
+
 type EventServerMessage struct {
 	Target string `json:"target"`
 	Type   string `json:"type"`
@@ -566,6 +581,7 @@ type EventServerMessage struct {
 	Invite    *RoomEventServerMessage          `json:"invite,omitempty"`
 	Disinvite *RoomDisinviteEventServerMessage `json:"disinvite,omitempty"`
 	Update    *RoomEventServerMessage          `json:"update,omitempty"`
+	Flags     *RoomFlagsServerMessage          `json:"flags,omitempty"`
 
 	// Used for target "message"
 	Message *RoomEventMessage `json:"message,omitempty"`

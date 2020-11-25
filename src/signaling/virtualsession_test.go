@@ -144,10 +144,58 @@ func TestVirtualSession(t *testing.T) {
 		t.Errorf("Expected session id %s, got %+v", sessionId, updateMsg.Users[0])
 	} else if virtual, ok := updateMsg.Users[0]["virtual"].(bool); !ok || !virtual {
 		t.Errorf("Expected virtual user, got %+v", updateMsg.Users[0])
-	} else if inCall, ok := updateMsg.Users[0]["inCall"].(bool); !ok || !inCall {
+	} else if inCall, ok := updateMsg.Users[0]["inCall"].(float64); !ok || inCall == 0 {
 		t.Errorf("Expected user in call, got %+v", updateMsg.Users[0])
-	} else if flags, ok := updateMsg.Users[0]["flags"].(float64); !ok || flags != FLAG_MUTED_SPEAKING {
-		t.Errorf("Expected flags %d, got %+v", FLAG_MUTED_SPEAKING, updateMsg.Users[0])
+	}
+
+	msg3, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flagsMsg, err := checkMessageParticipantFlags(msg3)
+	if err != nil {
+		t.Error(err)
+	} else if flagsMsg.RoomId != roomId {
+		t.Errorf("Expected room %s, got %s", roomId, flagsMsg.RoomId)
+	} else if flagsMsg.SessionId != sessionId {
+		t.Errorf("Expected session id %s, got %s", sessionId, flagsMsg.SessionId)
+	} else if flagsMsg.Flags != FLAG_MUTED_SPEAKING {
+		t.Errorf("Expected flags %d, got %+v", FLAG_MUTED_SPEAKING, flagsMsg.Flags)
+	}
+
+	newFlags := uint32(FLAG_TALKING)
+	msgFlags := &ClientMessage{
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type: "updatesession",
+			UpdateSession: &UpdateSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+					SessionId: internalSessionId,
+					RoomId:    roomId,
+				},
+				Flags: &newFlags,
+			},
+		},
+	}
+	if err := clientInternal.WriteJSON(msgFlags); err != nil {
+		t.Fatal(err)
+	}
+
+	msg4, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flagsMsg, err = checkMessageParticipantFlags(msg4)
+	if err != nil {
+		t.Error(err)
+	} else if flagsMsg.RoomId != roomId {
+		t.Errorf("Expected room %s, got %s", roomId, flagsMsg.RoomId)
+	} else if flagsMsg.SessionId != sessionId {
+		t.Errorf("Expected session id %s, got %s", sessionId, flagsMsg.SessionId)
+	} else if flagsMsg.Flags != newFlags {
+		t.Errorf("Expected flags %d, got %+v", newFlags, flagsMsg.Flags)
 	}
 
 	// When sending to a virtual session, the message is sent to the actual
@@ -200,11 +248,11 @@ func TestVirtualSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msg3, err := client.RunUntilMessage(ctx)
+	msg5, err := client.RunUntilMessage(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.checkMessageRoomLeaveSession(msg3, sessionId); err != nil {
+	if err := client.checkMessageRoomLeaveSession(msg5, sessionId); err != nil {
 		t.Error(err)
 	}
 }
@@ -324,10 +372,24 @@ func TestVirtualSessionCleanup(t *testing.T) {
 		t.Errorf("Expected session id %s, got %+v", sessionId, updateMsg.Users[0])
 	} else if virtual, ok := updateMsg.Users[0]["virtual"].(bool); !ok || !virtual {
 		t.Errorf("Expected virtual user, got %+v", updateMsg.Users[0])
-	} else if inCall, ok := updateMsg.Users[0]["inCall"].(bool); !ok || !inCall {
+	} else if inCall, ok := updateMsg.Users[0]["inCall"].(float64); !ok || inCall == 0 {
 		t.Errorf("Expected user in call, got %+v", updateMsg.Users[0])
-	} else if flags, ok := updateMsg.Users[0]["flags"].(float64); !ok || flags != FLAG_MUTED_SPEAKING {
-		t.Errorf("Expected flags %d, got %+v", FLAG_MUTED_SPEAKING, updateMsg.Users[0])
+	}
+
+	msg3, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flagsMsg, err := checkMessageParticipantFlags(msg3)
+	if err != nil {
+		t.Error(err)
+	} else if flagsMsg.RoomId != roomId {
+		t.Errorf("Expected room %s, got %s", roomId, flagsMsg.RoomId)
+	} else if flagsMsg.SessionId != sessionId {
+		t.Errorf("Expected session id %s, got %s", sessionId, flagsMsg.SessionId)
+	} else if flagsMsg.Flags != FLAG_MUTED_SPEAKING {
+		t.Errorf("Expected flags %d, got %+v", FLAG_MUTED_SPEAKING, flagsMsg.Flags)
 	}
 
 	// The virtual sessions are closed when the parent session is deleted.

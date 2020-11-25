@@ -195,6 +195,11 @@ type BackendClientRoomRequest struct {
 	Action    string `json:"action,omitempty"`
 	UserId    string `json:"userid"`
 	SessionId string `json:"sessionid"`
+
+	// For Nextcloud Talk with SIP support.
+	ActorId   string `json:"actorid,omitempty"`
+	ActorType string `json:"actortype,omitempty"`
+	InCall    int    `json:"incall,omitempty"`
 }
 
 func NewBackendClientRoomRequest(roomid string, userid string, sessionid string) *BackendClientRequest {

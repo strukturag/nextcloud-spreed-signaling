@@ -48,6 +48,7 @@ type VirtualSession struct {
 	userId    string
 	userData  *json.RawMessage
 	flags     uint32
+	options   *AddSessionOptions
 }
 
 func GetVirtualSessionId(session *ClientSession, sessionId string) string {
@@ -65,6 +66,7 @@ func NewVirtualSession(session *ClientSession, privateId string, publicId string
 		userId:    msg.UserId,
 		userData:  msg.User,
 		flags:     msg.Flags,
+		options:   msg.Options,
 	}
 }
 
@@ -192,4 +194,8 @@ func (s *VirtualSession) SetFlags(flags uint32) bool {
 
 func (s *VirtualSession) Flags() uint32 {
 	return atomic.LoadUint32(&s.flags)
+}
+
+func (s *VirtualSession) Options() *AddSessionOptions {
+	return s.options
 }

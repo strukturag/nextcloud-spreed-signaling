@@ -40,6 +40,7 @@ const (
 	FlagInCall       = 1
 	FlagWithAudio    = 2
 	FlagWithVideo    = 4
+	FlagWithPhone    = 8
 )
 
 var (
@@ -228,6 +229,7 @@ func (r *Room) processBackendRoomRequest(message *BackendServerRoomRequest) {
 	case "update":
 		r.hub.roomUpdated <- message
 	case "delete":
+		r.notifyInternalRoomDeleted()
 		r.hub.roomDeleted <- message
 	case "incall":
 		r.hub.roomInCall <- message
@@ -284,6 +286,9 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 		r.PublishSessionJoined(session, roomSessionData)
 		if publishUsersChanged {
 			r.publishUsersChangedWithInternal()
+			if session, ok := session.(*VirtualSession); ok && session.Flags() != 0 {
+				r.publishSessionFlagsChanged(session)
+			}
 		}
 	}
 	return result
@@ -421,7 +426,7 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 	}
 	for session := range r.internalSessions {
 		users = append(users, map[string]interface{}{
-			"inCall":    true,
+			"inCall":    FlagInCall | FlagWithAudio,
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
 			"internal":  true,
@@ -429,11 +434,10 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 	}
 	for session := range r.virtualSessions {
 		users = append(users, map[string]interface{}{
-			"inCall":    true,
+			"inCall":    FlagInCall | FlagWithPhone,
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
 			"virtual":   true,
-			"flags":     session.Flags(),
 		})
 	}
 	r.mu.Unlock()
@@ -583,11 +587,32 @@ func (r *Room) NotifySessionChanged(session Session) {
 		return
 	}
 
-	r.publishUsersChangedWithInternal()
+	virtual, ok := session.(*VirtualSession)
+	if !ok {
+		return
+	}
+
+	r.publishSessionFlagsChanged(virtual)
 }
 
 func (r *Room) publishUsersChangedWithInternal() {
 	message := r.getParticipantsUpdateMessage(r.users)
+	r.publish(message)
+}
+
+func (r *Room) publishSessionFlagsChanged(session *VirtualSession) {
+	message := &ServerMessage{
+		Type: "event",
+		Event: &EventServerMessage{
+			Target: "participants",
+			Type:   "flags",
+			Flags: &RoomFlagsServerMessage{
+				RoomId:    r.id,
+				SessionId: session.PublicId(),
+				Flags:     session.Flags(),
+			},
+		},
+	}
 	r.publish(message)
 }
 
@@ -666,4 +691,17 @@ func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
 		},
 	}
 	r.publish(msg)
+}
+
+func (r *Room) notifyInternalRoomDeleted() {
+	msg := &ServerMessage{
+		Type: "event",
+		Event: &EventServerMessage{
+			Target: "room",
+			Type:   "delete",
+		},
+	}
+	for s := range r.internalSessions {
+		s.(*ClientSession).SendMessage(msg)
+	}
 }

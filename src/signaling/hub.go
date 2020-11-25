@@ -1437,7 +1437,7 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 }
 
 func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
-	msg := message.Control
+	msg := message.Internal
 	session := client.GetSession()
 	if session == nil {
 		// Client is not connected yet.
@@ -1447,9 +1447,9 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		return
 	}
 
-	switch message.Internal.Type {
+	switch msg.Type {
 	case "addsession":
-		msg := message.Internal.AddSession
+		msg := msg.AddSession
 		room := h.getRoom(msg.RoomId)
 		if room == nil {
 			log.Printf("Ignore add session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
@@ -1473,13 +1473,35 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 
 		virtualSessionId := GetVirtualSessionId(session, msg.SessionId)
 
-		request := NewBackendClientSessionRequest(room.Id(), "add", publicSessionId, msg)
-		var response BackendClientSessionResponse
-		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
-			log.Printf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
-			reply := message.NewErrorServerMessage(NewError("add_failed", "Could not add virtual session."))
-			client.SendMessage(reply)
-			return
+		if msg.Options != nil {
+			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, publicSessionId)
+			request.Room.ActorId = msg.Options.ActorId
+			request.Room.ActorType = msg.Options.ActorType
+			request.Room.InCall = FlagInCall | FlagWithPhone
+
+			var response BackendClientResponse
+			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
+				log.Printf("Could not join virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
+				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not join virtual session."))
+				client.SendMessage(reply)
+				return
+			}
+
+			if response.Type == "error" {
+				log.Printf("Could not join virtual session %s at backend %s: %+v", virtualSessionId, session.BackendUrl(), response.Error)
+				reply := message.NewErrorServerMessage(NewError("add_failed", response.Error.Error()))
+				client.SendMessage(reply)
+				return
+			}
+		} else {
+			request := NewBackendClientSessionRequest(room.Id(), "add", publicSessionId, msg)
+			var response BackendClientSessionResponse
+			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
+				log.Printf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
+				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not add virtual session."))
+				client.SendMessage(reply)
+				return
+			}
 		}
 
 		sess := NewVirtualSession(session, privateSessionId, publicSessionId, sessionIdData, msg)
@@ -1492,7 +1514,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		sess.SetRoom(room)
 		room.AddSession(sess, nil)
 	case "updatesession":
-		msg := message.Internal.UpdateSession
+		msg := msg.UpdateSession
 		room := h.getRoom(msg.RoomId)
 		if room == nil {
 			log.Printf("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
@@ -1525,7 +1547,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			}
 		}
 	case "removesession":
-		msg := message.Internal.RemoveSession
+		msg := msg.RemoveSession
 		room := h.getRoom(msg.RoomId)
 		if room == nil {
 			log.Printf("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
@@ -1551,18 +1573,46 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 				ctx, cancel := context.WithTimeout(context.Background(), h.backendTimeout)
 				defer cancel()
 
-				request := NewBackendClientSessionRequest(room.Id(), "remove", sess.PublicId(), nil)
-				var response BackendClientSessionResponse
-				err := h.backend.PerformJSONRequest(ctx, sess.ParsedBackendUrl(), request, &response)
-				if err != nil {
-					log.Printf("Could not remove virtual session %s from backend %s: %s", sess.PublicId(), sess.BackendUrl(), err)
-					reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
-					client.SendMessage(reply)
+				var options *AddSessionOptions
+				if vsess, ok := sess.(*VirtualSession); ok {
+					options = vsess.Options()
+				}
+				if options != nil {
+					request := NewBackendClientRoomRequest(room.Id(), sess.UserId(), sess.PublicId())
+					request.Room.Action = "leave"
+					if options != nil {
+						request.Room.ActorId = options.ActorId
+						request.Room.ActorType = options.ActorType
+					}
+
+					var response BackendClientResponse
+					if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
+						log.Printf("Could not leave virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
+						reply := message.NewErrorServerMessage(NewError("add_failed", "Could not join virtual session."))
+						client.SendMessage(reply)
+						return
+					}
+
+					if response.Type == "error" {
+						log.Printf("Could not leave virtual session %s at backend %s: %+v", virtualSessionId, session.BackendUrl(), response.Error)
+						reply := message.NewErrorServerMessage(NewError("add_failed", response.Error.Error()))
+						client.SendMessage(reply)
+						return
+					}
+				} else {
+					request := NewBackendClientSessionRequest(room.Id(), "remove", sess.PublicId(), nil)
+					var response BackendClientSessionResponse
+					err := h.backend.PerformJSONRequest(ctx, sess.ParsedBackendUrl(), request, &response)
+					if err != nil {
+						log.Printf("Could not remove virtual session %s from backend %s: %s", sess.PublicId(), sess.BackendUrl(), err)
+						reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
+						client.SendMessage(reply)
+					}
 				}
 			}()
 		}
 	default:
-		log.Printf("Ignore unsupported internal message %+v from %s", message.Internal, session.PublicId())
+		log.Printf("Ignore unsupported internal message %+v from %s", msg, session.PublicId())
 		return
 	}
 }

@@ -640,6 +640,18 @@ func checkMessageParticipantsInCall(message *ServerMessage) (*RoomEventServerMes
 	return message.Event.Update, nil
 }
 
+func checkMessageParticipantFlags(message *ServerMessage) (*RoomFlagsServerMessage, error) {
+	if err := checkMessageType(message, "event"); err != nil {
+		return nil, err
+	} else if message.Event.Target != "participants" {
+		return nil, fmt.Errorf("Expected event target room, got %+v", message.Event)
+	} else if message.Event.Type != "flags" || message.Event.Flags == nil {
+		return nil, fmt.Errorf("Expected event type flags, got %+v", message.Event)
+	}
+
+	return message.Event.Flags, nil
+}
+
 func checkMessageRoomMessage(message *ServerMessage) (*RoomEventMessage, error) {
 	if err := checkMessageType(message, "event"); err != nil {
 		return nil, err
