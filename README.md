@@ -55,9 +55,10 @@ directory, but a different path can be passed through the `--config` option.
 
 #### systemd
 
-Create a dedicated user:
+Create a dedicated group and user:
 
 ```bash
+sudo groupadd --system signaling
 sudo useradd --system \
     --gid signaling \
     --shell /usr/sbin/nologin \
