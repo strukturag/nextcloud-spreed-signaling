@@ -347,7 +347,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		return err
 	}
 
-	if isOcsRequest(u) {
+	if isOcsRequest(u) || req.Header.Get("OCS-APIRequest") != "" {
 		// OCS response are wrapped in an OCS container that needs to be parsed
 		// to get the actual contents:
 		// {

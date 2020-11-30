@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/url"
 	"sync"
@@ -39,6 +40,7 @@ const (
 	FlagInCall       = 1
 	FlagWithAudio    = 2
 	FlagWithVideo    = 4
+	FlagWithPhone    = 8
 )
 
 var (
@@ -58,6 +60,7 @@ type Room struct {
 	sessions  map[string]Session
 
 	internalSessions map[Session]bool
+	virtualSessions  map[*VirtualSession]bool
 	inCallSessions   map[Session]bool
 	roomSessionData  map[string]*RoomSessionData
 
@@ -116,6 +119,7 @@ func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient,
 		sessions:  make(map[string]Session),
 
 		internalSessions: make(map[Session]bool),
+		virtualSessions:  make(map[*VirtualSession]bool),
 		inCallSessions:   make(map[Session]bool),
 		roomSessionData:  make(map[string]*RoomSessionData),
 
@@ -225,6 +229,7 @@ func (r *Room) processBackendRoomRequest(message *BackendServerRoomRequest) {
 	case "update":
 		r.hub.roomUpdated <- message
 	case "delete":
+		r.notifyInternalRoomDeleted()
 		r.hub.roomDeleted <- message
 	case "incall":
 		r.hub.roomInCall <- message
@@ -258,8 +263,19 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 		}
 	}
 	r.sessions[sid] = session
-	if session.ClientType() == HelloClientTypeInternal {
+	var publishUsersChanged bool
+	switch session.ClientType() {
+	case HelloClientTypeInternal:
 		r.internalSessions[session] = true
+	case HelloClientTypeVirtual:
+		virtualSession, ok := session.(*VirtualSession)
+		if !ok {
+			delete(r.sessions, sid)
+			r.mu.Unlock()
+			panic(fmt.Sprintf("Expected a virtual session, got %v", session))
+		}
+		r.virtualSessions[virtualSession] = true
+		publishUsersChanged = true
 	}
 	if roomSessionData != nil {
 		r.roomSessionData[sid] = roomSessionData
@@ -268,6 +284,12 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 	r.mu.Unlock()
 	if !found {
 		r.PublishSessionJoined(session, roomSessionData)
+		if publishUsersChanged {
+			r.publishUsersChangedWithInternal()
+			if session, ok := session.(*VirtualSession); ok && session.Flags() != 0 {
+				r.publishSessionFlagsChanged(session)
+			}
+		}
 	}
 	return result
 }
@@ -290,6 +312,9 @@ func (r *Room) RemoveSession(session Session) bool {
 	sid := session.PublicId()
 	delete(r.sessions, sid)
 	delete(r.internalSessions, session)
+	if virtualSession, ok := session.(*VirtualSession); ok {
+		delete(r.virtualSessions, virtualSession)
+	}
 	delete(r.inCallSessions, session)
 	delete(r.roomSessionData, sid)
 	if len(r.sessions) > 0 {
@@ -401,10 +426,18 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 	}
 	for session := range r.internalSessions {
 		users = append(users, map[string]interface{}{
-			"inCall":    true,
+			"inCall":    FlagInCall | FlagWithAudio,
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
 			"internal":  true,
+		})
+	}
+	for session := range r.virtualSessions {
+		users = append(users, map[string]interface{}{
+			"inCall":    FlagInCall | FlagWithPhone,
+			"sessionId": session.PublicId(),
+			"lastPing":  now,
+			"virtual":   true,
 		})
 	}
 	r.mu.Unlock()
@@ -548,8 +581,38 @@ func (r *Room) NotifySessionResumed(client *Client) {
 	client.SendMessage(message)
 }
 
+func (r *Room) NotifySessionChanged(session Session) {
+	if session.ClientType() != HelloClientTypeVirtual {
+		// Only notify if a virtual session has changed.
+		return
+	}
+
+	virtual, ok := session.(*VirtualSession)
+	if !ok {
+		return
+	}
+
+	r.publishSessionFlagsChanged(virtual)
+}
+
 func (r *Room) publishUsersChangedWithInternal() {
 	message := r.getParticipantsUpdateMessage(r.users)
+	r.publish(message)
+}
+
+func (r *Room) publishSessionFlagsChanged(session *VirtualSession) {
+	message := &ServerMessage{
+		Type: "event",
+		Event: &EventServerMessage{
+			Target: "participants",
+			Type:   "flags",
+			Flags: &RoomFlagsServerMessage{
+				RoomId:    r.id,
+				SessionId: session.PublicId(),
+				Flags:     session.Flags(),
+			},
+		},
+	}
 	r.publish(message)
 }
 
@@ -570,6 +633,9 @@ func (r *Room) publishActiveSessions() {
 		case *ClientSession:
 			// Use Nextcloud session id
 			sid = sess.RoomSessionId()
+		case *VirtualSession:
+			// Use our internal generated session id (will be added to Nextcloud).
+			sid = sess.PublicId()
 		default:
 			continue
 		}
@@ -625,4 +691,17 @@ func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
 		},
 	}
 	r.publish(msg)
+}
+
+func (r *Room) notifyInternalRoomDeleted() {
+	msg := &ServerMessage{
+		Type: "event",
+		Event: &EventServerMessage{
+			Target: "room",
+			Type:   "delete",
+		},
+	}
+	for s := range r.internalSessions {
+		s.(*ClientSession).SendMessage(msg)
+	}
 }
