@@ -101,9 +101,11 @@ func TestIsUrlAllowed(t *testing.T) {
 	valid_urls := [][]string{
 		[]string{"https://domain.invalid/foo", string(testBackendSecret) + "-foo"},
 		[]string{"https://domain.invalid/foo/", string(testBackendSecret) + "-foo"},
+		[]string{"https://domain.invalid:443/foo/", string(testBackendSecret) + "-foo"},
 		[]string{"https://domain.invalid/foo/folder", string(testBackendSecret) + "-foo"},
 		[]string{"https://domain.invalid/bar", string(testBackendSecret) + "-bar"},
 		[]string{"https://domain.invalid/bar/", string(testBackendSecret) + "-bar"},
+		[]string{"https://domain.invalid:443/bar/", string(testBackendSecret) + "-bar"},
 		[]string{"https://domain.invalid/bar/folder/", string(testBackendSecret) + "-bar"},
 		[]string{"https://otherdomain.invalid/", string(testBackendSecret) + "-lala"},
 		[]string{"https://otherdomain.invalid/folder/", string(testBackendSecret) + "-lala"},
@@ -111,6 +113,7 @@ func TestIsUrlAllowed(t *testing.T) {
 	invalid_urls := []string{
 		"https://domain.invalid",
 		"https://domain.invalid/",
+		"https://domain.invalid:8443/foo/",
 		"https://www.domain.invalid/foo/",
 		"https://domain.invalid/baz/",
 	}
@@ -118,7 +121,7 @@ func TestIsUrlAllowed(t *testing.T) {
 	config.AddOption("backend", "backends", "foo, bar, lala, missing")
 	config.AddOption("foo", "url", "https://domain.invalid/foo")
 	config.AddOption("foo", "secret", string(testBackendSecret)+"-foo")
-	config.AddOption("bar", "url", "https://domain.invalid/bar/")
+	config.AddOption("bar", "url", "https://domain.invalid:443/bar/")
 	config.AddOption("bar", "secret", string(testBackendSecret)+"-bar")
 	config.AddOption("lala", "url", "https://otherdomain.invalid/")
 	config.AddOption("lala", "secret", string(testBackendSecret)+"-lala")
@@ -150,6 +153,7 @@ func TestIsUrlAllowed_AllowAll(t *testing.T) {
 	valid_urls := []string{
 		"http://domain.invalid",
 		"https://domain.invalid",
+		"https://domain.invalid:443",
 	}
 	invalid_urls := []string{
 		"domain.invalid",

@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 const (
@@ -203,6 +204,17 @@ const (
 	HelloClientTypeVirtual = "virtual"
 )
 
+func hasStandardPort(u *url.URL) bool {
+	switch u.Scheme {
+	case "http":
+		return u.Port() == "80"
+	case "https":
+		return u.Port() == "443"
+	default:
+		return false
+	}
+}
+
 type ClientTypeInternalAuthParams struct {
 	Random string `json:"random"`
 	Token  string `json:"token"`
@@ -217,6 +229,10 @@ func (p *ClientTypeInternalAuthParams) CheckValid() error {
 	} else if u, err := url.Parse(p.Backend); err != nil {
 		return err
 	} else {
+		if strings.Contains(u.Host, ":") && hasStandardPort(u) {
+			u.Host = u.Hostname()
+		}
+
 		p.parsedBackend = u
 	}
 	return nil
@@ -266,6 +282,10 @@ func (m *HelloClientMessage) CheckValid() error {
 			} else if u, err := url.ParseRequestURI(m.Auth.Url); err != nil {
 				return err
 			} else {
+				if strings.Contains(u.Host, ":") && hasStandardPort(u) {
+					u.Host = u.Hostname()
+				}
+
 				m.Auth.parsedUrl = u
 			}
 		case HelloClientTypeInternal:

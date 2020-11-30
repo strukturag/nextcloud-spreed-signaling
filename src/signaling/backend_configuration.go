@@ -197,6 +197,11 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 			continue
 		}
 
+		if strings.Contains(parsed.Host, ":") && hasStandardPort(parsed) {
+			parsed.Host = parsed.Hostname()
+			u = parsed.String()
+		}
+
 		secret, _ := config.GetString(id, "secret")
 		if u == "" || secret == "" {
 			log.Printf("Backend %s is missing or incomplete, skipping", id)
@@ -241,6 +246,10 @@ func (b *BackendConfiguration) GetCompatBackend() *Backend {
 }
 
 func (b *BackendConfiguration) GetBackend(u *url.URL) *Backend {
+	if strings.Contains(u.Host, ":") && hasStandardPort(u) {
+		u.Host = u.Hostname()
+	}
+
 	entries, found := b.backends[u.Host]
 	if !found {
 		if b.allowAll {
