@@ -123,6 +123,10 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 		if u, err := url.Parse(backendUrl); err != nil {
 			return nil, err
 		} else {
+			if strings.Contains(u.Host, ":") && hasStandardPort(u) {
+				u.Host = u.Hostname()
+			}
+
 			s.backendUrl = backendUrl
 			s.parsedBackendUrl = u
 		}
