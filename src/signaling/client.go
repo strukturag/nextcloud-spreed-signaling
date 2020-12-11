@@ -236,7 +236,6 @@ func (c *Client) ReadPump() {
 	}
 
 	conn.SetReadLimit(maxMessageSize)
-	conn.SetReadDeadline(time.Now().Add(pongWait))
 	conn.SetPongHandler(func(msg string) error {
 		now := time.Now()
 		conn.SetReadDeadline(now.Add(pongWait))
@@ -259,6 +258,7 @@ func (c *Client) ReadPump() {
 	decodeBuffer := bufferPool.Get().(*bytes.Buffer)
 	defer bufferPool.Put(decodeBuffer)
 	for {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err,
