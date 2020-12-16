@@ -261,7 +261,7 @@ func (c *Client) ReadPump() {
 		conn.SetReadDeadline(time.Now().Add(pongWait))
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err,
+			if _, ok := err.(*websocket.CloseError); !ok || websocket.IsUnexpectedCloseError(err,
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
