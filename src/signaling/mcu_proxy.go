@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -66,13 +67,6 @@ const (
 	maxWaitDelay     = 8 * time.Second
 
 	defaultProxyTimeoutSeconds = 2
-)
-
-var (
-	websocketDialer = &websocket.Dialer{
-		Proxy:            http.ProxyFromEnvironment,
-		HandshakeTimeout: 45 * time.Second,
-	}
 )
 
 type mcuProxyPubSubCommon struct {
@@ -568,7 +562,7 @@ func (c *mcuProxyConnection) reconnect() {
 		u.Scheme = "wss"
 	}
 
-	conn, _, err := websocketDialer.Dial(u.String(), nil)
+	conn, _, err := c.proxy.dialer.Dial(u.String(), nil)
 	if err != nil {
 		log.Printf("Could not connect to %s: %s", u, err)
 		c.scheduleReconnect()
@@ -974,6 +968,7 @@ type mcuProxy struct {
 	keyInfos  map[string]*ProxyInformationEtcd
 	urlToKey  map[string]string
 
+	dialer         *websocket.Dialer
 	connections    []*mcuProxyConnection
 	connectionsMap map[string]*mcuProxyConnection
 	connectionsMu  sync.RWMutex
@@ -1019,12 +1014,24 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 		tokenId:  tokenId,
 		tokenKey: tokenKey,
 
+		dialer: &websocket.Dialer{
+			Proxy:            http.ProxyFromEnvironment,
+			HandshakeTimeout: proxyTimeout,
+		},
 		connectionsMap: make(map[string]*mcuProxyConnection),
 		proxyTimeout:   proxyTimeout,
 
 		publishers: make(map[string]*mcuProxyConnection),
 
 		publisherWaiters: make(map[uint64]chan bool),
+	}
+
+	skipverify, _ := config.GetBool("mcu", "skipverify")
+	if skipverify {
+		log.Println("WARNING: MCU verification is disabled!")
+		mcu.dialer.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: skipverify,
+		}
 	}
 
 	if urlType == "" {

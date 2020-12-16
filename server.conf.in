@@ -127,6 +127,11 @@ connectionsperhost = 8
 # - etcd: Proxy URLs are retrieved from an etcd cluster (see below).
 #urltype = static
 
+# If set to "true", certificate validation of proxy servers will be skipped.
+# This should only be enabled during development, e.g. to work with self-signed
+# certificates.
+#skipverify = false
+
 # For type "proxy": the id of the token to use when connecting to proxy servers.
 #token_id = server1
 
