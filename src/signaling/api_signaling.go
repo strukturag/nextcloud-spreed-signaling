@@ -104,6 +104,10 @@ func (m *ClientMessage) NewErrorServerMessage(e *Error) *ServerMessage {
 }
 
 func (m *ClientMessage) NewWrappedErrorServerMessage(e error) *ServerMessage {
+	if e, ok := e.(*Error); ok {
+		return m.NewErrorServerMessage(e)
+	}
+
 	return m.NewErrorServerMessage(NewError("internal_error", e.Error()))
 }
 
