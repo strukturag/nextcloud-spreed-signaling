@@ -242,6 +242,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 	new_config.AddOption("backend", "allowall", "false")
 	new_config.AddOption("backend1", "url", "http://domain3.invalid")
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
+	new_config.AddOption("backend1", "sessionlimit", "10")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
 	n_cfg, err := NewBackendConfiguration(new_config)
@@ -251,6 +252,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 
 	original_config.RemoveOption("backend1", "url")
 	original_config.AddOption("backend1", "url", "http://domain3.invalid")
+	original_config.AddOption("backend1", "sessionlimit", "10")
 
 	o_cfg.Reload(original_config)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
@@ -310,6 +312,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
+	new_config.AddOption("backend2", "sessionlimit", "10")
 	n_cfg, err := NewBackendConfiguration(new_config)
 	if err != nil {
 		t.Fatal(err)
@@ -319,6 +322,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
+	original_config.AddOption("backend2", "sessionlimit", "10")
 
 	o_cfg.Reload(original_config)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {

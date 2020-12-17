@@ -82,6 +82,10 @@ connectionsperhost = 8
 # same value as configured in the Nextcloud admin ui.
 #secret = the-shared-secret
 
+# Limit the number of sessions that are allowed to connect to this backend.
+# Omit or set to 0 to not limit the number of sessions.
+#sessionlimit = 10
+
 #[another-backend]
 # URL of the Nextcloud instance
 #url = https://cloud.otherdomain.invalid
