@@ -2,6 +2,8 @@ all: build
 
 GO := $(shell which go)
 GOPATH := "$(CURDIR)/vendor:$(CURDIR)"
+GOOS ?= linux
+GOARCH ?= amd64
 BINDIR := "$(CURDIR)/bin"
 VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
@@ -35,6 +37,12 @@ ifneq ($(COUNT),)
 TESTARGS := $(TESTARGS) -count $(COUNT)
 endif
 
+ifeq ($(GOARCH), amd64)
+VENDORBIN := $(CURDIR)/vendor/bin
+else
+VENDORBIN := $(CURDIR)/vendor/bin/$(GOOS)_$(GOARCH)
+endif
+
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
@@ -46,14 +54,14 @@ easyjson: dependencies
 	GOPATH=$(GOPATH) $(GO) build -o ./vendor/bin/easyjson ./vendor/src/github.com/mailru/easyjson/easyjson/main.go
 
 dependencies: hook godeps
-	GOPATH=$(GOPATH) ./vendor/bin/godeps -u dependencies.tsv
+	GOPATH=$(GOPATH) "$(VENDORBIN)/godeps" -u dependencies.tsv
 
 dependencies.tsv: godeps
 	set -e ;\
 	TMP=$$(mktemp -d) ;\
 	echo Make sure to remove $$TMP on error ;\
 	cp -r "$(CURDIR)/vendor" $$TMP ;\
-	GOPATH=$$TMP/vendor:"$(CURDIR)" "$(CURDIR)/vendor/bin/godeps" ./src/... > "$(CURDIR)/dependencies.tsv" ;\
+	GOPATH=$$TMP/vendor:"$(CURDIR)" "$(VENDORBIN)/godeps" ./src/... > "$(CURDIR)/dependencies.tsv" ;\
 	rm -rf $$TMP
 
 src/signaling/continentmap.go:
