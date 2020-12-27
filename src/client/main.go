@@ -209,6 +209,9 @@ func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
 	case "bye":
 		log.Printf("Received bye: %+v\n", message.Bye)
 		c.Close()
+	case "error":
+		log.Printf("Received error: %+v\n", message.Error)
+		c.Close()
 	default:
 		log.Printf("Unsupported message type: %+v\n", *message)
 	}
