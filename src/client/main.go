@@ -456,9 +456,22 @@ func registerAuthHandler(router *mux.Router) {
 			return
 		}
 
+		rawdata := json.RawMessage(data)
+		payload := &signaling.OcsResponse{
+			Ocs: &signaling.OcsBody{
+				Data: &rawdata,
+			},
+		}
+
+		jsonpayload, err := payload.MarshalJSON()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(data)
+		w.Write(jsonpayload)
 	})
 }
 
