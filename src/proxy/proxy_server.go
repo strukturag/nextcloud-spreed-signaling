@@ -81,6 +81,9 @@ var (
 )
 
 type ProxyServer struct {
+	// 64-bit members that are accessed atomically must be 64-bit aligned.
+	load int64
+
 	version string
 	country string
 
@@ -88,7 +91,6 @@ type ProxyServer struct {
 	nats    signaling.NatsClient
 	mcu     signaling.Mcu
 	stopped uint32
-	load    int64
 
 	shutdownChannel   chan bool
 	shutdownScheduled uint32

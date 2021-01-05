@@ -96,6 +96,9 @@ const (
 )
 
 type Hub struct {
+	// 64-bit members that are accessed atomically must be 64-bit aligned.
+	sid uint64
+
 	nats         NatsClient
 	upgrader     websocket.Upgrader
 	cookie       *securecookie.SecureCookie
@@ -113,7 +116,6 @@ type Hub struct {
 	mu sync.RWMutex
 	ru sync.RWMutex
 
-	sid      uint64
 	clients  map[uint64]*Client
 	sessions map[uint64]Session
 	rooms    map[string]*Room

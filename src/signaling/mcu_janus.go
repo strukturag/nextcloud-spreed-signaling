@@ -136,6 +136,9 @@ type clientInterface interface {
 }
 
 type mcuJanus struct {
+	// 64-bit members that are accessed atomically must be 64-bit aligned.
+	clientId uint64
+
 	url  string
 	mu   sync.Mutex
 	nats NatsClient
@@ -150,7 +153,6 @@ type mcuJanus struct {
 
 	closeChan chan bool
 
-	clientId  uint64
 	muClients sync.Mutex
 	clients   map[clientInterface]bool
 
