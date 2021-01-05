@@ -39,8 +39,10 @@ jobs:
 
     - name: Build applications
       run: |
-        make client
-        make server
+        echo "Building with $(nproc) threads"
+        make client -j$(nproc)
+        make proxy -j$(nproc)
+        make server -j$(nproc)
 
     - name: Run tests
       run: |
