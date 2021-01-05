@@ -701,6 +701,9 @@ func (r *Room) notifyInternalRoomDeleted() {
 			Type:   "delete",
 		},
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for s := range r.internalSessions {
 		s.(*ClientSession).SendMessage(msg)
 	}
