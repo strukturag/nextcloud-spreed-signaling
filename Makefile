@@ -99,26 +99,26 @@ coverhtml: dependencies vet common
 	sed -i "/_easyjson/d" cover.out && \
 	GOPATH=$(GOPATH) $(GO) tool cover -html=cover.out -o coverage.html
 
-%_easyjson.go: %.go
+%_easyjson.go: %.go easyjson
 	PATH=$(shell dirname $(GO)):$(PATH) GOPATH=$(GOPATH) ./vendor/bin/easyjson -all $*.go
 
-common: easyjson \
+common: \
 	src/signaling/api_signaling_easyjson.go \
 	src/signaling/api_backend_easyjson.go \
 	src/signaling/api_proxy_easyjson.go \
 	src/signaling/natsclient_easyjson.go \
 	src/signaling/room_easyjson.go
 
-client: dependencies common
+$(BINDIR):
 	mkdir -p $(BINDIR)
+
+client: dependencies common $(BINDIR)
 	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/client ./src/client/...
 
-server: dependencies common
-	mkdir -p $(BINDIR)
+server: dependencies common $(BINDIR)
 	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/signaling ./src/server/...
 
-proxy: dependencies common
-	mkdir -p $(BINDIR)
+proxy: dependencies common $(BINDIR)
 	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./src/proxy/...
 
 clean:
