@@ -705,6 +705,13 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 		return
 	}
 
+	if err := backend.AddSession(session); err != nil {
+		log.Printf("Error adding session %s to backend %s: %s", session.PublicId(), backend.Id(), err)
+		session.Close()
+		client.SendMessage(message.NewWrappedErrorServerMessage(err))
+		return
+	}
+
 	h.mu.Lock()
 	if !client.IsConnected() {
 		// Client disconnected while waiting for backend response.

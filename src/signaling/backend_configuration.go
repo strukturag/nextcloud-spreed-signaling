@@ -26,8 +26,13 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/dlintw/goconf"
+)
+
+var (
+	SessionLimitExceeded = NewError("session_limit_exceeded", "Too many sessions connected for this backend.")
 )
 
 type Backend struct {
@@ -35,6 +40,10 @@ type Backend struct {
 	url    string
 	secret []byte
 	compat bool
+
+	sessionLimit uint64
+	sessionsLock sync.Mutex
+	sessions     map[string]bool
 }
 
 func (b *Backend) Id() string {
@@ -49,6 +58,36 @@ func (b *Backend) IsCompat() bool {
 	return b.compat
 }
 
+func (b *Backend) AddSession(session Session) error {
+	if session.ClientType() == HelloClientTypeInternal || session.ClientType() == HelloClientTypeVirtual {
+		// Internal and virtual sessions are not counting to the limit.
+		return nil
+	}
+
+	if b.sessionLimit == 0 {
+		// Not limited
+		return nil
+	}
+
+	b.sessionsLock.Lock()
+	defer b.sessionsLock.Unlock()
+	if b.sessions == nil {
+		b.sessions = make(map[string]bool)
+	} else if uint64(len(b.sessions)) >= b.sessionLimit {
+		return SessionLimitExceeded
+	}
+
+	b.sessions[session.PublicId()] = true
+	return nil
+}
+
+func (b *Backend) RemoveSession(session Session) {
+	b.sessionsLock.Lock()
+	defer b.sessionsLock.Unlock()
+
+	delete(b.sessions, session.PublicId())
+}
+
 type BackendConfiguration struct {
 	backends map[string][]*Backend
 
@@ -61,6 +100,10 @@ type BackendConfiguration struct {
 func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, error) {
 	allowAll, _ := config.GetBool("backend", "allowall")
 	commonSecret, _ := config.GetString("backend", "secret")
+	sessionLimit, err := config.GetInt("backend", "sessionlimit")
+	if err != nil || sessionLimit < 0 {
+		sessionLimit = 0
+	}
 	backends := make(map[string][]*Backend)
 	var compatBackend *Backend
 	if allowAll {
@@ -69,6 +112,11 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 			id:     "compat",
 			secret: []byte(commonSecret),
 			compat: true,
+
+			sessionLimit: uint64(sessionLimit),
+		}
+		if sessionLimit > 0 {
+			log.Printf("Allow a maximum of %d sessions", sessionLimit)
 		}
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
 		for host, configuredBackends := range getConfiguredHosts(backendIds, config) {
@@ -98,6 +146,8 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 				id:     "compat",
 				secret: []byte(commonSecret),
 				compat: true,
+
+				sessionLimit: uint64(sessionLimit),
 			}
 			hosts := make([]string, 0, len(allowMap))
 			for host := range allowMap {
@@ -108,6 +158,9 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 				log.Println("WARNING: Using deprecated backend configuration. Please migrate the \"allowed\" setting to the new \"backends\" configuration.")
 			}
 			log.Printf("Allowed backend hostnames: %s\n", hosts)
+			if sessionLimit > 0 {
+				log.Printf("Allow a maximum of %d sessions", sessionLimit)
+			}
 		}
 	}
 
@@ -208,10 +261,20 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 			continue
 		}
 
+		sessionLimit, err := config.GetInt(id, "sessionlimit")
+		if err != nil || sessionLimit < 0 {
+			sessionLimit = 0
+		}
+		if sessionLimit > 0 {
+			log.Printf("Backend %s allows a maximum of %d sessions", id, sessionLimit)
+		}
+
 		hosts[parsed.Host] = append(hosts[parsed.Host], &Backend{
 			id:     id,
 			url:    u,
 			secret: []byte(secret),
+
+			sessionLimit: uint64(sessionLimit),
 		})
 	}
 

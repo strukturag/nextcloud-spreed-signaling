@@ -329,6 +329,7 @@ func (s *ClientSession) closeAndWait(wait bool) {
 	s.virtualSessions = nil
 	s.releaseMcuObjects()
 	s.clearClientLocked(nil)
+	s.backend.RemoveSession(s)
 	if atomic.CompareAndSwapInt32(&s.running, 1, 0) {
 		s.stopRun <- true
 		// Only wait if called from outside the Session goroutine.
