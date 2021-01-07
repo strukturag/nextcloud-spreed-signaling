@@ -134,4 +134,5 @@ tarball:
 
 dist: tarball
 
+.NOTPARALLEL: %_easyjson.go
 .PHONY: src/signaling/continentmap.go
