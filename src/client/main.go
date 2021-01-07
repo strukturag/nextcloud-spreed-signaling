@@ -459,6 +459,11 @@ func registerAuthHandler(router *mux.Router) {
 		rawdata := json.RawMessage(data)
 		payload := &signaling.OcsResponse{
 			Ocs: &signaling.OcsBody{
+				Meta: signaling.OcsMeta{
+					Status:     "ok",
+					StatusCode: http.StatusOK,
+					Message:    http.StatusText(http.StatusOK),
+				},
 				Data: &rawdata,
 			},
 		}
