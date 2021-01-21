@@ -86,6 +86,14 @@ connectionsperhost = 8
 # Omit or set to 0 to not limit the number of sessions.
 #sessionlimit = 10
 
+# The maximum bitrate per publishing stream (in bits per second).
+# Defaults to the maximum bitrate configured for the proxy / MCU.
+#maxstreambitrate = 1048576
+
+# The maximum bitrate per screensharing stream (in bits per second).
+# Defaults to the maximum bitrate configured for the proxy / MCU.
+#maxscreenbitrate = 2097152
+
 #[another-backend]
 # URL of the Nextcloud instance
 #url = https://cloud.otherdomain.invalid
@@ -110,14 +118,16 @@ connectionsperhost = 8
 # For type "proxy": a space-separated list of proxy URLs to connect to.
 #url =
 
-# For type "janus": the maximum bitrate per publishing stream (in bits per
-# second).
+# The maximum bitrate per publishing stream (in bits per second).
 # Defaults to 1 mbit/sec.
+# For type "proxy": will be capped to the maximum bitrate configured at the
+# proxy server that is used.
 #maxstreambitrate = 1048576
 
-# For type "janus": the maximum bitrate per screensharing stream (in bits per
-# second).
+# The maximum bitrate per screensharing stream (in bits per second).
 # Default is 2 mbit/sec.
+# For type "proxy": will be capped to the maximum bitrate configured at the
+# proxy server that is used.
 #maxscreenbitrate = 2097152
 
 # For type "proxy": timeout in seconds for requests to the proxy server.
