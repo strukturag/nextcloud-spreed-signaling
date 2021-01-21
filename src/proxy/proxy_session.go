@@ -37,10 +37,12 @@ const (
 )
 
 type ProxySession struct {
-	proxy    *ProxyServer
-	id       string
-	sid      uint64
+	// 64-bit members that are accessed atomically must be 64-bit aligned.
 	lastUsed int64
+
+	proxy *ProxyServer
+	id    string
+	sid   uint64
 
 	clientLock      sync.Mutex
 	client          *ProxyClient

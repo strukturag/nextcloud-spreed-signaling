@@ -259,6 +259,11 @@ func (s *mcuProxySubscriber) ProcessEvent(msg *EventProxyServerMessage) {
 }
 
 type mcuProxyConnection struct {
+	// 64-bit members that are accessed atomically must be 64-bit aligned.
+	reconnectInterval int64
+	msgId             int64
+	load              int64
+
 	proxy  *mcuProxy
 	rawUrl string
 	url    *url.URL
@@ -270,15 +275,12 @@ type mcuProxyConnection struct {
 	conn       *websocket.Conn
 
 	connectedSince    time.Time
-	reconnectInterval int64
 	reconnectTimer    *time.Timer
 	shutdownScheduled uint32
 	closeScheduled    uint32
 
-	msgId      int64
 	helloMsgId string
 	sessionId  string
-	load       int64
 	country    atomic.Value
 
 	callbacks map[string]func(*ProxyServerMessage)
@@ -959,6 +961,10 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 }
 
 type mcuProxy struct {
+	// 64-bit members that are accessed atomically must be 64-bit aligned.
+	connRequests int64
+	nextSort     int64
+
 	tokenId  string
 	tokenKey *rsa.PrivateKey
 
@@ -972,8 +978,6 @@ type mcuProxy struct {
 	connections    []*mcuProxyConnection
 	connectionsMap map[string]*mcuProxyConnection
 	connectionsMu  sync.RWMutex
-	connRequests   int64
-	nextSort       int64
 	proxyTimeout   time.Duration
 
 	mu         sync.RWMutex
