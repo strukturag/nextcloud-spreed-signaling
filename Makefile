@@ -46,7 +46,9 @@ endif
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
-godeps:
+godeps: $(VENDORBIN)/godeps
+
+$(VENDORBIN)/godeps:
 	GOPATH=$(GOPATH) $(GO) get github.com/rogpeppe/godeps
 
 easyjson: dependencies
