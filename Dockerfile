@@ -1,4 +1,4 @@
-FROM golang:1.13 AS builder
+FROM golang:1.15.7 AS builder
 
 RUN apt-get update && apt-get install -y python3
 WORKDIR /workdir
@@ -6,7 +6,7 @@ WORKDIR /workdir
 COPY . .
 RUN make build
 
-FROM alpine:3.11
+FROM alpine:3.13
 
 ENV CONFIG=/config/server.conf
 RUN adduser -D spreedbackend && \

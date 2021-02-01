@@ -1,12 +1,12 @@
 # Modified from https://gitlab.com/powerpaul17/nc_talk_backend/-/blob/dcbb918d8716dad1eb72a889d1e6aa1e3a543641/docker/janus/Dockerfile
-FROM alpine:3.11
+FROM alpine:3.13
 
 RUN apk add --no-cache curl autoconf automake libtool pkgconf build-base \
   glib-dev libconfig-dev libnice-dev jansson-dev openssl-dev zlib libsrtp-dev \
-  gengetopt libwebsockets-dev git
+  gengetopt libwebsockets-dev git curl-dev
 
 # usrsctp
-ARG USRSCTP_VERSION=4069ba5b9587bd7c99d964756b527d6259f0d3da
+ARG USRSCTP_VERSION=37a9dc3e18bfdcc972946dff0206155cee6b5dd0
 
 RUN cd /tmp && \
     git clone https://github.com/sctplab/usrsctp && \
@@ -16,9 +16,20 @@ RUN cd /tmp && \
     ./configure --prefix=/usr && \
     make && make install
 
+# libsrtp
+RUN cd /tmp && \
+    wget https://github.com/cisco/libsrtp/archive/v2.3.0.tar.gz && \
+    tar xfv v2.3.0.tar.gz && \
+    cd libsrtp-2.3.0 && \
+    ./configure --prefix=/usr --enable-openssl && \
+    make shared_library && \
+    make install && \
+    rm -fr /libsrtp-2.3.0 && \
+    rm -f /v2.3.0.tar.gz
+
 # JANUS
 
-ARG JANUS_VERSION=0.9.2
+ARG JANUS_VERSION=0.10.9
 RUN mkdir -p /usr/src/janus && \
     cd /usr/src/janus && \
     curl -L https://github.com/meetecho/janus-gateway/archive/v$JANUS_VERSION.tar.gz | tar -xz && \
