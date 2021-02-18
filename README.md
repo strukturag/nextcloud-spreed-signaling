@@ -269,7 +269,7 @@ interface on port `8080` below):
 
         RewriteEngine On
         # Websocket connections from the clients.
-        RewriteRule ^/standalone-signaling/spreed$ - [L]
+        RewriteRule ^/standalone-signaling/spreed/$ - [L]
         # Backend connections from Nextcloud.
         RewriteRule ^/standalone-signaling/api/(.*) http://127.0.0.1:8080/api/$1 [L,P]
 
