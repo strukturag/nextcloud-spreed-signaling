@@ -3,7 +3,7 @@ FROM alpine:3.13
 
 RUN apk add --no-cache curl autoconf automake libtool pkgconf build-base \
   glib-dev libconfig-dev libnice-dev jansson-dev openssl-dev zlib libsrtp-dev \
-  gengetopt libwebsockets-dev git curl-dev
+  gengetopt libwebsockets-dev git curl-dev libogg-dev
 
 # usrsctp
 # 1 Feb 2021
