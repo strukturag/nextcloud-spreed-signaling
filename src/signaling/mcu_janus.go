@@ -1061,7 +1061,7 @@ func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, callback func(error, 
 retry:
 	join_msg := map[string]interface{}{
 		"request": "join",
-		"ptype":   "listener",
+		"ptype":   "subscriber",
 		"room":    p.roomId,
 		"feed":    streamTypeUserIds[p.streamType],
 	}
