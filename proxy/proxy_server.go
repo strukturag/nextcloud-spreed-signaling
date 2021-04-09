@@ -46,7 +46,7 @@ import (
 
 	"gopkg.in/dgrijalva/jwt-go.v3"
 
-	"signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 const (

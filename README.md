@@ -14,7 +14,7 @@ information on the API of the signaling server.
 The following tools are required for building the signaling server.
 
 - git
-- go >= 1.10
+- go >= 1.13
 - make
 
 All other dependencies are fetched automatically while building.

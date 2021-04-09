@@ -47,7 +47,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
 
-	"signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 var (
