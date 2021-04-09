@@ -28,7 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 const (
