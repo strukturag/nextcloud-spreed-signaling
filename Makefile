@@ -37,36 +37,13 @@ ifneq ($(COUNT),)
 TESTARGS := $(TESTARGS) -count $(COUNT)
 endif
 
-ifeq ($(GOARCH), amd64)
-VENDORBIN := $(CURDIR)/vendor/bin
-else
-VENDORBIN := $(CURDIR)/vendor/bin/$(GOOS)_$(GOARCH)
-endif
-
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
-godeps: $(VENDORBIN)/godeps
+easyjson:
+	GOPATH=$(GOPATH) $(GO) get -u github.com/mailru/easyjson/...
 
-$(VENDORBIN)/godeps:
-	GOPATH=$(GOPATH) $(GO) get github.com/rogpeppe/godeps
-
-easyjson: dependencies
-	GOPATH=$(GOPATH) $(GO) get -d github.com/mailru/easyjson/...
-	GOPATH=$(GOPATH) $(GO) build -o ./vendor/bin/easyjson ./vendor/src/github.com/mailru/easyjson/easyjson/main.go
-
-dependencies: hook godeps
-	GOPATH=$(GOPATH) "$(VENDORBIN)/godeps" -u dependencies.tsv
-
-dependencies.tsv: godeps
-	set -e ;\
-	TMP=$$(mktemp -d) ;\
-	echo Make sure to remove $$TMP on error ;\
-	cp -r "$(CURDIR)/vendor" $$TMP ;\
-	GOPATH=$$TMP/vendor:"$(CURDIR)" "$(VENDORBIN)/godeps" ./src/... > "$(CURDIR)/dependencies.tsv" ;\
-	rm -rf $$TMP
-
-src/signaling/continentmap.go:
+continentmap.go:
 	$(CURDIR)/scripts/get_continent_map.py $@
 
 check-continentmap:
@@ -74,30 +51,30 @@ check-continentmap:
 	TMP=$$(mktemp -d) ;\
 	echo Make sure to remove $$TMP on error ;\
 	$(CURDIR)/scripts/get_continent_map.py $$TMP/continentmap.go ;\
-	diff -u src/signaling/continentmap.go $$TMP/continentmap.go ;\
+	diff -u continentmap.go $$TMP/continentmap.go ;\
 	rm -rf $$TMP
 
 get:
 	GOPATH=$(GOPATH) $(GO) get $(PACKAGE)
 
 fmt: hook
-	$(GO) fmt ./src/...
+	$(GO) fmt .
 
-vet: dependencies common
-	GOPATH=$(GOPATH) $(GO) vet ./src/...
+vet: common
+	$(GO) vet .
 
-test: dependencies vet common
-	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) ./src/...
+test: vet common
+	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) .
 
-cover: dependencies vet common
+cover: vet common
 	rm -f cover.out && \
-	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out ./src/signaling/... && \
+	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out . && \
 	sed -i "/_easyjson/d" cover.out && \
 	GOPATH=$(GOPATH) $(GO) tool cover -func=cover.out
 
-coverhtml: dependencies vet common
+coverhtml: vet common
 	rm -f cover.out && \
-	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out ./src/signaling/... && \
+	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out . && \
 	sed -i "/_easyjson/d" cover.out && \
 	GOPATH=$(GOPATH) $(GO) tool cover -html=cover.out -o coverage.html
 
@@ -105,26 +82,26 @@ coverhtml: dependencies vet common
 	PATH=$(shell dirname $(GO)):$(PATH) GOPATH=$(GOPATH) ./vendor/bin/easyjson -all $*.go
 
 common: \
-	src/signaling/api_signaling_easyjson.go \
-	src/signaling/api_backend_easyjson.go \
-	src/signaling/api_proxy_easyjson.go \
-	src/signaling/natsclient_easyjson.go \
-	src/signaling/room_easyjson.go
+	api_signaling_easyjson.go \
+	api_backend_easyjson.go \
+	api_proxy_easyjson.go \
+	natsclient_easyjson.go \
+	room_easyjson.go
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
 
-client: dependencies common $(BINDIR)
-	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/client ./src/client/...
+client: common $(BINDIR)
+	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/client ./client/...
 
-server: dependencies common $(BINDIR)
-	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/signaling ./src/server/...
+server: common $(BINDIR)
+	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/signaling ./server/...
 
-proxy: dependencies common $(BINDIR)
-	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./src/proxy/...
+proxy: common $(BINDIR)
+	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./proxy/...
 
 clean:
-	rm -f src/signaling/*_easyjson.go
+	rm -f *_easyjson.go
 
 build: server proxy
 
@@ -137,4 +114,4 @@ tarball:
 dist: tarball
 
 .NOTPARALLEL: %_easyjson.go
-.PHONY: src/signaling/continentmap.go
+.PHONY: continentmap.go

@@ -38,7 +38,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/nats-io/go-nats"
 
-	"signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 var (

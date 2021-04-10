@@ -13,12 +13,10 @@ jobs:
     strategy:
       matrix:
         go-version:
-          - "1.10"
-          - "1.11"
-          - "1.12"
           - "1.13"
           - "1.14"
           - "1.15"
+          - "1.16"
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -30,12 +28,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: vendor/
-        key: vendor-${{ matrix.go-version }}-${{ hashFiles('**/dependencies.tsv') }}
-
-    - name: Install dependencies
-      run: |
-        make godeps
-        make dependencies
+        key: vendor-${{ matrix.go-version }}-${{ hashFiles('go.mod', 'go.sum') }}
 
     - name: Build applications
       run: |
