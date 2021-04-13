@@ -33,7 +33,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
-	"github.com/nats-io/go-nats"
+	"github.com/nats-io/nats.go"
 	"github.com/notedit/janus-go"
 )
 
