@@ -6,7 +6,7 @@ require (
 	github.com/dlintw/goconf v0.0.0-20120228082610-dcc070983490
 	github.com/google/uuid v1.1.2
 	github.com/gorilla/context v1.1.1
-	github.com/gorilla/mux v1.4.1-0.20170704074345-ac112f7d75a0
+	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/securecookie v1.1.1
 	github.com/gorilla/websocket v1.2.0
 	github.com/mailru/easyjson v0.7.7
