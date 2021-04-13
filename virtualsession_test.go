@@ -22,10 +22,9 @@
 package signaling
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
-
-	"golang.org/x/net/context"
 )
 
 func TestVirtualSession(t *testing.T) {

@@ -36,7 +36,6 @@ import (
 	"sync"
 
 	"github.com/dlintw/goconf"
-	"golang.org/x/net/context/ctxhttp"
 )
 
 var (
@@ -248,8 +247,14 @@ func performRequestWithRedirects(ctx context.Context, client *http.Client, req *
 			req.Body = ioutil.NopCloser(bytes.NewReader(body))
 			req.ContentLength = int64(len(body))
 		}
-		resp, err = ctxhttp.Do(ctx, client, req)
+		resp, err = client.Do(req.WithContext(ctx))
 		if err != nil {
+			// Prefer context error if it has been cancelled.
+			select {
+			case <-ctx.Done():
+				err = ctx.Err()
+			default:
+			}
 			if e, ok := err.(*url.Error); !ok || resp == nil || e.Err != ErrUseLastResponse {
 				return nil, err
 			}
