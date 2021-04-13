@@ -16,6 +16,5 @@ require (
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
 	github.com/oschwald/maxminddb-golang v1.3.1-0.20190523235738-1960b16a5147
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200824191128-ae9734ed278b
-	golang.org/x/net v0.0.0-20190813141303-74dc4d7220e7
 	gopkg.in/dgrijalva/jwt-go.v3 v3.2.0
 )
