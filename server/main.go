@@ -40,9 +40,9 @@ import (
 	"github.com/dlintw/goconf"
 	_ "github.com/gorilla/context"
 	"github.com/gorilla/mux"
-	"github.com/nats-io/go-nats"
+	"github.com/nats-io/nats.go"
 
-	"github.com/strukturag/nextcloud-spreed-signaling"
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 var (
