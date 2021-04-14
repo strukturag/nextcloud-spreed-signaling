@@ -13,7 +13,7 @@ require (
 	github.com/nats-io/nats.go v1.10.1-0.20210330225420-a0b1f60162f8
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
 	github.com/oschwald/maxminddb-golang v1.8.0
-	go.etcd.io/etcd v0.5.0-alpha.5.0.20200824191128-ae9734ed278b
+	go.etcd.io/etcd v0.5.0-alpha.5.0.20210226220824-aa7126864d82
 	google.golang.org/protobuf v1.26.0 // indirect
 	gopkg.in/dgrijalva/jwt-go.v3 v3.2.0
 )
