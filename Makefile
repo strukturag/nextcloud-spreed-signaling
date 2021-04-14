@@ -40,7 +40,7 @@ endif
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
-easyjson:
+./vendor/bin/easyjson:
 	GOPATH=$(GOPATH) $(GO) get -u github.com/mailru/easyjson/...
 
 continentmap.go:
@@ -78,7 +78,7 @@ coverhtml: vet common
 	sed -i "/_easyjson/d" cover.out && \
 	GOPATH=$(GOPATH) $(GO) tool cover -html=cover.out -o coverage.html
 
-%_easyjson.go: %.go easyjson
+%_easyjson.go: %.go ./vendor/bin/easyjson
 	PATH=$(shell dirname $(GO)):$(PATH) GOPATH=$(GOPATH) ./vendor/bin/easyjson -all $*.go
 
 common: \
