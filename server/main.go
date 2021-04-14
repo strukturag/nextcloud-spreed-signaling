@@ -38,7 +38,6 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
-	_ "github.com/gorilla/context"
 	"github.com/gorilla/mux"
 	"github.com/nats-io/nats.go"
 
