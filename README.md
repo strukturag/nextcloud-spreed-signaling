@@ -253,7 +253,7 @@ myserver.domain.invalid {
 myserver.domain.invalid {
   route /standalone-signaling/* {
     uri strip_prefix /standalone-signaling
-    reverse_proxy /standalone-signaling/* http://127.0.0.1:8080
+    reverse_proxy /* http://127.0.0.1:8080
   }
 }
 ```
