@@ -28,7 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/strukturag/nextcloud-spreed-signaling"
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 const (
@@ -169,7 +169,9 @@ func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
 
 func (s *ProxySession) PublisherClosed(publisher signaling.McuPublisher) {
 	if id := s.DeletePublisher(publisher); id != "" {
-		s.proxy.DeleteClient(id, publisher)
+		if s.proxy.DeleteClient(id, publisher) {
+			statsPublishersCurrent.WithLabelValues(publisher.StreamType()).Dec()
+		}
 
 		msg := &signaling.ProxyServerMessage{
 			Type: "event",
@@ -184,7 +186,9 @@ func (s *ProxySession) PublisherClosed(publisher signaling.McuPublisher) {
 
 func (s *ProxySession) SubscriberClosed(subscriber signaling.McuSubscriber) {
 	if id := s.DeleteSubscriber(subscriber); id != "" {
-		s.proxy.DeleteClient(id, subscriber)
+		if s.proxy.DeleteClient(id, subscriber) {
+			statsSubscribersCurrent.WithLabelValues(subscriber.StreamType()).Dec()
+		}
 
 		msg := &signaling.ProxyServerMessage{
 			Type: "event",
