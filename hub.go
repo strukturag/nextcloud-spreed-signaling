@@ -232,7 +232,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 				var ip net.IP
 				var ipNet *net.IPNet
 				if strings.Contains(option, "/") {
-					ip, ipNet, err = net.ParseCIDR(option)
+					_, ipNet, err = net.ParseCIDR(option)
 					if err != nil {
 						return nil, fmt.Errorf("Could not parse CIDR %s: %s", option, err)
 					}

@@ -322,7 +322,7 @@ func (s *ClientSession) closeAndWait(wait bool) {
 		s.sessionSubscription = nil
 	}
 	go func(virtualSessions map[*VirtualSession]bool) {
-		for session, _ := range virtualSessions {
+		for session := range virtualSessions {
 			session.Close()
 		}
 	}(s.virtualSessions)
