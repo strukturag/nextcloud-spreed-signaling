@@ -489,7 +489,7 @@ type AddSessionInternalClientMessage struct {
 	User   *json.RawMessage `json:"user,omitempty"`
 	Flags  uint32           `json:"flags,omitempty"`
 
-	Options *AddSessionOptions `json:"options,omitempy"`
+	Options *AddSessionOptions `json:"options,omitempty"`
 }
 
 func (m *AddSessionInternalClientMessage) CheckValid() error {
