@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/url"
@@ -57,6 +58,7 @@ func GetVirtualSessionId(session *ClientSession, sessionId string) string {
 
 func NewVirtualSession(session *ClientSession, privateId string, publicId string, data *SessionIdData, msg *AddSessionInternalClientMessage) *VirtualSession {
 	return &VirtualSession{
+		hub:       session.hub,
 		session:   session,
 		privateId: privateId,
 		publicId:  publicId,
@@ -130,8 +132,62 @@ func (s *VirtualSession) IsExpired(now time.Time) bool {
 }
 
 func (s *VirtualSession) Close() {
+	s.CloseWithFeedback(nil, nil)
+}
+
+func (s *VirtualSession) CloseWithFeedback(client *Client, message *ClientMessage) {
+	room := s.GetRoom()
 	s.session.RemoveVirtualSession(s)
-	s.session.hub.removeSession(s)
+	removed := s.session.hub.removeSession(s)
+	if removed && room != nil {
+		go s.notifyBackendRemoved(room, client, message)
+	}
+}
+
+func (s *VirtualSession) notifyBackendRemoved(room *Room, client *Client, message *ClientMessage) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.hub.backendTimeout)
+	defer cancel()
+
+	if options := s.Options(); options != nil {
+		request := NewBackendClientRoomRequest(room.Id(), s.UserId(), s.PublicId())
+		request.Room.Action = "leave"
+		if options != nil {
+			request.Room.ActorId = options.ActorId
+			request.Room.ActorType = options.ActorType
+		}
+
+		var response BackendClientResponse
+		if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response); err != nil {
+			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
+			log.Printf("Could not leave virtual session %s at backend %s: %s", virtualSessionId, s.BackendUrl(), err)
+			if client != nil && message != nil {
+				reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
+				client.SendMessage(reply)
+			}
+			return
+		}
+
+		if response.Type == "error" {
+			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
+			log.Printf("Could not leave virtual session %s at backend %s: %+v", virtualSessionId, s.BackendUrl(), response.Error)
+			if client != nil && message != nil {
+				reply := message.NewErrorServerMessage(NewError("remove_failed", response.Error.Error()))
+				client.SendMessage(reply)
+			}
+			return
+		}
+	} else {
+		request := NewBackendClientSessionRequest(room.Id(), "remove", s.PublicId(), nil)
+		var response BackendClientSessionResponse
+		err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response)
+		if err != nil {
+			log.Printf("Could not remove virtual session %s from backend %s: %s", s.PublicId(), s.BackendUrl(), err)
+			if client != nil && message != nil {
+				reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
+				client.SendMessage(reply)
+			}
+		}
+	}
 }
 
 func (s *VirtualSession) HasPermission(permission Permission) bool {
