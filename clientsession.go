@@ -240,7 +240,15 @@ func (s *ClientSession) ParsedBackendUrl() *url.URL {
 }
 
 func (s *ClientSession) UserId() string {
-	return s.userId
+	userId := s.userId
+	if userId == "" {
+		if room := s.GetRoom(); room != nil {
+			if data := room.GetRoomSessionData(s); data != nil {
+				userId = data.UserId
+			}
+		}
+	}
+	return userId
 }
 
 func (s *ClientSession) UserData() *json.RawMessage {

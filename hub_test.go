@@ -252,6 +252,16 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 			RoomId:  request.Room.RoomId,
 		},
 	}
+	if request.Room.RoomId == "test-room-with-sessiondata" {
+		data := map[string]string{
+			"userid": "userid-from-sessiondata",
+		}
+		tmp, err := json.Marshal(data)
+		if err != nil {
+			t.Fatalf("Could not marshal %+v: %s", data, err)
+		}
+		response.Room.Session = (*json.RawMessage)(&tmp)
+	}
 	return response
 }
 

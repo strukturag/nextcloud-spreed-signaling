@@ -355,3 +355,60 @@ loop:
 		t.Error(err)
 	}
 }
+
+func TestRoom_RoomSessionData(t *testing.T) {
+	hub, _, router, server, shutdown := CreateHubForTest(t)
+	defer shutdown()
+
+	config, err := getTestConfig(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewBackendServer(config, hub, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(router); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(authAnonymousUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room-with-sessiondata"
+	if room, err := client.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	// We will receive a "joined" event with the userid from the room session data.
+	expected := "userid-from-sessiondata"
+	if message, err := client.RunUntilMessage(ctx); err != nil {
+		t.Error(err)
+	} else if err := client.checkMessageJoinedSession(message, hello.Hello.SessionId, expected); err != nil {
+		t.Error(err)
+	}
+
+	session := hub.GetSessionByPublicId(hello.Hello.SessionId)
+	if session == nil {
+		t.Fatalf("Could not find session %s", hello.Hello.SessionId)
+	}
+
+	if userid := session.UserId(); userid != expected {
+		t.Errorf("Expected userid %s, got %s", expected, userid)
+	}
+}

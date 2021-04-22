@@ -354,6 +354,12 @@ func (r *Room) UpdateProperties(properties *json.RawMessage) {
 	r.publish(message)
 }
 
+func (r *Room) GetRoomSessionData(session Session) *RoomSessionData {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.roomSessionData[session.PublicId()]
+}
+
 func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionData) {
 	sessionId := session.PublicId()
 	if sessionId == "" {
@@ -617,8 +623,8 @@ func (r *Room) publishSessionFlagsChanged(session *VirtualSession) {
 }
 
 func (r *Room) publishActiveSessions() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
 	entries := make(map[string][]BackendPingEntry)
 	urls := make(map[string]*url.URL)
