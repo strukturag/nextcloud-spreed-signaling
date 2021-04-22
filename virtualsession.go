@@ -211,7 +211,6 @@ func (s *VirtualSession) AddFlags(flags uint32) bool {
 		}
 		newFlags := old | flags
 		if atomic.CompareAndSwapUint32(&s.flags, old, newFlags) {
-			log.Printf("Flags for session %s now %d (added %d)", s.PublicId(), newFlags, flags)
 			return true
 		}
 		// Another thread updated the flags while we were checking, retry.
@@ -227,7 +226,6 @@ func (s *VirtualSession) RemoveFlags(flags uint32) bool {
 		}
 		newFlags := old & ^flags
 		if atomic.CompareAndSwapUint32(&s.flags, old, newFlags) {
-			log.Printf("Flags for session %s now %d (removed %d)", s.PublicId(), newFlags, flags)
 			return true
 		}
 		// Another thread updated the flags while we were checking, retry.
@@ -242,7 +240,6 @@ func (s *VirtualSession) SetFlags(flags uint32) bool {
 		}
 
 		if atomic.CompareAndSwapUint32(&s.flags, old, flags) {
-			log.Printf("Flags for session %s now %d", s.PublicId(), flags)
 			return true
 		}
 	}
