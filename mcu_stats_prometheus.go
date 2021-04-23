@@ -62,6 +62,12 @@ var (
 		Name:      "messages_total",
 		Help:      "The total number of MCU messages",
 	}, []string{"type"})
+	statsMcuSubscriberStreamTypesCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "subscriber_streams",
+		Help:      "The current number of subscribed media streams",
+	}, []string{"type"})
 	statsMcuPublisherStreamTypesCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "signaling",
 		Subsystem: "mcu",
@@ -76,6 +82,7 @@ var (
 		statsSubscribersTotal,
 		statsWaitingForPublisherTotal,
 		statsMcuMessagesTotal,
+		statsMcuSubscriberStreamTypesCurrent,
 		statsMcuPublisherStreamTypesCurrent,
 	}
 

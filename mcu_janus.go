@@ -606,13 +606,103 @@ func (c *mcuJanusClient) selectStream(ctx context.Context, substream int, tempor
 	callback(nil, nil)
 }
 
+type publisherStatsCounter struct {
+	mu sync.Mutex
+
+	streamTypes map[string]bool
+	subscribers map[string]bool
+}
+
+func (c *publisherStatsCounter) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	count := len(c.subscribers)
+	for streamType := range c.streamTypes {
+		statsMcuPublisherStreamTypesCurrent.WithLabelValues(streamType).Dec()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Sub(float64(count))
+	}
+	c.streamTypes = nil
+	c.subscribers = nil
+}
+
+func (c *publisherStatsCounter) EnableStream(streamType string, enable bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if enable == c.streamTypes[streamType] {
+		return
+	}
+
+	if enable {
+		if c.streamTypes == nil {
+			c.streamTypes = make(map[string]bool)
+		}
+		c.streamTypes[streamType] = true
+		statsMcuPublisherStreamTypesCurrent.WithLabelValues(streamType).Inc()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Add(float64(len(c.subscribers)))
+	} else {
+		delete(c.streamTypes, streamType)
+		statsMcuPublisherStreamTypesCurrent.WithLabelValues(streamType).Dec()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Sub(float64(len(c.subscribers)))
+	}
+}
+
+func (c *publisherStatsCounter) AddSubscriber(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.subscribers[id] {
+		return
+	}
+
+	if c.subscribers == nil {
+		c.subscribers = make(map[string]bool)
+	}
+	c.subscribers[id] = true
+	for streamType := range c.streamTypes {
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Inc()
+	}
+}
+
+func (c *publisherStatsCounter) RemoveSubscriber(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.subscribers[id] {
+		return
+	}
+
+	delete(c.subscribers, id)
+	for streamType := range c.streamTypes {
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Dec()
+	}
+}
+
 type mcuJanusPublisher struct {
 	mcuJanusClient
 
-	id               string
-	bitrate          int
-	aciveStreamsLock sync.Mutex
-	activeStreams    map[string]bool
+	id      string
+	bitrate int
+	stats   publisherStatsCounter
+}
+
+func (m *mcuJanus) SubscriberConnected(id string, publisher string, streamType string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if p, found := m.publishers[publisher+"|"+streamType]; found {
+		p.stats.AddSubscriber(id)
+	}
+}
+
+func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamType string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if p, found := m.publishers[publisher+"|"+streamType]; found {
+		p.stats.RemoveSubscriber(id)
+	}
 }
 
 func min(a, b int) int {
@@ -716,9 +806,8 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 			closeChan: make(chan bool, 1),
 			deferred:  make(chan func(), 64),
 		},
-		id:            id,
-		bitrate:       bitrate,
-		activeStreams: make(map[string]bool),
+		id:      id,
+		bitrate: bitrate,
 	}
 	client.mcuJanusClient.handleEvent = client.handleEvent
 	client.mcuJanusClient.handleHangup = client.handleHangup
@@ -786,22 +875,7 @@ func (p *mcuJanusPublisher) handleMedia(event *janus.MediaMsg) {
 		mediaType = p.streamType
 	}
 
-	delta := 0.0
-	p.aciveStreamsLock.Lock()
-	prev := p.activeStreams[mediaType]
-	if event.Receiving != prev {
-		if event.Receiving {
-			delta = 1
-			p.activeStreams[mediaType] = true
-		} else {
-			delta = -1
-			delete(p.activeStreams, mediaType)
-		}
-	}
-	p.aciveStreamsLock.Unlock()
-	if delta != 0 {
-		statsMcuPublisherStreamTypesCurrent.WithLabelValues(mediaType).Add(delta)
-	}
+	p.stats.EnableStream(mediaType, event.Receiving)
 }
 
 func (p *mcuJanusPublisher) NotifyReconnected() {
@@ -843,18 +917,14 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	p.closeClient(ctx)
 	p.mu.Unlock()
 
-	p.aciveStreamsLock.Lock()
-	for mediaType := range p.activeStreams {
-		statsMcuPublisherStreamTypesCurrent.WithLabelValues(mediaType).Dec()
-	}
-	p.activeStreams = make(map[string]bool)
-	p.aciveStreamsLock.Unlock()
+	p.stats.Reset()
 
 	if notify {
 		statsPublishersCurrent.WithLabelValues(p.streamType).Dec()
 		p.mcu.unregisterClient(p)
 		p.listener.PublisherClosed(p)
 	}
+	p.mcuJanusClient.Close(ctx)
 }
 
 func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
@@ -1010,6 +1080,7 @@ func (p *mcuJanusSubscriber) handleDetached(event *janus.DetachedMsg) {
 
 func (p *mcuJanusSubscriber) handleConnected(event *janus.WebRTCUpMsg) {
 	log.Printf("Subscriber %d received connected", p.handleId)
+	p.mcu.SubscriberConnected(p.Id(), p.publisher, p.streamType)
 }
 
 func (p *mcuJanusSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
@@ -1047,10 +1118,12 @@ func (p *mcuJanusSubscriber) Close(ctx context.Context) {
 	p.mu.Unlock()
 
 	if closed {
+		p.mcu.SubscriberDisconnected(p.Id(), p.publisher, p.streamType)
 		statsSubscribersCurrent.WithLabelValues(p.streamType).Dec()
 	}
 	p.mcu.unregisterClient(p)
 	p.listener.SubscriberClosed(p)
+	p.mcuJanusClient.Close(ctx)
 }
 
 func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, callback func(error, map[string]interface{})) {
