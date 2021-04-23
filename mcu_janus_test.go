@@ -106,4 +106,6 @@ func TestPublisherStatsCounter(t *testing.T) {
 	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 0)
 	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 0)
 	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 0)
+
+	collectAndLint(t, commonMcuStats...)
 }

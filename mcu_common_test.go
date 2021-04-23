@@ -23,31 +23,8 @@ package signaling
 
 import (
 	"testing"
-
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
-func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64) {
-	ch := make(chan *prometheus.Desc, 1)
-	collector.Describe(ch)
-	desc := <-ch
-	v := testutil.ToFloat64(collector)
-	if v != value {
-		t.Errorf("Expected value %f for %s, got %f", value, desc, v)
-	}
-}
-
-func collectAndLint(t *testing.T, collectors ...prometheus.Collector) {
-	for _, collector := range collectors {
-		problems, err := testutil.CollectAndLint(collector)
-		if err != nil {
-			t.Errorf("Error linting %+v: %s", collector, err)
-			continue
-		}
-
-		for _, problem := range problems {
-			t.Errorf("Problem with %s: %s", problem.Metric, problem.Text)
-		}
-	}
+func TestCommonMcuStats(t *testing.T) {
+	collectAndLint(t, commonMcuStats...)
 }
