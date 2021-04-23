@@ -1125,9 +1125,6 @@ func TestClientHelloResumeAndJoin(t *testing.T) {
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
-	}
 }
 
 func TestClientHelloClient(t *testing.T) {
@@ -1480,10 +1477,6 @@ func TestClientMessageToRoom(t *testing.T) {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
 
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
-	}
-
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 	recipient := MessageClientMessageRecipient{
@@ -1534,10 +1527,6 @@ func TestJoinRoom(t *testing.T) {
 		t.Fatal(err)
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
-
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
 	}
 
 	// We will receive a "joined" event.
@@ -1633,10 +1622,6 @@ func TestJoinRoomChange(t *testing.T) {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
 
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
-	}
-
 	// We will receive a "joined" event.
 	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
 		t.Error(err)
@@ -1648,10 +1633,6 @@ func TestJoinRoomChange(t *testing.T) {
 		t.Fatal(err)
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
-
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
 	}
 
 	// We will receive a "joined" event.
@@ -1704,10 +1685,6 @@ func TestJoinMultiple(t *testing.T) {
 		t.Fatal(err)
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
-
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
 	}
 
 	// We will receive a "joined" event.
@@ -1928,10 +1905,6 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
 
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
-	}
-
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 	// Simulate request from the backend that somebody joined the call.
@@ -2045,9 +2018,7 @@ func TestClientTakeoverRoomSession(t *testing.T) {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
 
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
-	} else {
+	if hubRoom := hub.getRoom(roomId); hubRoom == nil {
 		t.Fatalf("Room %s does not exist", roomId)
 	}
 
@@ -2205,10 +2176,6 @@ func TestClientSendOfferPermissions(t *testing.T) {
 		t.Fatal(err)
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
-
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
 	}
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)

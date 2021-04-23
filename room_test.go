@@ -110,10 +110,6 @@ func TestRoom_Update(t *testing.T) {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
 
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
-	}
-
 	// We will receive a "joined" event.
 	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
 		t.Error(err)

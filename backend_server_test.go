@@ -406,10 +406,6 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
 
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
-	}
-
 	// Ignore "join" events.
 	if err := client.DrainMessages(ctx); err != nil {
 		t.Error(err)
@@ -517,12 +513,6 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	roomId2 := "test-room2"
 	if _, err := client2.JoinRoom(ctx, roomId2); err != nil {
 		t.Fatal(err)
-	}
-	if hubRoom := hub.getRoom(roomId1); hubRoom != nil {
-		defer hubRoom.Close()
-	}
-	if hubRoom := hub.getRoom(roomId2); hubRoom != nil {
-		defer hubRoom.Close()
 	}
 
 	// Ignore "join" events.
@@ -830,10 +820,6 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
 
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
-	}
-
 	// Ignore "join" events.
 	if err := client1.DrainMessages(ctx); err != nil {
 		t.Error(err)
@@ -926,9 +912,6 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	room, err := client.JoinRoom(ctx, roomId)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if hubRoom := hub.getRoom(room.Room.RoomId); hubRoom != nil {
-		defer hubRoom.Close()
 	}
 	if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
@@ -1025,10 +1008,6 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 		t.Fatal(err)
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
-
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
 	}
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
@@ -1225,10 +1204,6 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 		t.Fatal(err)
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
-
-	if hubRoom := hub.getRoom(roomId); hubRoom != nil {
-		defer hubRoom.Close()
 	}
 
 	// Ignore "join" events.
