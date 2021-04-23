@@ -44,3 +44,28 @@ jobs:
     - name: Generate coverage report
       run: |
         make cover || make cover
+
+    - name: Convert coverage to lcov
+      uses: jandelgado/gcov2lcov-action@v1.0.2
+      with:
+          infile: cover.out
+          outfile: cover.lcov
+
+    - name: Coveralls Parallel
+      uses: coverallsapp/github-action@v1.1.1
+      env:
+        COVERALLS_FLAG_NAME: run-${{ matrix.go-version }}
+      with:
+        path-to-lcov: cover.lcov
+        github-token: ${{ secrets.github_token }}
+        parallel: true
+
+  finish:
+    needs: go
+    runs-on: ubuntu-latest
+    steps:
+    - name: Coveralls Finished
+      uses: coverallsapp/github-action@v1.1.1
+      with:
+        github-token: ${{ secrets.github_token }}
+        parallel-finished: true
