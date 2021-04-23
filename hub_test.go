@@ -47,6 +47,20 @@ const (
 	testTimeout = 10 * time.Second
 )
 
+// Only used for testing.
+func (h *Hub) getRoom(id string) *Room {
+	h.ru.RLock()
+	defer h.ru.RUnlock()
+	// TODO: The same room might exist on different backends.
+	for _, room := range h.rooms {
+		if room.Id() == id {
+			return room
+		}
+	}
+
+	return nil
+}
+
 func getTestConfig(server *httptest.Server) (*goconf.ConfigFile, error) {
 	config := goconf.NewConfigFile()
 	u, err := url.Parse(server.URL)

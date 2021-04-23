@@ -1074,19 +1074,6 @@ func (h *Hub) getRoomForBackend(id string, backend *Backend) *Room {
 	return h.rooms[internalRoomId]
 }
 
-func (h *Hub) getRoom(id string) *Room {
-	h.ru.RLock()
-	defer h.ru.RUnlock()
-	// TODO: The same room might exist on different backends.
-	for _, room := range h.rooms {
-		if room.Id() == id {
-			return room
-		}
-	}
-
-	return nil
-}
-
 func (h *Hub) removeRoom(room *Room) {
 	internalRoomId := getRoomIdForBackend(room.Id(), room.Backend())
 	h.ru.Lock()
@@ -1463,7 +1450,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 	switch msg.Type {
 	case "addsession":
 		msg := msg.AddSession
-		room := h.getRoom(msg.RoomId)
+		room := h.getRoomForBackend(msg.RoomId, session.Backend())
 		if room == nil {
 			log.Printf("Ignore add session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
 			return
@@ -1528,7 +1515,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		room.AddSession(sess, nil)
 	case "updatesession":
 		msg := msg.UpdateSession
-		room := h.getRoom(msg.RoomId)
+		room := h.getRoomForBackend(msg.RoomId, session.Backend())
 		if room == nil {
 			log.Printf("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
 			return
@@ -1561,7 +1548,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		}
 	case "removesession":
 		msg := msg.RemoveSession
-		room := h.getRoom(msg.RoomId)
+		room := h.getRoomForBackend(msg.RoomId, session.Backend())
 		if room == nil {
 			log.Printf("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
 			return
