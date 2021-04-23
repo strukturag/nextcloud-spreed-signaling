@@ -41,6 +41,9 @@ type Backend struct {
 	secret []byte
 	compat bool
 
+	maxStreamBitrate int
+	maxScreenBitrate int
+
 	sessionLimit uint64
 	sessionsLock sync.Mutex
 	sessions     map[string]bool
@@ -269,10 +272,22 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 			log.Printf("Backend %s allows a maximum of %d sessions", id, sessionLimit)
 		}
 
+		maxStreamBitrate, err := config.GetInt(id, "maxstreambitrate")
+		if err != nil || maxStreamBitrate < 0 {
+			maxStreamBitrate = 0
+		}
+		maxScreenBitrate, err := config.GetInt(id, "maxscreenbitrate")
+		if err != nil || maxScreenBitrate < 0 {
+			maxScreenBitrate = 0
+		}
+
 		hosts[parsed.Host] = append(hosts[parsed.Host], &Backend{
 			id:     id,
 			url:    u,
 			secret: []byte(secret),
+
+			maxStreamBitrate: maxStreamBitrate,
+			maxScreenBitrate: maxScreenBitrate,
 
 			sessionLimit: uint64(sessionLimit),
 		})

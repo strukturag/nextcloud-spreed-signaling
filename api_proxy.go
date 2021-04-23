@@ -174,6 +174,7 @@ type CommandProxyClientMessage struct {
 	StreamType  string `json:"streamType,omitempty"`
 	PublisherId string `json:"publisherId,omitempty"`
 	ClientId    string `json:"clientId,omitempty"`
+	Bitrate     int    `json:"bitrate,omitempty"`
 }
 
 func (m *CommandProxyClientMessage) CheckValid() error {

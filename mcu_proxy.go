@@ -903,12 +903,13 @@ func (c *mcuProxyConnection) performSyncRequest(ctx context.Context, msg *ProxyC
 	}
 }
 
-func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id string, streamType string) (McuPublisher, error) {
+func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int) (McuPublisher, error) {
 	msg := &ProxyClientMessage{
 		Type: "command",
 		Command: &CommandProxyClientMessage{
 			Type:       "create-publisher",
 			StreamType: streamType,
+			Bitrate:    bitrate,
 		},
 	}
 
@@ -980,6 +981,9 @@ type mcuProxy struct {
 	connectionsMu  sync.RWMutex
 	proxyTimeout   time.Duration
 
+	maxStreamBitrate int
+	maxScreenBitrate int
+
 	mu         sync.RWMutex
 	publishers map[string]*mcuProxyConnection
 
@@ -1014,6 +1018,15 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 	proxyTimeout := time.Duration(proxyTimeoutSeconds) * time.Second
 	log.Printf("Using a timeout of %s for proxy requests", proxyTimeout)
 
+	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
+	if maxStreamBitrate <= 0 {
+		maxStreamBitrate = defaultMaxStreamBitrate
+	}
+	maxScreenBitrate, _ := config.GetInt("mcu", "maxscreenbitrate")
+	if maxScreenBitrate <= 0 {
+		maxScreenBitrate = defaultMaxScreenBitrate
+	}
+
 	mcu := &mcuProxy{
 		tokenId:  tokenId,
 		tokenKey: tokenKey,
@@ -1024,6 +1037,9 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 		},
 		connectionsMap: make(map[string]*mcuProxyConnection),
 		proxyTimeout:   proxyTimeout,
+
+		maxStreamBitrate: maxStreamBitrate,
+		maxScreenBitrate: maxScreenBitrate,
 
 		publishers: make(map[string]*mcuProxyConnection),
 
@@ -1082,6 +1098,9 @@ func (m *mcuProxy) getEtcdClient() *clientv3.Client {
 func (m *mcuProxy) Start() error {
 	m.connectionsMu.RLock()
 	defer m.connectionsMu.RUnlock()
+
+	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate)
+	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate)
 
 	for _, c := range m.connections {
 		if err := c.start(); err != nil {
@@ -1570,7 +1589,7 @@ func (m *mcuProxy) removeWaiter(id uint64) {
 	delete(m.publisherWaiters, id)
 }
 
-func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, initiator McuInitiator) (McuPublisher, error) {
 	connections := m.getSortedConnections(initiator)
 	for _, conn := range connections {
 		if conn.IsShutdownScheduled() {
@@ -1579,7 +1598,19 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 
 		subctx, cancel := context.WithTimeout(ctx, m.proxyTimeout)
 		defer cancel()
-		publisher, err := conn.newPublisher(subctx, listener, id, streamType)
+
+		var maxBitrate int
+		if streamType == streamTypeScreen {
+			maxBitrate = m.maxScreenBitrate
+		} else {
+			maxBitrate = m.maxStreamBitrate
+		}
+		if bitrate <= 0 {
+			bitrate = maxBitrate
+		} else {
+			bitrate = min(bitrate, maxBitrate)
+		}
+		publisher, err := conn.newPublisher(subctx, listener, id, streamType, bitrate)
 		if err != nil {
 			log.Printf("Could not create %s publisher for %s on %s: %s", streamType, id, conn.url, err)
 			continue

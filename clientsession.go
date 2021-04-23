@@ -627,8 +627,17 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 	if !found {
 		client := s.getClientUnlocked()
 		s.mu.Unlock()
+
+		var bitrate int
+		if backend := s.Backend(); backend != nil {
+			if streamType == streamTypeScreen {
+				bitrate = backend.maxScreenBitrate
+			} else {
+				bitrate = backend.maxStreamBitrate
+			}
+		}
 		var err error
-		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), streamType, client)
+		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), streamType, bitrate, client)
 		s.mu.Lock()
 		if err != nil {
 			return nil, err

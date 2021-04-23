@@ -574,10 +574,19 @@ func (c *mcuJanusClient) handleTrickle(event *TrickleMsg) {
 type mcuJanusPublisher struct {
 	mcuJanusClient
 
-	id string
+	id      string
+	bitrate int
 }
 
-func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType string) (*JanusHandle, uint64, uint64, error) {
+func min(a, b int) int {
+	if a <= b {
+		return a
+	} else {
+		return b
+	}
+}
+
+func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType string, bitrate int) (*JanusHandle, uint64, uint64, error) {
 	session := m.session
 	if session == nil {
 		return nil, 0, 0, ErrNotConnected
@@ -603,11 +612,18 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 			// orientation changes in Firefox.
 			"videoorient_ext": false,
 		}
+		var maxBitrate int
 		if streamType == streamTypeScreen {
-			create_msg["bitrate"] = m.maxScreenBitrate
+			maxBitrate = m.maxScreenBitrate
 		} else {
-			create_msg["bitrate"] = m.maxStreamBitrate
+			maxBitrate = m.maxStreamBitrate
 		}
+		if bitrate <= 0 {
+			bitrate = maxBitrate
+		} else {
+			bitrate = min(bitrate, maxBitrate)
+		}
+		create_msg["bitrate"] = bitrate
 		create_response, err := handle.Request(ctx, create_msg)
 		if err != nil {
 			handle.Detach(ctx)
@@ -641,12 +657,12 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 	return handle, response.Session, roomId, nil
 }
 
-func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, initiator McuInitiator) (McuPublisher, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
 	}
 
-	handle, session, roomId, err := m.getOrCreatePublisherHandle(ctx, id, streamType)
+	handle, session, roomId, err := m.getOrCreatePublisherHandle(ctx, id, streamType, bitrate)
 	if err != nil {
 		return nil, err
 	}
@@ -666,7 +682,8 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 			closeChan: make(chan bool, 1),
 			deferred:  make(chan func(), 64),
 		},
-		id: id,
+		id:      id,
+		bitrate: bitrate,
 	}
 	client.mcuJanusClient.handleEvent = client.handleEvent
 	client.mcuJanusClient.handleHangup = client.handleHangup
@@ -734,7 +751,7 @@ func (p *mcuJanusPublisher) publishNats(messageType string) error {
 
 func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
-	handle, session, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType)
+	handle, session, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
 	if err != nil {
 		log.Printf("Could not reconnect publisher %s: %s\n", p.id, err)
 		// TODO(jojo): Retry
