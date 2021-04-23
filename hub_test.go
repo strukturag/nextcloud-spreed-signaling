@@ -147,7 +147,9 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 		h.ru.Lock()
 		rooms := len(h.rooms)
 		h.ru.Unlock()
-		if clients == 0 && rooms == 0 && sessions == 0 {
+		readActive := atomic.LoadUint32(&h.readPumpActive)
+		writeActive := atomic.LoadUint32(&h.writePumpActive)
+		if clients == 0 && rooms == 0 && sessions == 0 && readActive == 0 && writeActive == 0 {
 			break
 		}
 
@@ -163,6 +165,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 			time.Sleep(time.Millisecond)
 		}
 	}
+
 }
 
 func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Request, *BackendClientRequest) *BackendClientResponse) func(http.ResponseWriter, *http.Request) {

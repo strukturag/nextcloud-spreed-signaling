@@ -105,8 +105,10 @@ type Hub struct {
 	info         *HelloServerMessageServer
 	infoInternal *HelloServerMessageServer
 
-	stopped  int32
-	stopChan chan bool
+	stopped         int32
+	stopChan        chan bool
+	readPumpActive  uint32
+	writePumpActive uint32
 
 	roomUpdated      chan *BackendServerRoomRequest
 	roomDeleted      chan *BackendServerRoomRequest
@@ -1858,6 +1860,14 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.processNewClient(client)
-	go client.WritePump()
-	go client.ReadPump()
+	go func(h *Hub) {
+		atomic.AddUint32(&h.writePumpActive, 1)
+		defer atomic.AddUint32(&h.writePumpActive, ^uint32(0))
+		client.WritePump()
+	}(h)
+	go func(h *Hub) {
+		atomic.AddUint32(&h.readPumpActive, 1)
+		defer atomic.AddUint32(&h.readPumpActive, ^uint32(0))
+		client.ReadPump()
+	}(h)
 }
