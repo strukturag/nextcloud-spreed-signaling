@@ -109,11 +109,12 @@ type ProxyServerMessage struct {
 }
 
 func (r *ProxyServerMessage) CloseAfterSend(session Session) bool {
-	if r.Type == "bye" {
+	switch r.Type {
+	case "bye":
 		return true
+	default:
+		return false
 	}
-
-	return false
 }
 
 // Type "hello"

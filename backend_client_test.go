@@ -71,7 +71,9 @@ func TestPostOnRedirect(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			t.Error(err)
+		}
 	})
 
 	server := httptest.NewServer(r)

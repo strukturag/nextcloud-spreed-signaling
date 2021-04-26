@@ -218,7 +218,7 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(data)
+		w.Write(data) // nolint
 	}
 }
 
@@ -960,7 +960,7 @@ func TestClientHelloResumePublicId(t *testing.T) {
 	}
 
 	data := "from-1-to-2"
-	client1.SendMessage(recipient2, data)
+	client1.SendMessage(recipient2, data) // nolint
 
 	var payload string
 	var sender *MessageServerMessageSender
@@ -1226,9 +1226,9 @@ func TestClientMessageToSessionId(t *testing.T) {
 	}
 
 	data1 := "from-1-to-2"
-	client1.SendMessage(recipient2, data1)
+	client1.SendMessage(recipient2, data1) // nolint
 	data2 := "from-2-to-1"
-	client2.SendMessage(recipient1, data2)
+	client2.SendMessage(recipient1, data2) // nolint
 
 	var payload string
 	if err := checkReceiveClientMessage(ctx, client1, "session", hello2.Hello, &payload); err != nil {
@@ -1286,9 +1286,9 @@ func TestClientMessageToUserId(t *testing.T) {
 	}
 
 	data1 := "from-1-to-2"
-	client1.SendMessage(recipient2, data1)
+	client1.SendMessage(recipient2, data1) // nolint
 	data2 := "from-2-to-1"
-	client2.SendMessage(recipient1, data2)
+	client2.SendMessage(recipient1, data2) // nolint
 
 	var payload string
 	if err := checkReceiveClientMessage(ctx, client1, "user", hello2.Hello, &payload); err != nil {
@@ -1361,7 +1361,7 @@ func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
 	}
 
 	data1 := "from-1-to-2"
-	client1.SendMessage(recipient, data1)
+	client1.SendMessage(recipient, data1) // nolint
 
 	// Both clients will receive the message as it was sent to the user.
 	var payload string
@@ -1484,9 +1484,9 @@ func TestClientMessageToRoom(t *testing.T) {
 	}
 
 	data1 := "from-1-to-2"
-	client1.SendMessage(recipient, data1)
+	client1.SendMessage(recipient, data1) // nolint
 	data2 := "from-2-to-1"
-	client2.SendMessage(recipient, data2)
+	client2.SendMessage(recipient, data2) // nolint
 
 	var payload string
 	if err := checkReceiveClientMessage(ctx, client1, "room", hello2.Hello, &payload); err != nil {
@@ -1732,9 +1732,8 @@ func TestJoinMultiple(t *testing.T) {
 
 func TestGetRealUserIP(t *testing.T) {
 	REMOTE_ATTR := "192.168.1.2"
-	var request *http.Request
 
-	request = &http.Request{
+	request := &http.Request{
 		RemoteAddr: REMOTE_ATTR,
 	}
 	if ip := getRealUserIP(request); ip != REMOTE_ATTR {
@@ -1815,8 +1814,8 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	if err := json.Unmarshal([]byte(chat_refresh), &data1); err != nil {
 		t.Fatal(err)
 	}
-	client1.SendMessage(recipient2, data1)
-	client1.SendMessage(recipient2, data1)
+	client1.SendMessage(recipient2, data1) // nolint
+	client1.SendMessage(recipient2, data1) // nolint
 
 	client2 = NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
@@ -1909,7 +1908,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 
 	// Simulate request from the backend that somebody joined the call.
 	users := []map[string]interface{}{
-		map[string]interface{}{
+		{
 			"sessionId": "the-session-id",
 			"inCall":    1,
 		},
@@ -1943,7 +1942,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	if err := json.Unmarshal([]byte(chat_refresh), &data1); err != nil {
 		t.Fatal(err)
 	}
-	client1.SendMessage(recipient2, data1)
+	client1.SendMessage(recipient2, data1) // nolint
 
 	client2 = NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
@@ -2294,9 +2293,9 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	}
 
 	data1 := "from-1-to-2"
-	client1.SendMessage(recipient2, data1)
+	client1.SendMessage(recipient2, data1) // nolint
 	data2 := "from-2-to-1"
-	client2.SendMessage(recipient1, data2)
+	client2.SendMessage(recipient1, data2) // nolint
 
 	var payload string
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -2400,9 +2399,9 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	}
 
 	data1 := "from-1-to-2"
-	client1.SendMessage(recipient, data1)
+	client1.SendMessage(recipient, data1) // nolint
 	data2 := "from-2-to-1"
-	client2.SendMessage(recipient, data2)
+	client2.SendMessage(recipient, data2) // nolint
 
 	var payload string
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)

@@ -36,7 +36,7 @@ const (
 )
 
 var (
-	ErrNotConnected = fmt.Errorf("Not connected")
+	ErrNotConnected = fmt.Errorf("not connected")
 )
 
 type McuListener interface {

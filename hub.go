@@ -161,7 +161,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 	case 24:
 	case 32:
 	default:
-		return nil, fmt.Errorf("The sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
+		return nil, fmt.Errorf("the sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
 	}
 
 	internalClientsSecret, _ := config.GetString("clients", "internalsecret")
@@ -236,12 +236,12 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 				if strings.Contains(option, "/") {
 					_, ipNet, err = net.ParseCIDR(option)
 					if err != nil {
-						return nil, fmt.Errorf("Could not parse CIDR %s: %s", option, err)
+						return nil, fmt.Errorf("could not parse CIDR %s: %s", option, err)
 					}
 				} else {
 					ip = net.ParseIP(option)
 					if ip == nil {
-						return nil, fmt.Errorf("Could not parse IP %s", option)
+						return nil, fmt.Errorf("could not parse IP %s", option)
 					}
 
 					var mask net.IPMask
@@ -482,7 +482,7 @@ func (h *Hub) encodeSessionId(data *SessionIdData, sessionType string) (string, 
 
 func (h *Hub) getDecodeCache(cache_key string) *LruCache {
 	hash := fnv.New32a()
-	hash.Write([]byte(cache_key))
+	hash.Write([]byte(cache_key)) // nolint
 	idx := hash.Sum32() % uint32(len(h.decodeCaches))
 	return h.decodeCaches[idx]
 }
@@ -931,7 +931,7 @@ func (h *Hub) processHelloInternal(client *Client, message *ClientMessage) {
 	// Validate internal connection.
 	rnd := message.Hello.Auth.internalParams.Random
 	mac := hmac.New(sha256.New, h.internalClientsSecret)
-	mac.Write([]byte(rnd))
+	mac.Write([]byte(rnd)) // nolint
 	check := hex.EncodeToString(mac.Sum(nil))
 	if len(rnd) < minTokenRandomLength || check != message.Hello.Auth.internalParams.Token {
 		client.SendMessage(message.NewErrorServerMessage(InvalidToken))
@@ -969,7 +969,9 @@ func (h *Hub) disconnectByRoomSessionId(roomSessionId string) {
 				Reason: "room_session_reconnected",
 			},
 		}
-		h.nats.PublishMessage("session."+sessionId, msg)
+		if err := h.nats.PublishMessage("session."+sessionId, msg); err != nil {
+			log.Printf("Could not send reconnect bye to session %s: %s", sessionId, err)
+		}
 		return
 	}
 
@@ -1323,7 +1325,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				// client) to start his stream, so we must not block the active
 				// goroutine.
 				go h.processMcuMessage(client, recipient, recipientSession, message, msg, clientData)
-			} else {
+			} else { // nolint
 				// Client is not connected yet.
 			}
 			return
@@ -1335,7 +1337,9 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 			log.Printf("Sending offers to remote clients is not supported yet (client %s)", session.PublicId())
 			return
 		}
-		h.nats.PublishMessage(subject, response)
+		if err := h.nats.PublishMessage(subject, response); err != nil {
+			log.Printf("Error publishing message to remote session: %s", err)
+		}
 	}
 }
 
@@ -1434,7 +1438,9 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 	if recipient != nil {
 		recipient.SendMessage(response)
 	} else {
-		h.nats.PublishMessage(subject, response)
+		if err := h.nats.PublishMessage(subject, response); err != nil {
+			log.Printf("Error publishing message to remote session: %s", err)
+		}
 	}
 }
 

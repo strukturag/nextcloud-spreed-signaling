@@ -322,11 +322,15 @@ func (s *ClientSession) closeAndWait(wait bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.userSubscription != nil {
-		s.userSubscription.Unsubscribe()
+		if err := s.userSubscription.Unsubscribe(); err != nil {
+			log.Printf("Error closing user subscription in session %s: %s", s.PublicId(), err)
+		}
 		s.userSubscription = nil
 	}
 	if s.sessionSubscription != nil {
-		s.sessionSubscription.Unsubscribe()
+		if err := s.sessionSubscription.Unsubscribe(); err != nil {
+			log.Printf("Error closing session subscription in session %s: %s", s.PublicId(), err)
+		}
 		s.sessionSubscription = nil
 	}
 	go func(virtualSessions map[*VirtualSession]bool) {
@@ -434,7 +438,9 @@ func (s *ClientSession) UnsubscribeRoomNats() {
 
 func (s *ClientSession) doUnsubscribeRoomNats(notify bool) {
 	if s.roomSubscription != nil {
-		s.roomSubscription.Unsubscribe()
+		if err := s.roomSubscription.Unsubscribe(); err != nil {
+			log.Printf("Error closing room subscription in session %s: %s", s.PublicId(), err)
+		}
 		s.roomSubscription = nil
 	}
 	s.hub.roomSessions.DeleteRoomSession(s)

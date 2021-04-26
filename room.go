@@ -177,7 +177,9 @@ func (r *Room) unsubscribeBackend() {
 	}
 
 	go func(subscription NatsSubscription) {
-		subscription.Unsubscribe()
+		if err := subscription.Unsubscribe(); err != nil {
+			log.Printf("Error closing backend subscription for room %s: %s", r.Id(), err)
+		}
 		close(r.natsReceiver)
 	}(r.backendSubscription)
 	r.backendSubscription = nil
@@ -330,8 +332,8 @@ func (r *Room) RemoveSession(session Session) bool {
 	return false
 }
 
-func (r *Room) publish(message *ServerMessage) {
-	r.nats.PublishMessage(GetSubjectForRoomId(r.id, r.backend), message)
+func (r *Room) publish(message *ServerMessage) error {
+	return r.nats.PublishMessage(GetSubjectForRoomId(r.id, r.backend), message)
 }
 
 func (r *Room) UpdateProperties(properties *json.RawMessage) {
@@ -351,7 +353,9 @@ func (r *Room) UpdateProperties(properties *json.RawMessage) {
 			Properties: r.properties,
 		},
 	}
-	r.publish(message)
+	if err := r.publish(message); err != nil {
+		log.Printf("Could not publish update properties message in room %s: %s", r.Id(), err)
+	}
 }
 
 func (r *Room) GetRoomSessionData(session Session) *RoomSessionData {
@@ -377,7 +381,7 @@ func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionDat
 			Target: "room",
 			Type:   "join",
 			Join: []*EventServerMessageSessionEntry{
-				&EventServerMessageSessionEntry{
+				{
 					SessionId: sessionId,
 					UserId:    userid,
 					User:      session.UserData(),
@@ -385,7 +389,9 @@ func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionDat
 			},
 		},
 	}
-	r.publish(message)
+	if err := r.publish(message); err != nil {
+		log.Printf("Could not publish session joined message in room %s: %s", r.Id(), err)
+	}
 
 	if session.ClientType() == HelloClientTypeInternal {
 		r.publishUsersChangedWithInternal()
@@ -408,7 +414,9 @@ func (r *Room) PublishSessionLeft(session Session) {
 			},
 		},
 	}
-	r.publish(message)
+	if err := r.publish(message); err != nil {
+		log.Printf("Could not publish session left message in room %s: %s", r.Id(), err)
+	}
 
 	if session.ClientType() == HelloClientTypeInternal {
 		r.publishUsersChangedWithInternal()
@@ -539,7 +547,9 @@ func (r *Room) PublishUsersInCallChanged(changed []map[string]interface{}, users
 			},
 		},
 	}
-	r.publish(message)
+	if err := r.publish(message); err != nil {
+		log.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+	}
 }
 
 func (r *Room) PublishUsersChanged(changed []map[string]interface{}, users []map[string]interface{}) {
@@ -558,7 +568,9 @@ func (r *Room) PublishUsersChanged(changed []map[string]interface{}, users []map
 			},
 		},
 	}
-	r.publish(message)
+	if err := r.publish(message); err != nil {
+		log.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
+	}
 }
 
 func (r *Room) getParticipantsUpdateMessage(users []map[string]interface{}) *ServerMessage {
@@ -603,7 +615,9 @@ func (r *Room) NotifySessionChanged(session Session) {
 
 func (r *Room) publishUsersChangedWithInternal() {
 	message := r.getParticipantsUpdateMessage(r.users)
-	r.publish(message)
+	if err := r.publish(message); err != nil {
+		log.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
+	}
 }
 
 func (r *Room) publishSessionFlagsChanged(session *VirtualSession) {
@@ -619,7 +633,9 @@ func (r *Room) publishSessionFlagsChanged(session *VirtualSession) {
 			},
 		},
 	}
-	r.publish(message)
+	if err := r.publish(message); err != nil {
+		log.Printf("Could not publish flags changed message in room %s: %s", r.Id(), err)
+	}
 }
 
 func (r *Room) publishActiveSessions() {
@@ -696,7 +712,9 @@ func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
 			},
 		},
 	}
-	r.publish(msg)
+	if err := r.publish(msg); err != nil {
+		log.Printf("Could not publish room message in room %s: %s", r.Id(), err)
+	}
 }
 
 func (r *Room) notifyInternalRoomDeleted() {

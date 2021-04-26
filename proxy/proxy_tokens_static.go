@@ -103,7 +103,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 		log.Printf("No token keys loaded")
 	} else {
 		var keyIds []string
-		for k, _ := range tokenKeys {
+		for k := range tokenKeys {
 			keyIds = append(keyIds, k)
 		}
 		sort.Strings(keyIds)
@@ -114,7 +114,9 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 }
 
 func (t *tokensStatic) Reload(config *goconf.ConfigFile) {
-	t.load(config, true)
+	if err := t.load(config, true); err != nil {
+		log.Printf("Error reloading static tokens: %s", err)
+	}
 }
 
 func (t *tokensStatic) Close() {

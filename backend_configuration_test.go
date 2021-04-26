@@ -99,16 +99,16 @@ func TestIsUrlAllowed_Compat(t *testing.T) {
 
 func TestIsUrlAllowed(t *testing.T) {
 	valid_urls := [][]string{
-		[]string{"https://domain.invalid/foo", string(testBackendSecret) + "-foo"},
-		[]string{"https://domain.invalid/foo/", string(testBackendSecret) + "-foo"},
-		[]string{"https://domain.invalid:443/foo/", string(testBackendSecret) + "-foo"},
-		[]string{"https://domain.invalid/foo/folder", string(testBackendSecret) + "-foo"},
-		[]string{"https://domain.invalid/bar", string(testBackendSecret) + "-bar"},
-		[]string{"https://domain.invalid/bar/", string(testBackendSecret) + "-bar"},
-		[]string{"https://domain.invalid:443/bar/", string(testBackendSecret) + "-bar"},
-		[]string{"https://domain.invalid/bar/folder/", string(testBackendSecret) + "-bar"},
-		[]string{"https://otherdomain.invalid/", string(testBackendSecret) + "-lala"},
-		[]string{"https://otherdomain.invalid/folder/", string(testBackendSecret) + "-lala"},
+		{"https://domain.invalid/foo", string(testBackendSecret) + "-foo"},
+		{"https://domain.invalid/foo/", string(testBackendSecret) + "-foo"},
+		{"https://domain.invalid:443/foo/", string(testBackendSecret) + "-foo"},
+		{"https://domain.invalid/foo/folder", string(testBackendSecret) + "-foo"},
+		{"https://domain.invalid/bar", string(testBackendSecret) + "-bar"},
+		{"https://domain.invalid/bar/", string(testBackendSecret) + "-bar"},
+		{"https://domain.invalid:443/bar/", string(testBackendSecret) + "-bar"},
+		{"https://domain.invalid/bar/folder/", string(testBackendSecret) + "-bar"},
+		{"https://otherdomain.invalid/", string(testBackendSecret) + "-lala"},
+		{"https://otherdomain.invalid/folder/", string(testBackendSecret) + "-lala"},
 	}
 	invalid_urls := []string{
 		"https://domain.invalid",
@@ -176,13 +176,13 @@ type ParseBackendIdsTestcase struct {
 
 func TestParseBackendIds(t *testing.T) {
 	testcases := []ParseBackendIdsTestcase{
-		ParseBackendIdsTestcase{"", nil},
-		ParseBackendIdsTestcase{"backend1", []string{"backend1"}},
-		ParseBackendIdsTestcase{" backend1 ", []string{"backend1"}},
-		ParseBackendIdsTestcase{"backend1,", []string{"backend1"}},
-		ParseBackendIdsTestcase{"backend1,backend1", []string{"backend1"}},
-		ParseBackendIdsTestcase{"backend1, backend2", []string{"backend1", "backend2"}},
-		ParseBackendIdsTestcase{"backend1,backend2, backend1", []string{"backend1", "backend2"}},
+		{"", nil},
+		{"backend1", []string{"backend1"}},
+		{" backend1 ", []string{"backend1"}},
+		{"backend1,", []string{"backend1"}},
+		{"backend1,backend1", []string{"backend1"}},
+		{"backend1, backend2", []string{"backend1", "backend2"}},
+		{"backend1,backend2, backend1", []string{"backend1", "backend2"}},
 	}
 
 	for _, test := range testcases {

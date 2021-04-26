@@ -238,7 +238,7 @@ func (c *Client) ReadPump() {
 	conn.SetReadLimit(maxMessageSize)
 	conn.SetPongHandler(func(msg string) error {
 		now := time.Now()
-		conn.SetReadDeadline(now.Add(pongWait))
+		conn.SetReadDeadline(now.Add(pongWait)) // nolint
 		if msg == "" {
 			return nil
 		}
@@ -258,7 +258,7 @@ func (c *Client) ReadPump() {
 	decodeBuffer := bufferPool.Get().(*bytes.Buffer)
 	defer bufferPool.Put(decodeBuffer)
 	for {
-		conn.SetReadDeadline(time.Now().Add(pongWait))
+		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
 			if _, ok := err.(*websocket.CloseError); !ok || websocket.IsUnexpectedCloseError(err,
@@ -301,7 +301,7 @@ func (c *Client) ReadPump() {
 func (c *Client) writeInternal(message json.Marshaler) bool {
 	var closeData []byte
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	writer, err := c.conn.NextWriter(websocket.TextMessage)
 	if err == nil {
 		if m, ok := (interface{}(message)).(easyjson.Marshaler); ok {
@@ -330,7 +330,7 @@ func (c *Client) writeInternal(message json.Marshaler) bool {
 	return true
 
 close:
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.CloseMessage, closeData); err != nil {
 		if session := c.GetSession(); session != nil {
 			log.Printf("Could not send close message to client %s: %v", session.PublicId(), err)
@@ -341,7 +341,7 @@ close:
 	return false
 }
 
-func (c *Client) writeError(e error) bool {
+func (c *Client) writeError(e error) bool { // nolint
 	message := &ServerMessage{
 		Type:  "error",
 		Error: NewError("internal_error", e.Error()),
@@ -357,7 +357,7 @@ func (c *Client) writeError(e error) bool {
 	}
 
 	closeData := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, e.Error())
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.CloseMessage, closeData); err != nil {
 		if session := c.GetSession(); session != nil {
 			log.Printf("Could not send close message to client %s: %v", session.PublicId(), err)
@@ -385,8 +385,8 @@ func (c *Client) writeMessageLocked(message WritableClientMessage) bool {
 
 	session := c.GetSession()
 	if message.CloseAfterSend(session) {
-		c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-		c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+		c.conn.SetWriteDeadline(time.Now().Add(writeWait))    // nolint
+		c.conn.WriteMessage(websocket.CloseMessage, []byte{}) // nolint
 		if session != nil {
 			go session.Close()
 		}
@@ -406,7 +406,7 @@ func (c *Client) sendPing() bool {
 
 	now := time.Now().UnixNano()
 	msg := strconv.FormatInt(now, 10)
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
 		if session := c.GetSession(); session != nil {
 			log.Printf("Could not send ping to client %s: %v", session.PublicId(), err)

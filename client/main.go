@@ -47,7 +47,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
 
-	"github.com/strukturag/nextcloud-spreed-signaling"
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 var (
@@ -177,8 +177,8 @@ func (c *SignalingClient) Close() {
 	c.lock.Lock()
 	c.publicSessionId = ""
 	c.privateSessionId = ""
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-	c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait))                                                          // nolint
+	c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) // nolint
 	c.conn.Close()
 	c.conn = nil
 	c.lock.Unlock()
@@ -271,15 +271,15 @@ func (c *SignalingClient) readPump() {
 	}()
 
 	conn.SetReadLimit(maxMessageSize)
-	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(pongWait))
+		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 		return nil
 	})
 
 	var decodeBuffer bytes.Buffer
 	for {
-		conn.SetReadDeadline(time.Now().Add(pongWait))
+		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err,
@@ -319,7 +319,7 @@ func (c *SignalingClient) readPump() {
 func (c *SignalingClient) writeInternal(message *signaling.ClientMessage) bool {
 	var closeData []byte
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	writer, err := c.conn.NextWriter(websocket.TextMessage)
 	if err == nil {
 		_, err = easyjson.MarshalToWriter(message, writer)
@@ -341,8 +341,8 @@ func (c *SignalingClient) writeInternal(message *signaling.ClientMessage) bool {
 	return true
 
 close:
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-	c.conn.WriteMessage(websocket.CloseMessage, closeData)
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait))     // nolint
+	c.conn.WriteMessage(websocket.CloseMessage, closeData) // nolint
 	return false
 }
 
@@ -353,7 +353,7 @@ func (c *SignalingClient) sendPing() bool {
 		return false
 	}
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 		return false
 	}
@@ -476,7 +476,7 @@ func registerAuthHandler(router *mux.Router) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(jsonpayload)
+		w.Write(jsonpayload) // nolint
 	})
 }
 
@@ -562,7 +562,7 @@ func main() {
 		Handler: r,
 	}
 	go func() {
-		server.Serve(listener)
+		server.Serve(listener) // nolint
 	}()
 	backendUrl := "http://" + listener.Addr().String()
 	log.Println("Backend server running on", backendUrl)

@@ -39,39 +39,39 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 
 	testcases := map[string][][]*mcuProxyConnection{
 		// Direct country match
-		"DE": [][]*mcuProxyConnection{
-			[]*mcuProxyConnection{conn_at, conn_jp, conn_de},
-			[]*mcuProxyConnection{conn_de, conn_at, conn_jp},
+		"DE": {
+			{conn_at, conn_jp, conn_de},
+			{conn_de, conn_at, conn_jp},
 		},
 		// Direct country match
-		"AT": [][]*mcuProxyConnection{
-			[]*mcuProxyConnection{conn_at, conn_jp, conn_de},
-			[]*mcuProxyConnection{conn_at, conn_de, conn_jp},
+		"AT": {
+			{conn_at, conn_jp, conn_de},
+			{conn_at, conn_de, conn_jp},
 		},
 		// Continent match
-		"CH": [][]*mcuProxyConnection{
-			[]*mcuProxyConnection{conn_de, conn_jp, conn_at},
-			[]*mcuProxyConnection{conn_de, conn_at, conn_jp},
+		"CH": {
+			{conn_de, conn_jp, conn_at},
+			{conn_de, conn_at, conn_jp},
 		},
 		// Direct country match
-		"JP": [][]*mcuProxyConnection{
-			[]*mcuProxyConnection{conn_de, conn_jp, conn_at},
-			[]*mcuProxyConnection{conn_jp, conn_de, conn_at},
+		"JP": {
+			{conn_de, conn_jp, conn_at},
+			{conn_jp, conn_de, conn_at},
 		},
 		// Continent match
-		"CN": [][]*mcuProxyConnection{
-			[]*mcuProxyConnection{conn_de, conn_jp, conn_at},
-			[]*mcuProxyConnection{conn_jp, conn_de, conn_at},
+		"CN": {
+			{conn_de, conn_jp, conn_at},
+			{conn_jp, conn_de, conn_at},
 		},
 		// Partial continent match
-		"RU": [][]*mcuProxyConnection{
-			[]*mcuProxyConnection{conn_us, conn_de, conn_jp, conn_at},
-			[]*mcuProxyConnection{conn_de, conn_jp, conn_at, conn_us},
+		"RU": {
+			{conn_us, conn_de, conn_jp, conn_at},
+			{conn_de, conn_jp, conn_at, conn_us},
 		},
 		// No match
-		"AU": [][]*mcuProxyConnection{
-			[]*mcuProxyConnection{conn_us, conn_de, conn_jp, conn_at},
-			[]*mcuProxyConnection{conn_us, conn_de, conn_jp, conn_at},
+		"AU": {
+			{conn_us, conn_de, conn_jp, conn_at},
+			{conn_us, conn_de, conn_jp, conn_at},
 		},
 	}
 
