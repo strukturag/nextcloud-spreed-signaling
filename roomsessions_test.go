@@ -133,8 +133,12 @@ func testRoomSessions(t *testing.T, sessions RoomSessions) {
 		t.Errorf("Expected session id %s, got %s", s2.PublicId(), sid)
 	}
 
-	sessions.SetRoomSession(s1, "room-session")
-	sessions.SetRoomSession(s2, "room-session")
+	if err := sessions.SetRoomSession(s1, "room-session"); err != nil {
+		t.Error(err)
+	}
+	if err := sessions.SetRoomSession(s2, "room-session"); err != nil {
+		t.Error(err)
+	}
 	sessions.DeleteRoomSession(s1)
 	if sid, err := sessions.GetSessionId("room-session"); err != nil {
 		t.Errorf("Expected session id %s, got error %s", s2.PublicId(), err)

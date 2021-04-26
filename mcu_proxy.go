@@ -379,7 +379,7 @@ func (c *mcuProxyConnection) readPump() {
 
 	conn.SetPongHandler(func(msg string) error {
 		now := time.Now()
-		conn.SetReadDeadline(now.Add(pongWait))
+		conn.SetReadDeadline(now.Add(pongWait)) // nolint
 		if msg == "" {
 			return nil
 		}
@@ -392,7 +392,7 @@ func (c *mcuProxyConnection) readPump() {
 	})
 
 	for {
-		conn.SetReadDeadline(time.Now().Add(pongWait))
+		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if _, ok := err.(*websocket.CloseError); !ok || websocket.IsUnexpectedCloseError(err,
@@ -423,7 +423,7 @@ func (c *mcuProxyConnection) sendPing() bool {
 
 	now := time.Now()
 	msg := strconv.FormatInt(now.UnixNano(), 10)
-	c.conn.SetWriteDeadline(now.Add(writeWait))
+	c.conn.SetWriteDeadline(now.Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
 		log.Printf("Could not send ping to proxy at %s: %v", c.url, err)
 		c.scheduleReconnect()
@@ -465,7 +465,7 @@ func (c *mcuProxyConnection) sendClose() error {
 		return ErrNotConnected
 	}
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	return c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 }
 
@@ -858,7 +858,7 @@ func (c *mcuProxyConnection) sendMessageLocked(msg *ProxyClientMessage) error {
 	if c.conn == nil {
 		return ErrNotConnected
 	}
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	return c.conn.WriteJSON(msg)
 }
 
@@ -969,11 +969,10 @@ type mcuProxy struct {
 	tokenId  string
 	tokenKey *rsa.PrivateKey
 
-	etcdMu    sync.Mutex
-	client    atomic.Value
-	keyPrefix atomic.Value
-	keyInfos  map[string]*ProxyInformationEtcd
-	urlToKey  map[string]string
+	etcdMu   sync.Mutex
+	client   atomic.Value
+	keyInfos map[string]*ProxyInformationEtcd
+	urlToKey map[string]string
 
 	dialer         *websocket.Dialer
 	connections    []*mcuProxyConnection

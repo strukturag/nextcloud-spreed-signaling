@@ -38,7 +38,7 @@ import (
 
 	"gopkg.in/dgrijalva/jwt-go.v3"
 
-	"github.com/strukturag/nextcloud-spreed-signaling"
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 const (
@@ -232,7 +232,9 @@ func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 }
 
 func (t *tokensEtcd) Reload(config *goconf.ConfigFile) {
-	t.load(config, true)
+	if err := t.load(config, true); err != nil {
+		log.Printf("Error reloading etcd tokens: %s", err)
+	}
 }
 
 func (t *tokensEtcd) Close() {

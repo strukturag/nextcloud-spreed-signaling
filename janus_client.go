@@ -166,7 +166,7 @@ type TrickleMsg struct {
 }
 
 func unexpected(request string) error {
-	return fmt.Errorf("Unexpected response received to '%s' request", request)
+	return fmt.Errorf("unexpected response received to '%s' request", request)
 }
 
 type transaction struct {

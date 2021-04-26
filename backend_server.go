@@ -85,10 +85,10 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 
 	if len(turnserverslist) != 0 {
 		if turnapikey == "" {
-			return nil, fmt.Errorf("Need a TURN API key if TURN servers are configured.")
+			return nil, fmt.Errorf("need a TURN API key if TURN servers are configured")
 		}
 		if turnsecret == "" {
-			return nil, fmt.Errorf("Need a shared TURN secret if TURN servers are configured.")
+			return nil, fmt.Errorf("need a shared TURN secret if TURN servers are configured")
 		}
 
 		log.Printf("Using configured TURN API key")
@@ -169,14 +169,14 @@ func (b *BackendServer) setComonHeaders(f func(http.ResponseWriter, *http.Reques
 func (b *BackendServer) welcomeFunc(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, b.welcomeMessage)
+	io.WriteString(w, b.welcomeMessage) // nolint
 }
 
 func calculateTurnSecret(username string, secret []byte, valid time.Duration) (string, string) {
 	expires := time.Now().Add(valid)
 	username = fmt.Sprintf("%d:%s", expires.Unix(), username)
 	m := hmac.New(sha1.New, secret)
-	m.Write([]byte(username))
+	m.Write([]byte(username)) // nolint
 	password := base64.StdEncoding.EncodeToString(m.Sum(nil))
 	return username, password
 }
@@ -192,19 +192,19 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 	}
 	if service != "turn" || key == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, "Invalid service and/or key sent.\n")
+		io.WriteString(w, "Invalid service and/or key sent.\n") // nolint
 		return
 	}
 
 	if key != b.turnapikey {
 		w.WriteHeader(http.StatusForbidden)
-		io.WriteString(w, "Not allowed to access this service.\n")
+		io.WriteString(w, "Not allowed to access this service.\n") // nolint
 		return
 	}
 
 	if len(b.turnservers) == 0 {
 		w.WriteHeader(http.StatusNotFound)
-		io.WriteString(w, "No TURN servers available.\n")
+		io.WriteString(w, "No TURN servers available.\n") // nolint
 		return
 	}
 
@@ -225,7 +225,7 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		log.Printf("Could not serialize TURN credentials %+v: %s", result, err)
 		w.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(w, "Could not serialize credentials.")
+		io.WriteString(w, "Could not serialize credentials.") // nolint
 		return
 	}
 
@@ -235,7 +235,7 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	w.Write(data) // nolint
 }
 
 func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Request, []byte)) func(http.ResponseWriter, *http.Request) {
@@ -285,7 +285,9 @@ func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids 
 		},
 	}
 	for _, userid := range userids {
-		b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg)
+		if err := b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg); err != nil {
+			log.Printf("Could not publish room invite for user %s in backend %s: %s", userid, backend.Id(), err)
+		}
 	}
 }
 
@@ -304,7 +306,9 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 		},
 	}
 	for _, userid := range userids {
-		b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg)
+		if err := b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg); err != nil {
+			log.Printf("Could not publish room disinvite for user %s in backend %s: %s", userid, backend.Id(), err)
+		}
 	}
 
 	timeout := time.Second
@@ -321,7 +325,9 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 			if sid, err := b.lookupByRoomSessionId(sessionid, nil, timeout); err != nil {
 				log.Printf("Could not lookup by room session %s: %s", sessionid, err)
 			} else if sid != "" {
-				b.nats.PublishMessage("session."+sid, msg)
+				if err := b.nats.PublishMessage("session."+sid, msg); err != nil {
+					log.Printf("Could not publish room disinvite for session %s: %s", sid, err)
+				}
 			}
 		}(sessionid)
 	}
@@ -350,7 +356,9 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified
 			continue
 		}
 
-		b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg)
+		if err := b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg); err != nil {
+			log.Printf("Could not publish room update for user %s in backend %s: %s", userid, backend.Id(), err)
+		}
 	}
 }
 
@@ -590,7 +598,7 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	// TODO(jojo): Return better response struct.
-	w.Write([]byte("{}"))
+	w.Write([]byte("{}")) // nolint
 }
 
 func (b *BackendServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
@@ -622,5 +630,5 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
-	w.Write(statsData)
+	w.Write(statsData) // nolint
 }

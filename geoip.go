@@ -153,7 +153,7 @@ func (g *GeoLookup) updateUrl() error {
 		log.Printf("GeoIP database at %s has not changed", g.url)
 		return nil
 	} else if response.StatusCode/100 != 2 {
-		return fmt.Errorf("Downloading %s returned an error: %s", g.url, response.Status)
+		return fmt.Errorf("downloading %s returned an error: %s", g.url, response.Status)
 	}
 
 	body := response.Body
@@ -186,7 +186,7 @@ func (g *GeoLookup) updateUrl() error {
 	}
 
 	if len(geoipdata) == 0 {
-		return fmt.Errorf("Did not find MaxMind database in tarball from %s", g.url)
+		return fmt.Errorf("did not find MaxMind database in tarball from %s", g.url)
 	}
 
 	reader, err := maxminddb.FromBytes(geoipdata)

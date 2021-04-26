@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -169,7 +170,11 @@ func (c *LoopbackNatsClient) Request(subject string, data []byte, timeout time.D
 	}
 
 	defer func() {
-		go replySubscriber.Unsubscribe()
+		go func() {
+			if err := replySubscriber.Unsubscribe(); err != nil {
+				log.Printf("Error closing reply subscriber %s: %s", reply, err)
+			}
+		}()
 	}()
 	msg := &nats.Msg{
 		Subject: subject,

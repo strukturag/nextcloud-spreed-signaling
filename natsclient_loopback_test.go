@@ -98,7 +98,9 @@ func TestLoopbackNatsClient_Subscribe(t *testing.T) {
 		}
 	}()
 	for i := int32(0); i < max; i++ {
-		client.Publish("foo", []byte("hello"))
+		if err := client.Publish("foo", []byte("hello")); err != nil {
+			t.Error(err)
+		}
 	}
 	<-ch
 

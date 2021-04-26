@@ -40,26 +40,26 @@ type EqualTestData struct {
 
 func Test_permissionsEqual(t *testing.T) {
 	tests := []EqualTestData{
-		EqualTestData{
+		{
 			a:     nil,
 			b:     nil,
 			equal: true,
 		},
-		EqualTestData{
+		{
 			a: map[Permission]bool{
 				PERMISSION_MAY_PUBLISH_MEDIA: true,
 			},
 			b:     nil,
 			equal: false,
 		},
-		EqualTestData{
+		{
 			a: nil,
 			b: map[Permission]bool{
 				PERMISSION_MAY_PUBLISH_MEDIA: true,
 			},
 			equal: false,
 		},
-		EqualTestData{
+		{
 			a: map[Permission]bool{
 				PERMISSION_MAY_PUBLISH_MEDIA: true,
 			},
@@ -68,7 +68,7 @@ func Test_permissionsEqual(t *testing.T) {
 			},
 			equal: true,
 		},
-		EqualTestData{
+		{
 			a: map[Permission]bool{
 				PERMISSION_MAY_PUBLISH_MEDIA:  true,
 				PERMISSION_MAY_PUBLISH_SCREEN: true,
@@ -78,7 +78,7 @@ func Test_permissionsEqual(t *testing.T) {
 			},
 			equal: false,
 		},
-		EqualTestData{
+		{
 			a: map[Permission]bool{
 				PERMISSION_MAY_PUBLISH_MEDIA: true,
 			},
@@ -88,7 +88,7 @@ func Test_permissionsEqual(t *testing.T) {
 			},
 			equal: false,
 		},
-		EqualTestData{
+		{
 			a: map[Permission]bool{
 				PERMISSION_MAY_PUBLISH_MEDIA:  true,
 				PERMISSION_MAY_PUBLISH_SCREEN: true,
@@ -99,7 +99,7 @@ func Test_permissionsEqual(t *testing.T) {
 			},
 			equal: true,
 		},
-		EqualTestData{
+		{
 			a: map[Permission]bool{
 				PERMISSION_MAY_PUBLISH_MEDIA:  true,
 				PERMISSION_MAY_PUBLISH_SCREEN: true,

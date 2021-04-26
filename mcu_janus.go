@@ -60,10 +60,6 @@ var (
 		streamTypeVideo:  videoPublisherUserId,
 		streamTypeScreen: screenPublisherUserId,
 	}
-	userIdToStreamType = map[uint64]string{
-		videoPublisherUserId:  streamTypeVideo,
-		screenPublisherUserId: streamTypeScreen,
-	}
 )
 
 func getPluginValue(data janus.PluginData, pluginName string, key string) interface{} {
@@ -209,12 +205,16 @@ func NewMcuJanus(url string, config *goconf.ConfigFile, nats NatsClient) (Mcu, e
 
 func (m *mcuJanus) disconnect() {
 	if m.handle != nil {
-		m.handle.Detach(context.TODO())
+		if _, err := m.handle.Detach(context.TODO()); err != nil {
+			log.Printf("Error detaching handle %d: %s", m.handle.Id, err)
+		}
 		m.handle = nil
 	}
 	if m.session != nil {
 		m.closeChan <- true
-		m.session.Destroy(context.TODO())
+		if _, err := m.session.Destroy(context.TODO()); err != nil {
+			log.Printf("Error destroying session %d: %s", m.session.Id, err)
+		}
 		m.session = nil
 	}
 	if m.gw != nil {
@@ -431,7 +431,7 @@ func (m *mcuJanus) sendKeepalive() {
 type mcuJanusClient struct {
 	mcu      *mcuJanus
 	listener McuListener
-	mu       sync.Mutex
+	mu       sync.Mutex // nolint
 
 	id         uint64
 	session    uint64
@@ -626,13 +626,17 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		create_msg["bitrate"] = bitrate
 		create_response, err := handle.Request(ctx, create_msg)
 		if err != nil {
-			handle.Detach(ctx)
+			if _, err2 := handle.Detach(ctx); err2 != nil {
+				log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			}
 			return nil, 0, 0, err
 		}
 
 		roomId = getPluginIntValue(create_response.PluginData, pluginVideoRoom, "room")
 		if roomId == 0 {
-			handle.Detach(ctx)
+			if _, err := handle.Detach(ctx); err != nil {
+				log.Printf("Error detaching handle %d: %s", handle.Id, err)
+			}
 			return nil, 0, 0, fmt.Errorf("No room id received: %+v", create_response)
 		}
 
@@ -650,7 +654,9 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 
 	response, err := handle.Message(ctx, msg, nil)
 	if err != nil {
-		handle.Detach(ctx)
+		if _, err2 := handle.Detach(ctx); err2 != nil {
+			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+		}
 		return nil, 0, 0, err
 	}
 
@@ -911,7 +917,11 @@ func (m *mcuJanus) getPublisherRoomId(ctx context.Context, publisher string, str
 	if err != nil {
 		return 0, err
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			log.Printf("Error unsubscribing channel for %s publisher %s: %s", streamType, publisher, err)
+		}
+	}()
 
 	for roomId == 0 {
 		var err error
@@ -1073,7 +1083,11 @@ func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, callback func(error, 
 		callback(err, nil)
 		return
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			log.Printf("Error unsubscribing channel for %s publisher %s: %s", p.streamType, p.publisher, err)
+		}
+	}()
 
 retry:
 	join_msg := map[string]interface{}{

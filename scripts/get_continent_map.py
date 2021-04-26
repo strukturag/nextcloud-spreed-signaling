@@ -74,7 +74,7 @@ def generate_map(filename):
     value = []
     for continent in continents:
       value.append('"%s"' % (continent))
-    out.write('\t\t"%s": []string{%s},\n' % (country, ', '.join(value)))
+    out.write('\t\t"%s": {%s},\n' % (country, ', '.join(value)))
   out.write('\t}\n')
   out.write(')\n')
   with opentextfile(filename, 'wb') as fp:

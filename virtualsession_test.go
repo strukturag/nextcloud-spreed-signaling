@@ -205,7 +205,9 @@ func TestVirtualSession(t *testing.T) {
 	}
 
 	data := "from-client-to-virtual"
-	client.SendMessage(recipient, data)
+	if err := client.SendMessage(recipient, data); err != nil {
+		t.Fatal(err)
+	}
 
 	msg2, err = clientInternal.RunUntilMessage(ctx)
 	if err != nil {

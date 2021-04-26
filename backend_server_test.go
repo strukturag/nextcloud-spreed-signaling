@@ -328,7 +328,11 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	msg := &BackendServerRoomRequest{
 		Type: "invite",
@@ -419,7 +423,11 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	msg := &BackendServerRoomRequest{
 		Type: "disinvite",
@@ -635,7 +643,11 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	msg := &BackendServerRoomRequest{
 		Type: "update",
@@ -714,7 +726,11 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	msg := &BackendServerRoomRequest{
 		Type: "delete",
@@ -832,21 +848,21 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 		Type: "participants",
 		Participants: &BackendRoomParticipantsRequest{
 			Changed: []map[string]interface{}{
-				map[string]interface{}{
+				{
 					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
 				},
-				map[string]interface{}{
+				{
 					"sessionId":   roomId + "-" + hello2.Hello.SessionId,
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
 				},
 			},
 			Users: []map[string]interface{}{
-				map[string]interface{}{
+				{
 					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
 				},
-				map[string]interface{}{
+				{
 					"sessionId":   roomId + "-" + hello2.Hello.SessionId,
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
 				},
@@ -928,13 +944,13 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 		Type: "participants",
 		Participants: &BackendRoomParticipantsRequest{
 			Changed: []map[string]interface{}{
-				map[string]interface{}{
+				{
 					"sessionId":   roomId + "-" + hello.Hello.SessionId,
 					"permissions": []Permission{},
 				},
 			},
 			Users: []map[string]interface{}{
-				map[string]interface{}{
+				{
 					"sessionId":   roomId + "-" + hello.Hello.SessionId,
 					"permissions": []Permission{},
 				},
@@ -1022,21 +1038,21 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			InCall: &BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
 				Changed: []map[string]interface{}{
-					map[string]interface{}{
+					{
 						"sessionId": roomId + "-" + hello1.Hello.SessionId,
 						"inCall":    7,
 					},
-					map[string]interface{}{
+					{
 						"sessionId": "unknown-room-session-id",
 						"inCall":    3,
 					},
 				},
 				Users: []map[string]interface{}{
-					map[string]interface{}{
+					{
 						"sessionId": roomId + "-" + hello1.Hello.SessionId,
 						"inCall":    7,
 					},
-					map[string]interface{}{
+					{
 						"sessionId": "unknown-room-session-id",
 						"inCall":    3,
 					},
@@ -1075,21 +1091,21 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			InCall: &BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
 				Changed: []map[string]interface{}{
-					map[string]interface{}{
+					{
 						"sessionId": roomId + "-" + hello1.Hello.SessionId,
 						"inCall":    7,
 					},
-					map[string]interface{}{
+					{
 						"sessionId": roomId + "-" + hello2.Hello.SessionId,
 						"inCall":    3,
 					},
 				},
 				Users: []map[string]interface{}{
-					map[string]interface{}{
+					{
 						"sessionId": roomId + "-" + hello1.Hello.SessionId,
 						"inCall":    7,
 					},
-					map[string]interface{}{
+					{
 						"sessionId": roomId + "-" + hello2.Hello.SessionId,
 						"inCall":    3,
 					},
@@ -1277,7 +1293,7 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 	}
 
 	m := hmac.New(sha1.New, []byte(turnSecret))
-	m.Write([]byte(cred.Username))
+	m.Write([]byte(cred.Username)) // nolint
 	password := base64.StdEncoding.EncodeToString(m.Sum(nil))
 	if cred.Password != password {
 		t.Errorf("Expected password %s, got %s", password, cred.Password)

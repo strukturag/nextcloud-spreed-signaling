@@ -98,9 +98,9 @@ func TestGeoLookupCaching(t *testing.T) {
 
 func TestGeoLookupContinent(t *testing.T) {
 	tests := map[string][]string{
-		"AU":       []string{"OC"},
-		"DE":       []string{"EU"},
-		"RU":       []string{"EU", "AS"},
+		"AU":       {"OC"},
+		"DE":       {"EU"},
+		"RU":       {"EU", "AS"},
 		"":         nil,
 		"INVALID ": nil,
 	}

@@ -58,44 +58,12 @@ func getWebsocketUrl(url string) string {
 	}
 }
 
-func getPrivateSessionIdData(h *Hub, privateId string) *SessionIdData {
-	decodedPrivate := h.decodeSessionId(privateId, privateSessionName)
-	if decodedPrivate == nil {
-		panic("invalid private session id")
-	}
-	return decodedPrivate
-}
-
 func getPubliceSessionIdData(h *Hub, publicId string) *SessionIdData {
 	decodedPublic := h.decodeSessionId(publicId, publicSessionName)
 	if decodedPublic == nil {
 		panic("invalid public session id")
 	}
 	return decodedPublic
-}
-
-func privateToPublicSessionId(h *Hub, privateId string) string {
-	decodedPrivate := getPrivateSessionIdData(h, privateId)
-	if decodedPrivate == nil {
-		panic("invalid private session id")
-	}
-	encodedPublic, err := h.encodeSessionId(decodedPrivate, publicSessionName)
-	if err != nil {
-		panic(err)
-	}
-	return encodedPublic
-}
-
-func equalPublicAndPrivateSessionId(h *Hub, publicId, privateId string) bool {
-	decodedPublic := h.decodeSessionId(publicId, publicSessionName)
-	if decodedPublic == nil {
-		panic("invalid public session id")
-	}
-	decodedPrivate := h.decodeSessionId(privateId, privateSessionName)
-	if decodedPrivate == nil {
-		panic("invalid private session id")
-	}
-	return decodedPublic.Sid == decodedPrivate.Sid
 }
 
 func checkUnexpectedClose(err error) error {
@@ -254,12 +222,12 @@ func NewTestClient(t *testing.T, server *httptest.Server, hub *Hub) *TestClient 
 }
 
 func (c *TestClient) CloseWithBye() {
-	c.SendBye()
+	c.SendBye() // nolint
 	c.Close()
 }
 
 func (c *TestClient) Close() {
-	c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+	c.conn.WriteMessage(websocket.CloseMessage, []byte{}) // nolint
 	c.conn.Close()
 
 	// Drain any entries in the channels to terminate the read goroutine.
@@ -374,7 +342,7 @@ func (c *TestClient) SendHelloClient(userid string) error {
 func (c *TestClient) SendHelloInternal() error {
 	random := newRandomString(48)
 	mac := hmac.New(sha256.New, testInternalSecret)
-	mac.Write([]byte(random))
+	mac.Write([]byte(random)) // nolint
 	token := hex.EncodeToString(mac.Sum(nil))
 	backend := c.server.URL
 

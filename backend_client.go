@@ -39,7 +39,7 @@ import (
 )
 
 var (
-	ErrUseLastResponse = fmt.Errorf("Use last response")
+	ErrUseLastResponse = fmt.Errorf("use last response")
 )
 
 type BackendClient struct {
@@ -236,7 +236,7 @@ func performRequestWithRedirects(ctx context.Context, client *http.Client, req *
 			// fails, the Transport won't reuse it anyway.
 			const maxBodySlurpSize = 2 << 10
 			if resp.ContentLength == -1 || resp.ContentLength <= maxBodySlurpSize {
-				io.CopyN(ioutil.Discard, resp.Body, maxBodySlurpSize)
+				io.CopyN(ioutil.Discard, resp.Body, maxBodySlurpSize) // nolint
 			}
 			resp.Body.Close()
 		}
@@ -289,12 +289,12 @@ func performRequestWithRedirects(ctx context.Context, client *http.Client, req *
 // the result into "response".
 func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, request interface{}, response interface{}) error {
 	if u == nil {
-		return fmt.Errorf("No url passed to perform JSON request %+v", request)
+		return fmt.Errorf("no url passed to perform JSON request %+v", request)
 	}
 
 	secret := b.backends.GetSecret(u)
 	if secret == nil {
-		return fmt.Errorf("No backend secret configured for for %s", u)
+		return fmt.Errorf("no backend secret configured for for %s", u)
 	}
 
 	pool, err := b.getPool(u)
@@ -367,7 +367,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 			return err
 		} else if ocs.Ocs == nil || ocs.Ocs.Data == nil {
 			log.Printf("Incomplete OCS response %s from %s", string(body), u)
-			return fmt.Errorf("Incomplete OCS response")
+			return fmt.Errorf("incomplete OCS response")
 		} else if err := json.Unmarshal(*ocs.Ocs.Data, response); err != nil {
 			log.Printf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), u, err)
 			return err

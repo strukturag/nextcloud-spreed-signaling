@@ -108,8 +108,10 @@ func main() {
 			log.Fatal(err)
 		}
 
+		if err := runtimepprof.StartCPUProfile(f); err != nil {
+			log.Fatalf("Error writing CPU profile to %s: %s", *cpuprofile, err)
+		}
 		log.Printf("Writing CPU profile to %s ...\n", *cpuprofile)
-		runtimepprof.StartCPUProfile(f)
 		defer runtimepprof.StopCPUProfile()
 	}
 
@@ -122,7 +124,9 @@ func main() {
 		defer func() {
 			log.Printf("Writing Memory profile to %s ...\n", *memprofile)
 			runtime.GC()
-			runtimepprof.WriteHeapProfile(f)
+			if err := runtimepprof.WriteHeapProfile(f); err != nil {
+				log.Printf("Error writing Memory profile to %s: %s", *memprofile, err)
+			}
 		}()
 	}
 
@@ -318,20 +322,17 @@ func main() {
 	}
 
 loop:
-	for {
-		select {
-		case sig := <-sigChan:
-			switch sig {
-			case os.Interrupt:
-				log.Println("Interrupted")
-				break loop
-			case syscall.SIGHUP:
-				log.Printf("Received SIGHUP, reloading %s", *configFlag)
-				if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
-					log.Printf("Could not read configuration from %s: %s", *configFlag, err)
-				} else {
-					hub.Reload(config)
-				}
+	for sig := range sigChan {
+		switch sig {
+		case os.Interrupt:
+			log.Println("Interrupted")
+			break loop
+		case syscall.SIGHUP:
+			log.Printf("Received SIGHUP, reloading %s", *configFlag)
+			if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
+				log.Printf("Could not read configuration from %s: %s", *configFlag, err)
+			} else {
+				hub.Reload(config)
 			}
 		}
 	}

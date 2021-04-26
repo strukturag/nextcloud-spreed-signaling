@@ -46,7 +46,7 @@ import (
 
 	"gopkg.in/dgrijalva/jwt-go.v3"
 
-	"github.com/strukturag/nextcloud-spreed-signaling"
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 const (
@@ -985,5 +985,5 @@ func (s *ProxyServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
-	w.Write(statsData)
+	w.Write(statsData) // nolint
 }

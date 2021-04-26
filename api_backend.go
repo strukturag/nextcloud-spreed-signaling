@@ -49,8 +49,8 @@ func newRandomString(length int) string {
 
 func CalculateBackendChecksum(random string, body []byte, secret []byte) string {
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(random))
-	mac.Write(body)
+	mac.Write([]byte(random)) // nolint
+	mac.Write(body)           // nolint
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
