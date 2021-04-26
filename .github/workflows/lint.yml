@@ -1,0 +1,24 @@
+name: lint
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  lint:
+    name: golang
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          make common
+
+      - name: lint
+        uses: golangci/golangci-lint-action@v2
+        with:
+          version: v1.29
