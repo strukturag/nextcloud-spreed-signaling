@@ -535,10 +535,16 @@ func (c *TestClient) RunUntilJoined(ctx context.Context, hello ...*HelloServerMe
 			if err := c.checkSingleMessageJoined(message); err != nil {
 				return err
 			}
+			found := false
 			for idx, h := range hello {
 				if err := c.checkMessageJoined(message, h); err == nil {
 					hello = append(hello[:idx], hello[idx+1:]...)
+					found = true
+					break
 				}
+			}
+			if !found {
+				return fmt.Errorf("expected one of the passed hello sessions, got %+v", message.Event.Join[0])
 			}
 		}
 	}
