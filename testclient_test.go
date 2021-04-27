@@ -498,7 +498,7 @@ func (c *TestClient) checkMessageJoined(message *ServerMessage, hello *HelloServ
 	return c.checkMessageJoinedSession(message, hello.SessionId, hello.UserId)
 }
 
-func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId string, userId string) error {
+func (c *TestClient) checkSingleMessageJoined(message *ServerMessage) error {
 	if err := checkMessageType(message, "event"); err != nil {
 		return err
 	} else if message.Event.Target != "room" {
@@ -507,6 +507,13 @@ func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId
 		return fmt.Errorf("Expected event type join, got %+v", message.Event)
 	} else if len(message.Event.Join) != 1 {
 		return fmt.Errorf("Expected one join event entry, got %+v", message.Event)
+	}
+	return nil
+}
+
+func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId string, userId string) error {
+	if err := c.checkSingleMessageJoined(message); err != nil {
+		return err
 	} else {
 		evt := message.Event.Join[0]
 		if sessionId != "" && evt.SessionId != sessionId {
@@ -520,12 +527,22 @@ func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId
 	return nil
 }
 
-func (c *TestClient) RunUntilJoined(ctx context.Context, hello *HelloServerMessage) error {
-	if message, err := c.RunUntilMessage(ctx); err != nil {
-		return err
-	} else {
-		return c.checkMessageJoined(message, hello)
+func (c *TestClient) RunUntilJoined(ctx context.Context, hello ...*HelloServerMessage) error {
+	for len(hello) > 0 {
+		if message, err := c.RunUntilMessage(ctx); err != nil {
+			return err
+		} else {
+			if err := c.checkSingleMessageJoined(message); err != nil {
+				return err
+			}
+			for idx, h := range hello {
+				if err := c.checkMessageJoined(message, h); err == nil {
+					hello = append(hello[:idx], hello[idx+1:]...)
+				}
+			}
+		}
 	}
+	return nil
 }
 
 func (c *TestClient) checkMessageRoomLeave(message *ServerMessage, hello *HelloServerMessage) error {

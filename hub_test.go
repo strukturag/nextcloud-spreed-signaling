@@ -1700,10 +1700,7 @@ func TestJoinMultiple(t *testing.T) {
 	}
 
 	// We will receive a "joined" event for the first and the second client.
-	if err := client2.RunUntilJoined(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
-	if err := client2.RunUntilJoined(ctx, hello2.Hello); err != nil {
+	if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
 		t.Error(err)
 	}
 	// The first client will also receive a "joined" event from the second client.
@@ -2089,11 +2086,7 @@ func TestClientTakeoverRoomSession(t *testing.T) {
 
 	// The new client will receive "joined" events for the existing client3 and
 	// himself.
-	if err := client2.RunUntilJoined(ctx, hello3.Hello); err != nil {
-		t.Error(err)
-	}
-
-	if err := client2.RunUntilJoined(ctx, hello2.Hello); err != nil {
+	if err := client2.RunUntilJoined(ctx, hello3.Hello, hello2.Hello); err != nil {
 		t.Error(err)
 	}
 
