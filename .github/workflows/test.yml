@@ -46,7 +46,7 @@ jobs:
         make cover || make cover
 
     - name: Convert coverage to lcov
-      uses: jandelgado/gcov2lcov-action@v1.0.2
+      uses: jandelgado/gcov2lcov-action@v1.0.8
       with:
           infile: cover.out
           outfile: cover.lcov
