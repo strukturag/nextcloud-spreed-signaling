@@ -191,7 +191,7 @@ func NewTestClient(t *testing.T, server *httptest.Server, hub *Hub) *TestClient 
 	}
 
 	messageChan := make(chan []byte)
-	readErrorChan := make(chan error)
+	readErrorChan := make(chan error, 1)
 
 	go func() {
 		for {
