@@ -22,14 +22,9 @@
 package signaling
 
 import (
-	"bytes"
 	"context"
-	"runtime"
-	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/nats-io/nats.go"
 )
 
 func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *testing.T) {
@@ -62,167 +57,33 @@ func CreateLoopbackNatsClientForTest(t *testing.T) NatsClient {
 }
 
 func TestLoopbackNatsClient_Subscribe(t *testing.T) {
-	// Give time for things to settle before capturing the number of
-	// go routines
-	time.Sleep(500 * time.Millisecond)
+	ensureNoGoroutinesLeak(t, func() {
+		client := CreateLoopbackNatsClientForTest(t)
 
-	base := runtime.NumGoroutine()
-
-	client := CreateLoopbackNatsClientForTest(t)
-	dest := make(chan *nats.Msg)
-	sub, err := client.Subscribe("foo", dest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ch := make(chan bool)
-
-	received := int32(0)
-	max := int32(20)
-	quit := make(chan bool)
-	go func() {
-		for {
-			select {
-			case <-dest:
-				total := atomic.AddInt32(&received, 1)
-				if total == max {
-					err := sub.Unsubscribe()
-					if err != nil {
-						t.Errorf("Unsubscribe failed with err: %s", err)
-						return
-					}
-					ch <- true
-				}
-			case <-quit:
-				return
-			}
-		}
-	}()
-	for i := int32(0); i < max; i++ {
-		if err := client.Publish("foo", []byte("hello")); err != nil {
-			t.Error(err)
-		}
-	}
-	<-ch
-
-	r := atomic.LoadInt32(&received)
-	if r != max {
-		t.Fatalf("Received wrong # of messages: %d vs %d", r, max)
-	}
-	quit <- true
-
-	// Give time for things to settle before capturing the number of
-	// go routines
-	time.Sleep(500 * time.Millisecond)
-
-	delta := (runtime.NumGoroutine() - base)
-	if delta > 0 {
-		t.Fatalf("%d Go routines still exist post Close()", delta)
-	}
+		testNatsClient_Subscribe(t, client)
+	})
 }
 
 func TestLoopbackNatsClient_Request(t *testing.T) {
-	// Give time for things to settle before capturing the number of
-	// go routines
-	time.Sleep(500 * time.Millisecond)
+	ensureNoGoroutinesLeak(t, func() {
+		client := CreateLoopbackNatsClientForTest(t)
 
-	base := runtime.NumGoroutine()
-
-	client := CreateLoopbackNatsClientForTest(t)
-	dest := make(chan *nats.Msg)
-	sub, err := client.Subscribe("foo", dest)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	go func() {
-		msg := <-dest
-		if err := client.Publish(msg.Reply, []byte("world")); err != nil {
-			t.Error(err)
-			return
-		}
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error("Unsubscribe failed with err:", err)
-			return
-		}
-	}()
-	reply, err := client.Request("foo", []byte("hello"), 1*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var response []byte
-	if err := client.Decode(reply, &response); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(response, []byte("world")) {
-		t.Fatalf("expected 'world', got '%s'", string(reply.Data))
-	}
-
-	// Give time for things to settle before capturing the number of
-	// go routines
-	time.Sleep(500 * time.Millisecond)
-
-	delta := (runtime.NumGoroutine() - base)
-	if delta > 0 {
-		t.Fatalf("%d Go routines still exist post Close()", delta)
-	}
+		testNatsClient_Request(t, client)
+	})
 }
 
 func TestLoopbackNatsClient_RequestTimeout(t *testing.T) {
-	// Give time for things to settle before capturing the number of
-	// go routines
-	time.Sleep(500 * time.Millisecond)
+	ensureNoGoroutinesLeak(t, func() {
+		client := CreateLoopbackNatsClientForTest(t)
 
-	base := runtime.NumGoroutine()
-
-	client := CreateLoopbackNatsClientForTest(t)
-	dest := make(chan *nats.Msg)
-	sub, err := client.Subscribe("foo", dest)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	go func() {
-		msg := <-dest
-		time.Sleep(200 * time.Millisecond)
-		if err := client.Publish(msg.Reply, []byte("world")); err != nil {
-			t.Error(err)
-			return
-		}
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error("Unsubscribe failed with err:", err)
-			return
-		}
-	}()
-	reply, err := client.Request("foo", []byte("hello"), 100*time.Millisecond)
-	if err == nil {
-		t.Fatalf("Request should have timed out, reeived %+v", reply)
-	} else if err != nats.ErrTimeout {
-		t.Fatalf("Request should have timed out, received error %s", err)
-	}
-
-	// Give time for things to settle before capturing the number of
-	// go routines
-	time.Sleep(500 * time.Millisecond)
-
-	delta := (runtime.NumGoroutine() - base)
-	if delta > 0 {
-		t.Fatalf("%d Go routines still exist post Close()", delta)
-	}
+		testNatsClient_RequestTimeout(t, client)
+	})
 }
 
-func TestLoopbackNatsClient_RequestTimeoutNoReply(t *testing.T) {
-	client := CreateLoopbackNatsClientForTest(t)
-	timeout := 100 * time.Millisecond
-	start := time.Now()
-	reply, err := client.Request("foo", []byte("hello"), timeout)
-	end := time.Now()
-	if err == nil {
-		t.Fatalf("Request should have timed out, reeived %+v", reply)
-	} else if err != nats.ErrTimeout {
-		t.Fatalf("Request should have timed out, received error %s", err)
-	}
-	if end.Sub(start) < timeout {
-		t.Errorf("Expected a delay of %s but had %s", timeout, end.Sub(start))
-	}
+func TestLoopbackNatsClient_RequestNoReply(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func() {
+		client := CreateLoopbackNatsClientForTest(t)
+
+		testNatsClient_RequestNoReply(t, client)
+	})
 }

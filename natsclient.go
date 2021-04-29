@@ -52,6 +52,8 @@ type NatsSubscription interface {
 }
 
 type NatsClient interface {
+	Close()
+
 	Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error)
 
 	Request(subject string, data []byte, timeout time.Duration) (*nats.Msg, error)
@@ -118,6 +120,10 @@ func NewNatsClient(url string) (NatsClient, error) {
 	// All communication will be JSON based.
 	client.conn, _ = nats.NewEncodedConn(client.nc, nats.JSON_ENCODER)
 	return client, nil
+}
+
+func (c *natsClient) Close() {
+	c.conn.Close()
 }
 
 func (c *natsClient) onClosed(conn *nats.Conn) {

@@ -45,6 +45,19 @@ func NewLoopbackNatsClient() (NatsClient, error) {
 	}, nil
 }
 
+func (c *LoopbackNatsClient) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, subs := range c.subscriptions {
+		for sub := range subs {
+			sub.Unsubscribe() // nolint
+		}
+	}
+
+	c.subscriptions = nil
+}
+
 type loopbackNatsSubscription struct {
 	subject  string
 	client   *LoopbackNatsClient
@@ -105,6 +118,10 @@ func (c *LoopbackNatsClient) subscribe(subject string, ch chan *nats.Msg) (NatsS
 		return nil, nats.ErrBadSubject
 	}
 
+	if c.subscriptions == nil {
+		return nil, nats.ErrConnectionClosed
+	}
+
 	s := &loopbackNatsSubscription{
 		subject: subject,
 		client:  c,
@@ -141,21 +158,15 @@ func (c *LoopbackNatsClient) Request(subject string, data []byte, timeout time.D
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.subscriptions == nil {
+		return nil, nats.ErrConnectionClosed
+	}
+
 	var response *nats.Msg
 	var err error
 	subs, found := c.subscriptions[subject]
 	if !found {
-		c.mu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		<-ctx.Done()
-		if ctx.Err() == context.DeadlineExceeded {
-			err = nats.ErrTimeout
-		} else {
-			err = ctx.Err()
-		}
-		c.mu.Lock()
-		return nil, err
+		return nil, nats.ErrNoResponders
 	}
 
 	replyId := c.replyId
@@ -212,6 +223,10 @@ func (c *LoopbackNatsClient) Publish(subject string, message interface{}) error 
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.subscriptions == nil {
+		return nats.ErrConnectionClosed
+	}
+
 	if subs, found := c.subscriptions[subject]; found {
 		msg := &nats.Msg{
 			Subject: subject,
