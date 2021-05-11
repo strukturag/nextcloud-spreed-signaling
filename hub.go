@@ -95,6 +95,10 @@ const (
 	publicSessionName  = "public-session"
 )
 
+func init() {
+	RegisterHubStats()
+}
+
 type Hub struct {
 	// 64-bit members that are accessed atomically must be 64-bit aligned.
 	sid uint64
@@ -607,6 +611,7 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 		delete(h.clients, data.Sid)
 		if _, found := h.sessions[data.Sid]; found {
 			delete(h.sessions, data.Sid)
+			statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), session.ClientType()).Dec()
 			removed = true
 		}
 	}
@@ -742,6 +747,12 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 	}
 	h.mu.Unlock()
 
+	if country := client.Country(); IsValidCountry(country) {
+		statsClientCountries.WithLabelValues(country).Inc()
+	}
+	statsHubSessionsCurrent.WithLabelValues(backend.Id(), session.ClientType()).Inc()
+	statsHubSessionsTotal.WithLabelValues(backend.Id(), session.ClientType()).Inc()
+
 	h.setDecodedSessionId(privateSessionId, privateSessionName, sessionIdData)
 	h.setDecodedSessionId(publicSessionId, publicSessionName, sessionIdData)
 	h.sendHelloResponse(session, message)
@@ -840,6 +851,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 	if resumeId != "" {
 		data := h.decodeSessionId(resumeId, privateSessionName)
 		if data == nil {
+			statsHubSessionResumeFailed.Inc()
 			client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 			return
 		}
@@ -848,6 +860,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 		session, found := h.sessions[data.Sid]
 		if !found || resumeId != session.PrivateId() {
 			h.mu.Unlock()
+			statsHubSessionResumeFailed.Inc()
 			client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 			return
 		}
@@ -857,6 +870,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 			// Should never happen as clients only can resume their own sessions.
 			h.mu.Unlock()
 			log.Printf("Client resumed non-client session %s (private=%s)", session.PublicId(), session.PrivateId())
+			statsHubSessionResumeFailed.Inc()
 			client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 			return
 		}
@@ -879,6 +893,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 
 		log.Printf("Resume session from %s in %s (%s) %s (private=%s)", client.RemoteAddr(), client.Country(), client.UserAgent(), session.PublicId(), session.PrivateId())
 
+		statsHubSessionsResumedTotal.WithLabelValues(clientSession.Backend().Id(), clientSession.ClientType()).Inc()
 		h.sendHelloResponse(clientSession, message)
 		clientSession.NotifySessionResumed(client)
 		return
@@ -1087,7 +1102,10 @@ func (h *Hub) getRoomForBackend(id string, backend *Backend) *Room {
 func (h *Hub) removeRoom(room *Room) {
 	internalRoomId := getRoomIdForBackend(room.Id(), room.Backend())
 	h.ru.Lock()
-	delete(h.rooms, internalRoomId)
+	if _, found := h.rooms[internalRoomId]; found {
+		delete(h.rooms, internalRoomId)
+		statsHubRoomsCurrent.WithLabelValues(room.Backend().Id()).Dec()
+	}
 	h.ru.Unlock()
 }
 
@@ -1100,6 +1118,7 @@ func (h *Hub) createRoom(id string, properties *json.RawMessage, backend *Backen
 
 	internalRoomId := getRoomIdForBackend(id, backend)
 	h.rooms[internalRoomId] = room
+	statsHubRoomsCurrent.WithLabelValues(backend.Id()).Inc()
 	return room, nil
 }
 
@@ -1550,6 +1569,8 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		h.sessions[sessionIdData.Sid] = sess
 		h.virtualSessions[virtualSessionId] = sessionIdData.Sid
 		h.mu.Unlock()
+		statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), sess.ClientType()).Inc()
+		statsHubSessionsTotal.WithLabelValues(session.Backend().Id(), sess.ClientType()).Inc()
 		log.Printf("Session %s added virtual session %s with initial flags %d", session.PublicId(), sess.PublicId(), sess.Flags())
 		session.AddVirtualSession(sess)
 		sess.SetRoom(room)
@@ -1608,6 +1629,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		h.mu.Unlock()
 		if sess != nil {
 			log.Printf("Session %s removed virtual session %s", session.PublicId(), sess.PublicId())
+			statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), sess.ClientType()).Dec()
 			if vsess, ok := sess.(*VirtualSession); ok {
 				// We should always have a VirtualSession here.
 				vsess.CloseWithFeedback(session, message)

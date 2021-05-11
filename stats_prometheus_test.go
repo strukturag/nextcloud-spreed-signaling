@@ -22,6 +22,9 @@
 package signaling
 
 import (
+	"fmt"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -34,7 +37,27 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 	desc := <-ch
 	v := testutil.ToFloat64(collector)
 	if v != value {
-		t.Errorf("Expected value %f for %s, got %f", value, desc, v)
+		pc := make([]uintptr, 10)
+		n := runtime.Callers(2, pc)
+		if n == 0 {
+			t.Errorf("Expected value %f for %s, got %f", value, desc, v)
+			return
+		}
+
+		pc = pc[:n]
+		frames := runtime.CallersFrames(pc)
+		stack := ""
+		for {
+			frame, more := frames.Next()
+			if !strings.Contains(frame.File, "nextcloud-spreed-signaling") {
+				break
+			}
+			stack += fmt.Sprintf("%s:%d\n", frame.File, frame.Line)
+			if !more {
+				break
+			}
+		}
+		t.Errorf("Expected value %f for %s, got %f at\n%s", value, desc, v, stack)
 	}
 }
 

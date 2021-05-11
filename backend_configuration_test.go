@@ -28,6 +28,7 @@ import (
 	"testing"
 
 	"github.com/dlintw/goconf"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, invalid_urls []string) {
@@ -238,6 +239,7 @@ func TestParseBackendIds(t *testing.T) {
 }
 
 func TestBackendReloadNoChange(t *testing.T) {
+	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -249,6 +251,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkStatsValue(t, statsBackendsCurrent, current+2)
 
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1, backend2")
@@ -262,13 +265,16 @@ func TestBackendReloadNoChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+4)
 	o_cfg.Reload(original_config)
+	checkStatsValue(t, statsBackendsCurrent, current+4)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
 		t.Error("BackendConfiguration should be equal after Reload")
 	}
 }
 
 func TestBackendReloadChangeExistingURL(t *testing.T) {
+	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -281,6 +287,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+2)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1, backend2")
 	new_config.AddOption("backend", "allowall", "false")
@@ -294,17 +301,20 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+4)
 	original_config.RemoveOption("backend1", "url")
 	original_config.AddOption("backend1", "url", "http://domain3.invalid")
 	original_config.AddOption("backend1", "sessionlimit", "10")
 
 	o_cfg.Reload(original_config)
+	checkStatsValue(t, statsBackendsCurrent, current+4)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
 		t.Error("BackendConfiguration should be equal after Reload")
 	}
 }
 
 func TestBackendReloadChangeSecret(t *testing.T) {
+	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -317,6 +327,7 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+2)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1, backend2")
 	new_config.AddOption("backend", "allowall", "false")
@@ -329,16 +340,19 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+4)
 	original_config.RemoveOption("backend1", "secret")
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend3")
 
 	o_cfg.Reload(original_config)
+	checkStatsValue(t, statsBackendsCurrent, current+4)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
 		t.Error("BackendConfiguration should be equal after Reload")
 	}
 }
 
 func TestBackendReloadAddBackend(t *testing.T) {
+	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1")
 	original_config.AddOption("backend", "allowall", "false")
@@ -349,6 +363,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+1)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1, backend2")
 	new_config.AddOption("backend", "allowall", "false")
@@ -362,6 +377,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+3)
 	original_config.RemoveOption("backend", "backends")
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
@@ -369,12 +385,14 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	original_config.AddOption("backend2", "sessionlimit", "10")
 
 	o_cfg.Reload(original_config)
+	checkStatsValue(t, statsBackendsCurrent, current+4)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
 		t.Error("BackendConfiguration should be equal after Reload")
 	}
 }
 
 func TestBackendReloadRemoveHost(t *testing.T) {
+	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -387,6 +405,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+2)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1")
 	new_config.AddOption("backend", "allowall", "false")
@@ -397,17 +416,20 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+3)
 	original_config.RemoveOption("backend", "backends")
 	original_config.AddOption("backend", "backends", "backend1")
 	original_config.RemoveSection("backend2")
 
 	o_cfg.Reload(original_config)
+	checkStatsValue(t, statsBackendsCurrent, current+2)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
 		t.Error("BackendConfiguration should be equal after Reload")
 	}
 }
 
 func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
+	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -420,6 +442,7 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+2)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1")
 	new_config.AddOption("backend", "allowall", "false")
@@ -430,11 +453,13 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	checkStatsValue(t, statsBackendsCurrent, current+3)
 	original_config.RemoveOption("backend", "backends")
 	original_config.AddOption("backend", "backends", "backend1")
 	original_config.RemoveSection("backend2")
 
 	o_cfg.Reload(original_config)
+	checkStatsValue(t, statsBackendsCurrent, current+2)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
 		t.Error("BackendConfiguration should be equal after Reload")
 	}

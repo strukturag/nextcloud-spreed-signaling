@@ -58,6 +58,10 @@ var (
 	unknownCountry string = "unknown-country"
 )
 
+func init() {
+	RegisterClientStats()
+}
+
 func IsValidCountry(country string) bool {
 	switch country {
 	case "":
