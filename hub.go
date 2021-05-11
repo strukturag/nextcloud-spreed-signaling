@@ -1629,7 +1629,6 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		h.mu.Unlock()
 		if sess != nil {
 			log.Printf("Session %s removed virtual session %s", session.PublicId(), sess.PublicId())
-			statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), sess.ClientType()).Dec()
 			if vsess, ok := sess.(*VirtualSession); ok {
 				// We should always have a VirtualSession here.
 				vsess.CloseWithFeedback(session, message)
