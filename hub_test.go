@@ -299,6 +299,31 @@ func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request,
 	return response
 }
 
+func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+	if request.Type != "ping" || request.Ping == nil {
+		t.Fatalf("Expected an ping backend request, got %+v", request)
+	}
+
+	if request.Ping.RoomId == "test-room-with-sessiondata" {
+		if entries := request.Ping.Entries; len(entries) != 1 {
+			t.Errorf("Expected one entry, got %+v", entries)
+		} else {
+			if entries[0].UserId != "" {
+				t.Errorf("Expected empty userid, got %+v", entries[0])
+			}
+		}
+	}
+
+	response := &BackendClientResponse{
+		Type: "ping",
+		Ping: &BackendClientRingResponse{
+			Version: BackendVersion,
+			RoomId:  request.Ping.RoomId,
+		},
+	}
+	return response
+}
+
 func registerBackendHandler(t *testing.T, router *mux.Router) {
 	registerBackendHandlerUrl(t, router, "/")
 }
@@ -312,6 +337,8 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			return processRoomRequest(t, w, r, request)
 		case "session":
 			return processSessionRequest(t, w, r, request)
+		case "ping":
+			return processPingRequest(t, w, r, request)
 		default:
 			t.Fatalf("Unsupported request received: %+v", request)
 			return nil

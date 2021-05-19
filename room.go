@@ -638,7 +638,7 @@ func (r *Room) publishSessionFlagsChanged(session *VirtualSession) {
 	}
 }
 
-func (r *Room) publishActiveSessions() {
+func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -651,13 +651,16 @@ func (r *Room) publishActiveSessions() {
 		}
 
 		var sid string
+		var uid string
 		switch sess := session.(type) {
 		case *ClientSession:
-			// Use Nextcloud session id
+			// Use Nextcloud session id and user id
 			sid = sess.RoomSessionId()
+			uid = sess.AuthUserId()
 		case *VirtualSession:
 			// Use our internal generated session id (will be added to Nextcloud).
 			sid = sess.PublicId()
+			uid = sess.UserId()
 		default:
 			continue
 		}
@@ -676,14 +679,17 @@ func (r *Room) publishActiveSessions() {
 
 		entries[u] = append(e, BackendPingEntry{
 			SessionId: sid,
-			UserId:    session.UserId(),
+			UserId:    uid,
 		})
 	}
+	var wg sync.WaitGroup
 	if len(urls) == 0 {
-		return
+		return 0, &wg
 	}
 	for u, e := range entries {
+		wg.Add(1)
 		go func(url *url.URL, entries []BackendPingEntry) {
+			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), r.hub.backendTimeout)
 			defer cancel()
 
@@ -694,6 +700,7 @@ func (r *Room) publishActiveSessions() {
 			}
 		}(urls[u], e)
 	}
+	return len(entries), &wg
 }
 
 func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {

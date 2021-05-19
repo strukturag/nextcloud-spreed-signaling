@@ -407,4 +407,15 @@ func TestRoom_RoomSessionData(t *testing.T) {
 	if userid := session.UserId(); userid != expected {
 		t.Errorf("Expected userid %s, got %s", expected, userid)
 	}
+
+	room := hub.getRoom(roomId)
+	if room == nil {
+		t.Fatalf("Room not found")
+	}
+
+	entries, wg := room.publishActiveSessions()
+	if entries != 1 {
+		t.Errorf("expected 1 entries, got %d", entries)
+	}
+	wg.Wait()
 }

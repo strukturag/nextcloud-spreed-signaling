@@ -239,6 +239,10 @@ func (s *ClientSession) ParsedBackendUrl() *url.URL {
 	return s.parsedBackendUrl
 }
 
+func (s *ClientSession) AuthUserId() string {
+	return s.userId
+}
+
 func (s *ClientSession) UserId() string {
 	userId := s.userId
 	if userId == "" {
@@ -449,7 +453,7 @@ func (s *ClientSession) doUnsubscribeRoomNats(notify bool) {
 		// Notify
 		go func(sid string) {
 			ctx := context.Background()
-			request := NewBackendClientRoomRequest(room.Id(), s.UserId(), sid)
+			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
 			request.Room.Action = "leave"
 			var response map[string]interface{}
 			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response); err != nil {
