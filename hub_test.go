@@ -1933,6 +1933,9 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	client1.SendMessage(recipient2, data1) // nolint
 	client1.SendMessage(recipient2, data1) // nolint
 
+	// Simulate some time until client resumes the session.
+	time.Sleep(10 * time.Millisecond)
+
 	client2 = NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
 	if err := client2.SendHelloResume(hello2.Hello.ResumeId); err != nil {

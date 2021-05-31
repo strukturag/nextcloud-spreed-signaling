@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -95,6 +96,9 @@ func (s *loopbackNatsSubscription) run() {
 			msg := s.incoming[0]
 			s.incoming = s.incoming[1:]
 			s.cond.L.Unlock()
+			// A "real" NATS server would take some time to process the request,
+			// simulate this by sleeping a tiny bit.
+			time.Sleep(time.Millisecond)
 			s.ch <- msg
 			s.cond.L.Lock()
 		}
