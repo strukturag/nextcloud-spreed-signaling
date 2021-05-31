@@ -590,13 +590,13 @@ func (r *Room) getParticipantsUpdateMessage(users []map[string]interface{}) *Ser
 	return message
 }
 
-func (r *Room) NotifySessionResumed(client *Client) {
+func (r *Room) NotifySessionResumed(session *ClientSession) {
 	message := r.getParticipantsUpdateMessage(r.users)
 	if len(message.Event.Update.Users) == 0 {
 		return
 	}
 
-	client.SendMessage(message)
+	session.SendMessage(message)
 }
 
 func (r *Room) NotifySessionChanged(session Session) {
