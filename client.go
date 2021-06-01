@@ -139,6 +139,7 @@ func (c *Client) SetConn(conn *websocket.Conn, remoteAddress string) {
 	c.conn = conn
 	c.addr = remoteAddress
 	c.closeChan = make(chan bool, 1)
+	c.messageChan = make(chan *bytes.Buffer, 16)
 	c.OnLookupCountry = func(client *Client) string { return unknownCountry }
 	c.OnClosed = func(client *Client) {}
 	c.OnMessageReceived = func(client *Client, data []byte) {}
