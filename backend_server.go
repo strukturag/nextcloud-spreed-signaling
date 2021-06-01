@@ -223,7 +223,7 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 
 	data, err := json.Marshal(result)
 	if err != nil {
-		log.Printf("Could not serialize TURN credentials %+v: %s", result, err)
+		log.Printf("Could not serialize TURN credentials: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, "Could not serialize credentials.") // nolint
 		return
