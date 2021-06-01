@@ -740,7 +740,7 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 
 	h.setDecodedSessionId(privateSessionId, privateSessionName, sessionIdData)
 	h.setDecodedSessionId(publicSessionId, publicSessionName, sessionIdData)
-	h.sendHelloResponse(client, message, session)
+	h.sendHelloResponse(session, message)
 }
 
 func (h *Hub) processUnregister(client *Client) *ClientSession {
@@ -816,7 +816,7 @@ func (h *Hub) processMessage(client *Client, data []byte) {
 	}
 }
 
-func (h *Hub) sendHelloResponse(client *Client, message *ClientMessage, session *ClientSession) bool {
+func (h *Hub) sendHelloResponse(session *ClientSession, message *ClientMessage) bool {
 	response := &ServerMessage{
 		Id:   message.Id,
 		Type: "hello",
@@ -828,7 +828,7 @@ func (h *Hub) sendHelloResponse(client *Client, message *ClientMessage, session 
 			Server:    h.GetServerInfo(session),
 		},
 	}
-	return client.SendMessage(response)
+	return session.SendMessage(response)
 }
 
 func (h *Hub) processHello(client *Client, message *ClientMessage) {
@@ -875,7 +875,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 
 		log.Printf("Resume session from %s in %s (%s) %s (private=%s)", client.RemoteAddr(), client.Country(), client.UserAgent(), session.PublicId(), session.PrivateId())
 
-		h.sendHelloResponse(client, message, clientSession)
+		h.sendHelloResponse(clientSession, message)
 		clientSession.NotifySessionResumed(client)
 		return
 	}
