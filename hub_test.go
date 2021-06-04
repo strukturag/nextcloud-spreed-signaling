@@ -254,7 +254,10 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		t.Fatalf("Expected an room backend request, got %+v", request)
 	}
 
-	if request.Room.RoomId == "test-room-takeover-room-session" {
+	switch request.Room.RoomId {
+	case "test-room-slow":
+		time.Sleep(100 * time.Millisecond)
+	case "test-room-takeover-room-session":
 		// Additional checks for testcase "TestClientTakeoverRoomSession"
 		if request.Room.Action == "leave" && request.Room.UserId == "test-userid1" {
 			t.Errorf("Should not receive \"leave\" event for first user, received %+v", request.Room)
@@ -1754,6 +1757,95 @@ func TestJoinMultiple(t *testing.T) {
 	}
 }
 
+func TestJoinRoomSwitchClient(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubForTest(t)
+	defer shutdown()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room-slow"
+	msg := &ClientMessage{
+		Id:   "ABCD",
+		Type: "room",
+		Room: &RoomClientMessage{
+			RoomId:    roomId,
+			SessionId: roomId + "-" + hello.Hello.SessionId,
+		},
+	}
+	if err := client.WriteJSON(msg); err != nil {
+		t.Fatal(err)
+	}
+	// Wait a bit to make sure request is sent before closing client.
+	time.Sleep(1 * time.Millisecond)
+	client.Close()
+	if err := client.WaitForClientRemoved(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// The client needs some time to reconnect.
+	time.Sleep(200 * time.Millisecond)
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	if err := client2.SendHelloResume(hello.Hello.ResumeId); err != nil {
+		t.Fatal(err)
+	}
+	hello2, err := client2.RunUntilHello(ctx)
+	if err != nil {
+		t.Error(err)
+	} else {
+		if hello2.Hello.UserId != testDefaultUserId {
+			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
+		}
+		if hello2.Hello.SessionId != hello.Hello.SessionId {
+			t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
+		}
+		if hello2.Hello.ResumeId != hello.Hello.ResumeId {
+			t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
+		}
+	}
+
+	room, err := client2.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkUnexpectedClose(err); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkMessageType(room, "room"); err != nil {
+		t.Fatal(err)
+	}
+	if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	// We will receive a "joined" event.
+	if err := client2.RunUntilJoined(ctx, hello.Hello); err != nil {
+		t.Error(err)
+	}
+
+	// Leave room.
+	if room, err := client2.JoinRoom(ctx, ""); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != "" {
+		t.Fatalf("Expected empty room, got %s", room.Room.RoomId)
+	}
+}
+
 func TestGetRealUserIP(t *testing.T) {
 	REMOTE_ATTR := "192.168.1.2"
 
@@ -1840,6 +1932,9 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	}
 	client1.SendMessage(recipient2, data1) // nolint
 	client1.SendMessage(recipient2, data1) // nolint
+
+	// Simulate some time until client resumes the session.
+	time.Sleep(10 * time.Millisecond)
 
 	client2 = NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()

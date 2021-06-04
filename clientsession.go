@@ -559,6 +559,14 @@ func (s *ClientSession) sendMessageUnlocked(message *ServerMessage) bool {
 	return true
 }
 
+func (s *ClientSession) SendError(e *Error) bool {
+	message := &ServerMessage{
+		Type:  "error",
+		Error: e,
+	}
+	return s.SendMessage(message)
+}
+
 func (s *ClientSession) SendMessage(message *ServerMessage) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -822,7 +830,7 @@ func (s *ClientSession) NotifySessionResumed(client *Client) {
 	if len(s.pendingClientMessages) == 0 {
 		s.mu.Unlock()
 		if room := s.GetRoom(); room != nil {
-			room.NotifySessionResumed(client)
+			room.NotifySessionResumed(s)
 		}
 		return
 	}
@@ -841,7 +849,7 @@ func (s *ClientSession) NotifySessionResumed(client *Client) {
 	if !hasPendingParticipantsUpdate {
 		// Only need to send initial participants list update if none was part of the pending messages.
 		if room := s.GetRoom(); room != nil {
-			room.NotifySessionResumed(client)
+			room.NotifySessionResumed(s)
 		}
 	}
 }

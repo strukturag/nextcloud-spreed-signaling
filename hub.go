@@ -740,7 +740,7 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 
 	h.setDecodedSessionId(privateSessionId, privateSessionName, sessionIdData)
 	h.setDecodedSessionId(publicSessionId, publicSessionName, sessionIdData)
-	h.sendHelloResponse(client, message, session)
+	h.sendHelloResponse(session, message)
 }
 
 func (h *Hub) processUnregister(client *Client) *ClientSession {
@@ -768,20 +768,22 @@ func (h *Hub) processMessage(client *Client, data []byte) {
 	if err := message.UnmarshalJSON(data); err != nil {
 		if session := client.GetSession(); session != nil {
 			log.Printf("Error decoding message from client %s: %v", session.PublicId(), err)
+			session.SendError(InvalidFormat)
 		} else {
 			log.Printf("Error decoding message from %s: %v", client.RemoteAddr(), err)
+			client.SendError(InvalidFormat)
 		}
-		client.SendError(InvalidFormat)
 		return
 	}
 
 	if err := message.CheckValid(); err != nil {
 		if session := client.GetSession(); session != nil {
 			log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
+			session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
 		} else {
 			log.Printf("Invalid message %+v from %s: %v", message, client.RemoteAddr(), err)
+			client.SendMessage(message.NewErrorServerMessage(InvalidFormat))
 		}
-		client.SendMessage(message.NewErrorServerMessage(InvalidFormat))
 		return
 	}
 
@@ -814,7 +816,7 @@ func (h *Hub) processMessage(client *Client, data []byte) {
 	}
 }
 
-func (h *Hub) sendHelloResponse(client *Client, message *ClientMessage, session *ClientSession) bool {
+func (h *Hub) sendHelloResponse(session *ClientSession, message *ClientMessage) bool {
 	response := &ServerMessage{
 		Id:   message.Id,
 		Type: "hello",
@@ -826,7 +828,7 @@ func (h *Hub) sendHelloResponse(client *Client, message *ClientMessage, session 
 			Server:    h.GetServerInfo(session),
 		},
 	}
-	return client.SendMessage(response)
+	return session.SendMessage(response)
 }
 
 func (h *Hub) processHello(client *Client, message *ClientMessage) {
@@ -873,7 +875,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 
 		log.Printf("Resume session from %s in %s (%s) %s (private=%s)", client.RemoteAddr(), client.Country(), client.UserAgent(), session.PublicId(), session.PrivateId())
 
-		h.sendHelloResponse(client, message, clientSession)
+		h.sendHelloResponse(clientSession, message)
 		clientSession.NotifySessionResumed(client)
 		return
 	}
@@ -986,7 +988,7 @@ func (h *Hub) disconnectByRoomSessionId(roomSessionId string) {
 	session.Close()
 }
 
-func (h *Hub) sendRoom(client *Client, message *ClientMessage, room *Room) bool {
+func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Room) bool {
 	response := &ServerMessage{
 		Type: "room",
 	}
@@ -1003,7 +1005,7 @@ func (h *Hub) sendRoom(client *Client, message *ClientMessage, room *Room) bool 
 			Properties: room.properties,
 		}
 	}
-	return client.SendMessage(response)
+	return session.SendMessage(response)
 }
 
 func (h *Hub) processRoom(client *Client, message *ClientMessage) {
@@ -1017,7 +1019,7 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		// We can handle leaving a room directly.
 		if session.LeaveRoom(true) != nil {
 			// User was in a room before, so need to notify about leaving it.
-			h.sendRoom(client, message, nil)
+			h.sendRoom(session, message, nil)
 		}
 		if session.UserId() == "" && session.ClientType() != HelloClientTypeInternal {
 			h.startWaitAnonymousClientRoom(client)
@@ -1054,7 +1056,7 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		}
 		request := NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
 		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &room); err != nil {
-			client.SendMessage(message.NewWrappedErrorServerMessage(err))
+			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			return
 		}
 
@@ -1067,7 +1069,7 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		}
 	}
 
-	h.processJoinRoom(client, message, &room)
+	h.processJoinRoom(session, message, &room)
 }
 
 func (h *Hub) getRoomForBackend(id string, backend *Backend) *Room {
@@ -1097,18 +1099,12 @@ func (h *Hub) createRoom(id string, properties *json.RawMessage, backend *Backen
 	return room, nil
 }
 
-func (h *Hub) processJoinRoom(client *Client, message *ClientMessage, room *BackendClientResponse) {
-	session := client.GetSession()
-	if session == nil {
-		// Client disconnected while waiting for join room response.
-		return
-	}
-
+func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, room *BackendClientResponse) {
 	if room.Type == "error" {
-		client.SendMessage(message.NewErrorServerMessage(room.Error))
+		session.SendMessage(message.NewErrorServerMessage(room.Error))
 		return
 	} else if room.Type != "room" {
-		client.SendMessage(message.NewErrorServerMessage(RoomJoinFailed))
+		session.SendMessage(message.NewErrorServerMessage(RoomJoinFailed))
 		return
 	}
 
@@ -1117,9 +1113,9 @@ func (h *Hub) processJoinRoom(client *Client, message *ClientMessage, room *Back
 	roomId := room.Room.RoomId
 	internalRoomId := getRoomIdForBackend(roomId, session.Backend())
 	if err := session.SubscribeRoomNats(h.nats, roomId, message.Room.SessionId); err != nil {
-		client.SendMessage(message.NewWrappedErrorServerMessage(err))
+		session.SendMessage(message.NewWrappedErrorServerMessage(err))
 		// The client (implicitly) left the room due to an error.
-		h.sendRoom(client, nil, nil)
+		h.sendRoom(session, nil, nil)
 		return
 	}
 
@@ -1129,28 +1125,30 @@ func (h *Hub) processJoinRoom(client *Client, message *ClientMessage, room *Back
 		var err error
 		if r, err = h.createRoom(roomId, room.Room.Properties, session.Backend()); err != nil {
 			h.ru.Unlock()
-			client.SendMessage(message.NewWrappedErrorServerMessage(err))
+			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			// The client (implicitly) left the room due to an error.
 			session.UnsubscribeRoomNats()
-			h.sendRoom(client, nil, nil)
+			h.sendRoom(session, nil, nil)
 			return
 		}
 	}
 	h.ru.Unlock()
 
 	h.mu.Lock()
-	// The client now joined a room, don't expire him if he is anonymous.
-	delete(h.anonymousClients, client)
+	if client := session.GetClient(); client != nil {
+		// The client now joined a room, don't expire him if he is anonymous.
+		delete(h.anonymousClients, client)
+	}
 	h.mu.Unlock()
 	session.SetRoom(r)
 	if room.Room.Permissions != nil {
 		session.SetPermissions(*room.Room.Permissions)
 	}
-	h.sendRoom(client, message, r)
-	h.notifyUserJoinedRoom(r, client, session, room.Room.Session)
+	h.sendRoom(session, message, r)
+	h.notifyUserJoinedRoom(r, session, room.Room.Session)
 }
 
-func (h *Hub) notifyUserJoinedRoom(room *Room, client *Client, session Session, sessionData *json.RawMessage) {
+func (h *Hub) notifyUserJoinedRoom(room *Room, session *ClientSession, sessionData *json.RawMessage) {
 	// Register session with the room
 	if sessions := room.AddSession(session, sessionData); len(sessions) > 0 {
 		events := make([]*EventServerMessageSessionEntry, 0, len(sessions))
@@ -1171,7 +1169,7 @@ func (h *Hub) notifyUserJoinedRoom(room *Room, client *Client, session Session, 
 		}
 
 		// No need to send through NATS, the session is connected locally.
-		client.SendMessage(msg)
+		session.SendMessage(msg)
 	}
 }
 
@@ -1205,7 +1203,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 					case "requestoffer":
 						// Process asynchronously to avoid blocking regular
 						// message processing for this client.
-						go h.processMcuMessage(client, client, session, message, msg, &data)
+						go h.processMcuMessage(session, session, message, msg, &data)
 						return
 					case "offer":
 						fallthrough
@@ -1214,7 +1212,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 					case "endOfCandidates":
 						fallthrough
 					case "candidate":
-						h.processMcuMessage(client, client, session, message, msg, &data)
+						h.processMcuMessage(session, session, message, msg, &data)
 						return
 					}
 				}
@@ -1315,7 +1313,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 		if clientData != nil && clientData.Type == "sendoffer" {
 			if !isAllowedToSend(session, clientData) {
 				log.Printf("Session %s is not allowed to send offer for %s, ignoring", session.PublicId(), clientData.RoomType)
-				sendNotAllowed(client, message)
+				sendNotAllowed(session, message)
 				return
 			}
 
@@ -1324,7 +1322,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				// It may take some time for the publisher (which is the current
 				// client) to start his stream, so we must not block the active
 				// goroutine.
-				go h.processMcuMessage(client, recipient, recipientSession, message, msg, clientData)
+				go h.processMcuMessage(session, recipientSession, message, msg, clientData)
 			} else { // nolint
 				// Client is not connected yet.
 			}
@@ -1491,14 +1489,14 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
 				log.Printf("Could not join virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
 				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not join virtual session."))
-				client.SendMessage(reply)
+				session.SendMessage(reply)
 				return
 			}
 
 			if response.Type == "error" {
 				log.Printf("Could not join virtual session %s at backend %s: %+v", virtualSessionId, session.BackendUrl(), response.Error)
 				reply := message.NewErrorServerMessage(NewError("add_failed", response.Error.Error()))
-				client.SendMessage(reply)
+				session.SendMessage(reply)
 				return
 			}
 		} else {
@@ -1507,7 +1505,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
 				log.Printf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
 				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not add virtual session."))
-				client.SendMessage(reply)
+				session.SendMessage(reply)
 				return
 			}
 		}
@@ -1577,7 +1575,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			log.Printf("Session %s removed virtual session %s", session.PublicId(), sess.PublicId())
 			if vsess, ok := sess.(*VirtualSession); ok {
 				// We should always have a VirtualSession here.
-				vsess.CloseWithFeedback(client, message)
+				vsess.CloseWithFeedback(session, message)
 			} else {
 				sess.Close()
 			}
@@ -1598,22 +1596,22 @@ func isAllowedToSend(session *ClientSession, data *MessageClientMessageData) boo
 	return session.HasPermission(permission)
 }
 
-func sendNotAllowed(client *Client, message *ClientMessage) {
+func sendNotAllowed(session *ClientSession, message *ClientMessage) {
 	response := message.NewErrorServerMessage(NewError("not_allowed", "Not allowed to publish."))
-	client.SendMessage(response)
+	session.SendMessage(response)
 }
 
-func sendMcuClientNotFound(client *Client, message *ClientMessage) {
+func sendMcuClientNotFound(session *ClientSession, message *ClientMessage) {
 	response := message.NewErrorServerMessage(NewError("client_not_found", "No MCU client found to send message to."))
-	client.SendMessage(response)
+	session.SendMessage(response)
 }
 
-func sendMcuProcessingFailed(client *Client, message *ClientMessage) {
+func sendMcuProcessingFailed(session *ClientSession, message *ClientMessage) {
 	response := message.NewErrorServerMessage(NewError("processing_failed", "Processing of the message failed, please check server logs."))
-	client.SendMessage(response)
+	session.SendMessage(response)
 }
 
-func (h *Hub) processMcuMessage(senderClient *Client, client *Client, session *ClientSession, client_message *ClientMessage, message *MessageClientMessage, data *MessageClientMessageData) {
+func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSession, client_message *ClientMessage, message *MessageClientMessage, data *MessageClientMessageData) {
 	ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
 	defer cancel()
 
@@ -1636,7 +1634,7 @@ func (h *Hub) processMcuMessage(senderClient *Client, client *Client, session *C
 	case "offer":
 		if !isAllowedToSend(session, data) {
 			log.Printf("Session %s is not allowed to offer %s, ignoring", session.PublicId(), data.RoomType)
-			sendNotAllowed(senderClient, client_message)
+			sendNotAllowed(senderSession, client_message)
 			return
 		}
 
@@ -1646,7 +1644,7 @@ func (h *Hub) processMcuMessage(senderClient *Client, client *Client, session *C
 		if session.PublicId() == message.Recipient.SessionId {
 			if !isAllowedToSend(session, data) {
 				log.Printf("Session %s is not allowed to send candidate for %s, ignoring", session.PublicId(), data.RoomType)
-				sendNotAllowed(senderClient, client_message)
+				sendNotAllowed(senderSession, client_message)
 				return
 			}
 
@@ -1659,29 +1657,29 @@ func (h *Hub) processMcuMessage(senderClient *Client, client *Client, session *C
 	}
 	if err != nil {
 		log.Printf("Could not create MCU %s for session %s to send %+v to %s: %s", clientType, session.PublicId(), data, message.Recipient.SessionId, err)
-		sendMcuClientNotFound(senderClient, client_message)
+		sendMcuClientNotFound(senderSession, client_message)
 		return
 	} else if mc == nil {
 		log.Printf("No MCU %s found for session %s to send %+v to %s", clientType, session.PublicId(), data, message.Recipient.SessionId)
-		sendMcuClientNotFound(senderClient, client_message)
+		sendMcuClientNotFound(senderSession, client_message)
 		return
 	}
 
 	mc.SendMessage(context.TODO(), message, data, func(err error, response map[string]interface{}) {
 		if err != nil {
 			log.Printf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
-			sendMcuProcessingFailed(senderClient, client_message)
+			sendMcuProcessingFailed(senderSession, client_message)
 			return
 		} else if response == nil {
 			// No response received
 			return
 		}
 
-		h.sendMcuMessageResponse(client, session, message, data, response)
+		h.sendMcuMessageResponse(session, message, data, response)
 	})
 }
 
-func (h *Hub) sendMcuMessageResponse(client *Client, session *ClientSession, message *MessageClientMessage, data *MessageClientMessageData, response map[string]interface{}) {
+func (h *Hub) sendMcuMessageResponse(session *ClientSession, message *MessageClientMessage, data *MessageClientMessageData, response map[string]interface{}) {
 	var response_message *ServerMessage
 	switch response["type"] {
 	case "answer":
@@ -1763,7 +1761,7 @@ func (h *Hub) processRoomDeleted(message *BackendServerRoomRequest) {
 		switch sess := session.(type) {
 		case *ClientSession:
 			if client := sess.GetClient(); client != nil {
-				h.sendRoom(client, nil, nil)
+				h.sendRoom(sess, nil, nil)
 			}
 		}
 	}

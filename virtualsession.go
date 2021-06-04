@@ -135,16 +135,16 @@ func (s *VirtualSession) Close() {
 	s.CloseWithFeedback(nil, nil)
 }
 
-func (s *VirtualSession) CloseWithFeedback(client *Client, message *ClientMessage) {
+func (s *VirtualSession) CloseWithFeedback(session *ClientSession, message *ClientMessage) {
 	room := s.GetRoom()
 	s.session.RemoveVirtualSession(s)
 	removed := s.session.hub.removeSession(s)
 	if removed && room != nil {
-		go s.notifyBackendRemoved(room, client, message)
+		go s.notifyBackendRemoved(room, session, message)
 	}
 }
 
-func (s *VirtualSession) notifyBackendRemoved(room *Room, client *Client, message *ClientMessage) {
+func (s *VirtualSession) notifyBackendRemoved(room *Room, session *ClientSession, message *ClientMessage) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.hub.backendTimeout)
 	defer cancel()
 
@@ -160,9 +160,9 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, client *Client, messag
 		if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response); err != nil {
 			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
 			log.Printf("Could not leave virtual session %s at backend %s: %s", virtualSessionId, s.BackendUrl(), err)
-			if client != nil && message != nil {
+			if session != nil && message != nil {
 				reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
-				client.SendMessage(reply)
+				session.SendMessage(reply)
 			}
 			return
 		}
@@ -170,9 +170,9 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, client *Client, messag
 		if response.Type == "error" {
 			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
 			log.Printf("Could not leave virtual session %s at backend %s: %+v", virtualSessionId, s.BackendUrl(), response.Error)
-			if client != nil && message != nil {
+			if session != nil && message != nil {
 				reply := message.NewErrorServerMessage(NewError("remove_failed", response.Error.Error()))
-				client.SendMessage(reply)
+				session.SendMessage(reply)
 			}
 			return
 		}
@@ -182,9 +182,9 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, client *Client, messag
 		err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response)
 		if err != nil {
 			log.Printf("Could not remove virtual session %s from backend %s: %s", s.PublicId(), s.BackendUrl(), err)
-			if client != nil && message != nil {
+			if session != nil && message != nil {
 				reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
-				client.SendMessage(reply)
+				session.SendMessage(reply)
 			}
 		}
 	}
