@@ -63,27 +63,3 @@ func TestLoopbackNatsClient_Subscribe(t *testing.T) {
 		testNatsClient_Subscribe(t, client)
 	})
 }
-
-func TestLoopbackNatsClient_Request(t *testing.T) {
-	ensureNoGoroutinesLeak(t, func() {
-		client := CreateLoopbackNatsClientForTest(t)
-
-		testNatsClient_Request(t, client)
-	})
-}
-
-func TestLoopbackNatsClient_RequestTimeout(t *testing.T) {
-	ensureNoGoroutinesLeak(t, func() {
-		client := CreateLoopbackNatsClientForTest(t)
-
-		testNatsClient_RequestTimeout(t, client)
-	})
-}
-
-func TestLoopbackNatsClient_RequestNoReply(t *testing.T) {
-	ensureNoGoroutinesLeak(t, func() {
-		client := CreateLoopbackNatsClientForTest(t)
-
-		testNatsClient_RequestNoReply(t, client)
-	})
-}

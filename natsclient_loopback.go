@@ -22,13 +22,9 @@
 package signaling
 
 import (
-	"context"
 	"encoding/json"
-	"log"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -36,7 +32,6 @@ import (
 type LoopbackNatsClient struct {
 	mu            sync.Mutex
 	subscriptions map[string]map[*loopbackNatsSubscription]bool
-	replyId       uint64
 }
 
 func NewLoopbackNatsClient() (NatsClient, error) {
@@ -149,71 +144,6 @@ func (c *LoopbackNatsClient) unsubscribe(s *loopbackNatsSubscription) {
 			delete(c.subscriptions, s.subject)
 		}
 	}
-}
-
-func (c *LoopbackNatsClient) Request(subject string, data []byte, timeout time.Duration) (*nats.Msg, error) {
-	if strings.HasSuffix(subject, ".") || strings.Contains(subject, " ") {
-		return nil, nats.ErrBadSubject
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.subscriptions == nil {
-		return nil, nats.ErrConnectionClosed
-	}
-
-	var response *nats.Msg
-	var err error
-	subs, found := c.subscriptions[subject]
-	if !found {
-		return nil, nats.ErrNoResponders
-	}
-
-	replyId := c.replyId
-	c.replyId += 1
-
-	reply := "_reply_" + strconv.FormatUint(replyId, 10)
-	responder := make(chan *nats.Msg)
-	var replySubscriber NatsSubscription
-	replySubscriber, err = c.subscribe(reply, responder)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		go func() {
-			if err := replySubscriber.Unsubscribe(); err != nil {
-				log.Printf("Error closing reply subscriber %s: %s", reply, err)
-			}
-		}()
-	}()
-	msg := &nats.Msg{
-		Subject: subject,
-		Data:    data,
-		Reply:   reply,
-		Sub: &nats.Subscription{
-			Subject: subject,
-		},
-	}
-	for s := range subs {
-		s.queue(msg)
-	}
-	c.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	select {
-	case response = <-responder:
-		err = nil
-	case <-ctx.Done():
-		if ctx.Err() == context.DeadlineExceeded {
-			err = nats.ErrTimeout
-		} else {
-			err = ctx.Err()
-		}
-	}
-	c.mu.Lock()
-	return response, err
 }
 
 func (c *LoopbackNatsClient) Publish(subject string, message interface{}) error {
