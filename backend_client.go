@@ -299,20 +299,20 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	pool, err := b.getPool(u)
 	if err != nil {
-		log.Printf("Could not get client pool for host %s: %s\n", u.Host, err)
+		log.Printf("Could not get client pool for host %s: %s", u.Host, err)
 		return err
 	}
 
 	c, err := pool.Get(ctx)
 	if err != nil {
-		log.Printf("Could not get client for host %s: %s\n", u.Host, err)
+		log.Printf("Could not get client for host %s: %s", u.Host, err)
 		return err
 	}
 	defer pool.Put(c)
 
 	data, err := json.Marshal(request)
 	if err != nil {
-		log.Printf("Could not marshal request %+v: %s\n", request, err)
+		log.Printf("Could not marshal request %+v: %s", request, err)
 		return err
 	}
 
@@ -335,20 +335,20 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	resp, err := performRequestWithRedirects(ctx, c, req, data)
 	if err != nil {
-		log.Printf("Could not send request %s to %s: %s\n", string(data), u.String(), err)
+		log.Printf("Could not send request %s to %s: %s", string(data), u.String(), err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
-		log.Printf("Received unsupported content-type from %s: %s (%s)\n", u.String(), ct, resp.Status)
+		log.Printf("Received unsupported content-type from %s: %s (%s)", u.String(), ct, resp.Status)
 		return fmt.Errorf("unsupported_content_type")
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Could not read response body from %s: %s\n", u.String(), err)
+		log.Printf("Could not read response body from %s: %s", u.String(), err)
 		return err
 	}
 

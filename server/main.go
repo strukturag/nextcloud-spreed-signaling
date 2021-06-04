@@ -111,7 +111,7 @@ func main() {
 		if err := runtimepprof.StartCPUProfile(f); err != nil {
 			log.Fatalf("Error writing CPU profile to %s: %s", *cpuprofile, err)
 		}
-		log.Printf("Writing CPU profile to %s ...\n", *cpuprofile)
+		log.Printf("Writing CPU profile to %s ...", *cpuprofile)
 		defer runtimepprof.StopCPUProfile()
 	}
 
@@ -122,7 +122,7 @@ func main() {
 		}
 
 		defer func() {
-			log.Printf("Writing Memory profile to %s ...\n", *memprofile)
+			log.Printf("Writing Memory profile to %s ...", *memprofile)
 			runtime.GC()
 			if err := runtimepprof.WriteHeapProfile(f); err != nil {
 				log.Printf("Error writing Memory profile to %s: %s", *memprofile, err)
@@ -139,7 +139,7 @@ func main() {
 
 	cpus := runtime.NumCPU()
 	runtime.GOMAXPROCS(cpus)
-	log.Printf("Using a maximum of %d CPUs\n", cpus)
+	log.Printf("Using a maximum of %d CPUs", cpus)
 
 	natsUrl, _ := config.GetString("nats", "url")
 	if natsUrl == "" {

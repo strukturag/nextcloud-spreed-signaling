@@ -399,7 +399,7 @@ func (s *ClientSession) SubscribeRoomNats(n NatsClient, roomid string, roomSessi
 			return err
 		}
 	}
-	log.Printf("Session %s joined room %s with room session id %s\n", s.PublicId(), roomid, roomSessionId)
+	log.Printf("Session %s joined room %s with room session id %s", s.PublicId(), roomid, roomSessionId)
 	s.roomSessionId = roomSessionId
 	return nil
 }
@@ -413,7 +413,7 @@ func (s *ClientSession) LeaveCall() {
 		return
 	}
 
-	log.Printf("Session %s left call %s\n", s.PublicId(), room.Id())
+	log.Printf("Session %s left call %s", s.PublicId(), room.Id())
 	s.releaseMcuObjects()
 }
 
@@ -779,7 +779,7 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 	switch msg.Type {
 	case "message":
 		if msg.Message == nil {
-			log.Printf("Received NATS message without payload: %+v\n", msg)
+			log.Printf("Received NATS message without payload: %+v", msg)
 			return nil
 		}
 
@@ -820,7 +820,7 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 
 		return msg.Message
 	default:
-		log.Printf("Received NATS message with unsupported type %s: %+v\n", msg.Type, msg)
+		log.Printf("Received NATS message with unsupported type %s: %+v", msg.Type, msg)
 		return nil
 	}
 }

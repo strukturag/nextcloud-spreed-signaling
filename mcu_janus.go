@@ -73,14 +73,14 @@ func convertIntValue(value interface{}) (uint64, error) {
 	switch t := value.(type) {
 	case float64:
 		if t < 0 {
-			return 0, fmt.Errorf("Unsupported float64 number: %+v\n", t)
+			return 0, fmt.Errorf("Unsupported float64 number: %+v", t)
 		}
 		return uint64(t), nil
 	case uint64:
 		return t, nil
 	case int64:
 		if t < 0 {
-			return 0, fmt.Errorf("Unsupported int64 number: %+v\n", t)
+			return 0, fmt.Errorf("Unsupported int64 number: %+v", t)
 		}
 		return uint64(t), nil
 	case json.Number:
@@ -88,11 +88,11 @@ func convertIntValue(value interface{}) (uint64, error) {
 		if err != nil {
 			return 0, err
 		} else if r < 0 {
-			return 0, fmt.Errorf("Unsupported JSON number: %+v\n", t)
+			return 0, fmt.Errorf("Unsupported JSON number: %+v", t)
 		}
 		return uint64(r), nil
 	default:
-		return 0, fmt.Errorf("Unknown number type: %+v\n", t)
+		return 0, fmt.Errorf("Unknown number type: %+v", t)
 	}
 }
 
@@ -104,7 +104,7 @@ func getPluginIntValue(data janus.PluginData, pluginName string, key string) uin
 
 	result, err := convertIntValue(val)
 	if err != nil {
-		log.Printf("Invalid value %+v for %s: %s\n", val, key, err)
+		log.Printf("Invalid value %+v for %s: %s", val, key, err)
 		result = 0
 	}
 	return result
@@ -267,9 +267,9 @@ func (m *mcuJanus) scheduleReconnect(err error) {
 	defer m.mu.Unlock()
 	m.reconnectTimer.Reset(m.reconnectInterval)
 	if err == nil {
-		log.Printf("Connection to Janus gateway was interrupted, reconnecting in %s\n", m.reconnectInterval)
+		log.Printf("Connection to Janus gateway was interrupted, reconnecting in %s", m.reconnectInterval)
 	} else {
-		log.Printf("Reconnect to Janus gateway failed (%s), reconnecting in %s\n", err, m.reconnectInterval)
+		log.Printf("Reconnect to Janus gateway failed (%s), reconnecting in %s", err, m.reconnectInterval)
 	}
 
 	m.reconnectInterval = m.reconnectInterval * 2
@@ -290,11 +290,11 @@ func (m *mcuJanus) Start() error {
 		return err
 	}
 
-	log.Printf("Connected to %s %s by %s\n", info.Name, info.VersionString, info.Author)
+	log.Printf("Connected to %s %s by %s", info.Name, info.VersionString, info.Author)
 	if plugin, found := info.Plugins[pluginVideoRoom]; !found {
 		return fmt.Errorf("Plugin %s is not supported", pluginVideoRoom)
 	} else {
-		log.Printf("Found %s %s by %s\n", plugin.Name, plugin.VersionString, plugin.Author)
+		log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
 	}
 
 	if !info.DataChannels {
@@ -743,7 +743,7 @@ func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
 	handle, session, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
 	if err != nil {
-		log.Printf("Could not reconnect publisher %s: %s\n", p.id, err)
+		log.Printf("Could not reconnect publisher %s: %s", p.id, err)
 		// TODO(jojo): Retry
 		return
 	}
@@ -949,7 +949,7 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 	handle, pub, err := p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
 	if err != nil {
 		// TODO(jojo): Retry?
-		log.Printf("Could not reconnect subscriber for publisher %s: %s\n", p.publisher, err)
+		log.Printf("Could not reconnect subscriber for publisher %s: %s", p.publisher, err)
 		p.Close(context.Background())
 		return
 	}

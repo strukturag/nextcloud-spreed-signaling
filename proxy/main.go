@@ -76,7 +76,7 @@ func main() {
 
 	cpus := runtime.NumCPU()
 	runtime.GOMAXPROCS(cpus)
-	log.Printf("Using a maximum of %d CPUs\n", cpus)
+	log.Printf("Using a maximum of %d CPUs", cpus)
 
 	r := mux.NewRouter()
 

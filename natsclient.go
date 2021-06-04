@@ -113,7 +113,7 @@ func NewNatsClient(url string) (NatsClient, error) {
 
 		client.nc, err = nats.Connect(url)
 	}
-	log.Printf("Connection established to %s (%s)\n", client.nc.ConnectedUrl(), client.nc.ConnectedServerId())
+	log.Printf("Connection established to %s (%s)", client.nc.ConnectedUrl(), client.nc.ConnectedServerId())
 
 	// All communication will be JSON based.
 	client.conn, _ = nats.NewEncodedConn(client.nc, nats.JSON_ENCODER)
@@ -133,7 +133,7 @@ func (c *natsClient) onDisconnected(conn *nats.Conn) {
 }
 
 func (c *natsClient) onReconnected(conn *nats.Conn) {
-	log.Printf("NATS client reconnected to %s (%s)\n", conn.ConnectedUrl(), conn.ConnectedServerId())
+	log.Printf("NATS client reconnected to %s (%s)", conn.ConnectedUrl(), conn.ConnectedServerId())
 }
 
 func (c *natsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error) {

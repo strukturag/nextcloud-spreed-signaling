@@ -1289,7 +1289,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				return
 			}
 
-			log.Printf("Closing screen publisher for %s\n", session.PublicId())
+			log.Printf("Closing screen publisher for %s", session.PublicId())
 			ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
 			defer cancel()
 			publisher.Close(ctx)

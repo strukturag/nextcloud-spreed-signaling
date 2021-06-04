@@ -160,7 +160,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 			if len(hosts) > 1 {
 				log.Println("WARNING: Using deprecated backend configuration. Please migrate the \"allowed\" setting to the new \"backends\" configuration.")
 			}
-			log.Printf("Allowed backend hostnames: %s\n", hosts)
+			log.Printf("Allowed backend hostnames: %s", hosts)
 			if sessionLimit > 0 {
 				log.Printf("Allow a maximum of %d sessions", sessionLimit)
 			}

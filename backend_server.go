@@ -250,7 +250,7 @@ func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Reque
 		}
 		ct := r.Header.Get("Content-Type")
 		if !strings.HasPrefix(ct, "application/json") {
-			log.Printf("Received unsupported content-type: %s\n", ct)
+			log.Printf("Received unsupported content-type: %s", ct)
 			http.Error(w, "Unsupported Content-Type", http.StatusBadRequest)
 			return
 		}
@@ -556,7 +556,7 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 
 	var request BackendServerRoomRequest
 	if err := json.Unmarshal(body, &request); err != nil {
-		log.Printf("Error decoding body %s: %s\n", string(body), err)
+		log.Printf("Error decoding body %s: %s", string(body), err)
 		http.Error(w, "Could not read body", http.StatusBadRequest)
 		return
 	}
@@ -589,7 +589,7 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 	}
 
 	if err != nil {
-		log.Printf("Error processing %s for room %s: %s\n", string(body), roomid, err)
+		log.Printf("Error processing %s for room %s: %s", string(body), roomid, err)
 		http.Error(w, "Error while processing", http.StatusInternalServerError)
 		return
 	}

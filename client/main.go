@@ -107,7 +107,7 @@ func (s *Stats) Log() {
 	sentMessages := totalSentMessages - s.resetSentMessages
 	totalRecvMessages := atomic.AddUint64(&s.numRecvMessages, 0)
 	recvMessages := totalRecvMessages - s.resetRecvMessages
-	log.Printf("Stats: sent=%d (%d/sec), recv=%d (%d/sec), delta=%d\n",
+	log.Printf("Stats: sent=%d (%d/sec), recv=%d (%d/sec), delta=%d",
 		totalSentMessages, sentMessages/perSec,
 		totalRecvMessages, recvMessages/perSec,
 		totalSentMessages-totalRecvMessages)
@@ -207,13 +207,13 @@ func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
 	case "message":
 		c.processMessageMessage(message)
 	case "bye":
-		log.Printf("Received bye: %+v\n", message.Bye)
+		log.Printf("Received bye: %+v", message.Bye)
 		c.Close()
 	case "error":
-		log.Printf("Received error: %+v\n", message.Error)
+		log.Printf("Received error: %+v", message.Error)
 		c.Close()
 	default:
-		log.Printf("Unsupported message type: %+v\n", *message)
+		log.Printf("Unsupported message type: %+v", *message)
 	}
 }
 
@@ -239,7 +239,7 @@ func (c *SignalingClient) processHelloMessage(message *signaling.ServerMessage) 
 	c.privateSessionId = message.Hello.ResumeId
 	c.publicSessionId = c.privateToPublicSessionId(c.privateSessionId)
 	c.userId = message.Hello.UserId
-	log.Printf("Registered as %s (userid %s)\n", c.privateSessionId, c.userId)
+	log.Printf("Registered as %s (userid %s)", c.privateSessionId, c.userId)
 	c.ready_wg.Done()
 }
 
@@ -259,7 +259,7 @@ func (c *SignalingClient) processMessageMessage(message *signaling.ServerMessage
 	now := time.Now()
 	duration := now.Sub(msg.Now)
 	if duration > messageReportDuration {
-		log.Printf("Message took %s\n", duration)
+		log.Printf("Message took %s", duration)
 	}
 }
 
@@ -286,7 +286,7 @@ func (c *SignalingClient) readPump() {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				log.Printf("Error: %v\n", err)
+				log.Printf("Error: %v", err)
 			}
 			break
 		}
@@ -308,7 +308,7 @@ func (c *SignalingClient) readPump() {
 
 		var message signaling.ServerMessage
 		if err := message.UnmarshalJSON(decodeBuffer.Bytes()); err != nil {
-			log.Printf("Error: %v\n", err)
+			log.Printf("Error: %v", err)
 			break
 		}
 
@@ -526,7 +526,7 @@ func main() {
 	case 32:
 	case 64:
 	default:
-		log.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes\n", len(hashKey))
+		log.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
 	}
 
 	blockKey, _ := config.GetString("sessions", "blockkey")
@@ -544,7 +544,7 @@ func main() {
 
 	cpus := runtime.NumCPU()
 	runtime.GOMAXPROCS(cpus)
-	log.Printf("Using a maximum of %d CPUs\n", cpus)
+	log.Printf("Using a maximum of %d CPUs", cpus)
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
@@ -578,16 +578,16 @@ func main() {
 		urls = append(urls, u)
 		urlstrings = append(urlstrings, u.String())
 	}
-	log.Printf("Connecting to %s\n", urlstrings)
+	log.Printf("Connecting to %s", urlstrings)
 
 	clients := make([]*SignalingClient, 0)
 	stats := &Stats{}
 
 	if *maxClients < 2 {
-		log.Fatalf("Need at least 2 clients, got %d\n", *maxClients)
+		log.Fatalf("Need at least 2 clients, got %d", *maxClients)
 	}
 
-	log.Printf("Starting %d clients\n", *maxClients)
+	log.Printf("Starting %d clients", *maxClients)
 
 	var done_wg sync.WaitGroup
 	var ready_wg sync.WaitGroup
