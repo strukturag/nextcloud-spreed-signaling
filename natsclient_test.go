@@ -109,3 +109,61 @@ func TestNatsClient_Subscribe(t *testing.T) {
 		testNatsClient_Subscribe(t, client)
 	})
 }
+
+func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
+	client.Close()
+
+	if err := client.Publish("foo", "bar"); err != nats.ErrConnectionClosed {
+		t.Errorf("Expected %v, got %v", nats.ErrConnectionClosed, err)
+	}
+}
+
+func TestNatsClient_PublishAfterClose(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func() {
+		client, shutdown := CreateLocalNatsClientForTest(t)
+		defer shutdown()
+
+		testNatsClient_PublishAfterClose(t, client)
+	})
+}
+
+func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
+	client.Close()
+
+	ch := make(chan *nats.Msg)
+	if _, err := client.Subscribe("foo", ch); err != nats.ErrConnectionClosed {
+		t.Errorf("Expected %v, got %v", nats.ErrConnectionClosed, err)
+	}
+}
+
+func TestNatsClient_SubscribeAfterClose(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func() {
+		client, shutdown := CreateLocalNatsClientForTest(t)
+		defer shutdown()
+
+		testNatsClient_SubscribeAfterClose(t, client)
+	})
+}
+
+func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
+	subjects := []string{
+		"foo bar",
+		"foo.",
+	}
+
+	ch := make(chan *nats.Msg)
+	for _, s := range subjects {
+		if _, err := client.Subscribe(s, ch); err != nats.ErrBadSubject {
+			t.Errorf("Expected %v for subject %s, got %v", nats.ErrBadSubject, s, err)
+		}
+	}
+}
+
+func TestNatsClient_BadSubjects(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func() {
+		client, shutdown := CreateLocalNatsClientForTest(t)
+		defer shutdown()
+
+		testNatsClient_BadSubjects(t, client)
+	})
+}

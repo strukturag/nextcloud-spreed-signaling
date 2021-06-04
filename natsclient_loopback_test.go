@@ -63,3 +63,27 @@ func TestLoopbackNatsClient_Subscribe(t *testing.T) {
 		testNatsClient_Subscribe(t, client)
 	})
 }
+
+func TestLoopbackClient_PublishAfterClose(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func() {
+		client := CreateLoopbackNatsClientForTest(t)
+
+		testNatsClient_PublishAfterClose(t, client)
+	})
+}
+
+func TestLoopbackClient_SubscribeAfterClose(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func() {
+		client := CreateLoopbackNatsClientForTest(t)
+
+		testNatsClient_SubscribeAfterClose(t, client)
+	})
+}
+
+func TestLoopbackClient_BadSubjects(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func() {
+		client := CreateLoopbackNatsClientForTest(t)
+
+		testNatsClient_BadSubjects(t, client)
+	})
+}
