@@ -36,9 +36,6 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
-	"github.com/nats-io/nats.go"
-
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 var (
@@ -81,19 +78,9 @@ func main() {
 	runtime.GOMAXPROCS(cpus)
 	log.Printf("Using a maximum of %d CPUs\n", cpus)
 
-	natsUrl, _ := config.GetString("nats", "url")
-	if natsUrl == "" {
-		natsUrl = nats.DefaultURL
-	}
-
-	nats, err := signaling.NewNatsClient(natsUrl)
-	if err != nil {
-		log.Fatal("Could not create NATS client: ", err)
-	}
-
 	r := mux.NewRouter()
 
-	proxy, err := NewProxyServer(r, version, config, nats)
+	proxy, err := NewProxyServer(r, version, config)
 	if err != nil {
 		log.Fatal(err)
 	}
