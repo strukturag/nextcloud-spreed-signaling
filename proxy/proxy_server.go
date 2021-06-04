@@ -88,7 +88,6 @@ type ProxyServer struct {
 	country string
 
 	url     string
-	nats    signaling.NatsClient
 	mcu     signaling.Mcu
 	stopped uint32
 
@@ -110,7 +109,7 @@ type ProxyServer struct {
 	clientsLock sync.RWMutex
 }
 
-func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile, nats signaling.NatsClient) (*ProxyServer, error) {
+func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*ProxyServer, error) {
 	hashKey := make([]byte, 64)
 	if _, err := rand.Read(hashKey); err != nil {
 		return nil, fmt.Errorf("Could not generate random hash key: %s", err)
@@ -171,8 +170,6 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile, na
 	result := &ProxyServer{
 		version: version,
 		country: country,
-
-		nats: nats,
 
 		shutdownChannel: make(chan bool, 1),
 
@@ -238,7 +235,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 	for {
 		switch mcuType {
 		case signaling.McuTypeJanus:
-			mcu, err = signaling.NewMcuJanus(s.url, config, s.nats)
+			mcu, err = signaling.NewMcuJanus(s.url, config)
 		default:
 			return fmt.Errorf("Unsupported MCU type: %s", mcuType)
 		}

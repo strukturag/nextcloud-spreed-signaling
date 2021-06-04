@@ -175,7 +175,7 @@ func main() {
 		for {
 			switch mcuType {
 			case signaling.McuTypeJanus:
-				mcu, err = signaling.NewMcuJanus(mcuUrl, config, nats)
+				mcu, err = signaling.NewMcuJanus(mcuUrl, config)
 			case signaling.McuTypeProxy:
 				mcu, err = signaling.NewMcuProxy(config)
 			default:
