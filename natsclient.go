@@ -52,9 +52,9 @@ type NatsSubscription interface {
 }
 
 type NatsClient interface {
-	Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error)
+	Close()
 
-	Request(subject string, data []byte, timeout time.Duration) (*nats.Msg, error)
+	Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error)
 
 	Publish(subject string, message interface{}) error
 	PublishNats(subject string, message *NatsMessage) error
@@ -120,6 +120,10 @@ func NewNatsClient(url string) (NatsClient, error) {
 	return client, nil
 }
 
+func (c *natsClient) Close() {
+	c.conn.Close()
+}
+
 func (c *natsClient) onClosed(conn *nats.Conn) {
 	log.Println("NATS client closed", conn.LastError())
 }
@@ -134,10 +138,6 @@ func (c *natsClient) onReconnected(conn *nats.Conn) {
 
 func (c *natsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error) {
 	return c.nc.ChanSubscribe(subject, ch)
-}
-
-func (c *natsClient) Request(subject string, data []byte, timeout time.Duration) (*nats.Msg, error) {
-	return c.nc.Request(subject, data, timeout)
 }
 
 func (c *natsClient) Publish(subject string, message interface{}) error {
