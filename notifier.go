@@ -28,12 +28,14 @@ import (
 
 type Waiter struct {
 	key string
-	ch  chan bool
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func (w *Waiter) Wait(ctx context.Context) error {
 	select {
-	case <-w.ch:
+	case <-w.ctx.Done():
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -43,26 +45,42 @@ func (w *Waiter) Wait(ctx context.Context) error {
 type Notifier struct {
 	sync.Mutex
 
-	waiters map[string]*Waiter
+	waiters   map[string]*Waiter
+	waiterMap map[string]map[*Waiter]bool
 }
 
 func (n *Notifier) NewWaiter(key string) *Waiter {
 	n.Lock()
 	defer n.Unlock()
 
-	_, found := n.waiters[key]
+	waiter, found := n.waiters[key]
 	if found {
-		panic("already waiting")
+		w := &Waiter{
+			key:    key,
+			ctx:    waiter.ctx,
+			cancel: waiter.cancel,
+		}
+		n.waiterMap[key][w] = true
+		return w
 	}
 
-	waiter := &Waiter{
-		key: key,
-		ch:  make(chan bool, 1),
+	ctx, cancel := context.WithCancel(context.Background())
+	waiter = &Waiter{
+		key:    key,
+		ctx:    ctx,
+		cancel: cancel,
 	}
 	if n.waiters == nil {
 		n.waiters = make(map[string]*Waiter)
 	}
+	if n.waiterMap == nil {
+		n.waiterMap = make(map[string]map[*Waiter]bool)
+	}
 	n.waiters[key] = waiter
+	if _, found := n.waiterMap[key]; !found {
+		n.waiterMap[key] = make(map[*Waiter]bool)
+	}
+	n.waiterMap[key][waiter] = true
 	return waiter
 }
 
@@ -71,18 +89,24 @@ func (n *Notifier) Reset() {
 	defer n.Unlock()
 
 	for _, w := range n.waiters {
-		close(w.ch)
+		w.cancel()
 	}
 	n.waiters = nil
+	n.waiterMap = nil
 }
 
 func (n *Notifier) Release(w *Waiter) {
 	n.Lock()
 	defer n.Unlock()
 
-	if _, found := n.waiters[w.key]; found {
-		delete(n.waiters, w.key)
-		close(w.ch)
+	if waiters, found := n.waiterMap[w.key]; found {
+		if _, found := waiters[w]; found {
+			delete(waiters, w)
+			if len(waiters) == 0 {
+				delete(n.waiters, w.key)
+				w.cancel()
+			}
+		}
 	}
 }
 
@@ -91,10 +115,8 @@ func (n *Notifier) Notify(key string) {
 	defer n.Unlock()
 
 	if w, found := n.waiters[key]; found {
-		select {
-		case w.ch <- true:
-		default:
-			// Ignore, already notified
-		}
+		w.cancel()
+		delete(n.waiters, w.key)
+		delete(n.waiterMap, w.key)
 	}
 }
