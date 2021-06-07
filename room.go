@@ -180,7 +180,6 @@ func (r *Room) unsubscribeBackend() {
 		if err := subscription.Unsubscribe(); err != nil {
 			log.Printf("Error closing backend subscription for room %s: %s", r.Id(), err)
 		}
-		close(r.natsReceiver)
 	}(r.backendSubscription)
 	r.backendSubscription = nil
 }
