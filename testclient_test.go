@@ -227,7 +227,13 @@ func (c *TestClient) CloseWithBye() {
 }
 
 func (c *TestClient) Close() {
-	c.conn.WriteMessage(websocket.CloseMessage, []byte{}) // nolint
+	if err := c.conn.WriteMessage(websocket.CloseMessage, []byte{}); err == websocket.ErrCloseSent {
+		// Already closed
+		return
+	}
+
+	// Wait a bit for close message to be processed.
+	time.Sleep(100 * time.Millisecond)
 	c.conn.Close()
 
 	// Drain any entries in the channels to terminate the read goroutine.
