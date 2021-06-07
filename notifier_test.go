@@ -79,6 +79,22 @@ func TestNotifierWaitClosed(t *testing.T) {
 	}
 }
 
+func TestNotifierWaitClosedMulti(t *testing.T) {
+	var notifier Notifier
+
+	waiter1 := notifier.NewWaiter("foo")
+	waiter2 := notifier.NewWaiter("foo")
+	notifier.Release(waiter1)
+	notifier.Release(waiter2)
+
+	if err := waiter1.Wait(context.Background()); err != nil {
+		t.Error(err)
+	}
+	if err := waiter2.Wait(context.Background()); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestNotifierResetWillNotify(t *testing.T) {
 	var notifier Notifier
 
@@ -103,18 +119,32 @@ func TestNotifierResetWillNotify(t *testing.T) {
 
 func TestNotifierDuplicate(t *testing.T) {
 	var notifier Notifier
+	var wgStart sync.WaitGroup
+	var wgEnd sync.WaitGroup
 
-	waiter := notifier.NewWaiter("foo")
-	defer notifier.Release(waiter)
+	for i := 0; i < 2; i++ {
+		wgStart.Add(1)
+		wgEnd.Add(1)
 
-	defer func() {
-		if e := recover(); e != nil {
-			if e.(string) != "already waiting" {
-				t.Errorf("Expected error about already waiting, got %+v", e)
+		go func() {
+			defer wgEnd.Done()
+			waiter := notifier.NewWaiter("foo")
+			defer notifier.Release(waiter)
+
+			// Goroutine has created the waiter and is ready.
+			wgStart.Done()
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := waiter.Wait(ctx); err != nil {
+				t.Error(err)
 			}
-		}
-	}()
+		}()
+	}
 
-	// Creating a waiter for an existing key will panic.
-	notifier.NewWaiter("foo")
+	wgStart.Wait()
+
+	time.Sleep(100 * time.Millisecond)
+	notifier.Notify("foo")
+	wgEnd.Wait()
 }
