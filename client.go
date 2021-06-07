@@ -184,6 +184,12 @@ func (c *Client) Close() {
 		return
 	}
 
+	c.mu.Lock()
+	if c.conn != nil {
+		c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) // nolint
+	}
+	c.mu.Unlock()
+
 	if atomic.LoadUint32(&c.messageProcessing) == 1 {
 		// Defer closing
 		atomic.StoreUint32(&c.closed, 2)
