@@ -185,7 +185,6 @@ func (c *Client) Close() {
 
 	c.closeChan <- true
 	c.messagesDone.Wait()
-	close(c.messageChan)
 
 	c.OnClosed(c)
 	c.SetSession(nil)
@@ -231,6 +230,7 @@ func (c *Client) SendMessage(message WritableClientMessage) bool {
 func (c *Client) ReadPump() {
 	defer func() {
 		c.Close()
+		close(c.messageChan)
 	}()
 
 	addr := c.RemoteAddr()
