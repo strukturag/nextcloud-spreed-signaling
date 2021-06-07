@@ -138,6 +138,8 @@ func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, NatsClient, *mux.
 }
 
 func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
+	// Wait for any channel messages to be processed.
+	time.Sleep(10 * time.Millisecond)
 	h.Stop()
 	for {
 		h.mu.Lock()
