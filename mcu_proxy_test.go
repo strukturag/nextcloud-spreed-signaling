@@ -76,11 +76,15 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 	}
 
 	for country, test := range testcases {
-		sorted := sortConnectionsForCountry(test[0], country)
-		for idx, conn := range sorted {
-			if test[1][idx] != conn {
-				t.Errorf("Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
+		country := country
+		test := test
+		t.Run(country, func(t *testing.T) {
+			sorted := sortConnectionsForCountry(test[0], country)
+			for idx, conn := range sorted {
+				if test[1][idx] != conn {
+					t.Errorf("Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
+				}
 			}
-		}
+		})
 	}
 }

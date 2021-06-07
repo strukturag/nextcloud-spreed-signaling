@@ -32,47 +32,59 @@ import (
 
 func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, invalid_urls []string) {
 	for _, u := range valid_urls {
-		parsed, err := url.ParseRequestURI(u)
-		if err != nil {
-			t.Errorf("The url %s should be valid, got %s", u, err)
-			continue
-		}
-		if !config.IsUrlAllowed(parsed) {
-			t.Errorf("The url %s should be allowed", u)
-		}
-		if secret := config.GetSecret(parsed); !bytes.Equal(secret, testBackendSecret) {
-			t.Errorf("Expected secret %s for url %s, got %s", string(testBackendSecret), u, string(secret))
-		}
+		u := u
+		t.Run(u, func(t *testing.T) {
+			parsed, err := url.ParseRequestURI(u)
+			if err != nil {
+				t.Errorf("The url %s should be valid, got %s", u, err)
+				return
+			}
+			if !config.IsUrlAllowed(parsed) {
+				t.Errorf("The url %s should be allowed", u)
+			}
+			if secret := config.GetSecret(parsed); !bytes.Equal(secret, testBackendSecret) {
+				t.Errorf("Expected secret %s for url %s, got %s", string(testBackendSecret), u, string(secret))
+			}
+		})
 	}
 	for _, u := range invalid_urls {
-		parsed, _ := url.ParseRequestURI(u)
-		if config.IsUrlAllowed(parsed) {
-			t.Errorf("The url %s should not be allowed", u)
-		}
+		u := u
+		t.Run(u, func(t *testing.T) {
+			parsed, _ := url.ParseRequestURI(u)
+			if config.IsUrlAllowed(parsed) {
+				t.Errorf("The url %s should not be allowed", u)
+			}
+		})
 	}
 }
 
 func testBackends(t *testing.T, config *BackendConfiguration, valid_urls [][]string, invalid_urls []string) {
 	for _, entry := range valid_urls {
-		u := entry[0]
-		parsed, err := url.ParseRequestURI(u)
-		if err != nil {
-			t.Errorf("The url %s should be valid, got %s", u, err)
-			continue
-		}
-		if !config.IsUrlAllowed(parsed) {
-			t.Errorf("The url %s should be allowed", u)
-		}
-		s := entry[1]
-		if secret := config.GetSecret(parsed); !bytes.Equal(secret, []byte(s)) {
-			t.Errorf("Expected secret %s for url %s, got %s", string(s), u, string(secret))
-		}
+		entry := entry
+		t.Run(entry[0], func(t *testing.T) {
+			u := entry[0]
+			parsed, err := url.ParseRequestURI(u)
+			if err != nil {
+				t.Errorf("The url %s should be valid, got %s", u, err)
+				return
+			}
+			if !config.IsUrlAllowed(parsed) {
+				t.Errorf("The url %s should be allowed", u)
+			}
+			s := entry[1]
+			if secret := config.GetSecret(parsed); !bytes.Equal(secret, []byte(s)) {
+				t.Errorf("Expected secret %s for url %s, got %s", string(s), u, string(secret))
+			}
+		})
 	}
 	for _, u := range invalid_urls {
-		parsed, _ := url.ParseRequestURI(u)
-		if config.IsUrlAllowed(parsed) {
-			t.Errorf("The url %s should not be allowed", u)
-		}
+		u := u
+		t.Run(u, func(t *testing.T) {
+			parsed, _ := url.ParseRequestURI(u)
+			if config.IsUrlAllowed(parsed) {
+				t.Errorf("The url %s should not be allowed", u)
+			}
+		})
 	}
 }
 

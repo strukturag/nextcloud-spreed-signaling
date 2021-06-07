@@ -42,15 +42,19 @@ func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
 	}
 
 	for ip, expected := range tests {
-		country, err := reader.LookupCountry(net.ParseIP(ip))
-		if err != nil {
-			t.Errorf("Could not lookup %s: %s", ip, err)
-			continue
-		}
+		ip := ip
+		expected := expected
+		t.Run(ip, func(t *testing.T) {
+			country, err := reader.LookupCountry(net.ParseIP(ip))
+			if err != nil {
+				t.Errorf("Could not lookup %s: %s", ip, err)
+				return
+			}
 
-		if country != expected {
-			t.Errorf("Expected %s for %s, got %s", expected, ip, country)
-		}
+			if country != expected {
+				t.Errorf("Expected %s for %s, got %s", expected, ip, country)
+			}
+		})
 	}
 }
 
@@ -106,17 +110,21 @@ func TestGeoLookupContinent(t *testing.T) {
 	}
 
 	for country, expected := range tests {
-		continents := LookupContinents(country)
-		if len(continents) != len(expected) {
-			t.Errorf("Continents didn't match for %s: got %s, expected %s", country, continents, expected)
-			continue
-		}
-		for idx, c := range expected {
-			if continents[idx] != c {
+		country := country
+		expected := expected
+		t.Run(country, func(t *testing.T) {
+			continents := LookupContinents(country)
+			if len(continents) != len(expected) {
 				t.Errorf("Continents didn't match for %s: got %s, expected %s", country, continents, expected)
-				break
+				return
 			}
-		}
+			for idx, c := range expected {
+				if continents[idx] != c {
+					t.Errorf("Continents didn't match for %s: got %s, expected %s", country, continents, expected)
+					break
+				}
+			}
+		})
 	}
 }
 
