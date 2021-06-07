@@ -90,7 +90,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 		}
 
 		// Allow NATS goroutines to process messages.
-		time.Sleep(time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	<-ch
 
