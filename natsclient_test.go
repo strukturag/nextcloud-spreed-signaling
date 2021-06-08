@@ -65,8 +65,10 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 
 	received := int32(0)
 	max := int32(20)
+	ready := make(chan bool)
 	quit := make(chan bool)
 	go func() {
+		ready <- true
 		for {
 			select {
 			case <-dest:
@@ -84,6 +86,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 			}
 		}
 	}()
+	<-ready
 	for i := int32(0); i < max; i++ {
 		if err := client.Publish("foo", []byte("hello")); err != nil {
 			t.Error(err)
