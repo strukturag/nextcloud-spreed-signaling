@@ -1170,6 +1170,35 @@ func (h *Hub) notifyUserJoinedRoom(room *Room, session *ClientSession, sessionDa
 
 		// No need to send through NATS, the session is connected locally.
 		session.SendMessage(msg)
+
+		// Notify about initial flags of virtual sessions.
+		for _, s := range sessions {
+			vsess, ok := s.(*VirtualSession)
+			if !ok {
+				continue
+			}
+
+			flags := vsess.Flags()
+			if flags == 0 {
+				continue
+			}
+
+			msg := &ServerMessage{
+				Type: "event",
+				Event: &EventServerMessage{
+					Target: "participants",
+					Type:   "flags",
+					Flags: &RoomFlagsServerMessage{
+						RoomId:    room.Id(),
+						SessionId: vsess.PublicId(),
+						Flags:     vsess.Flags(),
+					},
+				},
+			}
+
+			// No need to send through NATS, the session is connected locally.
+			session.SendMessage(msg)
+		}
 	}
 }
 

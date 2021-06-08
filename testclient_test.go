@@ -422,6 +422,32 @@ func (c *TestClient) DrainMessages(ctx context.Context) error {
 	return nil
 }
 
+func (c *TestClient) GetPendingMessages(ctx context.Context) ([]*ServerMessage, error) {
+	var result []*ServerMessage
+	select {
+	case err := <-c.readErrorChan:
+		return nil, err
+	case msg := <-c.messageChan:
+		var m ServerMessage
+		if err := json.Unmarshal(msg, &m); err != nil {
+			return nil, err
+		}
+		result = append(result, &m)
+		n := len(c.messageChan)
+		for i := 0; i < n; i++ {
+			var m ServerMessage
+			msg = <-c.messageChan
+			if err := json.Unmarshal(msg, &m); err != nil {
+				return nil, err
+			}
+			result = append(result, &m)
+		}
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return result, nil
+}
+
 func (c *TestClient) RunUntilMessage(ctx context.Context) (message *ServerMessage, err error) {
 	select {
 	case err = <-c.readErrorChan:
