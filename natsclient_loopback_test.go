@@ -48,17 +48,20 @@ func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *t
 	}
 }
 
-func CreateLoopbackNatsClientForTest(t *testing.T) NatsClient {
+func CreateLoopbackNatsClientForTest(t *testing.T) (NatsClient, func()) {
 	result, err := NewLoopbackNatsClient()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return result
+	return result, func() {
+		result.Close()
+	}
 }
 
 func TestLoopbackNatsClient_Subscribe(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func() {
-		client := CreateLoopbackNatsClientForTest(t)
+		client, shutdown := CreateLoopbackNatsClientForTest(t)
+		defer shutdown()
 
 		testNatsClient_Subscribe(t, client)
 	})
@@ -66,7 +69,8 @@ func TestLoopbackNatsClient_Subscribe(t *testing.T) {
 
 func TestLoopbackClient_PublishAfterClose(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func() {
-		client := CreateLoopbackNatsClientForTest(t)
+		client, shutdown := CreateLoopbackNatsClientForTest(t)
+		defer shutdown()
 
 		testNatsClient_PublishAfterClose(t, client)
 	})
@@ -74,7 +78,8 @@ func TestLoopbackClient_PublishAfterClose(t *testing.T) {
 
 func TestLoopbackClient_SubscribeAfterClose(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func() {
-		client := CreateLoopbackNatsClientForTest(t)
+		client, shutdown := CreateLoopbackNatsClientForTest(t)
+		defer shutdown()
 
 		testNatsClient_SubscribeAfterClose(t, client)
 	})
@@ -82,7 +87,8 @@ func TestLoopbackClient_SubscribeAfterClose(t *testing.T) {
 
 func TestLoopbackClient_BadSubjects(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func() {
-		client := CreateLoopbackNatsClientForTest(t)
+		client, shutdown := CreateLoopbackNatsClientForTest(t)
+		defer shutdown()
 
 		testNatsClient_BadSubjects(t, client)
 	})

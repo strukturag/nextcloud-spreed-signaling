@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"strconv"
 	"testing"
 )
 
@@ -111,10 +112,13 @@ func Test_permissionsEqual(t *testing.T) {
 			equal: false,
 		},
 	}
-	for _, test := range tests {
-		equal := permissionsEqual(test.a, test.b)
-		if equal != test.equal {
-			t.Errorf("Expected %+v to be %s to %+v but was %s", test.a, equalStrings[test.equal], test.b, equalStrings[equal])
-		}
+	for idx, test := range tests {
+		test := test
+		t.Run(strconv.Itoa(idx), func(t *testing.T) {
+			equal := permissionsEqual(test.a, test.b)
+			if equal != test.equal {
+				t.Errorf("Expected %+v to be %s to %+v but was %s", test.a, equalStrings[test.equal], test.b, equalStrings[equal])
+			}
+		})
 	}
 }

@@ -95,6 +95,14 @@ func (m *ClientMessage) CheckValid() error {
 	return nil
 }
 
+func (m *ClientMessage) String() string {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", m, err)
+	}
+	return string(data)
+}
+
 func (m *ClientMessage) NewErrorServerMessage(e *Error) *ServerMessage {
 	return &ServerMessage{
 		Id:    m.Id,
@@ -177,6 +185,14 @@ func (r *ServerMessage) IsParticipantsUpdate() bool {
 		return false
 	}
 	return true
+}
+
+func (r *ServerMessage) String() string {
+	data, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", r, err)
+	}
+	return string(data)
 }
 
 type Error struct {

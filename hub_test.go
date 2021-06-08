@@ -120,6 +120,7 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 
 		WaitForHub(ctx, t, h)
 		(nats).(*LoopbackNatsClient).waitForSubscriptionsEmpty(ctx, t)
+		nats.Close()
 		server.Close()
 	}
 

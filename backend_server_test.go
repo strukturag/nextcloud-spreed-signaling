@@ -106,6 +106,7 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 
 		WaitForHub(ctx, t, hub)
 		(nats).(*LoopbackNatsClient).waitForSubscriptionsEmpty(ctx, t)
+		nats.Close()
 		server.Close()
 	}
 

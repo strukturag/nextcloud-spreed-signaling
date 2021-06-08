@@ -22,7 +22,9 @@
 package signaling
 
 import (
+	"container/list"
 	"encoding/json"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -33,90 +35,87 @@ import (
 type LoopbackNatsClient struct {
 	mu            sync.Mutex
 	subscriptions map[string]map[*loopbackNatsSubscription]bool
+
+	stopping bool
+	wakeup   sync.Cond
+	incoming list.List
 }
 
 func NewLoopbackNatsClient() (NatsClient, error) {
-	return &LoopbackNatsClient{
+	client := &LoopbackNatsClient{
 		subscriptions: make(map[string]map[*loopbackNatsSubscription]bool),
-	}, nil
+	}
+	client.wakeup.L = &client.mu
+	go client.processMessages()
+	return client, nil
+}
+
+func (c *LoopbackNatsClient) processMessages() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for {
+		for !c.stopping && c.incoming.Len() == 0 {
+			c.wakeup.Wait()
+		}
+		if c.stopping {
+			break
+		}
+
+		msg := c.incoming.Remove(c.incoming.Front()).(*nats.Msg)
+		c.processMessage(msg)
+	}
+}
+
+func (c *LoopbackNatsClient) processMessage(msg *nats.Msg) {
+	subs, found := c.subscriptions[msg.Subject]
+	if !found {
+		return
+	}
+
+	channels := make([]chan *nats.Msg, 0, len(subs))
+	for sub := range subs {
+		channels = append(channels, sub.ch)
+	}
+	c.mu.Unlock()
+	defer c.mu.Lock()
+	for _, ch := range channels {
+		select {
+		case ch <- msg:
+		default:
+			log.Printf("Slow consumer %s, dropping message", msg.Subject)
+		}
+	}
 }
 
 func (c *LoopbackNatsClient) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for _, subs := range c.subscriptions {
-		for sub := range subs {
-			sub.Unsubscribe() // nolint
-		}
-	}
-
 	c.subscriptions = nil
+	c.stopping = true
+	c.incoming.Init()
+	c.wakeup.Signal()
 }
 
 type loopbackNatsSubscription struct {
-	subject  string
-	client   *LoopbackNatsClient
-	ch       chan *nats.Msg
-	incoming []*nats.Msg
-	cond     sync.Cond
-	quit     bool
+	subject string
+	client  *LoopbackNatsClient
+
+	ch chan *nats.Msg
 }
 
 func (s *loopbackNatsSubscription) Unsubscribe() error {
-	s.cond.L.Lock()
-	if !s.quit {
-		s.quit = true
-		s.cond.Signal()
-	}
-	s.cond.L.Unlock()
-
 	s.client.unsubscribe(s)
 	return nil
 }
 
-func (s *loopbackNatsSubscription) queue(msg *nats.Msg) {
-	s.cond.L.Lock()
-	s.incoming = append(s.incoming, msg)
-	if len(s.incoming) == 1 {
-		s.cond.Signal()
-	}
-	s.cond.L.Unlock()
-}
-
-func (s *loopbackNatsSubscription) run() {
-	s.cond.L.Lock()
-	defer s.cond.L.Unlock()
-	for !s.quit {
-		for !s.quit && len(s.incoming) == 0 {
-			s.cond.Wait()
-		}
-
-		for !s.quit && len(s.incoming) > 0 {
-			msg := s.incoming[0]
-			s.incoming = s.incoming[1:]
-			s.cond.L.Unlock()
-			// A "real" NATS server would take some time to process the request,
-			// simulate this by sleeping a tiny bit.
-			time.Sleep(time.Millisecond)
-			s.ch <- msg
-			s.cond.L.Lock()
-		}
-	}
-}
-
 func (c *LoopbackNatsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return c.subscribe(subject, ch)
-}
-
-func (c *LoopbackNatsClient) subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error) {
 	if strings.HasSuffix(subject, ".") || strings.Contains(subject, " ") {
 		return nil, nats.ErrBadSubject
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.subscriptions == nil {
 		return nil, nats.ErrConnectionClosed
 	}
@@ -126,7 +125,6 @@ func (c *LoopbackNatsClient) subscribe(subject string, ch chan *nats.Msg) (NatsS
 		client:  c,
 		ch:      ch,
 	}
-	s.cond.L = &sync.Mutex{}
 	subs, found := c.subscriptions[subject]
 	if !found {
 		subs = make(map[*loopbackNatsSubscription]bool)
@@ -134,7 +132,6 @@ func (c *LoopbackNatsClient) subscribe(subject string, ch chan *nats.Msg) (NatsS
 	}
 	subs[s] = true
 
-	go s.run()
 	return s, nil
 }
 
@@ -161,18 +158,15 @@ func (c *LoopbackNatsClient) Publish(subject string, message interface{}) error 
 		return nats.ErrConnectionClosed
 	}
 
-	if subs, found := c.subscriptions[subject]; found {
-		msg := &nats.Msg{
-			Subject: subject,
-		}
-		var err error
-		if msg.Data, err = json.Marshal(message); err != nil {
-			return err
-		}
-		for s := range subs {
-			s.queue(msg)
-		}
+	msg := &nats.Msg{
+		Subject: subject,
 	}
+	var err error
+	if msg.Data, err = json.Marshal(message); err != nil {
+		return err
+	}
+	c.incoming.PushBack(msg)
+	c.wakeup.Signal()
 	return nil
 }
 
@@ -182,16 +176,18 @@ func (c *LoopbackNatsClient) PublishNats(subject string, message *NatsMessage) e
 
 func (c *LoopbackNatsClient) PublishMessage(subject string, message *ServerMessage) error {
 	msg := &NatsMessage{
-		Type:    "message",
-		Message: message,
+		SendTime: time.Now(),
+		Type:     "message",
+		Message:  message,
 	}
 	return c.PublishNats(subject, msg)
 }
 
 func (c *LoopbackNatsClient) PublishBackendServerRoomRequest(subject string, message *BackendServerRoomRequest) error {
 	msg := &NatsMessage{
-		Type: "room",
-		Room: message,
+		SendTime: time.Now(),
+		Type:     "room",
+		Room:     message,
 	}
 	return c.PublishNats(subject, msg)
 }

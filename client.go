@@ -100,9 +100,10 @@ type Client struct {
 
 	mu sync.Mutex
 
-	closeChan    chan bool
-	messagesDone sync.WaitGroup
-	messageChan  chan *bytes.Buffer
+	closeChan         chan bool
+	messagesDone      sync.WaitGroup
+	messageChan       chan *bytes.Buffer
+	messageProcessing uint32
 
 	OnLookupCountry   func(*Client) string
 	OnClosed          func(*Client)
@@ -183,9 +184,24 @@ func (c *Client) Close() {
 		return
 	}
 
+	c.mu.Lock()
+	if c.conn != nil {
+		c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) // nolint
+	}
+	c.mu.Unlock()
+
+	if atomic.LoadUint32(&c.messageProcessing) == 1 {
+		// Defer closing
+		atomic.StoreUint32(&c.closed, 2)
+		return
+	}
+
+	c.doClose()
+}
+
+func (c *Client) doClose() {
 	c.closeChan <- true
 	c.messagesDone.Wait()
-	close(c.messageChan)
 
 	c.OnClosed(c)
 	c.SetSession(nil)
@@ -231,6 +247,7 @@ func (c *Client) SendMessage(message WritableClientMessage) bool {
 func (c *Client) ReadPump() {
 	defer func() {
 		c.Close()
+		close(c.messageChan)
 	}()
 
 	addr := c.RemoteAddr()
@@ -304,7 +321,7 @@ func (c *Client) ReadPump() {
 		}
 
 		// Stop processing if the client was closed.
-		if atomic.LoadUint32(&c.closed) == 1 {
+		if atomic.LoadUint32(&c.closed) != 0 {
 			bufferPool.Put(decodeBuffer)
 			break
 		}
@@ -321,9 +338,15 @@ func (c *Client) processMessages() {
 			break
 		}
 
+		atomic.StoreUint32(&c.messageProcessing, 1)
 		c.OnMessageReceived(c, buffer.Bytes())
+		atomic.StoreUint32(&c.messageProcessing, 0)
 		c.messagesDone.Done()
 		bufferPool.Put(buffer)
+	}
+
+	if atomic.LoadUint32(&c.closed) == 2 {
+		c.doClose()
 	}
 }
 
