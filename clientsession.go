@@ -46,6 +46,8 @@ var (
 )
 
 type ClientSession struct {
+	roomJoinTime int64
+
 	running   int32
 	hub       *Hub
 	privateId string
@@ -289,10 +291,19 @@ func (s *ClientSession) IsExpired(now time.Time) bool {
 
 func (s *ClientSession) SetRoom(room *Room) {
 	atomic.StorePointer(&s.room, unsafe.Pointer(room))
+	if room != nil {
+		atomic.StoreInt64(&s.roomJoinTime, time.Now().UnixNano())
+	} else {
+		atomic.StoreInt64(&s.roomJoinTime, 0)
+	}
 }
 
 func (s *ClientSession) GetRoom() *Room {
 	return (*Room)(atomic.LoadPointer(&s.room))
+}
+
+func (s *ClientSession) getRoomJoinTime() time.Time {
+	return time.Unix(0, atomic.LoadInt64(&s.roomJoinTime))
 }
 
 func (s *ClientSession) releaseMcuObjects() {
@@ -815,6 +826,13 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 				// TODO(jojo): Only send all users if current session id has
 				// changed its "inCall" flag to true.
 				m.Changed = nil
+			} else if msg.Message.Event.Target == "room" {
+				// Can happen mostly during tests where an older room NATS message
+				// could be received by a subscriber that joined after it was sent.
+				if msg.SendTime.Before(s.getRoomJoinTime()) {
+					log.Printf("Message %+v was sent before room was joined, ignoring", msg.Message)
+					return nil
+				}
 			}
 		}
 
