@@ -197,6 +197,58 @@ func TestVirtualSession(t *testing.T) {
 		t.Errorf("Expected flags %d, got %+v", newFlags, flagsMsg.Flags)
 	}
 
+	// A new client will receive the initial flags of the virtual session.
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client2.RunUntilHello(ctx); err != nil {
+		t.Error(err)
+	}
+
+	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	gotFlags := false
+	var receivedMessages []*ServerMessage
+	for !gotFlags {
+		messages, err := client2.GetPendingMessages(ctx)
+		if err != nil {
+			t.Error(err)
+		}
+
+		receivedMessages = append(receivedMessages, messages...)
+		for _, msg := range messages {
+			if msg.Type != "event" || msg.Event.Target != "participants" || msg.Event.Type != "flags" {
+				continue
+			}
+
+			if msg.Event.Flags.RoomId != roomId {
+				t.Errorf("Expected flags in room %s, got %s", roomId, msg.Event.Flags.RoomId)
+			} else if msg.Event.Flags.SessionId != sessionId {
+				t.Errorf("Expected flags for session %s, got %s", sessionId, msg.Event.Flags.SessionId)
+			} else if msg.Event.Flags.Flags != newFlags {
+				t.Errorf("Expected flags %d, got %d", newFlags, msg.Event.Flags.Flags)
+			} else {
+				gotFlags = true
+				break
+			}
+		}
+	}
+	if !gotFlags {
+		t.Errorf("Didn't receive initial flags in %+v", receivedMessages)
+	}
+
+	// Ignore "join" messages from second client
+	if err := client.DrainMessages(ctx); err != nil {
+		t.Error(err)
+	}
+
 	// When sending to a virtual session, the message is sent to the actual
 	// client and contains a "Recipient" block with the internal session id.
 	recipient := MessageClientMessageRecipient{
