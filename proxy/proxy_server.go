@@ -43,6 +43,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"gopkg.in/dgrijalva/jwt-go.v3"
 
@@ -205,6 +206,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 
 	r.HandleFunc("/proxy", result.setCommonHeaders(result.proxyHandler)).Methods("GET")
 	r.HandleFunc("/stats", result.setCommonHeaders(result.validateStatsRequest(result.statsHandler))).Methods("GET")
+	r.HandleFunc("/metrics", result.setCommonHeaders(result.validateStatsRequest(result.metricsHandler))).Methods("GET")
 	return result, nil
 }
 
@@ -236,6 +238,9 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 		switch mcuType {
 		case signaling.McuTypeJanus:
 			mcu, err = signaling.NewMcuJanus(s.url, config)
+			if err == nil {
+				signaling.RegisterJanusMcuStats()
+			}
 		default:
 			return fmt.Errorf("Unsupported MCU type: %s", mcuType)
 		}
@@ -555,6 +560,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			} else {
 				s.sendCurrentLoad(session)
 			}
+			statsSessionsResumedTotal.Inc()
 		} else {
 			var err error
 			if session, err = s.NewSession(message.Hello); err != nil {
@@ -619,6 +625,9 @@ func (i *emptyInitiator) Country() string {
 
 func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, session *ProxySession, message *signaling.ProxyClientMessage) {
 	cmd := message.Command
+
+	statsCommandMessagesTotal.WithLabelValues(cmd.Type).Inc()
+
 	switch cmd.Type {
 	case "create-publisher":
 		if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
@@ -650,6 +659,8 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			},
 		}
 		session.sendMessage(response)
+		statsPublishersCurrent.WithLabelValues(cmd.StreamType).Inc()
+		statsPublishersTotal.WithLabelValues(cmd.StreamType).Inc()
 	case "create-subscriber":
 		id := uuid.New().String()
 		publisherId := cmd.PublisherId
@@ -676,6 +687,8 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			},
 		}
 		session.sendMessage(response)
+		statsSubscribersCurrent.WithLabelValues(cmd.StreamType).Inc()
+		statsSubscribersTotal.WithLabelValues(cmd.StreamType).Inc()
 	case "delete-publisher":
 		client := s.GetClient(cmd.ClientId)
 		if client == nil {
@@ -688,7 +701,9 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		s.DeleteClient(cmd.ClientId, client)
+		if s.DeleteClient(cmd.ClientId, client) {
+			statsPublishersCurrent.WithLabelValues(client.StreamType()).Dec()
+		}
 
 		go func() {
 			log.Printf("Closing %s publisher %s as %s", client.StreamType(), client.Id(), cmd.ClientId)
@@ -721,7 +736,9 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		s.DeleteClient(cmd.ClientId, client)
+		if s.DeleteClient(cmd.ClientId, client) {
+			statsSubscribersCurrent.WithLabelValues(client.StreamType()).Dec()
+		}
 
 		go func() {
 			log.Printf("Closing %s subscriber %s as %s", client.StreamType(), client.Id(), cmd.ClientId)
@@ -749,6 +766,8 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 		session.sendMessage(message.NewErrorServerMessage(UnknownClient))
 		return
 	}
+
+	statsPayloadMessagesTotal.WithLabelValues(payload.Type).Inc()
 
 	var mcuData *signaling.MessageClientMessageData
 	switch payload.Type {
@@ -809,42 +828,50 @@ func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*Pro
 		log.Printf("Hello: %+v", hello)
 	}
 
+	reason := "auth-failed"
 	token, err := jwt.ParseWithClaims(hello.Token, &signaling.TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		// Don't forget to validate the alg is what you expect:
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			log.Printf("Unexpected signing method: %v", token.Header["alg"])
+			reason = "unsupported-signing-method"
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 		}
 
 		claims, ok := token.Claims.(*signaling.TokenClaims)
 		if !ok {
 			log.Printf("Unsupported claims type: %+v", token.Claims)
+			reason = "unsupported-claims"
 			return nil, fmt.Errorf("Unsupported claims type")
 		}
 
 		tokenKey, err := s.tokens.Get(claims.Issuer)
 		if err != nil {
 			log.Printf("Could not get token for %s: %s", claims.Issuer, err)
+			reason = "missing-issuer"
 			return nil, err
 		}
 
 		if tokenKey == nil || tokenKey.key == nil {
 			log.Printf("Issuer %s is not supported", claims.Issuer)
+			reason = "unsupported-issuer"
 			return nil, fmt.Errorf("No key found for issuer")
 		}
 		return tokenKey.key, nil
 	})
 	if err != nil {
+		statsTokenErrorsTotal.WithLabelValues(reason).Inc()
 		return nil, TokenAuthFailed
 	}
 
 	claims, ok := token.Claims.(*signaling.TokenClaims)
 	if !ok || !token.Valid {
+		statsTokenErrorsTotal.WithLabelValues("auth-failed").Inc()
 		return nil, TokenAuthFailed
 	}
 
 	minIssuedAt := time.Now().Add(-maxTokenAge)
 	if issuedAt := time.Unix(claims.IssuedAt, 0); issuedAt.Before(minIssuedAt) {
+		statsTokenErrorsTotal.WithLabelValues("expired").Inc()
 		return nil, TokenExpired
 	}
 
@@ -866,6 +893,8 @@ func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*Pro
 	log.Printf("Created session %s for %+v", encoded, claims)
 	session := NewProxySession(s, sid, encoded)
 	s.StoreSession(sid, session)
+	statsSessionsCurrent.Inc()
+	statsSessionsTotal.Inc()
 	return session, nil
 }
 
@@ -904,6 +933,7 @@ func (s *ProxyServer) DeleteSession(id uint64) {
 
 func (s *ProxyServer) deleteSessionLocked(id uint64) {
 	delete(s.sessions, id)
+	statsSessionsCurrent.Dec()
 }
 
 func (s *ProxyServer) StoreClient(id string, client signaling.McuClient) {
@@ -913,9 +943,13 @@ func (s *ProxyServer) StoreClient(id string, client signaling.McuClient) {
 	s.clientIds[client.Id()] = id
 }
 
-func (s *ProxyServer) DeleteClient(id string, client signaling.McuClient) {
+func (s *ProxyServer) DeleteClient(id string, client signaling.McuClient) bool {
 	s.clientsLock.Lock()
 	defer s.clientsLock.Unlock()
+	if _, found := s.clients[id]; !found {
+		return false
+	}
+
 	delete(s.clients, id)
 	delete(s.clientIds, client.Id())
 
@@ -924,6 +958,7 @@ func (s *ProxyServer) DeleteClient(id string, client signaling.McuClient) {
 			s.shutdownChannel <- true
 		}()
 	}
+	return true
 }
 
 func (s *ProxyServer) GetClientCount() int64 {
@@ -983,4 +1018,9 @@ func (s *ProxyServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	w.Write(statsData) // nolint
+}
+
+func (s *ProxyServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	// Expose prometheus metrics at "/metrics".
+	promhttp.Handler().ServeHTTP(w, r)
 }

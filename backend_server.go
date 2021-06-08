@@ -41,6 +41,7 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -152,6 +153,9 @@ func (b *BackendServer) Start(r *mux.Router) error {
 	s.HandleFunc("/welcome", b.setComonHeaders(b.welcomeFunc)).Methods("GET")
 	s.HandleFunc("/room/{roomid}", b.setComonHeaders(b.parseRequestBody(b.roomHandler))).Methods("POST")
 	s.HandleFunc("/stats", b.setComonHeaders(b.validateStatsRequest(b.statsHandler))).Methods("GET")
+
+	// Expose prometheus metrics at "/metrics".
+	r.HandleFunc("/metrics", b.setComonHeaders(b.validateStatsRequest(b.metricsHandler))).Methods("GET")
 
 	// Provide a REST service to get TURN credentials.
 	// See https://tools.ietf.org/html/draft-uberti-behave-turn-rest-00
@@ -631,4 +635,8 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	w.Write(statsData) // nolint
+}
+
+func (b *BackendServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	promhttp.Handler().ServeHTTP(w, r)
 }

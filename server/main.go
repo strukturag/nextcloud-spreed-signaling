@@ -141,6 +141,8 @@ func main() {
 	runtime.GOMAXPROCS(cpus)
 	log.Printf("Using a maximum of %d CPUs", cpus)
 
+	signaling.RegisterStats()
+
 	natsUrl, _ := config.GetString("nats", "url")
 	if natsUrl == "" {
 		natsUrl = nats.DefaultURL
@@ -176,8 +178,12 @@ func main() {
 			switch mcuType {
 			case signaling.McuTypeJanus:
 				mcu, err = signaling.NewMcuJanus(mcuUrl, config)
+				signaling.UnregisterProxyMcuStats()
+				signaling.RegisterJanusMcuStats()
 			case signaling.McuTypeProxy:
 				mcu, err = signaling.NewMcuProxy(config)
+				signaling.UnregisterJanusMcuStats()
+				signaling.RegisterProxyMcuStats()
 			default:
 				log.Fatal("Unsupported MCU type: ", mcuType)
 			}

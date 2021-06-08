@@ -25,6 +25,10 @@ import (
 	"testing"
 )
 
+func TestMcuProxyStats(t *testing.T) {
+	collectAndLint(t, proxyMcuStats...)
+}
+
 func newProxyConnectionWithCountry(country string) *mcuProxyConnection {
 	conn := &mcuProxyConnection{}
 	conn.country.Store(country)

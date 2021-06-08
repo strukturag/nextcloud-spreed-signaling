@@ -278,6 +278,7 @@ type mcuProxyConnection struct {
 	reconnectTimer    *time.Timer
 	shutdownScheduled uint32
 	closeScheduled    uint32
+	trackClose        uint32
 
 	helloMsgId string
 	sessionId  string
@@ -500,6 +501,9 @@ func (c *mcuProxyConnection) close() {
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
+		if atomic.CompareAndSwapUint32(&c.trackClose, 1, 0) {
+			statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Dec()
+		}
 	}
 }
 
@@ -538,8 +542,8 @@ func (c *mcuProxyConnection) closeIfEmpty() bool {
 func (c *mcuProxyConnection) scheduleReconnect() {
 	if err := c.sendClose(); err != nil && err != ErrNotConnected {
 		log.Printf("Could not send close message to %s: %s", c.url, err)
-		c.close()
 	}
+	c.close()
 
 	interval := atomic.LoadInt64(&c.reconnectInterval)
 	c.reconnectTimer.Reset(time.Duration(interval))
@@ -600,7 +604,10 @@ func (c *mcuProxyConnection) removePublisher(publisher *mcuProxyPublisher) {
 	c.publishersLock.Lock()
 	defer c.publishersLock.Unlock()
 
-	delete(c.publishers, publisher.proxyId)
+	if _, found := c.publishers[publisher.proxyId]; found {
+		delete(c.publishers, publisher.proxyId)
+		statsPublishersCurrent.WithLabelValues(publisher.StreamType()).Dec()
+	}
 	delete(c.publisherIds, publisher.id+"|"+publisher.StreamType())
 
 	if len(c.publishers) == 0 && atomic.LoadUint32(&c.closeScheduled) != 0 {
@@ -629,7 +636,10 @@ func (c *mcuProxyConnection) removeSubscriber(subscriber *mcuProxySubscriber) {
 	c.subscribersLock.Lock()
 	defer c.subscribersLock.Unlock()
 
-	delete(c.subscribers, subscriber.proxyId)
+	if _, found := c.subscribers[subscriber.proxyId]; found {
+		delete(c.subscribers, subscriber.proxyId)
+		statsSubscribersCurrent.WithLabelValues(subscriber.StreamType()).Dec()
+	}
 
 	if len(c.subscribers) == 0 && atomic.LoadUint32(&c.closeScheduled) != 0 {
 		go c.closeIfEmpty()
@@ -708,6 +718,9 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			} else {
 				log.Printf("Received session %s from %s", c.sessionId, c.url)
 			}
+			if atomic.CompareAndSwapUint32(&c.trackClose, 0, 1) {
+				statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Inc()
+			}
 		default:
 			log.Printf("Received unsupported hello response %+v from %s, reconnecting", msg, c.url)
 			c.scheduleReconnect()
@@ -775,6 +788,7 @@ func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 			log.Printf("Load of %s now at %d", c.url, event.Load)
 		}
 		atomic.StoreInt64(&c.load, event.Load)
+		statsProxyBackendLoadCurrent.WithLabelValues(c.url.String()).Set(float64(event.Load))
 		return
 	case "shutdown-scheduled":
 		log.Printf("Proxy %s is scheduled to shutdown", c.url)
@@ -926,6 +940,8 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 	c.publishers[proxyId] = publisher
 	c.publisherIds[id+"|"+streamType] = proxyId
 	c.publishersLock.Unlock()
+	statsPublishersCurrent.WithLabelValues(streamType).Inc()
+	statsPublishersTotal.WithLabelValues(streamType).Inc()
 	return publisher, nil
 }
 
@@ -958,6 +974,8 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 	c.subscribersLock.Lock()
 	c.subscribers[proxyId] = subscriber
 	c.subscribersLock.Unlock()
+	statsSubscribersCurrent.WithLabelValues(streamType).Inc()
+	statsSubscribersTotal.WithLabelValues(streamType).Inc()
 	return subscriber, nil
 }
 
@@ -1622,6 +1640,7 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 		return publisher, nil
 	}
 
+	statsProxyNobackendAvailableTotal.WithLabelValues(streamType).Inc()
 	return nil, fmt.Errorf("No MCU connection available")
 }
 
@@ -1639,6 +1658,7 @@ func (m *mcuProxy) getPublisherConnection(ctx context.Context, publisher string,
 
 	conn = m.publishers[publisher+"|"+streamType]
 	if conn != nil {
+		// Publisher was created while waiting for lock.
 		return conn
 	}
 
@@ -1646,6 +1666,7 @@ func (m *mcuProxy) getPublisherConnection(ctx context.Context, publisher string,
 	id := m.addWaiter(ch)
 	defer m.removeWaiter(id)
 
+	statsWaitingForPublisherTotal.WithLabelValues(streamType).Inc()
 	for {
 		m.mu.Unlock()
 		select {
