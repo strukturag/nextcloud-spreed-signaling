@@ -181,11 +181,11 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 		rnd := r.Header.Get(HeaderBackendSignalingRandom)
 		checksum := r.Header.Get(HeaderBackendSignalingChecksum)
 		if rnd == "" || checksum == "" {
-			t.Fatal("No checksum headers found")
+			t.Fatalf("No checksum headers found in request to %s", r.URL)
 		}
 
 		if verify := CalculateBackendChecksum(rnd, body, testBackendSecret); verify != checksum {
-			t.Fatal("Backend checksum verification failed")
+			t.Fatalf("Backend checksum verification failed for request to %s", r.URL)
 		}
 
 		var request BackendClientRequest
@@ -355,7 +355,54 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 	if !strings.HasSuffix(url, "/") {
 		url += "/"
 	}
-	router.HandleFunc(url+"ocs/v2.php/apps/spreed/api/v1/signaling/backend", handleFunc)
+
+	handleCapabilitiesFunc := func(w http.ResponseWriter, r *http.Request) {
+		features := []string{
+			"foo",
+			"bar",
+		}
+		if strings.Contains(t.Name(), "V3Api") {
+			features = append(features, "signaling-v3")
+		}
+		response := &CapabilitiesResponse{
+			Version: CapabilitiesVersion{
+				Major: 20,
+			},
+			Capabilities: map[string]map[string]interface{}{
+				"spreed": {
+					"features": features,
+				},
+			},
+		}
+
+		data, err := json.Marshal(response)
+		if err != nil {
+			t.Errorf("Could not marshal %+v: %s", response, err)
+		}
+
+		var ocs OcsResponse
+		ocs.Ocs = &OcsBody{
+			Meta: OcsMeta{
+				Status:     "ok",
+				StatusCode: http.StatusOK,
+				Message:    http.StatusText(http.StatusOK),
+			},
+			Data: (*json.RawMessage)(&data),
+		}
+		if data, err = json.Marshal(ocs); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(data) // nolint
+	}
+	router.HandleFunc(url+"ocs/v2.php/cloud/capabilities", handleCapabilitiesFunc)
+
+	if strings.Contains(t.Name(), "V3Api") {
+		router.HandleFunc(url+"ocs/v2.php/apps/spreed/api/v3/signaling/backend", handleFunc)
+	} else {
+		router.HandleFunc(url+"ocs/v2.php/apps/spreed/api/v1/signaling/backend", handleFunc)
+	}
 }
 
 func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {
@@ -1168,6 +1215,40 @@ func TestClientHelloClient(t *testing.T) {
 	defer client.CloseWithBye()
 
 	if err := client.SendHelloClient(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	if hello, err := client.RunUntilHello(ctx); err != nil {
+		t.Error(err)
+	} else {
+		if hello.Hello.UserId != testDefaultUserId {
+			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
+		}
+		if hello.Hello.SessionId == "" {
+			t.Errorf("Expected session id, got %+v", hello.Hello)
+		}
+		if hello.Hello.ResumeId == "" {
+			t.Errorf("Expected resume id, got %+v", hello.Hello)
+		}
+	}
+}
+
+func TestClientHelloClient_V3Api(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubForTest(t)
+	defer shutdown()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	params := TestBackendClientAuthParams{
+		UserId: testDefaultUserId,
+	}
+	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
+	// feature is returned by the capabilities endpoint.
+	if err := client.SendHelloParams(server.URL+"/ocs/v2.php/apps/spreed/api/v1/signaling/backend", "client", params); err != nil {
 		t.Fatal(err)
 	}
 
