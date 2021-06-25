@@ -145,6 +145,9 @@ type mcuJanus struct {
 	session *JanusSession
 	handle  *JanusHandle
 
+	loopsLock  sync.Mutex
+	eventloops EventLoops
+
 	closeChan chan bool
 
 	muClients sync.Mutex
@@ -324,6 +327,16 @@ func (m *mcuJanus) Start() error {
 	}
 	log.Println("Created Janus handle", m.handle.Id)
 
+	m.loopsLock.Lock()
+	if info.StaticEventLoops > 0 && info.LoopIndication {
+		log.Printf("Found %d static event loops and loop indication is allowed, streams will be pinned", info.StaticEventLoops)
+		m.eventloops = NewEventLoops(info.StaticEventLoops)
+	} else {
+		log.Println("No static event loops and/or loop indication is setup, streams will not be pinned")
+		m.eventloops = nil
+	}
+	m.loopsLock.Unlock()
+
 	go m.run()
 
 	m.notifyOnConnected()
@@ -340,6 +353,41 @@ func (m *mcuJanus) unregisterClient(client clientInterface) {
 	m.muClients.Lock()
 	delete(m.clients, client)
 	m.muClients.Unlock()
+}
+
+func (m *mcuJanus) getEventLoop() *EventLoop {
+	m.loopsLock.Lock()
+	defer m.loopsLock.Unlock()
+	if len(m.eventloops) == 0 {
+		return nil
+	}
+
+	loop := m.eventloops.GetLowest()
+	return loop
+}
+
+func (m *mcuJanus) acquireEventLoop(loop *EventLoop) {
+	if loop == nil {
+		return
+	}
+
+	m.loopsLock.Lock()
+	defer m.loopsLock.Unlock()
+	if len(m.eventloops) != 0 {
+		m.eventloops.Update(loop, 1)
+	}
+}
+
+func (m *mcuJanus) releaseEventLoop(loop *EventLoop) {
+	if loop == nil {
+		return
+	}
+
+	m.loopsLock.Lock()
+	defer m.loopsLock.Unlock()
+	if len(m.eventloops) != 0 {
+		m.eventloops.Update(loop, -1)
+	}
 }
 
 func (m *mcuJanus) run() {
@@ -441,6 +489,7 @@ type mcuJanusClient struct {
 
 	handle    *JanusHandle
 	handleId  uint64
+	eventLoop *EventLoop
 	closeChan chan bool
 	deferred  chan func()
 
@@ -474,6 +523,10 @@ func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
 			if e, ok := err.(*janus.ErrorMsg); !ok || e.Err.Code != JANUS_ERROR_HANDLE_NOT_FOUND {
 				log.Println("Could not detach client", handle.Id, err)
 			}
+		}
+		if c.eventLoop != nil {
+			c.mcu.releaseEventLoop(c.eventLoop)
+			c.eventLoop = nil
 		}
 		return true
 	}
@@ -713,14 +766,22 @@ func min(a, b int) int {
 	}
 }
 
-func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType string, bitrate int) (*JanusHandle, uint64, uint64, error) {
+func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType string, bitrate int) (*JanusHandle, uint64, *EventLoop, uint64, error) {
 	session := m.session
 	if session == nil {
-		return nil, 0, 0, ErrNotConnected
+		return nil, 0, nil, 0, ErrNotConnected
 	}
-	handle, err := session.Attach(ctx, pluginVideoRoom)
+	loop := m.getEventLoop()
+	var handle *JanusHandle
+	var err error
+	if loop != nil {
+		handle, err = session.AttachLoop(ctx, pluginVideoRoom, loop.loop)
+	} else {
+		handle, err = session.AttachLoop(ctx, pluginVideoRoom, -1)
+	}
 	if err != nil {
-		return nil, 0, 0, err
+		m.releaseEventLoop(loop)
+		return nil, 0, nil, 0, err
 	}
 
 	log.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
@@ -750,7 +811,8 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err2 := handle.Detach(ctx); err2 != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
-		return nil, 0, 0, err
+		m.releaseEventLoop(loop)
+		return nil, 0, nil, 0, err
 	}
 
 	roomId := getPluginIntValue(create_response.PluginData, pluginVideoRoom, "room")
@@ -758,7 +820,8 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err := handle.Detach(ctx); err != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err)
 		}
-		return nil, 0, 0, fmt.Errorf("No room id received: %+v", create_response)
+		m.releaseEventLoop(loop)
+		return nil, 0, nil, 0, fmt.Errorf("No room id received: %+v", create_response)
 	}
 
 	log.Println("Created room", roomId, create_response.PluginData)
@@ -775,10 +838,11 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err2 := handle.Detach(ctx); err2 != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
-		return nil, 0, 0, err
+		m.releaseEventLoop(loop)
+		return nil, 0, nil, 0, err
 	}
 
-	return handle, response.Session, roomId, nil
+	return handle, response.Session, loop, roomId, nil
 }
 
 func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, initiator McuInitiator) (McuPublisher, error) {
@@ -786,7 +850,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
 	}
 
-	handle, session, roomId, err := m.getOrCreatePublisherHandle(ctx, id, streamType, bitrate)
+	handle, session, loop, roomId, err := m.getOrCreatePublisherHandle(ctx, id, streamType, bitrate)
 	if err != nil {
 		return nil, err
 	}
@@ -803,6 +867,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 
 			handle:    handle,
 			handleId:  handle.Id,
+			eventLoop: loop,
 			closeChan: make(chan bool, 1),
 			deferred:  make(chan func(), 64),
 		},
@@ -880,7 +945,7 @@ func (p *mcuJanusPublisher) handleMedia(event *janus.MediaMsg) {
 
 func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
-	handle, session, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
+	handle, session, loop, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
 	if err != nil {
 		log.Printf("Could not reconnect publisher %s: %s", p.id, err)
 		// TODO(jojo): Retry
@@ -891,6 +956,8 @@ func (p *mcuJanusPublisher) NotifyReconnected() {
 	p.handleId = handle.Id
 	p.session = session
 	p.roomId = roomId
+	p.eventLoop = loop
+	p.mcu.acquireEventLoop(loop)
 
 	log.Printf("Publisher %s reconnected on handle %d", p.id, p.handleId)
 }
@@ -997,7 +1064,12 @@ func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher st
 		return nil, nil, ErrNotConnected
 	}
 
-	handle, err := session.Attach(ctx, pluginVideoRoom)
+	var handle *JanusHandle
+	if pub.eventLoop != nil {
+		handle, err = session.AttachLoop(ctx, pluginVideoRoom, pub.eventLoop.loop)
+	} else {
+		handle, err = session.AttachLoop(ctx, pluginVideoRoom, -1)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1027,6 +1099,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 
 			handle:    handle,
 			handleId:  handle.Id,
+			eventLoop: pub.eventLoop,
 			closeChan: make(chan bool, 1),
 			deferred:  make(chan func(), 64),
 		},
@@ -1039,6 +1112,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 	client.mcuJanusClient.handleSlowLink = client.handleSlowLink
 	client.mcuJanusClient.handleMedia = client.handleMedia
 	m.registerClient(client)
+	m.acquireEventLoop(client.eventLoop)
 	go client.run(handle, client.closeChan)
 	statsSubscribersCurrent.WithLabelValues(streamType).Inc()
 	statsSubscribersTotal.WithLabelValues(streamType).Inc()
@@ -1109,6 +1183,8 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 	p.handle = handle
 	p.handleId = handle.Id
 	p.roomId = pub.roomId
+	p.eventLoop = pub.eventLoop
+	p.mcu.acquireEventLoop(pub.eventLoop)
 	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId)
 }
 

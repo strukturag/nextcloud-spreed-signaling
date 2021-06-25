@@ -140,17 +140,19 @@ var msgtypes = map[string]func() interface{}{
 }
 
 type InfoMsg struct {
-	Name          string
-	Version       int
-	VersionString string `json:"version_string"`
-	Author        string
-	DataChannels  bool   `json:"data_channels"`
-	IPv6          bool   `json:"ipv6"`
-	LocalIP       string `json:"local-ip"`
-	ICE_TCP       bool   `json:"ice-tcp"`
-	FullTrickle   bool   `json:"full-trickle"`
-	Transports    map[string]janus.PluginInfo
-	Plugins       map[string]janus.PluginInfo
+	Name             string
+	Version          int
+	VersionString    string `json:"version_string"`
+	Author           string
+	DataChannels     bool   `json:"data_channels"`
+	IPv6             bool   `json:"ipv6"`
+	LocalIP          string `json:"local-ip"`
+	ICE_TCP          bool   `json:"ice-tcp"`
+	FullTrickle      bool   `json:"full-trickle"`
+	StaticEventLoops int    `json:"static-event-loops"`
+	LoopIndication   bool   `json:"loop-indication"`
+	Transports       map[string]janus.PluginInfo
+	Plugins          map[string]janus.PluginInfo
 }
 
 type TrickleMsg struct {
@@ -592,8 +594,15 @@ func (session *JanusSession) send(msg map[string]interface{}, t *transaction) (u
 // plugin should be the unique string of the plugin to attach to.
 // On success, a new Handle will be returned and error will be nil.
 func (session *JanusSession) Attach(ctx context.Context, plugin string) (*JanusHandle, error) {
+	return session.AttachLoop(ctx, plugin, -1)
+}
+
+func (session *JanusSession) AttachLoop(ctx context.Context, plugin string, loop int) (*JanusHandle, error) {
 	req, ch := newRequest("attach")
 	req["plugin"] = plugin
+	if loop >= 0 {
+		req["loop_index"] = loop
+	}
 	id, err := session.send(req, ch)
 	if err != nil {
 		return nil, err
