@@ -130,6 +130,13 @@ connectionsperhost = 8
 # proxy server that is used.
 #maxscreenbitrate = 2097152
 
+# For type "mcu": explicitly assign streams to a static event loop in Janus
+# (if enabled there). Disabled by default.
+#
+# Must be enabed by setting "event_loops" and also "allow_loop_indication"
+# in "janus.jcfg"
+#pinstreams = true
+
 # For type "proxy": timeout in seconds for requests to the proxy server.
 #proxytimeout = 2
 
