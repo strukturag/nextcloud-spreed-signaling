@@ -150,6 +150,7 @@ type InfoMsg struct {
 	ICE_TCP          bool   `json:"ice-tcp"`
 	FullTrickle      bool   `json:"full-trickle"`
 	StaticEventLoops int    `json:"static-event-loops"`
+	LoopIndication   bool   `json:"loop-indication"`
 	Transports       map[string]janus.PluginInfo
 	Plugins          map[string]janus.PluginInfo
 }

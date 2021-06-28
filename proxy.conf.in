@@ -61,13 +61,6 @@ url = ws://localhost:8188/
 # Default is 2 mbit/sec.
 #maxscreenbitrate = 2097152
 
-# For type "mcu": explicitly assign streams to a static event loop in Janus
-# (if enabled there). Disabled by default.
-#
-# Must be enabed by setting "event_loops" and also "allow_loop_indication"
-# in "janus.jcfg"
-#pinstreams = true
-
 [stats]
 # Comma-separated list of IP addresses that are allowed to access the stats
 # endpoint. Leave empty (or commented) to only allow access from "127.0.0.1".

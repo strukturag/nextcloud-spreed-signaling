@@ -145,7 +145,6 @@ type mcuJanus struct {
 	session *JanusSession
 	handle  *JanusHandle
 
-	pinStreams bool
 	loopsLock  sync.Mutex
 	eventloops EventLoops
 
@@ -183,14 +182,12 @@ func NewMcuJanus(url string, config *goconf.ConfigFile) (Mcu, error) {
 		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
 	}
 	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
-	pinStreams, _ := config.GetBool("mcu", "pinstreams")
 
 	mcu := &mcuJanus{
 		url:              url,
 		maxStreamBitrate: maxStreamBitrate,
 		maxScreenBitrate: maxScreenBitrate,
 		mcuTimeout:       mcuTimeout,
-		pinStreams:       pinStreams,
 		closeChan:        make(chan bool, 1),
 		clients:          make(map[clientInterface]bool),
 
@@ -330,16 +327,15 @@ func (m *mcuJanus) Start() error {
 	}
 	log.Println("Created Janus handle", m.handle.Id)
 
-	if m.pinStreams {
-		m.loopsLock.Lock()
-		if info.StaticEventLoops > 0 {
-			log.Printf("Found %d static event loops, streams will be pinned", info.StaticEventLoops)
-			m.eventloops = NewEventLoops(info.StaticEventLoops)
-		} else {
-			m.eventloops = nil
-		}
-		m.loopsLock.Unlock()
+	m.loopsLock.Lock()
+	if info.StaticEventLoops > 0 && info.LoopIndication {
+		log.Printf("Found %d static event loops and loop indication is allowed, streams will be pinned", info.StaticEventLoops)
+		m.eventloops = NewEventLoops(info.StaticEventLoops)
+	} else {
+		log.Println("No static event loops and/or loop indication is setup, streams will not be pinned")
+		m.eventloops = nil
 	}
+	m.loopsLock.Unlock()
 
 	go m.run()
 
