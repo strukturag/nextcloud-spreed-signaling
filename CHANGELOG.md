@@ -2,6 +2,103 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.0 - 2021-07-01
+
+### Added
+- Certificate validation can be disabled for proxy connections
+- Number of sessions per backend can be limited
+  [#67](https://github.com/strukturag/nextcloud-spreed-signaling/pull/67)
+- Use Go modules for dependency tracking, drop support for Golang < 1.13
+  [#88](https://github.com/strukturag/nextcloud-spreed-signaling/pull/88)
+- Support defining maximum bandwidths at diferent levels
+  [#76](https://github.com/strukturag/nextcloud-spreed-signaling/pull/76)
+- Show coverage report in PRs
+  [#34](https://github.com/strukturag/nextcloud-spreed-signaling/pull/34)
+- CI: Also test with Golang 1.16
+- CI: Run golint
+  [#32](https://github.com/strukturag/nextcloud-spreed-signaling/pull/32)
+- CI: Add CodeQL analysis
+  [#112](https://github.com/strukturag/nextcloud-spreed-signaling/pull/112)
+- Add tests for regular NATS client
+  [#105](https://github.com/strukturag/nextcloud-spreed-signaling/pull/105)
+- Fetch capabilities to check if "v3" signaling API of Talk should be used.
+  [#119](https://github.com/strukturag/nextcloud-spreed-signaling/pull/119)
+- Add API to select a simulcast substream / temporal layer
+  [#104](https://github.com/strukturag/nextcloud-spreed-signaling/pull/104)
+
+### Changed
+- Improved detection of broken connections between server and proxy
+  [#65](https://github.com/strukturag/nextcloud-spreed-signaling/pull/65)
+- Stop using legacy ptype `listener`
+  [#83](https://github.com/strukturag/nextcloud-spreed-signaling/pull/83)
+- Update gorilla/mux to 1.8.0
+  [#89](https://github.com/strukturag/nextcloud-spreed-signaling/pull/89)
+- Remove unnecessary dependency golang.org/x/net
+  [#90](https://github.com/strukturag/nextcloud-spreed-signaling/pull/90)
+- Update nats.go to 1.10.0
+  [#92](https://github.com/strukturag/nextcloud-spreed-signaling/pull/92)
+- Update maxminddb-golang to 1.8.0
+  [#91](https://github.com/strukturag/nextcloud-spreed-signaling/pull/91)
+- Add dependabot integration
+  [#93](https://github.com/strukturag/nextcloud-spreed-signaling/pull/93)
+- Bump github.com/google/uuid from 1.1.2 to 1.2.0
+  [#94](https://github.com/strukturag/nextcloud-spreed-signaling/pull/94)
+- Bump github.com/gorilla/websocket from 1.2.0 to 1.4.2
+  [#95](https://github.com/strukturag/nextcloud-spreed-signaling/pull/95)
+- Remove deprecated github.com/gorilla/context
+- Update to go.etcd.io/etcd 3.4.15
+- make: Cache easyjson results.
+  [#96](https://github.com/strukturag/nextcloud-spreed-signaling/pull/96)
+- Various updates to Docker components
+  [#78](https://github.com/strukturag/nextcloud-spreed-signaling/pull/78)
+- Bump coverallsapp/github-action from v1.1.1 to v1.1.2
+  [#102](https://github.com/strukturag/nextcloud-spreed-signaling/pull/102)
+- Bump jandelgado/gcov2lcov-action from v1.0.2 to v1.0.8
+  [#103](https://github.com/strukturag/nextcloud-spreed-signaling/pull/103)
+- Bump actions/cache from 2 to 2.1.5
+  [#106](https://github.com/strukturag/nextcloud-spreed-signaling/pull/106)
+- Bump golangci/golangci-lint-action from 2 to 2.5.2
+  [#107](https://github.com/strukturag/nextcloud-spreed-signaling/pull/107)
+- Bump actions/checkout from 2 to 2.3.4
+  [#108](https://github.com/strukturag/nextcloud-spreed-signaling/pull/108)
+- Bump actions/cache from 2.1.5 to 2.1.6
+  [#110](https://github.com/strukturag/nextcloud-spreed-signaling/pull/110)
+- Don't log TURN credentials
+  [#113](https://github.com/strukturag/nextcloud-spreed-signaling/pull/113)
+- Remove NATS notifications for Janus publishers
+  [#114](https://github.com/strukturag/nextcloud-spreed-signaling/pull/114)
+- Make client processing asynchronous
+  [#111](https://github.com/strukturag/nextcloud-spreed-signaling/pull/111)
+- Bump github.com/nats-io/nats-server/v2 from 2.2.1 to 2.2.6
+  [#116](https://github.com/strukturag/nextcloud-spreed-signaling/pull/116)
+- Notify new clients about flags of virtual sessions
+  [#121](https://github.com/strukturag/nextcloud-spreed-signaling/pull/121)
+
+### Fixed
+- Adjusted godeps for multiarch builds
+  [#69](https://github.com/strukturag/nextcloud-spreed-signaling/pull/69)
+- Add missing lock when accessing internal sessions map
+- Fixed parallel building
+  [#73](https://github.com/strukturag/nextcloud-spreed-signaling/pull/73)
+- Make the response from the client auth backend OCS compliant
+  [#74](https://github.com/strukturag/nextcloud-spreed-signaling/pull/74)
+- Fixed alignment of 64bit members that are accessed atomically
+  [#72](https://github.com/strukturag/nextcloud-spreed-signaling/pull/72)
+- Only build "godep" binary once
+  [#75](https://github.com/strukturag/nextcloud-spreed-signaling/pull/75)
+- Update config example for Apache proxy config
+  [#82](https://github.com/strukturag/nextcloud-spreed-signaling/pull/82)
+- Remove remaining virtual sessions if client session is closed
+- Fix Caddy v2 example config
+  [#97](https://github.com/strukturag/nextcloud-spreed-signaling/pull/97)
+- Fix various issues found by golangci-lint
+  [#100](https://github.com/strukturag/nextcloud-spreed-signaling/pull/100)
+- Support multiple waiters for the same key
+  [#120](https://github.com/strukturag/nextcloud-spreed-signaling/pull/120)
+- Various test improvements / fixes
+  [#115](https://github.com/strukturag/nextcloud-spreed-signaling/pull/115)
+
+
 ## 0.2.0 - 2020-12-08
 
 ### Added
