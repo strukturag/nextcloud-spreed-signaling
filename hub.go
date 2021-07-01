@@ -356,11 +356,15 @@ func (h *Hub) SetMcu(mcu Mcu) {
 	h.mcu = mcu
 	if mcu == nil {
 		removeFeature(h.info, ServerFeatureMcu)
+		removeFeature(h.info, ServerFeatureSimulcast)
 		removeFeature(h.infoInternal, ServerFeatureMcu)
+		removeFeature(h.infoInternal, ServerFeatureSimulcast)
 	} else {
 		log.Printf("Using a timeout of %s for MCU requests", h.mcuTimeout)
 		addFeature(h.info, ServerFeatureMcu)
+		addFeature(h.info, ServerFeatureSimulcast)
 		addFeature(h.infoInternal, ServerFeatureMcu)
+		addFeature(h.infoInternal, ServerFeatureSimulcast)
 	}
 }
 
@@ -1240,6 +1244,8 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 						fallthrough
 					case "endOfCandidates":
 						fallthrough
+					case "selectStream":
+						fallthrough
 					case "candidate":
 						h.processMcuMessage(session, session, message, msg, &data)
 						return
@@ -1669,6 +1675,14 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 
 		clientType = "publisher"
 		mc, err = session.GetOrCreatePublisher(ctx, h.mcu, data.RoomType)
+	case "selectStream":
+		if session.PublicId() == message.Recipient.SessionId {
+			log.Printf("Not selecting substream for own %s stream in session %s", data.RoomType, session.PublicId())
+			return
+		}
+
+		clientType = "subscriber"
+		mc = session.GetSubscriber(message.Recipient.SessionId, data.RoomType)
 	default:
 		if session.PublicId() == message.Recipient.SessionId {
 			if !isAllowedToSend(session, data) {

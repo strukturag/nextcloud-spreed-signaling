@@ -323,7 +323,8 @@ func (m *HelloClientMessage) CheckValid() error {
 
 const (
 	// Features for all clients.
-	ServerFeatureMcu = "mcu"
+	ServerFeatureMcu       = "mcu"
+	ServerFeatureSimulcast = "simulcast"
 
 	// Features for internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
