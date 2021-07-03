@@ -37,6 +37,12 @@ ifneq ($(COUNT),)
 TESTARGS := $(TESTARGS) -count $(COUNT)
 endif
 
+ifeq ($(GOARCH), amd64)
+VENDORBIN := $(CURDIR)/vendor/bin
+else
+VENDORBIN := $(CURDIR)/vendor/bin/$(GOOS)_$(GOARCH)
+endif
+
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
@@ -79,7 +85,7 @@ coverhtml: vet common
 	GOPATH=$(GOPATH) $(GO) tool cover -html=cover.out -o coverage.html
 
 %_easyjson.go: %.go ./vendor/bin/easyjson
-	PATH=$(shell dirname $(GO)):$(PATH) GOPATH=$(GOPATH) ./vendor/bin/easyjson -all $*.go
+	PATH=$(shell dirname $(GO)):$(PATH) GOPATH=$(GOPATH) "$(VENDORBIN)/easyjson" -all $*.go
 
 common: \
 	api_signaling_easyjson.go \
