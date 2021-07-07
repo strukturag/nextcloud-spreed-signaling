@@ -1367,7 +1367,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 		if clientData != nil && clientData.Type == "sendoffer" {
 			if !isAllowedToSend(session, clientData) {
 				log.Printf("Session %s is not allowed to send offer for %s, ignoring", session.PublicId(), clientData.RoomType)
-				sendNotAllowed(session, message)
+				sendNotAllowed(session, message, "Not allowed to send offer")
 				return
 			}
 
@@ -1652,8 +1652,8 @@ func isAllowedToSend(session *ClientSession, data *MessageClientMessageData) boo
 	return session.HasPermission(permission)
 }
 
-func sendNotAllowed(session *ClientSession, message *ClientMessage) {
-	response := message.NewErrorServerMessage(NewError("not_allowed", "Not allowed to publish."))
+func sendNotAllowed(session *ClientSession, message *ClientMessage, reason string) {
+	response := message.NewErrorServerMessage(NewError("not_allowed", reason))
 	session.SendMessage(response)
 }
 
@@ -1665,6 +1665,28 @@ func sendMcuClientNotFound(session *ClientSession, message *ClientMessage) {
 func sendMcuProcessingFailed(session *ClientSession, message *ClientMessage) {
 	response := message.NewErrorServerMessage(NewError("processing_failed", "Processing of the message failed, please check server logs."))
 	session.SendMessage(response)
+}
+
+func (h *Hub) isInSameCall(senderSession *ClientSession, recipientSessionId string) bool {
+	senderRoom := senderSession.GetRoom()
+	if senderRoom == nil || !senderRoom.IsSessionInCall(senderSession) {
+		// Sender is not in a room or not in the call.
+		return false
+	}
+
+	recipientSession := h.GetSessionByPublicId(recipientSessionId)
+	if recipientSession == nil {
+		// Recipient session does not exist.
+		return false
+	}
+
+	recipientRoom := recipientSession.GetRoom()
+	if recipientRoom == nil || !senderRoom.IsEqual(recipientRoom) || !recipientRoom.IsSessionInCall(recipientSession) {
+		// Recipient is not in a room, a different room or not in the call.
+		return false
+	}
+
+	return true
 }
 
 func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSession, client_message *ClientMessage, message *MessageClientMessage, data *MessageClientMessageData) {
@@ -1681,6 +1703,14 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 			return
 		}
 
+		// A user is only allowed to subscribe a stream if she is in the same room
+		// as the other user and both have their "inCall" flag set.
+		if !h.isInSameCall(senderSession, message.Recipient.SessionId) {
+			log.Printf("Session %s is not in the same call as session %s, not requesting offer", session.PublicId(), message.Recipient.SessionId)
+			sendNotAllowed(senderSession, client_message, "Not allowed to request offer.")
+			return
+		}
+
 		clientType = "subscriber"
 		mc, err = session.GetOrCreateSubscriber(ctx, h.mcu, message.Recipient.SessionId, data.RoomType)
 	case "sendoffer":
@@ -1690,7 +1720,7 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 	case "offer":
 		if !isAllowedToSend(session, data) {
 			log.Printf("Session %s is not allowed to offer %s, ignoring", session.PublicId(), data.RoomType)
-			sendNotAllowed(senderSession, client_message)
+			sendNotAllowed(senderSession, client_message, "Not allowed to publish.")
 			return
 		}
 
@@ -1708,7 +1738,7 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 		if session.PublicId() == message.Recipient.SessionId {
 			if !isAllowedToSend(session, data) {
 				log.Printf("Session %s is not allowed to send candidate for %s, ignoring", session.PublicId(), data.RoomType)
-				sendNotAllowed(senderSession, client_message)
+				sendNotAllowed(senderSession, client_message, "Not allowed to send candidate.")
 				return
 			}
 
