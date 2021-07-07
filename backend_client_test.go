@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -35,10 +36,34 @@ import (
 	"github.com/gorilla/mux"
 )
 
+func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
+	response := OcsResponse{
+		Ocs: &OcsBody{
+			Meta: OcsMeta{
+				Status:     "OK",
+				StatusCode: http.StatusOK,
+				Message:    "OK",
+			},
+			Data: (*json.RawMessage)(&body),
+		},
+	}
+	data, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(data); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestPostOnRedirect(t *testing.T) {
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusFound)
+		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusTemporaryRedirect)
 	})
 	r.HandleFunc("/ocs/v2.php/two", func(w http.ResponseWriter, r *http.Request) {
 		body, err := ioutil.ReadAll(r.Body)
@@ -53,27 +78,7 @@ func TestPostOnRedirect(t *testing.T) {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		response := OcsResponse{
-			Ocs: &OcsBody{
-				Meta: OcsMeta{
-					Status:     "OK",
-					StatusCode: http.StatusOK,
-					Message:    "OK",
-				},
-				Data: (*json.RawMessage)(&body),
-			},
-		}
-		data, err := json.Marshal(response)
-		if err != nil {
-			t.Fatal(err)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write(data); err != nil {
-			t.Error(err)
-		}
+		returnOCS(t, w, body)
 	})
 
 	server := httptest.NewServer(r)
@@ -107,5 +112,97 @@ func TestPostOnRedirect(t *testing.T) {
 
 	if response == nil || !reflect.DeepEqual(request, response) {
 		t.Errorf("Expected %+v, got %+v", request, response)
+	}
+}
+
+func TestPostOnRedirectDifferentHost(t *testing.T) {
+	r := mux.NewRouter()
+	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://domain.invalid/ocs/v2.php/two", http.StatusTemporaryRedirect)
+	})
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := goconf.NewConfigFile()
+	config.AddOption("backend", "allowed", u.Host)
+	config.AddOption("backend", "secret", string(testBackendSecret))
+	if u.Scheme == "http" {
+		config.AddOption("backend", "allowhttp", "true")
+	}
+	client, err := NewBackendClient(config, 1, "0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	request := map[string]string{
+		"foo": "bar",
+	}
+	var response map[string]string
+	err = client.PerformJSONRequest(ctx, u, request, &response)
+	if err != nil {
+		// The redirect to a different host should have failed.
+		if !errors.Is(err, ErrNotRedirecting) {
+			t.Fatal(err)
+		}
+	} else {
+		t.Fatal("The redirect should have failed")
+	}
+}
+
+func TestPostOnRedirectStatusFound(t *testing.T) {
+	r := mux.NewRouter()
+	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusFound)
+	})
+	r.HandleFunc("/ocs/v2.php/two", func(w http.ResponseWriter, r *http.Request) {
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+			return
+		}
+
+		if len(body) > 0 {
+			t.Errorf("Should not have received any body, got %s", string(body))
+		}
+
+		returnOCS(t, w, []byte("{}"))
+	})
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := goconf.NewConfigFile()
+	config.AddOption("backend", "allowed", u.Host)
+	config.AddOption("backend", "secret", string(testBackendSecret))
+	if u.Scheme == "http" {
+		config.AddOption("backend", "allowhttp", "true")
+	}
+	client, err := NewBackendClient(config, 1, "0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	request := map[string]string{
+		"foo": "bar",
+	}
+	var response map[string]string
+	err = client.PerformJSONRequest(ctx, u, request, &response)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if len(response) > 0 {
+		t.Errorf("Expected empty response, got %+v", response)
 	}
 }
