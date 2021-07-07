@@ -52,7 +52,7 @@ jobs:
           outfile: cover.lcov
 
     - name: Coveralls Parallel
-      uses: coverallsapp/github-action@v1.1.2
+      uses: coverallsapp/github-action@1.1.3
       env:
         COVERALLS_FLAG_NAME: run-${{ matrix.go-version }}
       with:
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Coveralls Finished
-      uses: coverallsapp/github-action@v1.1.2
+      uses: coverallsapp/github-action@1.1.3
       with:
         github-token: ${{ secrets.github_token }}
         parallel-finished: true
