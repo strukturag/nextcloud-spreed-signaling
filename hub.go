@@ -135,6 +135,8 @@ type Hub struct {
 	mcuTimeout            time.Duration
 	internalClientsSecret []byte
 
+	allowSubscribeAnyStream bool
+
 	expiredSessions    map[Session]bool
 	expectHelloClients map[*Client]time.Time
 	anonymousClients   map[*Client]time.Time
@@ -196,6 +198,11 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
 	}
 	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
+
+	allowSubscribeAnyStream, _ := config.GetBool("app", "allowsubscribeany")
+	if allowSubscribeAnyStream {
+		log.Printf("WARNING: Allow subscribing any streams, this is insecure and should only be enabled for testing")
+	}
 
 	decodeCaches := make([]*LruCache, 0, numDecodeCaches)
 	for i := 0; i < numDecodeCaches; i++ {
@@ -312,6 +319,8 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 
 		mcuTimeout:            mcuTimeout,
 		internalClientsSecret: []byte(internalClientsSecret),
+
+		allowSubscribeAnyStream: allowSubscribeAnyStream,
 
 		expiredSessions:    make(map[Session]bool),
 		anonymousClients:   make(map[*Client]time.Time),
@@ -1705,7 +1714,7 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 
 		// A user is only allowed to subscribe a stream if she is in the same room
 		// as the other user and both have their "inCall" flag set.
-		if !h.isInSameCall(senderSession, message.Recipient.SessionId) {
+		if !h.allowSubscribeAnyStream && !h.isInSameCall(senderSession, message.Recipient.SessionId) {
 			log.Printf("Session %s is not in the same call as session %s, not requesting offer", session.PublicId(), message.Recipient.SessionId)
 			sendNotAllowed(senderSession, client_message, "Not allowed to request offer.")
 			return
