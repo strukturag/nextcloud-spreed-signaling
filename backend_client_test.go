@@ -87,6 +87,9 @@ func TestPostOnRedirect(t *testing.T) {
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", u.Host)
 	config.AddOption("backend", "secret", string(testBackendSecret))
+	if u.Scheme == "http" {
+		config.AddOption("backend", "allowhttp", "true")
+	}
 	client, err := NewBackendClient(config, 1, "0.0")
 	if err != nil {
 		t.Fatal(err)
