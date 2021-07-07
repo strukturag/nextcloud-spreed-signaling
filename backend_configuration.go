@@ -41,6 +41,8 @@ type Backend struct {
 	secret []byte
 	compat bool
 
+	allowHttp bool
+
 	maxStreamBitrate int
 	maxScreenBitrate int
 
@@ -59,6 +61,17 @@ func (b *Backend) Secret() []byte {
 
 func (b *Backend) IsCompat() bool {
 	return b.compat
+}
+
+func (b *Backend) IsUrlAllowed(u *url.URL) bool {
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		return b.allowHttp
+	default:
+		return false
+	}
 }
 
 func (b *Backend) AddSession(session Session) error {
@@ -102,6 +115,7 @@ type BackendConfiguration struct {
 
 func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, error) {
 	allowAll, _ := config.GetBool("backend", "allowall")
+	allowHttp, _ := config.GetBool("backend", "allowhttp")
 	commonSecret, _ := config.GetString("backend", "secret")
 	sessionLimit, err := config.GetInt("backend", "sessionlimit")
 	if err != nil || sessionLimit < 0 {
@@ -115,6 +129,8 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 			id:     "compat",
 			secret: []byte(commonSecret),
 			compat: true,
+
+			allowHttp: allowHttp,
 
 			sessionLimit: uint64(sessionLimit),
 		}
@@ -149,6 +165,8 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 				id:     "compat",
 				secret: []byte(commonSecret),
 				compat: true,
+
+				allowHttp: allowHttp,
 
 				sessionLimit: uint64(sessionLimit),
 			}
@@ -286,6 +304,8 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 			url:    u,
 			secret: []byte(secret),
 
+			allowHttp: parsed.Scheme == "http",
+
 			maxStreamBitrate: maxStreamBitrate,
 			maxScreenBitrate: maxScreenBitrate,
 
@@ -341,6 +361,10 @@ func (b *BackendConfiguration) GetBackend(u *url.URL) *Backend {
 		s += "/"
 	}
 	for _, entry := range entries {
+		if !entry.IsUrlAllowed(u) {
+			continue
+		}
+
 		if entry.url == "" {
 			// Old-style configuration, only hosts are configured.
 			return entry

@@ -77,6 +77,9 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 		t.Fatal(err)
 	}
 	config.AddOption("backend", "allowed", u.Host)
+	if u.Scheme == "http" {
+		config.AddOption("backend", "allowhttp", "true")
+	}
 	config.AddOption("backend", "secret", string(testBackendSecret))
 	config.AddOption("sessions", "hashkey", "12345678901234567890123456789012")
 	config.AddOption("sessions", "blockkey", "09876543210987654321098765432109")

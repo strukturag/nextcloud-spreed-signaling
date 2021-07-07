@@ -101,6 +101,28 @@ func TestIsUrlAllowed_Compat(t *testing.T) {
 	}
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", "domain.invalid")
+	config.AddOption("backend", "allowhttp", "true")
+	config.AddOption("backend", "secret", string(testBackendSecret))
+	cfg, err := NewBackendConfiguration(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testUrls(t, cfg, valid_urls, invalid_urls)
+}
+
+func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
+	// Old-style configuration, force HTTPS
+	valid_urls := []string{
+		"https://domain.invalid",
+	}
+	invalid_urls := []string{
+		"http://domain.invalid",
+		"http://otherdomain.invalid",
+		"https://otherdomain.invalid",
+		"domain.invalid",
+	}
+	config := goconf.NewConfigFile()
+	config.AddOption("backend", "allowed", "domain.invalid")
 	config.AddOption("backend", "secret", string(testBackendSecret))
 	cfg, err := NewBackendConfiguration(config)
 	if err != nil {
@@ -119,22 +141,32 @@ func TestIsUrlAllowed(t *testing.T) {
 		{"https://domain.invalid/bar/", string(testBackendSecret) + "-bar"},
 		{"https://domain.invalid:443/bar/", string(testBackendSecret) + "-bar"},
 		{"https://domain.invalid/bar/folder/", string(testBackendSecret) + "-bar"},
+		{"http://domain.invalid/baz", string(testBackendSecret) + "-baz"},
+		{"http://domain.invalid/baz/", string(testBackendSecret) + "-baz"},
+		{"http://domain.invalid:80/baz/", string(testBackendSecret) + "-baz"},
+		{"http://domain.invalid/baz/folder/", string(testBackendSecret) + "-baz"},
 		{"https://otherdomain.invalid/", string(testBackendSecret) + "-lala"},
 		{"https://otherdomain.invalid/folder/", string(testBackendSecret) + "-lala"},
 	}
 	invalid_urls := []string{
+		"http://domain.invalid",
+		"http://domain.invalid/",
 		"https://domain.invalid",
 		"https://domain.invalid/",
+		"http://domain.invalid/foo",
+		"http://domain.invalid/foo/",
 		"https://domain.invalid:8443/foo/",
 		"https://www.domain.invalid/foo/",
 		"https://domain.invalid/baz/",
 	}
 	config := goconf.NewConfigFile()
-	config.AddOption("backend", "backends", "foo, bar, lala, missing")
+	config.AddOption("backend", "backends", "foo, bar, baz, lala, missing")
 	config.AddOption("foo", "url", "https://domain.invalid/foo")
 	config.AddOption("foo", "secret", string(testBackendSecret)+"-foo")
 	config.AddOption("bar", "url", "https://domain.invalid:443/bar/")
 	config.AddOption("bar", "secret", string(testBackendSecret)+"-bar")
+	config.AddOption("baz", "url", "http://domain.invalid/baz")
+	config.AddOption("baz", "secret", string(testBackendSecret)+"-baz")
 	config.AddOption("lala", "url", "https://otherdomain.invalid/")
 	config.AddOption("lala", "secret", string(testBackendSecret)+"-lala")
 	cfg, err := NewBackendConfiguration(config)
