@@ -210,20 +210,16 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 	}
 	defer pool.Put(c)
 
-	req := &http.Request{
-		Method:     "GET",
-		URL:        &capUrl,
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Header:     make(http.Header),
-		Host:       u.Host,
+	req, err := http.NewRequestWithContext(ctx, "GET", capUrl.String(), nil)
+	if err != nil {
+		log.Printf("Could not create request to %s: %s", &capUrl, err)
+		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("OCS-APIRequest", "true")
 	req.Header.Set("User-Agent", "nextcloud-spreed-signaling/"+b.version)
 
-	resp, err := c.Do(req.WithContext(ctx))
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err
 	}
