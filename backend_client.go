@@ -26,8 +26,8 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -40,7 +40,8 @@ import (
 )
 
 var (
-	ErrUseLastResponse = fmt.Errorf("use last response")
+	ErrNotRedirecting         = errors.New("not redirecting to different host")
+	ErrUnsupportedContentType = errors.New("unsupported_content_type")
 )
 
 const (
@@ -115,9 +116,17 @@ func (b *BackendClient) getPool(url *url.URL) (*HttpClientPool, error) {
 	pool, err := NewHttpClientPool(func() *http.Client {
 		return &http.Client{
 			Transport: b.transport,
+			// Only send body in redirect if going to same scheme / host.
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				// Should be http.ErrUseLastResponse with go 1.8
-				return ErrUseLastResponse
+				if len(via) >= 10 {
+					return errors.New("stopped after 10 redirects")
+				} else if len(via) > 0 {
+					viaReq := via[len(via)-1]
+					if req.URL.Scheme != viaReq.URL.Scheme || req.URL.Host != viaReq.URL.Host {
+						return ErrNotRedirecting
+					}
+				}
+				return nil
 			},
 		}
 	}, b.maxConcurrentRequestsPerHost)
@@ -147,161 +156,6 @@ func (b *BackendClient) IsUrlAllowed(u *url.URL) bool {
 
 func isOcsRequest(u *url.URL) bool {
 	return strings.Contains(u.Path, "/ocs/v2.php") || strings.Contains(u.Path, "/ocs/v1.php")
-}
-
-func closeBody(response *http.Response) {
-	if response.Body != nil {
-		response.Body.Close()
-	}
-}
-
-// refererForURL returns a referer without any authentication info or
-// an empty string if lastReq scheme is https and newReq scheme is http.
-func refererForURL(lastReq, newReq *url.URL) string {
-	// https://tools.ietf.org/html/rfc7231#section-5.5.2
-	//   "Clients SHOULD NOT include a Referer header field in a
-	//    (non-secure) HTTP request if the referring page was
-	//    transferred with a secure protocol."
-	if lastReq.Scheme == "https" && newReq.Scheme == "http" {
-		return ""
-	}
-	referer := lastReq.String()
-	if lastReq.User != nil {
-		// This is not very efficient, but is the best we can
-		// do without:
-		// - introducing a new method on URL
-		// - creating a race condition
-		// - copying the URL struct manually, which would cause
-		//   maintenance problems down the line
-		auth := lastReq.User.String() + "@"
-		referer = strings.Replace(referer, auth, "", 1)
-	}
-	return referer
-}
-
-// urlErrorOp returns the (*url.Error).Op value to use for the
-// provided (*Request).Method value.
-func urlErrorOp(method string) string {
-	if method == "" {
-		return "Get"
-	}
-	return method[:1] + strings.ToLower(method[1:])
-}
-
-func performRequestWithRedirects(ctx context.Context, client *http.Client, req *http.Request, body []byte) (*http.Response, error) {
-	var reqs []*http.Request
-	var resp *http.Response
-
-	uerr := func(err error) error {
-		var urlStr string
-		if resp != nil && resp.Request != nil {
-			urlStr = resp.Request.URL.String()
-		} else {
-			urlStr = req.URL.String()
-		}
-		return &url.Error{
-			Op:  urlErrorOp(reqs[0].Method),
-			URL: urlStr,
-			Err: err,
-		}
-	}
-	for {
-		if len(reqs) >= 10 {
-			return nil, fmt.Errorf("stopped after 10 redirects")
-		}
-
-		if len(reqs) > 0 {
-			loc := resp.Header.Get("Location")
-			if loc == "" {
-				closeBody(resp)
-				return nil, uerr(fmt.Errorf("%d response missing Location header", resp.StatusCode))
-			}
-			u, err := req.URL.Parse(loc)
-			if err != nil {
-				closeBody(resp)
-				return nil, uerr(fmt.Errorf("failed to parse Location header %q: %v", loc, err))
-			}
-
-			if len(reqs) == 1 {
-				log.Printf("Got a redirect from %s to %s, please check your configuration", req.URL, u)
-			}
-
-			host := ""
-			if req.Host != "" && req.Host != req.URL.Host {
-				// If the caller specified a custom Host header and the
-				// redirect location is relative, preserve the Host header
-				// through the redirect. See issue #22233.
-				if u, _ := url.Parse(loc); u != nil && !u.IsAbs() {
-					host = req.Host
-				}
-			}
-			ireq := reqs[0]
-			req = &http.Request{
-				Method: ireq.Method,
-				URL:    u,
-				Header: ireq.Header,
-				Host:   host,
-			}
-
-			// Add the Referer header from the most recent
-			// request URL to the new one, if it's not https->http:
-			if ref := refererForURL(reqs[len(reqs)-1].URL, req.URL); ref != "" {
-				req.Header.Set("Referer", ref)
-			}
-			// Close the previous response's body. But
-			// read at least some of the body so if it's
-			// small the underlying TCP connection will be
-			// re-used. No need to check for errors: if it
-			// fails, the Transport won't reuse it anyway.
-			const maxBodySlurpSize = 2 << 10
-			if resp.ContentLength == -1 || resp.ContentLength <= maxBodySlurpSize {
-				io.CopyN(ioutil.Discard, resp.Body, maxBodySlurpSize) // nolint
-			}
-			resp.Body.Close()
-		}
-		reqs = append(reqs, req)
-		var err error
-
-		if body != nil {
-			req.Body = ioutil.NopCloser(bytes.NewReader(body))
-			req.ContentLength = int64(len(body))
-		}
-		resp, err = client.Do(req.WithContext(ctx))
-		if err != nil {
-			// Prefer context error if it has been cancelled.
-			select {
-			case <-ctx.Done():
-				err = ctx.Err()
-			default:
-			}
-			if e, ok := err.(*url.Error); !ok || resp == nil || e.Err != ErrUseLastResponse {
-				return nil, err
-			}
-		}
-
-		switch resp.StatusCode {
-		case 301, 302, 303:
-			break
-		case 307, 308:
-			if resp.Header.Get("Location") == "" {
-				// 308s have been observed in the wild being served
-				// without Location headers. Since Go 1.7 and earlier
-				// didn't follow these codes, just stop here instead
-				// of returning an error.
-				// See Issue 17773.
-				return resp, nil
-			}
-			if req.Body == nil {
-				// We had a request body, and 307/308 require
-				// re-sending it, but GetBody is not defined. So just
-				// return this response to the user instead of an
-				// error, like we did in Go 1.7 and earlier.
-				return resp, nil
-			}
-		default:
-			return resp, nil
-		}
-	}
 }
 
 type CapabilitiesVersion struct {
@@ -356,20 +210,16 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 	}
 	defer pool.Put(c)
 
-	req := &http.Request{
-		Method:     "GET",
-		URL:        &capUrl,
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Header:     make(http.Header),
-		Host:       u.Host,
+	req, err := http.NewRequestWithContext(ctx, "GET", capUrl.String(), nil)
+	if err != nil {
+		log.Printf("Could not create request to %s: %s", &capUrl, err)
+		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("OCS-APIRequest", "true")
 	req.Header.Set("User-Agent", "nextcloud-spreed-signaling/"+b.version)
 
-	resp, err := c.Do(req.WithContext(ctx))
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +228,7 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
 		log.Printf("Received unsupported content-type from %s: %s (%s)", capUrl.String(), ct, resp.Status)
-		return nil, fmt.Errorf("unsupported_content_type")
+		return nil, ErrUnsupportedContentType
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
@@ -483,14 +333,10 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		return err
 	}
 
-	req := &http.Request{
-		Method:     "POST",
-		URL:        requestUrl,
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Header:     make(http.Header),
-		Host:       u.Host,
+	req, err := http.NewRequestWithContext(ctx, "POST", requestUrl.String(), bytes.NewReader(data))
+	if err != nil {
+		log.Printf("Could not create request to %s: %s", requestUrl, err)
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -500,7 +346,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	// Add checksum so the backend can validate the request.
 	AddBackendChecksum(req, data, secret)
 
-	resp, err := performRequestWithRedirects(ctx, c, req, data)
+	resp, err := c.Do(req)
 	if err != nil {
 		log.Printf("Could not send request %s to %s: %s", string(data), req.URL, err)
 		return err
@@ -510,7 +356,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
 		log.Printf("Received unsupported content-type from %s: %s (%s)", req.URL, ct, resp.Status)
-		return fmt.Errorf("unsupported_content_type")
+		return ErrUnsupportedContentType
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
