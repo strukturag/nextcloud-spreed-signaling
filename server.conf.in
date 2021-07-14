@@ -29,6 +29,11 @@ key = /etc/nginx/ssl/server.key
 # See "https://golang.org/pkg/net/http/pprof/" for further information.
 debug = false
 
+# Set to "true" to allow subscribing any streams. This is insecure and should
+# only be enabled for testing. By default only streams of users in the same
+# room and call can be subscribed.
+#allowsubscribeany = false
+
 [sessions]
 # Secret value used to generate checksums of sessions. This should be a random
 # string of 32 or 64 bytes.
