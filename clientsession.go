@@ -178,6 +178,11 @@ func (s *ClientSession) HasFeature(feature string) bool {
 func (s *ClientSession) HasPermission(permission Permission) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	return s.hasPermissionLocked(permission)
+}
+
+func (s *ClientSession) hasPermissionLocked(permission Permission) bool {
 	if !s.supportsPermissions {
 		// Old-style session that doesn't receive permissions from Nextcloud.
 		return true
@@ -748,6 +753,29 @@ func (s *ClientSession) processClientMessage(msg *nats.Msg) {
 	switch message.Type {
 	case "permissions":
 		s.SetPermissions(message.Permissions)
+		go func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+
+			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA) {
+				if publisher, found := s.publishers[streamTypeVideo]; found {
+					delete(s.publishers, streamTypeVideo)
+					log.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
+					go func() {
+						publisher.Close(context.Background())
+					}()
+				}
+			}
+			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
+				if publisher, found := s.publishers[streamTypeScreen]; found {
+					delete(s.publishers, streamTypeScreen)
+					log.Printf("Session %s is no longer allowed to publish screen, closing publisher %s", s.PublicId(), publisher.Id())
+					go func() {
+						publisher.Close(context.Background())
+					}()
+				}
+			}
+		}()
 		return
 	case "message":
 		if message.Message.Type == "bye" && message.Message.Bye.Reason == "room_session_reconnected" {
