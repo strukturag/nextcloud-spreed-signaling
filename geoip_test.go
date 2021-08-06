@@ -200,3 +200,13 @@ func TestGeoLookupFromFile(t *testing.T) {
 
 	testGeoLookupReader(t, reader)
 }
+
+func TestIsValidContinent(t *testing.T) {
+	for country, continents := range ContinentMap {
+		for _, continent := range continents {
+			if !IsValidContinent(continent) {
+				t.Errorf("Continent %s of country %s is not valid", continent, country)
+			}
+		}
+	}
+}
