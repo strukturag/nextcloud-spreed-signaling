@@ -79,7 +79,81 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 		country := country
 		test := test
 		t.Run(country, func(t *testing.T) {
-			sorted := sortConnectionsForCountry(test[0], country)
+			sorted := sortConnectionsForCountry(test[0], country, nil)
+			for idx, conn := range sorted {
+				if test[1][idx] != conn {
+					t.Errorf("Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
+				}
+			}
+		})
+	}
+}
+
+func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
+	conn_de := newProxyConnectionWithCountry("DE")
+	conn_at := newProxyConnectionWithCountry("AT")
+	conn_jp := newProxyConnectionWithCountry("JP")
+	conn_us := newProxyConnectionWithCountry("US")
+
+	testcases := map[string][][]*mcuProxyConnection{
+		// Direct country match
+		"DE": {
+			{conn_at, conn_jp, conn_de},
+			{conn_de, conn_at, conn_jp},
+		},
+		// Direct country match
+		"AT": {
+			{conn_at, conn_jp, conn_de},
+			{conn_at, conn_de, conn_jp},
+		},
+		// Continent match
+		"CH": {
+			{conn_de, conn_jp, conn_at},
+			{conn_de, conn_at, conn_jp},
+		},
+		// Direct country match
+		"JP": {
+			{conn_de, conn_jp, conn_at},
+			{conn_jp, conn_de, conn_at},
+		},
+		// Continent match
+		"CN": {
+			{conn_de, conn_jp, conn_at},
+			{conn_jp, conn_de, conn_at},
+		},
+		// Partial continent match
+		"RU": {
+			{conn_us, conn_de, conn_jp, conn_at},
+			{conn_de, conn_jp, conn_at, conn_us},
+		},
+		// No match
+		"AR": {
+			{conn_us, conn_de, conn_jp, conn_at},
+			{conn_us, conn_de, conn_jp, conn_at},
+		},
+		// No match but override (OC -> AS / NA)
+		"AU": {
+			{conn_us, conn_jp},
+			{conn_us, conn_jp},
+		},
+		// No match but override (AF -> EU)
+		"ZA": {
+			{conn_de, conn_at},
+			{conn_de, conn_at},
+		},
+	}
+
+	continentMap := map[string][]string{
+		// Use European connections for Africa.
+		"AF": {"EU"},
+		// Use Asian and North American connections for Oceania.
+		"OC": {"AS", "NA"},
+	}
+	for country, test := range testcases {
+		country := country
+		test := test
+		t.Run(country, func(t *testing.T) {
+			sorted := sortConnectionsForCountry(test[0], country, continentMap)
 			for idx, conn := range sorted {
 				if test[1][idx] != conn {
 					t.Errorf("Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())

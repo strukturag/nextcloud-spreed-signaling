@@ -210,6 +210,14 @@ connectionsperhost = 8
 #127.0.0.1 = DE
 #192.168.0.0/24 = DE
 
+[continent-overrides]
+# Optional overrides for continent mappings. The key is a continent code, the
+# value a comma-separated list of continent codes to map the continent to.
+# Use European servers for clients in Africa.
+#AF = EU
+# Use servers in North Africa for clients in South America.
+#SA = NA
+
 [stats]
 # Comma-separated list of IP addresses that are allowed to access the stats
 # endpoint. Leave empty (or commented) to only allow access from "127.0.0.1".
