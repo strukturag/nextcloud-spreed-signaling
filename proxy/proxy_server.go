@@ -934,8 +934,11 @@ func (s *ProxyServer) DeleteSession(id uint64) {
 }
 
 func (s *ProxyServer) deleteSessionLocked(id uint64) {
-	delete(s.sessions, id)
-	statsSessionsCurrent.Dec()
+	if session, found := s.sessions[id]; found {
+		delete(s.sessions, id)
+		session.Close()
+		statsSessionsCurrent.Dec()
+	}
 }
 
 func (s *ProxyServer) StoreClient(id string, client signaling.McuClient) {
