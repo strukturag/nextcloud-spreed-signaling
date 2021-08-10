@@ -988,6 +988,8 @@ type mcuProxy struct {
 
 	publisherWaitersId uint64
 	publisherWaiters   map[uint64]chan bool
+
+	continentsMap atomic.Value
 }
 
 func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
@@ -1045,6 +1047,10 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 		publisherWaiters: make(map[uint64]chan bool),
 	}
 
+	if err := mcu.loadContinentsMap(config); err != nil {
+		return nil, err
+	}
+
 	skipverify, _ := config.GetBool("mcu", "skipverify")
 	if skipverify {
 		log.Println("WARNING: MCU verification is disabled!")
@@ -1083,6 +1089,44 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 	}
 
 	return mcu, nil
+}
+
+func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
+	options, _ := config.GetOptions("continent-overrides")
+	if len(options) == 0 {
+		m.setContinentsMap(nil)
+		return nil
+	}
+
+	continentsMap := make(map[string][]string)
+	for _, option := range options {
+		option = strings.ToUpper(strings.TrimSpace(option))
+		if !IsValidContinent(option) {
+			log.Printf("Ignore unknown continent %s", option)
+			continue
+		}
+
+		var values []string
+		value, _ := config.GetString("continent-overrides", option)
+		for _, v := range strings.Split(value, ",") {
+			v = strings.ToUpper(strings.TrimSpace(v))
+			if !IsValidContinent(v) {
+				log.Printf("Ignore unknown continent %s for override %s", v, option)
+				continue
+			}
+			values = append(values, v)
+		}
+		if len(values) == 0 {
+			log.Printf("No valid values found for continent override %s, ignoring", option)
+			continue
+		}
+
+		continentsMap[option] = values
+		log.Printf("Mapping users on continent %s to %s", option, values)
+	}
+
+	m.setContinentsMap(continentsMap)
+	return nil
 }
 
 func (m *mcuProxy) getEtcdClient() *clientv3.Client {
@@ -1277,6 +1321,10 @@ func (m *mcuProxy) Reload(config *goconf.ConfigFile) {
 	m.connectionsMu.Lock()
 	defer m.connectionsMu.Unlock()
 
+	if err := m.loadContinentsMap(config); err != nil {
+		log.Printf("Error loading continents map: %s", err)
+	}
+
 	remove := make(map[string]*mcuProxyConnection)
 	for u, conn := range m.connectionsMap {
 		remove[u] = conn
@@ -1462,6 +1510,21 @@ func (m *mcuProxy) GetStats() interface{} {
 	return result
 }
 
+func (m *mcuProxy) getContinentsMap() map[string][]string {
+	continentsMap := m.continentsMap.Load()
+	if continentsMap == nil {
+		return nil
+	}
+	return continentsMap.(map[string][]string)
+}
+
+func (m *mcuProxy) setContinentsMap(continentsMap map[string][]string) {
+	if continentsMap == nil {
+		continentsMap = make(map[string][]string)
+	}
+	m.continentsMap.Store(continentsMap)
+}
+
 type mcuProxyConnectionsList []*mcuProxyConnection
 
 func (l mcuProxyConnectionsList) Len() int {
@@ -1495,7 +1558,7 @@ func ContinentsOverlap(a, b []string) bool {
 	return false
 }
 
-func sortConnectionsForCountry(connections []*mcuProxyConnection, country string) []*mcuProxyConnection {
+func sortConnectionsForCountry(connections []*mcuProxyConnection, country string, continentMap map[string][]string) []*mcuProxyConnection {
 	// Move connections in the same country to the start of the list.
 	sorted := make(mcuProxyConnectionsList, 0, len(connections))
 	unprocessed := make(mcuProxyConnectionsList, 0, len(connections))
@@ -1508,7 +1571,14 @@ func sortConnectionsForCountry(connections []*mcuProxyConnection, country string
 	}
 	if continents, found := ContinentMap[country]; found && len(unprocessed) > 1 {
 		remaining := make(mcuProxyConnectionsList, 0, len(unprocessed))
-		// Next up are connections on the same continent.
+		// Map continents to other continents (e.g. use Europe for Africa).
+		for _, continent := range continents {
+			if toAdd, found := continentMap[continent]; found {
+				continents = append(continents, toAdd...)
+			}
+		}
+
+		// Next up are connections on the same or mapped continent.
 		for _, conn := range unprocessed {
 			connCountry := conn.Country()
 			if IsValidCountry(connCountry) {
@@ -1556,7 +1626,7 @@ func (m *mcuProxy) getSortedConnections(initiator McuInitiator) []*mcuProxyConne
 
 	if initiator != nil {
 		if country := initiator.Country(); IsValidCountry(country) {
-			connections = sortConnectionsForCountry(connections, country)
+			connections = sortConnectionsForCountry(connections, country, m.getContinentsMap())
 		}
 	}
 	return connections

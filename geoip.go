@@ -239,3 +239,31 @@ func LookupContinents(country string) []string {
 		return continents
 	}
 }
+
+func IsValidContinent(continent string) bool {
+	switch continent {
+	case "AF":
+		// Africa
+		fallthrough
+	case "AN":
+		// Antartica
+		fallthrough
+	case "AS":
+		// Asia
+		fallthrough
+	case "EU":
+		// Europe
+		fallthrough
+	case "NA":
+		// North America
+		fallthrough
+	case "SA":
+		// South America
+		fallthrough
+	case "OC":
+		// Oceania
+		return true
+	default:
+		return false
+	}
+}
