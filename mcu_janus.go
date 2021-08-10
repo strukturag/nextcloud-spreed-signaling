@@ -449,6 +449,7 @@ type mcuJanusClient struct {
 	handleDetached  func(event *janus.DetachedMsg)
 	handleConnected func(event *janus.WebRTCUpMsg)
 	handleSlowLink  func(event *janus.SlowLinkMsg)
+	handleMedia     func(event *janus.MediaMsg)
 }
 
 func (c *mcuJanusClient) Id() string {
@@ -465,7 +466,7 @@ func (c *mcuJanusClient) Close(ctx context.Context) {
 func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
 }
 
-func (c *mcuJanusClient) closeClient(ctx context.Context) {
+func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
 	if handle := c.handle; handle != nil {
 		c.handle = nil
 		c.closeChan <- true
@@ -474,7 +475,10 @@ func (c *mcuJanusClient) closeClient(ctx context.Context) {
 				log.Println("Could not detach client", handle.Id, err)
 			}
 		}
+		return true
 	}
+
+	return false
 }
 
 func (c *mcuJanusClient) run(handle *JanusHandle, closeChan chan bool) {
@@ -490,7 +494,7 @@ loop:
 			case *janus.DetachedMsg:
 				c.handleDetached(t)
 			case *janus.MediaMsg:
-				// Ignore
+				c.handleMedia(t)
 			case *janus.WebRTCUpMsg:
 				c.handleConnected(t)
 			case *janus.SlowLinkMsg:
@@ -602,11 +606,103 @@ func (c *mcuJanusClient) selectStream(ctx context.Context, substream int, tempor
 	callback(nil, nil)
 }
 
+type publisherStatsCounter struct {
+	mu sync.Mutex
+
+	streamTypes map[string]bool
+	subscribers map[string]bool
+}
+
+func (c *publisherStatsCounter) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	count := len(c.subscribers)
+	for streamType := range c.streamTypes {
+		statsMcuPublisherStreamTypesCurrent.WithLabelValues(streamType).Dec()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Sub(float64(count))
+	}
+	c.streamTypes = nil
+	c.subscribers = nil
+}
+
+func (c *publisherStatsCounter) EnableStream(streamType string, enable bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if enable == c.streamTypes[streamType] {
+		return
+	}
+
+	if enable {
+		if c.streamTypes == nil {
+			c.streamTypes = make(map[string]bool)
+		}
+		c.streamTypes[streamType] = true
+		statsMcuPublisherStreamTypesCurrent.WithLabelValues(streamType).Inc()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Add(float64(len(c.subscribers)))
+	} else {
+		delete(c.streamTypes, streamType)
+		statsMcuPublisherStreamTypesCurrent.WithLabelValues(streamType).Dec()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Sub(float64(len(c.subscribers)))
+	}
+}
+
+func (c *publisherStatsCounter) AddSubscriber(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.subscribers[id] {
+		return
+	}
+
+	if c.subscribers == nil {
+		c.subscribers = make(map[string]bool)
+	}
+	c.subscribers[id] = true
+	for streamType := range c.streamTypes {
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Inc()
+	}
+}
+
+func (c *publisherStatsCounter) RemoveSubscriber(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.subscribers[id] {
+		return
+	}
+
+	delete(c.subscribers, id)
+	for streamType := range c.streamTypes {
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Dec()
+	}
+}
+
 type mcuJanusPublisher struct {
 	mcuJanusClient
 
 	id      string
 	bitrate int
+	stats   publisherStatsCounter
+}
+
+func (m *mcuJanus) SubscriberConnected(id string, publisher string, streamType string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if p, found := m.publishers[publisher+"|"+streamType]; found {
+		p.stats.AddSubscriber(id)
+	}
+}
+
+func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamType string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if p, found := m.publishers[publisher+"|"+streamType]; found {
+		p.stats.RemoveSubscriber(id)
+	}
 }
 
 func min(a, b int) int {
@@ -718,6 +814,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 	client.mcuJanusClient.handleDetached = client.handleDetached
 	client.mcuJanusClient.handleConnected = client.handleConnected
 	client.mcuJanusClient.handleSlowLink = client.handleSlowLink
+	client.mcuJanusClient.handleMedia = client.handleMedia
 
 	m.registerClient(client)
 	log.Printf("Publisher %s is using handle %d", client.id, client.handleId)
@@ -726,6 +823,8 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 	m.publishers[id+"|"+streamType] = client
 	m.publisherCreated.Notify(id + "|" + streamType)
 	m.mu.Unlock()
+	statsPublishersCurrent.WithLabelValues(streamType).Inc()
+	statsPublishersTotal.WithLabelValues(streamType).Inc()
 	return client, nil
 }
 
@@ -769,6 +868,16 @@ func (p *mcuJanusPublisher) handleSlowLink(event *janus.SlowLinkMsg) {
 	}
 }
 
+func (p *mcuJanusPublisher) handleMedia(event *janus.MediaMsg) {
+	mediaType := event.Type
+	if mediaType == "video" && p.streamType == "screen" {
+		// We want to differentiate between audio, video and screensharing
+		mediaType = p.streamType
+	}
+
+	p.stats.EnableStream(mediaType, event.Receiving)
+}
+
 func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
 	handle, session, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
@@ -808,13 +917,18 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	p.closeClient(ctx)
 	p.mu.Unlock()
 
+	p.stats.Reset()
+
 	if notify {
+		statsPublishersCurrent.WithLabelValues(p.streamType).Dec()
 		p.mcu.unregisterClient(p)
 		p.listener.PublisherClosed(p)
 	}
+	p.mcuJanusClient.Close(ctx)
 }
 
 func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {
 	case "offer":
@@ -923,8 +1037,11 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 	client.mcuJanusClient.handleDetached = client.handleDetached
 	client.mcuJanusClient.handleConnected = client.handleConnected
 	client.mcuJanusClient.handleSlowLink = client.handleSlowLink
+	client.mcuJanusClient.handleMedia = client.handleMedia
 	m.registerClient(client)
 	go client.run(handle, client.closeChan)
+	statsSubscribersCurrent.WithLabelValues(streamType).Inc()
+	statsSubscribersTotal.WithLabelValues(streamType).Inc()
 	return client, nil
 }
 
@@ -963,6 +1080,7 @@ func (p *mcuJanusSubscriber) handleDetached(event *janus.DetachedMsg) {
 
 func (p *mcuJanusSubscriber) handleConnected(event *janus.WebRTCUpMsg) {
 	log.Printf("Subscriber %d received connected", p.handleId)
+	p.mcu.SubscriberConnected(p.Id(), p.publisher, p.streamType)
 }
 
 func (p *mcuJanusSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
@@ -971,6 +1089,10 @@ func (p *mcuJanusSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
 	} else {
 		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
 	}
+}
+
+func (p *mcuJanusSubscriber) handleMedia(event *janus.MediaMsg) {
+	// Only triggered for publishers
 }
 
 func (p *mcuJanusSubscriber) NotifyReconnected() {
@@ -992,11 +1114,16 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 
 func (p *mcuJanusSubscriber) Close(ctx context.Context) {
 	p.mu.Lock()
-	p.closeClient(ctx)
+	closed := p.closeClient(ctx)
 	p.mu.Unlock()
 
+	if closed {
+		p.mcu.SubscriberDisconnected(p.Id(), p.publisher, p.streamType)
+		statsSubscribersCurrent.WithLabelValues(p.streamType).Dec()
+	}
 	p.mcu.unregisterClient(p)
 	p.listener.SubscriberClosed(p)
+	p.mcuJanusClient.Close(ctx)
 }
 
 func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, callback func(error, map[string]interface{})) {
@@ -1009,6 +1136,7 @@ func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, callback func(error, 
 	waiter := p.mcu.publisherConnected.NewWaiter(p.publisher + "|" + p.streamType)
 	defer p.mcu.publisherConnected.Release(waiter)
 
+	loggedNotPublishingYet := false
 retry:
 	join_msg := map[string]interface{}{
 		"request": "join",
@@ -1063,6 +1191,11 @@ retry:
 				log.Printf("Publisher %s not sending yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
 			}
 
+			if !loggedNotPublishingYet {
+				loggedNotPublishingYet = true
+				statsWaitingForPublisherTotal.WithLabelValues(p.streamType).Inc()
+			}
+
 			if err := waiter.Wait(ctx); err != nil {
 				callback(err, nil)
 				return
@@ -1082,6 +1215,7 @@ retry:
 }
 
 func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {
 	case "requestoffer":

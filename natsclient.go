@@ -47,6 +47,8 @@ type NatsMessage struct {
 	Room *BackendServerRoomRequest `json:"room,omitempty"`
 
 	Permissions []Permission `json:"permissions,omitempty"`
+
+	Id string `json:"id"`
 }
 
 type NatsSubscription interface {

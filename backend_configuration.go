@@ -90,6 +90,7 @@ func (b *Backend) AddSession(session Session) error {
 	if b.sessions == nil {
 		b.sessions = make(map[string]bool)
 	} else if uint64(len(b.sessions)) >= b.sessionLimit {
+		statsBackendLimitExceededTotal.WithLabelValues(b.id).Inc()
 		return SessionLimitExceeded
 	}
 
@@ -123,6 +124,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 	}
 	backends := make(map[string][]*Backend)
 	var compatBackend *Backend
+	numBackends := 0
 	if allowAll {
 		log.Println("WARNING: All backend hostnames are allowed, only use for development!")
 		compatBackend = &Backend{
@@ -137,12 +139,14 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 		if sessionLimit > 0 {
 			log.Printf("Allow a maximum of %d sessions", sessionLimit)
 		}
+		numBackends += 1
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
 		for host, configuredBackends := range getConfiguredHosts(backendIds, config) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
 				log.Printf("Backend %s added for %s", be.id, be.url)
 			}
+			numBackends += len(configuredBackends)
 		}
 	} else if allowedUrls, _ := config.GetString("backend", "allowed"); allowedUrls != "" {
 		// Old-style configuration, only hosts are configured and are using a common secret.
@@ -182,8 +186,13 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 			if sessionLimit > 0 {
 				log.Printf("Allow a maximum of %d sessions", sessionLimit)
 			}
+			numBackends += 1
 		}
 	}
+
+	RegisterBackendConfigurationStats()
+	log.Printf("Initial: %d", numBackends)
+	statsBackendsCurrent.Add(float64(numBackends))
 
 	return &BackendConfiguration{
 		backends: backends,
@@ -199,6 +208,7 @@ func (b *BackendConfiguration) RemoveBackendsForHost(host string) {
 		for _, backend := range oldBackends {
 			log.Printf("Backend %s removed for %s", backend.id, backend.url)
 		}
+		statsBackendsCurrent.Sub(float64(len(oldBackends)))
 	}
 	delete(b.backends, host)
 }
@@ -225,6 +235,7 @@ func (b *BackendConfiguration) UpsertHost(host string, backends []*Backend) {
 			removed := b.backends[host][existingIndex]
 			log.Printf("Backend %s removed for %s", removed.id, removed.url)
 			b.backends[host] = append(b.backends[host][:existingIndex], b.backends[host][existingIndex+1:]...)
+			statsBackendsCurrent.Dec()
 		}
 	}
 
@@ -232,6 +243,7 @@ func (b *BackendConfiguration) UpsertHost(host string, backends []*Backend) {
 	for _, added := range backends {
 		log.Printf("Backend %s added for %s", added.id, added.url)
 	}
+	statsBackendsCurrent.Add(float64(len(backends)))
 }
 
 func getConfiguredBackendIDs(backendIds string) (ids []string) {

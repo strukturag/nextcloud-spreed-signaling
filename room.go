@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
@@ -46,6 +47,10 @@ const (
 var (
 	updateActiveSessionsInterval = 10 * time.Second
 )
+
+func init() {
+	RegisterRoomStats()
+}
 
 type Room struct {
 	id      string
@@ -63,6 +68,8 @@ type Room struct {
 	virtualSessions  map[*VirtualSession]bool
 	inCallSessions   map[Session]bool
 	roomSessionData  map[string]*RoomSessionData
+
+	statsRoomSessionsCurrent *prometheus.GaugeVec
 
 	natsReceiver        chan *nats.Msg
 	backendSubscription NatsSubscription
@@ -122,6 +129,11 @@ func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient,
 		virtualSessions:  make(map[*VirtualSession]bool),
 		inCallSessions:   make(map[Session]bool),
 		roomSessionData:  make(map[string]*RoomSessionData),
+
+		statsRoomSessionsCurrent: statsRoomSessionsCurrent.MustCurryWith(prometheus.Labels{
+			"backend": backend.Id(),
+			"room":    roomId,
+		}),
 
 		natsReceiver:        natsReceiver,
 		backendSubscription: backendSubscription,
@@ -194,6 +206,9 @@ func (r *Room) Close() []Session {
 		result = append(result, s)
 	}
 	r.sessions = nil
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeClient})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeInternal})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeVirtual})
 	r.mu.Unlock()
 	return result
 }
@@ -264,6 +279,9 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 		}
 	}
 	r.sessions[sid] = session
+	if !found {
+		r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": session.ClientType()}).Inc()
+	}
 	var publishUsersChanged bool
 	switch session.ClientType() {
 	case HelloClientTypeInternal:
@@ -311,6 +329,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	}
 
 	sid := session.PublicId()
+	r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": session.ClientType()}).Dec()
 	delete(r.sessions, sid)
 	delete(r.internalSessions, session)
 	if virtualSession, ok := session.(*VirtualSession); ok {
@@ -325,6 +344,9 @@ func (r *Room) RemoveSession(session Session) bool {
 	}
 
 	r.hub.removeRoom(r)
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeClient})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeInternal})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeVirtual})
 	r.unsubscribeBackend()
 	r.doClose()
 	r.mu.Unlock()

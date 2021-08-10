@@ -28,7 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/strukturag/nextcloud-spreed-signaling"
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 const (
@@ -93,6 +93,11 @@ func (s *ProxySession) IsExpired() bool {
 func (s *ProxySession) MarkUsed() {
 	now := time.Now()
 	atomic.StoreInt64(&s.lastUsed, now.UnixNano())
+}
+
+func (s *ProxySession) Close() {
+	s.clearPublishers()
+	s.clearSubscribers()
 }
 
 func (s *ProxySession) SetClient(client *ProxyClient) *ProxyClient {
@@ -169,7 +174,9 @@ func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
 
 func (s *ProxySession) PublisherClosed(publisher signaling.McuPublisher) {
 	if id := s.DeletePublisher(publisher); id != "" {
-		s.proxy.DeleteClient(id, publisher)
+		if s.proxy.DeleteClient(id, publisher) {
+			statsPublishersCurrent.WithLabelValues(publisher.StreamType()).Dec()
+		}
 
 		msg := &signaling.ProxyServerMessage{
 			Type: "event",
@@ -184,7 +191,9 @@ func (s *ProxySession) PublisherClosed(publisher signaling.McuPublisher) {
 
 func (s *ProxySession) SubscriberClosed(subscriber signaling.McuSubscriber) {
 	if id := s.DeleteSubscriber(subscriber); id != "" {
-		s.proxy.DeleteClient(id, subscriber)
+		if s.proxy.DeleteClient(id, subscriber) {
+			statsSubscribersCurrent.WithLabelValues(subscriber.StreamType()).Dec()
+		}
 
 		msg := &signaling.ProxyServerMessage{
 			Type: "event",
@@ -246,7 +255,10 @@ func (s *ProxySession) clearPublishers() {
 	defer s.publishersLock.Unlock()
 
 	go func(publishers map[string]signaling.McuPublisher) {
-		for _, publisher := range publishers {
+		for id, publisher := range publishers {
+			if s.proxy.DeleteClient(id, publisher) {
+				statsPublishersCurrent.WithLabelValues(publisher.StreamType()).Dec()
+			}
 			publisher.Close(context.Background())
 		}
 	}(s.publishers)
@@ -259,7 +271,10 @@ func (s *ProxySession) clearSubscribers() {
 	defer s.publishersLock.Unlock()
 
 	go func(subscribers map[string]signaling.McuSubscriber) {
-		for _, subscriber := range subscribers {
+		for id, subscriber := range subscribers {
+			if s.proxy.DeleteClient(id, subscriber) {
+				statsSubscribersCurrent.WithLabelValues(subscriber.StreamType()).Dec()
+			}
 			subscriber.Close(context.Background())
 		}
 	}(s.subscribers)
