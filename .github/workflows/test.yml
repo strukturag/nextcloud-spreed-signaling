@@ -17,6 +17,7 @@ jobs:
           - "1.14"
           - "1.15"
           - "1.16"
+          - "1.17"
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2.3.4
