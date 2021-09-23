@@ -159,6 +159,28 @@ func (r *Room) Backend() *Backend {
 	return r.backend
 }
 
+func (r *Room) IsEqual(other *Room) bool {
+	if r == other {
+		return true
+	} else if other == nil {
+		return false
+	} else if r.Id() != other.Id() {
+		return false
+	}
+
+	b1 := r.Backend()
+	b2 := other.Backend()
+	if b1 == b2 {
+		return true
+	} else if b1 == nil && b2 != nil {
+		return false
+	} else if b1 != nil && b2 == nil {
+		return false
+	}
+
+	return b1.Id() == b2.Id()
+}
+
 func (r *Room) run() {
 	ticker := time.NewTicker(updateActiveSessionsInterval)
 loop:
@@ -316,6 +338,13 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 func (r *Room) HasSession(session Session) bool {
 	r.mu.RLock()
 	_, result := r.sessions[session.PublicId()]
+	r.mu.RUnlock()
+	return result
+}
+
+func (r *Room) IsSessionInCall(session Session) bool {
+	r.mu.RLock()
+	_, result := r.inCallSessions[session]
 	r.mu.RUnlock()
 	return result
 }

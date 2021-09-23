@@ -2449,6 +2449,191 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	}
 }
 
+func TestClientRequestOfferNotInRoom(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubForTest(t)
+	defer shutdown()
+
+	mcu, err := NewTestMCU()
+	if err != nil {
+		t.Fatal(err)
+	} else if err := mcu.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer mcu.Stop()
+
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+
+	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+		t.Fatal(err)
+	}
+
+	hello2, err := client2.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client1.JoinRoomWithRoomSession(ctx, roomId, "roomsession1"); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	// We will receive a "joined" event.
+	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
+		t.Error(err)
+	}
+
+	// Client 2 may not request an offer (he is not in the room yet).
+	if err := client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		Sid:      "12345",
+		RoomType: "screen",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, err := client2.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else {
+		if err := checkMessageError(msg, "not_allowed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	// We will receive a "joined" event.
+	if err := client1.RunUntilJoined(ctx, hello2.Hello); err != nil {
+		t.Error(err)
+	}
+	if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
+		t.Error(err)
+	}
+
+	// Client 2 may not request an offer (he is not in the call yet).
+	if err := client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		Sid:      "12345",
+		RoomType: "screen",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, err := client2.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else {
+		if err := checkMessageError(msg, "not_allowed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Simulate request from the backend that somebody joined the call.
+	users1 := []map[string]interface{}{
+		{
+			"sessionId": hello2.Hello.SessionId,
+			"inCall":    1,
+		},
+	}
+	room := hub.getRoom(roomId)
+	if room == nil {
+		t.Fatalf("Could not find room %s", roomId)
+	}
+	room.PublishUsersInCallChanged(users1, users1)
+	if err := checkReceiveClientEvent(ctx, client1, "update", nil); err != nil {
+		t.Error(err)
+	}
+	if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
+		t.Error(err)
+	}
+
+	// Client 2 may not request an offer (recipient is not in the call yet).
+	if err := client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		Sid:      "12345",
+		RoomType: "screen",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, err := client2.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else {
+		if err := checkMessageError(msg, "not_allowed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Simulate request from the backend that somebody joined the call.
+	users2 := []map[string]interface{}{
+		{
+			"sessionId": hello1.Hello.SessionId,
+			"inCall":    1,
+		},
+	}
+	room.PublishUsersInCallChanged(users2, users2)
+	if err := checkReceiveClientEvent(ctx, client1, "update", nil); err != nil {
+		t.Error(err)
+	}
+	if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
+		t.Error(err)
+	}
+
+	// Client 2 may request an offer now (both are in the same room and call).
+	if err := client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		Sid:      "12345",
+		RoomType: "screen",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, err := client2.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else {
+		// We check for "client_not_found" as the testing MCU doesn't support publishing/subscribing.
+		if err := checkMessageError(msg, "client_not_found"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+}
+
 func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	// Clients can't send messages to sessions connected from other backends.
 	hub, _, _, server, shutdown := CreateHubWithMultipleBackendsForTest(t)
@@ -2585,15 +2770,19 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	}
 
 	hub.ru.RLock()
-	roomCount := 0
+	var rooms []*Room
 	for _, room := range hub.rooms {
 		defer room.Close()
-		roomCount++
+		rooms = append(rooms, room)
 	}
 	hub.ru.RUnlock()
 
-	if roomCount != 2 {
-		t.Errorf("Expected 2 rooms, got %d", roomCount)
+	if len(rooms) != 2 {
+		t.Errorf("Expected 2 rooms, got %+v", rooms)
+	}
+
+	if rooms[0].IsEqual(rooms[1]) {
+		t.Errorf("Rooms should be different: %+v", rooms)
 	}
 
 	recipient := MessageClientMessageRecipient{
