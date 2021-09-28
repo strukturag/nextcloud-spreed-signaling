@@ -42,6 +42,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
+	"github.com/pion/sdp"
 )
 
 var (
@@ -1374,8 +1375,8 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 	if recipient != nil {
 		// The recipient is connected to this instance, no need to go through NATS.
 		if clientData != nil && clientData.Type == "sendoffer" {
-			if !isAllowedToSend(session, clientData) {
-				log.Printf("Session %s is not allowed to send offer for %s, ignoring", session.PublicId(), clientData.RoomType)
+			if err := isAllowedToSend(session, clientData); err != nil {
+				log.Printf("Session %s is not allowed to send offer for %s, ignoring (%s)", session.PublicId(), clientData.RoomType, err)
 				sendNotAllowed(session, message, "Not allowed to send offer")
 				return
 			}
@@ -1651,14 +1652,51 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 	}
 }
 
-func isAllowedToSend(session *ClientSession, data *MessageClientMessageData) bool {
-	var permission Permission
+func isAllowedToSend(session *ClientSession, data *MessageClientMessageData) error {
 	if data.RoomType == "screen" {
-		permission = PERMISSION_MAY_PUBLISH_SCREEN
+		if session.HasPermission(PERMISSION_MAY_PUBLISH_SCREEN) {
+			return nil
+		}
+		return fmt.Errorf("permission \"%s\" not found", PERMISSION_MAY_PUBLISH_SCREEN)
+	} else if session.HasPermission(PERMISSION_MAY_PUBLISH_MEDIA) {
+		// Client is allowed to publish any media (audio / video).
+		return nil
+	} else if data != nil && data.Type == "offer" {
+		// Parse SDP to check what user is trying to publish and check permissions accordingly.
+		sdpValue, found := data.Payload["sdp"]
+		if !found {
+			return fmt.Errorf("offer does not contain a sdp")
+		}
+		sdpText, ok := sdpValue.(string)
+		if !ok {
+			return fmt.Errorf("offer does not contain a valid sdp")
+		}
+		var s sdp.SessionDescription
+		if err := s.Unmarshal(sdpText); err != nil {
+			return fmt.Errorf("could not parse sdp: %w", err)
+		}
+		for _, md := range s.MediaDescriptions {
+			switch md.MediaName.Media {
+			case "audio":
+				if !session.HasPermission(PERMISSION_MAY_PUBLISH_AUDIO) {
+					return fmt.Errorf("permission \"%s\" not found", PERMISSION_MAY_PUBLISH_AUDIO)
+				}
+			case "video":
+				if !session.HasPermission(PERMISSION_MAY_PUBLISH_VIDEO) {
+					return fmt.Errorf("permission \"%s\" not found", PERMISSION_MAY_PUBLISH_VIDEO)
+				}
+			}
+		}
+		return nil
 	} else {
-		permission = PERMISSION_MAY_PUBLISH_MEDIA
+		// Candidate or unknown event, check if client is allowed to publish any media.
+		if session.HasAnyPermission(PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO) {
+			return nil
+		}
+
+		return fmt.Errorf("permission check failed")
 	}
-	return session.HasPermission(permission)
+
 }
 
 func sendNotAllowed(session *ClientSession, message *ClientMessage, reason string) {
@@ -1733,8 +1771,8 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 		clientType = "subscriber"
 		mc, err = session.GetOrCreateSubscriber(ctx, h.mcu, message.Recipient.SessionId, data.RoomType)
 	case "offer":
-		if !isAllowedToSend(session, data) {
-			log.Printf("Session %s is not allowed to offer %s, ignoring", session.PublicId(), data.RoomType)
+		if err := isAllowedToSend(session, data); err != nil {
+			log.Printf("Session %s is not allowed to offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
 			sendNotAllowed(senderSession, client_message, "Not allowed to publish.")
 			return
 		}
@@ -1751,8 +1789,8 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 		mc = session.GetSubscriber(message.Recipient.SessionId, data.RoomType)
 	default:
 		if session.PublicId() == message.Recipient.SessionId {
-			if !isAllowedToSend(session, data) {
-				log.Printf("Session %s is not allowed to send candidate for %s, ignoring", session.PublicId(), data.RoomType)
+			if err := isAllowedToSend(session, data); err != nil {
+				log.Printf("Session %s is not allowed to send candidate for %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
 				sendNotAllowed(senderSession, client_message, "Not allowed to send candidate.")
 				return
 			}

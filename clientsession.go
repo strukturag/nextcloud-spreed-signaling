@@ -175,11 +175,29 @@ func (s *ClientSession) HasFeature(feature string) bool {
 	return false
 }
 
+// HasPermission checks if the session has the passed permissions.
 func (s *ClientSession) HasPermission(permission Permission) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.hasPermissionLocked(permission)
+}
+
+// HasAnyPermission checks if the session has one of the passed permissions.
+func (s *ClientSession) HasAnyPermission(permission ...Permission) bool {
+	if len(permission) == 0 {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, p := range permission {
+		if s.hasPermissionLocked(p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ClientSession) hasPermissionLocked(permission Permission) bool {

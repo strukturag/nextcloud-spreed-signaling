@@ -156,6 +156,8 @@ github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0/go.mod h1:BN/Txse
 github.com/olekukonko/tablewriter v0.0.0-20170122224234-a0225b3f23b5/go.mod h1:vsDQFd/mU46D+Z4whnwzcISnGGzXWMclvtLoiIKAKIo=
 github.com/oschwald/maxminddb-golang v1.8.0 h1:Uh/DSnGoxsyp/KYbY1AuP0tYEwfs0sCph9p/UMXK/Hk=
 github.com/oschwald/maxminddb-golang v1.8.0/go.mod h1:RXZtst0N6+FY/3qCNmZMBApR19cdQj43/NM9VkrNAis=
+github.com/pion/sdp v1.3.0 h1:21lpgEILHyolpsIrbCBagZaAPj4o057cFjzaFebkVOs=
+github.com/pion/sdp v1.3.0/go.mod h1:ceA2lTyftydQTuCIbUNoH77aAt6CiQJaRpssA4Gee8I=
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
