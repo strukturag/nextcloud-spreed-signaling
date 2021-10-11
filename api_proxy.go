@@ -24,7 +24,7 @@ package signaling
 import (
 	"fmt"
 
-	"gopkg.in/dgrijalva/jwt-go.v3"
+	"github.com/golang-jwt/jwt"
 )
 
 type ProxyClientMessage struct {

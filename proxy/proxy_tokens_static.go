@@ -29,8 +29,7 @@ import (
 	"sync/atomic"
 
 	"github.com/dlintw/goconf"
-
-	"gopkg.in/dgrijalva/jwt-go.v3"
+	"github.com/golang-jwt/jwt"
 )
 
 type tokensStatic struct {
