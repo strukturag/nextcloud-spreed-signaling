@@ -39,13 +39,12 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/websocket"
 
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/pkg/srv"
 	"go.etcd.io/etcd/pkg/transport"
-
-	"gopkg.in/dgrijalva/jwt-go.v3"
 )
 
 const (

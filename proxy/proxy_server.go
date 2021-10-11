@@ -39,13 +39,12 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-
-	"gopkg.in/dgrijalva/jwt-go.v3"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )

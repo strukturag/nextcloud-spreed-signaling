@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/dlintw/goconf v0.0.0-20120228082610-dcc070983490
+	github.com/golang-jwt/jwt v3.2.1+incompatible
 	github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6 // indirect
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/mux v1.8.0
@@ -19,5 +20,4 @@ require (
 	go.uber.org/zap v1.13.0 // indirect
 	golang.org/x/tools v0.0.0-20200103221440-774c71fcf114 // indirect
 	google.golang.org/protobuf v1.26.0 // indirect
-	gopkg.in/dgrijalva/jwt-go.v3 v3.2.0
 )
