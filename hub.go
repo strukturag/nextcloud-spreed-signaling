@@ -1677,6 +1677,11 @@ func sendMcuProcessingFailed(session *ClientSession, message *ClientMessage) {
 }
 
 func (h *Hub) isInSameCall(senderSession *ClientSession, recipientSessionId string) bool {
+	if senderSession.ClientType() == HelloClientTypeInternal {
+		// Internal clients may subscribe all streams.
+		return true
+	}
+
 	senderRoom := senderSession.GetRoom()
 	if senderRoom == nil || !senderRoom.IsSessionInCall(senderSession) {
 		// Sender is not in a room or not in the call.
@@ -1690,7 +1695,8 @@ func (h *Hub) isInSameCall(senderSession *ClientSession, recipientSessionId stri
 	}
 
 	recipientRoom := recipientSession.GetRoom()
-	if recipientRoom == nil || !senderRoom.IsEqual(recipientRoom) || !recipientRoom.IsSessionInCall(recipientSession) {
+	if recipientRoom == nil || !senderRoom.IsEqual(recipientRoom) ||
+		(recipientSession.ClientType() != HelloClientTypeInternal && !recipientRoom.IsSessionInCall(recipientSession)) {
 		// Recipient is not in a room, a different room or not in the call.
 		return false
 	}
