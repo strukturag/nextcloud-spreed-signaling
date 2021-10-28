@@ -166,6 +166,7 @@ func (b *BackendServer) Start(r *mux.Router) error {
 func (b *BackendServer) setComonHeaders(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "nextcloud-spreed-signaling/"+b.version)
+		w.Header().Set("X-Spreed-Signaling-Features", strings.Join(b.hub.info.Features, ", "))
 		f(w, r)
 	}
 }
