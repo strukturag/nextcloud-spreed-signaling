@@ -40,11 +40,11 @@ jobs:
 
     - name: Run tests
       run: |
-        make test || make test
+        make test
 
     - name: Generate coverage report
       run: |
-        make cover || make cover
+        make cover
 
     - name: Convert coverage to lcov
       uses: jandelgado/gcov2lcov-action@v1.0.8
