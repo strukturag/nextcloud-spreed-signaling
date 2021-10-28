@@ -333,6 +333,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 		geoip:          geoip,
 		geoipOverrides: geoipOverrides,
 	}
+	backend.hub = hub
 	hub.upgrader.CheckOrigin = hub.checkOrigin
 	r.HandleFunc("/spreed", func(w http.ResponseWriter, r *http.Request) {
 		hub.serveWs(w, r)
