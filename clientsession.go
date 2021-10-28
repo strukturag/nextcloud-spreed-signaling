@@ -857,6 +857,7 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 			} else if msg.Message.Event.Target == "room" {
 				// Can happen mostly during tests where an older room NATS message
 				// could be received by a subscriber that joined after it was sent.
+				log.Printf("Message %+v was sent at %s, room joined at %s", msg.Message, msg.SendTime, s.getRoomJoinTime())
 				if msg.SendTime.Before(s.getRoomJoinTime()) {
 					log.Printf("Message %+v was sent before room was joined, ignoring", msg.Message)
 					return nil

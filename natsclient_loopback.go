@@ -175,8 +175,10 @@ func (c *LoopbackNatsClient) PublishNats(subject string, message *NatsMessage) e
 }
 
 func (c *LoopbackNatsClient) PublishMessage(subject string, message *ServerMessage) error {
+	now := time.Now()
+	log.Printf("Send message at %s: %+v", now, message)
 	msg := &NatsMessage{
-		SendTime: time.Now(),
+		SendTime: now,
 		Type:     "message",
 		Message:  message,
 	}
@@ -184,8 +186,10 @@ func (c *LoopbackNatsClient) PublishMessage(subject string, message *ServerMessa
 }
 
 func (c *LoopbackNatsClient) PublishBackendServerRoomRequest(subject string, message *BackendServerRoomRequest) error {
+	now := time.Now()
+	log.Printf("Send message at %s: %+v", now, message)
 	msg := &NatsMessage{
-		SendTime: time.Now(),
+		SendTime: now,
 		Type:     "room",
 		Room:     message,
 	}
