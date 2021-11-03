@@ -66,6 +66,8 @@ const (
 	maxWaitDelay     = 8 * time.Second
 
 	defaultProxyTimeoutSeconds = 2
+
+	rttLogDuration = 500 * time.Millisecond
 )
 
 type mcuProxyPubSubCommon struct {
@@ -385,8 +387,10 @@ func (c *mcuProxyConnection) readPump() {
 		}
 		if ts, err := strconv.ParseInt(msg, 10, 64); err == nil {
 			rtt := now.Sub(time.Unix(0, ts))
-			rtt_ms := rtt.Nanoseconds() / time.Millisecond.Nanoseconds()
-			log.Printf("Proxy at %s has RTT of %d ms (%s)", c.url, rtt_ms, rtt)
+			if rtt >= rttLogDuration {
+				rtt_ms := rtt.Nanoseconds() / time.Millisecond.Nanoseconds()
+				log.Printf("Proxy at %s has RTT of %d ms (%s)", c.url, rtt_ms, rtt)
+			}
 		}
 		return nil
 	})

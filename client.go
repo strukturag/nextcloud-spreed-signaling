@@ -99,6 +99,7 @@ type Client struct {
 	agent   string
 	closed  uint32
 	country *string
+	logRTT  bool
 
 	session unsafe.Pointer
 
@@ -125,9 +126,10 @@ func NewClient(conn *websocket.Conn, remoteAddress string, agent string) (*Clien
 		agent = "unknown user agent"
 	}
 	client := &Client{
-		conn:  conn,
-		addr:  remoteAddress,
-		agent: agent,
+		conn:   conn,
+		addr:   remoteAddress,
+		agent:  agent,
+		logRTT: true,
 
 		closeChan:   make(chan bool, 1),
 		messageChan: make(chan *bytes.Buffer, 16),
@@ -272,11 +274,13 @@ func (c *Client) ReadPump() {
 		}
 		if ts, err := strconv.ParseInt(msg, 10, 64); err == nil {
 			rtt := now.Sub(time.Unix(0, ts))
-			rtt_ms := rtt.Nanoseconds() / time.Millisecond.Nanoseconds()
-			if session := c.GetSession(); session != nil {
-				log.Printf("Client %s has RTT of %d ms (%s)", session.PublicId(), rtt_ms, rtt)
-			} else {
-				log.Printf("Client from %s has RTT of %d ms (%s)", addr, rtt_ms, rtt)
+			if c.logRTT {
+				rtt_ms := rtt.Nanoseconds() / time.Millisecond.Nanoseconds()
+				if session := c.GetSession(); session != nil {
+					log.Printf("Client %s has RTT of %d ms (%s)", session.PublicId(), rtt_ms, rtt)
+				} else {
+					log.Printf("Client from %s has RTT of %d ms (%s)", addr, rtt_ms, rtt)
+				}
 			}
 			c.OnRTTReceived(c, rtt)
 		}
