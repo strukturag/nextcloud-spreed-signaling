@@ -31,6 +31,8 @@ type Permission string
 
 var (
 	PERMISSION_MAY_PUBLISH_MEDIA  Permission = "publish-media"
+	PERMISSION_MAY_PUBLISH_AUDIO  Permission = "publish-audio"
+	PERMISSION_MAY_PUBLISH_VIDEO  Permission = "publish-video"
 	PERMISSION_MAY_PUBLISH_SCREEN Permission = "publish-screen"
 	PERMISSION_MAY_CONTROL        Permission = "control"
 )

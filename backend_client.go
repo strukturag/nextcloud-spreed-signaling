@@ -56,6 +56,7 @@ const (
 )
 
 type BackendClient struct {
+	hub       *Hub
 	transport *http.Transport
 	version   string
 	backends  *BackendConfiguration
@@ -342,6 +343,9 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("OCS-APIRequest", "true")
 	req.Header.Set("User-Agent", "nextcloud-spreed-signaling/"+b.version)
+	if b.hub != nil {
+		req.Header.Set("X-Spreed-Signaling-Features", strings.Join(b.hub.info.Features, ", "))
+	}
 
 	// Add checksum so the backend can validate the request.
 	AddBackendChecksum(req, data, secret)
