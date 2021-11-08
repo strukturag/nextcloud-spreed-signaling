@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.4.0 - 2021-11-08
+
+### Added
+- Support continent mapping overrides.
+  [#143](https://github.com/strukturag/nextcloud-spreed-signaling/pull/143)
+- Add prometheus metrics
+  [#99](https://github.com/strukturag/nextcloud-spreed-signaling/pull/99)
+- Support separate permissions for publishing audio / video.
+  [#157](https://github.com/strukturag/nextcloud-spreed-signaling/pull/157)
+- Check individual audio/video permissions on change.
+  [#169](https://github.com/strukturag/nextcloud-spreed-signaling/pull/169)
+- CI: Also test with Go 1.17
+  [#153](https://github.com/strukturag/nextcloud-spreed-signaling/pull/153)
+
+### Changed
+- Force HTTPS for backend connections in old-style configurations.
+  [#132](https://github.com/strukturag/nextcloud-spreed-signaling/pull/132)
+- Only include body in 307/308 redirects if going to same host
+  [#134](https://github.com/strukturag/nextcloud-spreed-signaling/pull/134)
+- Stop publishers if session is no longer allowed to publish.
+  [#140](https://github.com/strukturag/nextcloud-spreed-signaling/pull/140)
+- Only allow subscribing if both users are in the same room and call.
+  [#133](https://github.com/strukturag/nextcloud-spreed-signaling/pull/133)
+- Internal clients always may subscribe all streams.
+  [#159](https://github.com/strukturag/nextcloud-spreed-signaling/pull/159)
+- Reduce RTT logging
+- [#167](https://github.com/strukturag/nextcloud-spreed-signaling/pull/167)
+- deps: Migrate to "github.com/golang-jwt/jwt".
+  [#160](https://github.com/strukturag/nextcloud-spreed-signaling/pull/160)
+- Bump coverallsapp/github-action from 1.1.2 to 1.1.3
+  [#131](https://github.com/strukturag/nextcloud-spreed-signaling/pull/131)
+- Bump github.com/google/uuid from 1.2.0 to 1.3.0
+  [#138](https://github.com/strukturag/nextcloud-spreed-signaling/pull/138)
+- Bump github.com/prometheus/client_golang from 1.10.0 to 1.11.0
+  [#144](https://github.com/strukturag/nextcloud-spreed-signaling/pull/144)
+- Bump github.com/nats-io/nats.go from 1.11.0 to 1.12.1
+  [#150](https://github.com/strukturag/nextcloud-spreed-signaling/pull/150)
+- Bump github.com/nats-io/nats.go from 1.12.1 to 1.12.3
+  [#154](https://github.com/strukturag/nextcloud-spreed-signaling/pull/154)
+- Bump github.com/nats-io/nats.go from 1.12.3 to 1.13.0
+  [#158](https://github.com/strukturag/nextcloud-spreed-signaling/pull/158)
+- Bump actions/checkout from 2.3.4 to 2.3.5
+  [#163](https://github.com/strukturag/nextcloud-spreed-signaling/pull/163)
+- Bump actions/checkout from 2.3.5 to 2.4.0
+  [#166](https://github.com/strukturag/nextcloud-spreed-signaling/pull/166)
+
+### Fixed
+- Adjusted easyjson for multiarch builds
+  [#129](https://github.com/strukturag/nextcloud-spreed-signaling/pull/129)
+
+
 ## 0.3.0 - 2021-07-01
 
 ### Added
