@@ -191,7 +191,6 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 	}
 
 	RegisterBackendConfigurationStats()
-	log.Printf("Initial: %d", numBackends)
 	statsBackendsCurrent.Add(float64(numBackends))
 
 	return &BackendConfiguration{
