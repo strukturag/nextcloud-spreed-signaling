@@ -117,10 +117,11 @@ func (c *mcuProxyPubSubCommon) doProcessPayload(client McuClient, msg *PayloadPr
 type mcuProxyPublisher struct {
 	mcuProxyPubSubCommon
 
-	id string
+	id         string
+	mediaTypes MediaType
 }
 
-func newMcuProxyPublisher(id string, streamType string, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
+func newMcuProxyPublisher(id string, streamType string, mediaTypes MediaType, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
 	return &mcuProxyPublisher{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			streamType: streamType,
@@ -128,8 +129,13 @@ func newMcuProxyPublisher(id string, streamType string, proxyId string, conn *mc
 			conn:       conn,
 			listener:   listener,
 		},
-		id: id,
+		id:         id,
+		mediaTypes: mediaTypes,
 	}
+}
+
+func (p *mcuProxyPublisher) HasMedia(mt MediaType) bool {
+	return (p.mediaTypes & mt) == mt
 }
 
 func (p *mcuProxyPublisher) NotifyClosed() {
@@ -920,13 +926,14 @@ func (c *mcuProxyConnection) performSyncRequest(ctx context.Context, msg *ProxyC
 	}
 }
 
-func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int) (McuPublisher, error) {
+func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, mediaTypes MediaType) (McuPublisher, error) {
 	msg := &ProxyClientMessage{
 		Type: "command",
 		Command: &CommandProxyClientMessage{
 			Type:       "create-publisher",
 			StreamType: streamType,
 			Bitrate:    bitrate,
+			MediaTypes: mediaTypes,
 		},
 	}
 
@@ -938,7 +945,7 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 
 	proxyId := response.Command.Id
 	log.Printf("Created %s publisher %s on %s for %s", streamType, proxyId, c.url, id)
-	publisher := newMcuProxyPublisher(id, streamType, proxyId, c, listener)
+	publisher := newMcuProxyPublisher(id, streamType, mediaTypes, proxyId, c, listener)
 	c.publishersLock.Lock()
 	c.publishers[proxyId] = publisher
 	c.publisherIds[id+"|"+streamType] = proxyId
@@ -1679,7 +1686,7 @@ func (m *mcuProxy) removeWaiter(id uint64) {
 	delete(m.publisherWaiters, id)
 }
 
-func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
 	connections := m.getSortedConnections(initiator)
 	for _, conn := range connections {
 		if conn.IsShutdownScheduled() {
@@ -1700,7 +1707,7 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 		} else {
 			bitrate = min(bitrate, maxBitrate)
 		}
-		publisher, err := conn.newPublisher(subctx, listener, id, streamType, bitrate)
+		publisher, err := conn.newPublisher(subctx, listener, id, streamType, bitrate, mediaTypes)
 		if err != nil {
 			log.Printf("Could not create %s publisher for %s on %s: %s", streamType, id, conn.url, err)
 			continue

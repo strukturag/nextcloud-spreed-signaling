@@ -24,15 +24,22 @@ package signaling
 import (
 	"context"
 	"fmt"
+	"log"
+	"sync"
+	"sync/atomic"
 
 	"github.com/dlintw/goconf"
 )
 
 type TestMCU struct {
+	mu         sync.Mutex
+	publishers map[string]*TestMCUPublisher
 }
 
-func NewTestMCU() (Mcu, error) {
-	return &TestMCU{}, nil
+func NewTestMCU() (*TestMCU, error) {
+	return &TestMCU{
+		publishers: make(map[string]*TestMCUPublisher),
+	}, nil
 }
 
 func (m *TestMCU) Start() error {
@@ -55,10 +62,107 @@ func (m *TestMCU) GetStats() interface{} {
 	return nil
 }
 
-func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, initiator McuInitiator) (McuPublisher, error) {
-	return nil, fmt.Errorf("Not implemented")
+func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
+	pub := &TestMCUPublisher{
+		TestMCUClient: TestMCUClient{
+			id:         id,
+			streamType: streamType,
+		},
+
+		mediaTypes: mediaTypes,
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.publishers[id] = pub
+	return pub, nil
+}
+
+func (m *TestMCU) GetPublishers() map[string]*TestMCUPublisher {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := make(map[string]*TestMCUPublisher, len(m.publishers))
+	for id, pub := range m.publishers {
+		result[id] = pub
+	}
+	return result
+}
+
+func (m *TestMCU) GetPublisher(id string) *TestMCUPublisher {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.publishers[id]
 }
 
 func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType string) (McuSubscriber, error) {
 	return nil, fmt.Errorf("Not implemented")
+}
+
+type TestMCUClient struct {
+	closed int32
+
+	id         string
+	streamType string
+}
+
+func (c *TestMCUClient) Id() string {
+	return c.id
+}
+
+func (c *TestMCUClient) StreamType() string {
+	return c.streamType
+}
+
+func (c *TestMCUClient) Close(ctx context.Context) {
+	log.Printf("Close MCU client %s", c.id)
+	atomic.StoreInt32(&c.closed, 1)
+}
+
+func (c *TestMCUClient) isClosed() bool {
+	return atomic.LoadInt32(&c.closed) != 0
+}
+
+type TestMCUPublisher struct {
+	TestMCUClient
+
+	mediaTypes MediaType
+}
+
+func (p *TestMCUPublisher) HasMedia(mt MediaType) bool {
+	return (p.mediaTypes & mt) == mt
+}
+
+func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+	go func() {
+		if p.isClosed() {
+			callback(fmt.Errorf("Already closed"), nil)
+			return
+		}
+
+		switch data.Type {
+		case "offer":
+			sdp := data.Payload["sdp"]
+			if sdp, ok := sdp.(string); ok {
+				if sdp == MockSdpOfferAudioOnly {
+					callback(nil, map[string]interface{}{
+						"type": "answer",
+						"sdp":  MockSdpAnswerAudioOnly,
+					})
+					return
+				} else if sdp == MockSdpOfferAudioAndVideo {
+					callback(nil, map[string]interface{}{
+						"type": "answer",
+						"sdp":  MockSdpAnswerAudioAndVideo,
+					})
+					return
+				}
+			}
+			callback(fmt.Errorf("Offer payload %+v is not implemented", data.Payload), nil)
+		default:
+			callback(fmt.Errorf("Message type %s is not implemented", data.Type), nil)
+		}
+	}()
 }

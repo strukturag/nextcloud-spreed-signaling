@@ -114,6 +114,13 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 	if err != nil {
 		t.Fatal(err)
 	}
+	b, err := NewBackendServer(config, h, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(r); err != nil {
+		t.Fatal(err)
+	}
 
 	go h.Run()
 
@@ -2536,14 +2543,8 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The test MCU doesn't support clients yet, so an error will be returned
-	// to the client trying to send the offer.
-	if msg, err := client1.RunUntilMessage(ctx); err != nil {
+	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioOnly); err != nil {
 		t.Fatal(err)
-	} else {
-		if err := checkMessageError(msg, "client_not_found"); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 
@@ -2611,14 +2612,68 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The test MCU doesn't support clients yet, so an error will be returned
-	// to the client trying to send the offer.
-	if msg, err := client1.RunUntilMessage(ctx); err != nil {
+	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
 		t.Fatal(err)
-	} else {
-		if err := checkMessageError(msg, "client_not_found"); err != nil {
-			t.Fatal(err)
+	}
+
+	// Client is no longer allowed to send video, this will stop the publisher.
+	msg := &BackendServerRoomRequest{
+		Type: "participants",
+		Participants: &BackendRoomParticipantsRequest{
+			Changed: []map[string]interface{}{
+				{
+					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
+				},
+			},
+			Users: []map[string]interface{}{
+				{
+					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
+				},
+			},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res.StatusCode != 200 {
+		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
+	}
+
+	ctx2, cancel2 := context.WithTimeout(ctx, time.Second)
+	defer cancel2()
+
+	pubs := mcu.GetPublishers()
+	if len(pubs) != 1 {
+		t.Fatalf("expected one publisher, got %+v", pubs)
+	}
+
+loop:
+	for {
+		if err := ctx2.Err(); err != nil {
+			t.Errorf("publisher was not closed: %s", err)
 		}
+
+		for _, pub := range pubs {
+			if pub.isClosed() {
+				break loop
+			}
+		}
+
+		// Give some time to async processing.
+		time.Sleep(time.Millisecond)
 	}
 }
 

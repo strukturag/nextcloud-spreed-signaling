@@ -635,7 +635,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		id := uuid.New().String()
-		publisher, err := s.mcu.NewPublisher(ctx, session, id, cmd.StreamType, cmd.Bitrate, &emptyInitiator{})
+		publisher, err := s.mcu.NewPublisher(ctx, session, id, cmd.StreamType, cmd.Bitrate, cmd.MediaTypes, &emptyInitiator{})
 		if err == context.DeadlineExceeded {
 			log.Printf("Timeout while creating %s publisher %s for %s", cmd.StreamType, id, session.PublicId())
 			session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingPublisher))
@@ -695,7 +695,13 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		if session.DeletePublisher(client) == "" {
+		publisher, ok := client.(signaling.McuPublisher)
+		if !ok {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		if session.DeletePublisher(publisher) == "" {
 			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
 			return
 		}

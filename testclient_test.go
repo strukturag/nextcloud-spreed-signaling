@@ -704,3 +704,34 @@ func checkMessageError(message *ServerMessage, msgid string) error {
 
 	return nil
 }
+
+func (c *TestClient) RunUntilAnswer(ctx context.Context, answer string) error {
+	message, err := c.RunUntilMessage(ctx)
+	if err != nil {
+		return err
+	}
+	if err := checkUnexpectedClose(err); err != nil {
+		return err
+	} else if err := checkMessageType(message, "message"); err != nil {
+		return err
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(*message.Message.Data, &data); err != nil {
+		return err
+	}
+
+	if data["type"].(string) != "answer" {
+		return fmt.Errorf("expected data type answer, got %+v", data)
+	}
+
+	payload := data["payload"].(map[string]interface{})
+	if payload["type"].(string) != "answer" {
+		return fmt.Errorf("expected payload type answer, got %+v", payload)
+	}
+	if payload["sdp"].(string) != answer {
+		return fmt.Errorf("expected payload answer %s, got %+v", answer, payload)
+	}
+
+	return nil
+}

@@ -682,9 +682,10 @@ func (c *publisherStatsCounter) RemoveSubscriber(id string) {
 type mcuJanusPublisher struct {
 	mcuJanusClient
 
-	id      string
-	bitrate int
-	stats   publisherStatsCounter
+	id         string
+	bitrate    int
+	mediaTypes MediaType
+	stats      publisherStatsCounter
 }
 
 func (m *mcuJanus) SubscriberConnected(id string, publisher string, streamType string) {
@@ -781,7 +782,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 	return handle, response.Session, roomId, nil
 }
 
-func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
 	}
@@ -806,8 +807,9 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 			closeChan: make(chan bool, 1),
 			deferred:  make(chan func(), 64),
 		},
-		id:      id,
-		bitrate: bitrate,
+		id:         id,
+		bitrate:    bitrate,
+		mediaTypes: mediaTypes,
 	}
 	client.mcuJanusClient.handleEvent = client.handleEvent
 	client.mcuJanusClient.handleHangup = client.handleHangup
@@ -876,6 +878,10 @@ func (p *mcuJanusPublisher) handleMedia(event *janus.MediaMsg) {
 	}
 
 	p.stats.EnableStream(mediaType, event.Receiving)
+}
+
+func (p *mcuJanusPublisher) HasMedia(mt MediaType) bool {
+	return (p.mediaTypes & mt) == mt
 }
 
 func (p *mcuJanusPublisher) NotifyReconnected() {
