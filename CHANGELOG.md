@@ -28,7 +28,7 @@ All notable changes to this project will be documented in this file.
 - Internal clients always may subscribe all streams.
   [#159](https://github.com/strukturag/nextcloud-spreed-signaling/pull/159)
 - Reduce RTT logging
-- [#167](https://github.com/strukturag/nextcloud-spreed-signaling/pull/167)
+  [#167](https://github.com/strukturag/nextcloud-spreed-signaling/pull/167)
 - deps: Migrate to "github.com/golang-jwt/jwt".
   [#160](https://github.com/strukturag/nextcloud-spreed-signaling/pull/160)
 - Bump coverallsapp/github-action from 1.1.2 to 1.1.3
