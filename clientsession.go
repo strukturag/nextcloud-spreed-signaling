@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/url"
 	"strings"
@@ -33,6 +34,7 @@ import (
 	"unsafe"
 
 	"github.com/nats-io/nats.go"
+	"github.com/pion/sdp"
 )
 
 var (
@@ -191,6 +193,14 @@ func (s *ClientSession) HasAnyPermission(permission ...Permission) bool {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	return s.hasAnyPermissionLocked(permission...)
+}
+
+func (s *ClientSession) hasAnyPermissionLocked(permission ...Permission) bool {
+	if len(permission) == 0 {
+		return false
+	}
 
 	for _, p := range permission {
 		if s.hasPermissionLocked(p) {
@@ -671,9 +681,139 @@ func (s *ClientSession) SubscriberClosed(subscriber McuSubscriber) {
 	}
 }
 
-func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, streamType string) (McuPublisher, error) {
+type SdpError struct {
+	message string
+}
+
+func (e *SdpError) Error() string {
+	return e.message
+}
+
+type WrappedSdpError struct {
+	SdpError
+	err error
+}
+
+func (e *WrappedSdpError) Unwrap() error {
+	return e.err
+}
+
+type PermissionError struct {
+	permission Permission
+}
+
+func (e *PermissionError) Permission() Permission {
+	return e.permission
+}
+
+func (e *PermissionError) Error() string {
+	return fmt.Sprintf("permission \"%s\" not found", e.permission)
+}
+
+func (s *ClientSession) isSdpAllowedToSendLocked(payload map[string]interface{}) (MediaType, error) {
+	sdpValue, found := payload["sdp"]
+	if !found {
+		return 0, &SdpError{"payload does not contain a sdp"}
+	}
+	sdpText, ok := sdpValue.(string)
+	if !ok {
+		return 0, &SdpError{"payload does not contain a valid sdp"}
+	}
+	var sdp sdp.SessionDescription
+	if err := sdp.Unmarshal(sdpText); err != nil {
+		return 0, &WrappedSdpError{
+			SdpError: SdpError{
+				message: fmt.Sprintf("could not parse sdp: %s", err),
+			},
+			err: err,
+		}
+	}
+
+	var mediaTypes MediaType
+	mayPublishMedia := s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA)
+	for _, md := range sdp.MediaDescriptions {
+		switch md.MediaName.Media {
+		case "audio":
+			if !mayPublishMedia && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO) {
+				return 0, &PermissionError{PERMISSION_MAY_PUBLISH_AUDIO}
+			}
+
+			mediaTypes |= MediaTypeAudio
+		case "video":
+			if !mayPublishMedia && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_VIDEO) {
+				return 0, &PermissionError{PERMISSION_MAY_PUBLISH_VIDEO}
+			}
+
+			mediaTypes |= MediaTypeVideo
+		}
+	}
+
+	return mediaTypes, nil
+}
+
+func (s *ClientSession) IsAllowedToSend(data *MessageClientMessageData) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if data != nil && data.RoomType == "screen" {
+		if s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
+			return nil
+		}
+		return &PermissionError{PERMISSION_MAY_PUBLISH_SCREEN}
+	} else if s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA) {
+		// Client is allowed to publish any media (audio / video).
+		return nil
+	} else if data != nil && data.Type == "offer" {
+		// Parse SDP to check what user is trying to publish and check permissions accordingly.
+		if _, err := s.isSdpAllowedToSendLocked(data.Payload); err != nil {
+			return err
+		}
+
+		return nil
+	} else {
+		// Candidate or unknown event, check if client is allowed to publish any media.
+		if s.hasAnyPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO) {
+			return nil
+		}
+
+		return fmt.Errorf("permission check failed")
+	}
+}
+
+func (s *ClientSession) CheckOfferType(streamType string, data *MessageClientMessageData) (MediaType, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.checkOfferTypeLocked(streamType, data)
+}
+
+func (s *ClientSession) checkOfferTypeLocked(streamType string, data *MessageClientMessageData) (MediaType, error) {
+	if streamType == streamTypeScreen {
+		if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
+			return 0, &PermissionError{PERMISSION_MAY_PUBLISH_SCREEN}
+		}
+
+		return MediaTypeScreen, nil
+	} else if data != nil && data.Type == "offer" {
+		mediaTypes, err := s.isSdpAllowedToSendLocked(data.Payload)
+		if err != nil {
+			return 0, err
+		}
+
+		return mediaTypes, nil
+	}
+
+	return 0, nil
+}
+
+func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, streamType string, data *MessageClientMessageData) (McuPublisher, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	mediaTypes, err := s.checkOfferTypeLocked(streamType, data)
+	if err != nil {
+		return nil, err
+	}
 
 	publisher, found := s.publishers[streamType]
 	if !found {
@@ -689,7 +829,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 			}
 		}
 		var err error
-		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), streamType, bitrate, client)
+		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), streamType, bitrate, mediaTypes, client)
 		s.mu.Lock()
 		if err != nil {
 			return nil, err
@@ -777,11 +917,15 @@ func (s *ClientSession) processClientMessage(msg *nats.Msg) {
 
 			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA) {
 				if publisher, found := s.publishers[streamTypeVideo]; found {
-					delete(s.publishers, streamTypeVideo)
-					log.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
-					go func() {
-						publisher.Close(context.Background())
-					}()
+					if (publisher.HasMedia(MediaTypeAudio) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO)) ||
+						(publisher.HasMedia(MediaTypeVideo) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_VIDEO)) {
+						delete(s.publishers, streamTypeVideo)
+						log.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
+						go func() {
+							publisher.Close(context.Background())
+						}()
+						return
+					}
 				}
 			}
 			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
@@ -791,6 +935,7 @@ func (s *ClientSession) processClientMessage(msg *nats.Msg) {
 					go func() {
 						publisher.Close(context.Background())
 					}()
+					return
 				}
 			}
 		}()

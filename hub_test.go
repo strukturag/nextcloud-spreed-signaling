@@ -114,6 +114,13 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 	if err != nil {
 		t.Fatal(err)
 	}
+	b, err := NewBackendServer(config, h, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(r); err != nil {
+		t.Fatal(err)
+	}
 
 	go h.Run()
 
@@ -2446,6 +2453,360 @@ func TestClientSendOfferPermissions(t *testing.T) {
 		}
 	} else {
 		t.Errorf("Expected no payload, got %+v", msg)
+	}
+}
+
+func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubForTest(t)
+	defer shutdown()
+
+	mcu, err := NewTestMCU()
+	if err != nil {
+		t.Fatal(err)
+	} else if err := mcu.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer mcu.Stop()
+
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
+		t.Error(err)
+	}
+
+	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+	if session1 == nil {
+		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
+	}
+
+	// Client is allowed to send audio only.
+	session1.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_AUDIO})
+
+	// Client may not send an offer with audio and video.
+	if err := client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, err := client1.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else {
+		if err := checkMessageError(msg, "not_allowed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Client may send an offer (audio only).
+	if err := client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioOnly,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioOnly); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubForTest(t)
+	defer shutdown()
+
+	mcu, err := NewTestMCU()
+	if err != nil {
+		t.Fatal(err)
+	} else if err := mcu.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer mcu.Stop()
+
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
+		t.Error(err)
+	}
+
+	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+	if session1 == nil {
+		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
+	}
+
+	// Client is allowed to send audio and video.
+	session1.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO})
+
+	// Client may send an offer (audio and video).
+	if err := client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
+		t.Fatal(err)
+	}
+
+	// Client is no longer allowed to send video, this will stop the publisher.
+	msg := &BackendServerRoomRequest{
+		Type: "participants",
+		Participants: &BackendRoomParticipantsRequest{
+			Changed: []map[string]interface{}{
+				{
+					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
+				},
+			},
+			Users: []map[string]interface{}{
+				{
+					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
+				},
+			},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res.StatusCode != 200 {
+		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
+	}
+
+	ctx2, cancel2 := context.WithTimeout(ctx, time.Second)
+	defer cancel2()
+
+	pubs := mcu.GetPublishers()
+	if len(pubs) != 1 {
+		t.Fatalf("expected one publisher, got %+v", pubs)
+	}
+
+loop:
+	for {
+		if err := ctx2.Err(); err != nil {
+			t.Errorf("publisher was not closed: %s", err)
+		}
+
+		for _, pub := range pubs {
+			if pub.isClosed() {
+				break loop
+			}
+		}
+
+		// Give some time to async processing.
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubForTest(t)
+	defer shutdown()
+
+	mcu, err := NewTestMCU()
+	if err != nil {
+		t.Fatal(err)
+	} else if err := mcu.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer mcu.Stop()
+
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
+		t.Error(err)
+	}
+
+	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+	if session1 == nil {
+		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
+	}
+
+	// Client is allowed to send audio and video.
+	session1.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_MEDIA})
+
+	// Client may send an offer (audio and video).
+	if err := client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
+		t.Fatal(err)
+	}
+
+	// Client is no longer allowed to send video, this will stop the publisher.
+	msg := &BackendServerRoomRequest{
+		Type: "participants",
+		Participants: &BackendRoomParticipantsRequest{
+			Changed: []map[string]interface{}{
+				{
+					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_CONTROL},
+				},
+			},
+			Users: []map[string]interface{}{
+				{
+					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_CONTROL},
+				},
+			},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res.StatusCode != 200 {
+		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
+	}
+
+	ctx2, cancel2 := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel2()
+
+	pubs := mcu.GetPublishers()
+	if len(pubs) != 1 {
+		t.Fatalf("expected one publisher, got %+v", pubs)
+	}
+
+loop:
+	for {
+		if err := ctx2.Err(); err != nil {
+			if err != context.DeadlineExceeded {
+				t.Errorf("error while waiting for publisher: %s", err)
+			}
+			break
+		}
+
+		for _, pub := range pubs {
+			if pub.isClosed() {
+				t.Errorf("publisher was closed")
+				break loop
+			}
+		}
+
+		// Give some time to async processing.
+		time.Sleep(time.Millisecond)
 	}
 }
 

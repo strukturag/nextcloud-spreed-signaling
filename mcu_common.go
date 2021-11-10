@@ -39,6 +39,14 @@ var (
 	ErrNotConnected = fmt.Errorf("not connected")
 )
 
+type MediaType int
+
+const (
+	MediaTypeAudio  MediaType = 1 << 0
+	MediaTypeVideo  MediaType = 1 << 1
+	MediaTypeScreen MediaType = 1 << 2
+)
+
 type McuListener interface {
 	PublicId() string
 
@@ -63,7 +71,7 @@ type Mcu interface {
 
 	GetStats() interface{}
 
-	NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, initiator McuInitiator) (McuPublisher, error)
+	NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error)
 	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType string) (McuSubscriber, error)
 }
 
@@ -78,6 +86,8 @@ type McuClient interface {
 
 type McuPublisher interface {
 	McuClient
+
+	HasMedia(MediaType) bool
 }
 
 type McuSubscriber interface {
