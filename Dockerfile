@@ -1,11 +1,11 @@
-FROM golang:1.16 AS builder
+FROM golang:1.17 AS builder
 
 WORKDIR /workdir
 
 COPY . .
 RUN make build
 
-FROM alpine:3.13
+FROM alpine:3.14
 
 ENV CONFIG=/config/server.conf
 RUN adduser -D spreedbackend && \
