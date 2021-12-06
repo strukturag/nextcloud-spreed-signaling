@@ -30,7 +30,7 @@ import json
 import subprocess
 import sys
 
-URL = 'https://datahub.io/JohnSnowLabs/country-and-continent-codes-list/r/country-and-continent-codes-list-csv.json'
+URL = 'https://datahub.io/core/country-codes/r/country-codes.json'
 
 def tostr(s):
   if isinstance(s, bytes) and not isinstance(s, str):
@@ -58,8 +58,11 @@ def generate_map(filename):
   data = json.loads(tostr(data))
   continents = {}
   for entry in data:
-    country = entry['Two_Letter_Country_Code']
-    continent = entry['Continent_Code']
+    country = entry['ISO3166-1-Alpha-2']
+    continent = entry['Continent']
+    if country is None and continent is None:
+      continue
+
     continents.setdefault(country, []).append(continent)
 
   out = StringIO()
