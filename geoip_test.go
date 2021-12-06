@@ -104,7 +104,7 @@ func TestGeoLookupContinent(t *testing.T) {
 	tests := map[string][]string{
 		"AU":       {"OC"},
 		"DE":       {"EU"},
-		"RU":       {"EU", "AS"},
+		"RU":       {"EU"},
 		"":         nil,
 		"INVALID ": nil,
 	}
