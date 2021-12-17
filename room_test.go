@@ -397,6 +397,8 @@ func TestRoom_RoomSessionData(t *testing.T) {
 		t.Error(err)
 	} else if err := client.checkMessageJoinedSession(message, hello.Hello.SessionId, expected); err != nil {
 		t.Error(err)
+	} else if message.Event.Join[0].RoomSessionId != roomId+"-"+hello.Hello.SessionId {
+		t.Errorf("Expected join room session id %s, got %+v", roomId+"-"+hello.Hello.SessionId, message.Event.Join[0])
 	}
 
 	session := hub.GetSessionByPublicId(hello.Hello.SessionId)
