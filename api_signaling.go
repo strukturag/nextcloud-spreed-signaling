@@ -632,9 +632,10 @@ type EventServerMessage struct {
 }
 
 type EventServerMessageSessionEntry struct {
-	SessionId string           `json:"sessionid"`
-	UserId    string           `json:"userid"`
-	User      *json.RawMessage `json:"user,omitempty"`
+	SessionId     string           `json:"sessionid"`
+	UserId        string           `json:"userid"`
+	User          *json.RawMessage `json:"user,omitempty"`
+	RoomSessionId string           `json:"roomsessionid,omitempty"`
 }
 
 // MCU-related types
