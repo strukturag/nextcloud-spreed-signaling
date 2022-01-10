@@ -411,6 +411,7 @@ type MessageClientMessageData struct {
 	Type     string                 `json:"type"`
 	Sid      string                 `json:"sid"`
 	RoomType string                 `json:"roomType"`
+	Bitrate  int                    `json:"bitrate,omitempty"`
 	Payload  map[string]interface{} `json:"payload"`
 }
 

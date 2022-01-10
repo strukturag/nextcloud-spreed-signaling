@@ -820,12 +820,18 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		client := s.getClientUnlocked()
 		s.mu.Unlock()
 
-		var bitrate int
+		bitrate := data.Bitrate
 		if backend := s.Backend(); backend != nil {
+			var maxBitrate int
 			if streamType == streamTypeScreen {
-				bitrate = backend.maxScreenBitrate
+				maxBitrate = backend.maxScreenBitrate
 			} else {
-				bitrate = backend.maxStreamBitrate
+				maxBitrate = backend.maxStreamBitrate
+			}
+			if bitrate <= 0 {
+				bitrate = maxBitrate
+			} else if maxBitrate > 0 && bitrate > maxBitrate {
+				bitrate = maxBitrate
 			}
 		}
 		var err error

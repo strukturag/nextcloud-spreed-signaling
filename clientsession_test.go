@@ -22,6 +22,8 @@
 package signaling
 
 import (
+	"context"
+	"net/url"
 	"strconv"
 	"testing"
 )
@@ -118,6 +120,182 @@ func Test_permissionsEqual(t *testing.T) {
 			equal := permissionsEqual(test.a, test.b)
 			if equal != test.equal {
 				t.Errorf("Expected %+v to be %s to %+v but was %s", test.a, equalStrings[test.equal], test.b, equalStrings[equal])
+			}
+		})
+	}
+}
+
+func TestBandwidth_Client(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubForTest(t)
+	defer shutdown()
+
+	mcu, err := NewTestMCU()
+	if err != nil {
+		t.Fatal(err)
+	} else if err := mcu.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer mcu.Stop()
+
+	hub.SetMcu(mcu)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	// We will receive a "joined" event.
+	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
+		t.Error(err)
+	}
+
+	// Client may not send an offer with audio and video.
+	bitrate := 10000
+	if err := client.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Bitrate:  bitrate,
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
+		t.Fatal(err)
+	}
+
+	pub := mcu.GetPublisher(hello.Hello.SessionId)
+	if pub == nil {
+		t.Fatal("Could not find publisher")
+	}
+
+	if pub.bitrate != bitrate {
+		t.Errorf("Expected bitrate %d, got %d", bitrate, pub.bitrate)
+	}
+}
+
+func TestBandwidth_Backend(t *testing.T) {
+	hub, _, _, server, shutdown := CreateHubWithMultipleBackendsForTest(t)
+	defer shutdown()
+
+	u, err := url.Parse(server.URL + "/one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := hub.backend.GetBackend(u)
+	if backend == nil {
+		t.Fatal("Could not get backend")
+	}
+
+	backend.maxScreenBitrate = 1000
+	backend.maxStreamBitrate = 2000
+
+	mcu, err := NewTestMCU()
+	if err != nil {
+		t.Fatal(err)
+	} else if err := mcu.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer mcu.Stop()
+
+	hub.SetMcu(mcu)
+
+	streamTypes := []string{
+		streamTypeVideo,
+		streamTypeScreen,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	for _, streamType := range streamTypes {
+		t.Run(streamType, func(t *testing.T) {
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+
+			params := TestBackendClientAuthParams{
+				UserId: testDefaultUserId,
+			}
+			if err := client.SendHelloParams(server.URL+"/one", "client", params); err != nil {
+				t.Fatal(err)
+			}
+
+			hello, err := client.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Join room by id.
+			roomId := "test-room"
+			if room, err := client.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			// We will receive a "joined" event.
+			if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
+				t.Error(err)
+			}
+
+			// Client may not send an offer with audio and video.
+			bitrate := 10000
+			if err := client.SendMessage(MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello.Hello.SessionId,
+			}, MessageClientMessageData{
+				Type:     "offer",
+				Sid:      "54321",
+				RoomType: streamType,
+				Bitrate:  bitrate,
+				Payload: map[string]interface{}{
+					"sdp": MockSdpOfferAudioAndVideo,
+				},
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
+				t.Fatal(err)
+			}
+
+			pub := mcu.GetPublisher(hello.Hello.SessionId)
+			if pub == nil {
+				t.Fatal("Could not find publisher")
+			}
+
+			var expectBitrate int
+			if streamType == streamTypeVideo {
+				expectBitrate = backend.maxStreamBitrate
+			} else {
+				expectBitrate = backend.maxScreenBitrate
+			}
+			if pub.bitrate != expectBitrate {
+				t.Errorf("Expected bitrate %d, got %d", expectBitrate, pub.bitrate)
 			}
 		})
 	}
