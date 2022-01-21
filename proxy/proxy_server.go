@@ -812,7 +812,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 	mcuClient.SendMessage(ctx, nil, mcuData, func(err error, response map[string]interface{}) {
 		var responseMsg *signaling.ProxyServerMessage
 		if err != nil {
-			log.Printf("Error sending %s to %s client %s: %s", mcuData, mcuClient.StreamType(), payload.ClientId, err)
+			log.Printf("Error sending %+v to %s client %s: %s", mcuData, mcuClient.StreamType(), payload.ClientId, err)
 			responseMsg = message.NewWrappedErrorServerMessage(err)
 		} else {
 			responseMsg = &signaling.ProxyServerMessage{

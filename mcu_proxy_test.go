@@ -67,10 +67,10 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 			{conn_de, conn_jp, conn_at},
 			{conn_jp, conn_de, conn_at},
 		},
-		// Partial continent match
+		// Continent match
 		"RU": {
 			{conn_us, conn_de, conn_jp, conn_at},
-			{conn_de, conn_jp, conn_at, conn_us},
+			{conn_de, conn_at, conn_us, conn_jp},
 		},
 		// No match
 		"AU": {
@@ -125,10 +125,10 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 			{conn_de, conn_jp, conn_at},
 			{conn_jp, conn_de, conn_at},
 		},
-		// Partial continent match
+		// Continent match
 		"RU": {
 			{conn_us, conn_de, conn_jp, conn_at},
-			{conn_de, conn_jp, conn_at, conn_us},
+			{conn_de, conn_at, conn_us, conn_jp},
 		},
 		// No match
 		"AR": {

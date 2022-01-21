@@ -31,6 +31,11 @@ import (
 	"github.com/dlintw/goconf"
 )
 
+const (
+	TestMaxBitrateScreen = 12345678
+	TestMaxBitrateVideo  = 23456789
+)
+
 type TestMCU struct {
 	mu         sync.Mutex
 	publishers map[string]*TestMCUPublisher
@@ -63,6 +68,17 @@ func (m *TestMCU) GetStats() interface{} {
 }
 
 func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
+	var maxBitrate int
+	if streamType == streamTypeScreen {
+		maxBitrate = TestMaxBitrateScreen
+	} else {
+		maxBitrate = TestMaxBitrateVideo
+	}
+	if bitrate <= 0 {
+		bitrate = maxBitrate
+	} else if bitrate > maxBitrate {
+		bitrate = maxBitrate
+	}
 	pub := &TestMCUPublisher{
 		TestMCUClient: TestMCUClient{
 			id:         id,
@@ -70,6 +86,7 @@ func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id str
 		},
 
 		mediaTypes: mediaTypes,
+		bitrate:    bitrate,
 	}
 
 	m.mu.Lock()
@@ -129,6 +146,7 @@ type TestMCUPublisher struct {
 	TestMCUClient
 
 	mediaTypes MediaType
+	bitrate    int
 }
 
 func (p *TestMCUPublisher) HasMedia(mt MediaType) bool {

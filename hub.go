@@ -1186,11 +1186,15 @@ func (h *Hub) notifyUserJoinedRoom(room *Room, session *ClientSession, sessionDa
 	if sessions := room.AddSession(session, sessionData); len(sessions) > 0 {
 		events := make([]*EventServerMessageSessionEntry, 0, len(sessions))
 		for _, s := range sessions {
-			events = append(events, &EventServerMessageSessionEntry{
+			entry := &EventServerMessageSessionEntry{
 				SessionId: s.PublicId(),
 				UserId:    s.UserId(),
 				User:      s.UserData(),
-			})
+			}
+			if s, ok := s.(*ClientSession); ok {
+				entry.RoomSessionId = s.RoomSessionId()
+			}
+			events = append(events, entry)
 		}
 		msg := &ServerMessage{
 			Type: "event",
