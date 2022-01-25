@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.4.1 - 2022-01-25
+
+### Added
+- The room session id is included in "joined" events.
+  [#178](https://github.com/strukturag/nextcloud-spreed-signaling/pull/178)
+- Clients can provide the maximum publishing bandwidth in offer requests.
+  [#183](https://github.com/strukturag/nextcloud-spreed-signaling/pull/183)
+
+### Changed
+- Change source of country -> continent map.
+  [#177](https://github.com/strukturag/nextcloud-spreed-signaling/pull/177)
+- Bump actions/cache from 2.1.6 to 2.1.7
+  [#171](https://github.com/strukturag/nextcloud-spreed-signaling/pull/171)
+
+
 ## 0.4.0 - 2021-11-10
 
 ### Added
