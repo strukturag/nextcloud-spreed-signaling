@@ -1245,6 +1245,26 @@ retry:
 	callback(nil, join_response.Jsep)
 }
 
+func (p *mcuJanusSubscriber) update(ctx context.Context, callback func(error, map[string]interface{})) {
+	handle := p.handle
+	if handle == nil {
+		callback(ErrNotConnected, nil)
+		return
+	}
+
+	configure_msg := map[string]interface{}{
+		"request": "configure",
+		"update":  true,
+	}
+	configure_response, err := handle.Message(ctx, configure_msg, nil)
+	if err != nil {
+		callback(err, nil)
+		return
+	}
+
+	callback(nil, configure_response.Jsep)
+}
+
 func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
 	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
@@ -1256,9 +1276,11 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
-			// TODO Only join the room if there is no sid or it does not match
-			// the subscriber sid; otherwise configure/update the subscriber.
-			p.joinRoom(msgctx, callback)
+			if data.Sid == "" || data.Sid != p.Sid() {
+				p.joinRoom(msgctx, callback)
+			} else {
+				p.update(msgctx, callback)
+			}
 		}
 	case "answer":
 		p.deferred <- func() {
