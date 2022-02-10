@@ -2,6 +2,7 @@
 
 ![Build Status](https://github.com/strukturag/nextcloud-spreed-signaling/workflows/test/badge.svg)
 [![Coverage Status](https://coveralls.io/repos/github/strukturag/nextcloud-spreed-signaling/badge.svg?branch=master)](https://coveralls.io/github/strukturag/nextcloud-spreed-signaling?branch=master)
+[![Documentation Status](https://readthedocs.org/projects/nextcloud-spreed-signaling/badge/?version=latest)](https://nextcloud-spreed-signaling.readthedocs.io/en/latest/?badge=latest)
 
 This repository contains the standalone signaling server which can be used for
 Nextcloud Talk (https://apps.nextcloud.com/apps/spreed).
