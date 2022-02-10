@@ -107,6 +107,8 @@ func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClie
 
 func (c *mcuProxyPubSubCommon) doProcessPayload(client McuClient, msg *PayloadProxyServerMessage) {
 	switch msg.Type {
+	case "offer":
+		c.listener.OnUpdateOffer(client, msg.Payload["offer"].(map[string]interface{}))
 	case "candidate":
 		c.listener.OnIceCandidate(client, msg.Payload["candidate"])
 	default:

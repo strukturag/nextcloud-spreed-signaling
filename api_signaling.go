@@ -647,4 +647,5 @@ type AnswerOfferMessage struct {
 	Type     string                 `json:"type"`
 	RoomType string                 `json:"roomType"`
 	Payload  map[string]interface{} `json:"payload"`
+	Update   bool                   `json:"update,omitempty"`
 }
