@@ -371,14 +371,18 @@ func (h *Hub) SetMcu(mcu Mcu) {
 	if mcu == nil {
 		removeFeature(h.info, ServerFeatureMcu)
 		removeFeature(h.info, ServerFeatureSimulcast)
+		removeFeature(h.info, ServerFeatureUpdateSdp)
 		removeFeature(h.infoInternal, ServerFeatureMcu)
 		removeFeature(h.infoInternal, ServerFeatureSimulcast)
+		removeFeature(h.infoInternal, ServerFeatureUpdateSdp)
 	} else {
 		log.Printf("Using a timeout of %s for MCU requests", h.mcuTimeout)
 		addFeature(h.info, ServerFeatureMcu)
 		addFeature(h.info, ServerFeatureSimulcast)
+		addFeature(h.info, ServerFeatureUpdateSdp)
 		addFeature(h.infoInternal, ServerFeatureMcu)
 		addFeature(h.infoInternal, ServerFeatureSimulcast)
+		addFeature(h.infoInternal, ServerFeatureUpdateSdp)
 	}
 }
 

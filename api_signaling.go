@@ -325,6 +325,7 @@ const (
 	// Features for all clients.
 	ServerFeatureMcu                   = "mcu"
 	ServerFeatureSimulcast             = "simulcast"
+	ServerFeatureUpdateSdp             = "update-sdp"
 	ServerFeatureAudioVideoPermissions = "audio-video-permissions"
 
 	// Features for internal clients only.
