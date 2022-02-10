@@ -1,0 +1,22 @@
+site_name: Nextcloud Spreed Signaling API documentation
+
+theme:
+  name: readthedocs
+  highlightjs: true
+  hljs_languages:
+    - bash
+    - golang
+    - json
+    - make
+    - markdown
+
+markdown_extensions:
+  - admonition
+  - def_list
+  - toc:
+      permalink: "#"
+      baselevel: 2
+
+nav:
+  - 'API documentation':
+      - 'Standalone signaling API': 'standalone-signaling-api-v1.md'
