@@ -832,6 +832,8 @@ func (h *Hub) processMessage(client *Client, data []byte) {
 		h.processControlMsg(client, &message)
 	case "internal":
 		h.processInternalMsg(client, &message)
+	case "transient":
+		h.processTransientMsg(client, &message)
 	case "bye":
 		h.processByeMsg(client, &message)
 	case "hello":
@@ -1653,6 +1655,59 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 	default:
 		log.Printf("Ignore unsupported internal message %+v from %s", msg, session.PublicId())
 		return
+	}
+}
+
+func isAllowedToUpdateTransientData(session Session) bool {
+	if session.ClientType() == HelloClientTypeInternal {
+		// Internal clients are always allowed.
+		return true
+	}
+
+	if session.HasPermission(PERMISSION_TRANSIENT_DATA) {
+		return true
+	}
+
+	return false
+}
+
+func (h *Hub) processTransientMsg(client *Client, message *ClientMessage) {
+	msg := message.TransientData
+	session := client.GetSession()
+	if session == nil {
+		// Client is not connected yet.
+		return
+	}
+
+	room := session.GetRoom()
+	if room == nil {
+		response := message.NewErrorServerMessage(NewError("not_in_room", "No room joined yet."))
+		session.SendMessage(response)
+		return
+	}
+
+	switch msg.Type {
+	case "set":
+		if !isAllowedToUpdateTransientData(session) {
+			sendNotAllowed(session, message, "Not allowed to update transient data.")
+			return
+		}
+
+		if msg.Value == nil {
+			room.SetTransientData(msg.Key, nil)
+		} else {
+			room.SetTransientData(msg.Key, *msg.Value)
+		}
+	case "remove":
+		if !isAllowedToUpdateTransientData(session) {
+			sendNotAllowed(session, message, "Not allowed to update transient data.")
+			return
+		}
+
+		room.RemoveTransientData(msg.Key)
+	default:
+		response := message.NewErrorServerMessage(NewError("ignored", "Unsupported message type."))
+		session.SendMessage(response)
 	}
 }
 

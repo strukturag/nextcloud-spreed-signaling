@@ -35,6 +35,7 @@ var (
 	PERMISSION_MAY_PUBLISH_VIDEO  Permission = "publish-video"
 	PERMISSION_MAY_PUBLISH_SCREEN Permission = "publish-screen"
 	PERMISSION_MAY_CONTROL        Permission = "control"
+	PERMISSION_TRANSIENT_DATA     Permission = "transient-data"
 )
 
 type SessionIdData struct {

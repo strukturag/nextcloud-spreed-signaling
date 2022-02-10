@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"net"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,10 @@ func checkMessageType(message *ServerMessage, expectedType string) error {
 		}
 	case "event":
 		if message.Event == nil {
+			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+		}
+	case "transient":
+		if message.TransientData == nil {
 			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
 		}
 	}
@@ -402,6 +407,36 @@ func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data i
 		Message: &MessageClientMessage{
 			Recipient: recipient,
 			Data:      (*json.RawMessage)(&payload),
+		},
+	}
+	return c.WriteJSON(message)
+}
+
+func (c *TestClient) SetTransientData(key string, value interface{}) error {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+
+	message := &ClientMessage{
+		Id:   "efgh",
+		Type: "transient",
+		TransientData: &TransientDataClientMessage{
+			Type:  "set",
+			Key:   key,
+			Value: (*json.RawMessage)(&payload),
+		},
+	}
+	return c.WriteJSON(message)
+}
+
+func (c *TestClient) RemoveTransientData(key string) error {
+	message := &ClientMessage{
+		Id:   "ijkl",
+		Type: "transient",
+		TransientData: &TransientDataClientMessage{
+			Type: "remove",
+			Key:  key,
 		},
 	}
 	return c.WriteJSON(message)
@@ -760,6 +795,48 @@ func (c *TestClient) RunUntilAnswer(ctx context.Context, answer string) error {
 	}
 	if payload["sdp"].(string) != answer {
 		return fmt.Errorf("expected payload answer %s, got %+v", answer, payload)
+	}
+
+	return nil
+}
+
+func checkMessageTransientSet(message *ServerMessage, key string, value interface{}, oldValue interface{}) error {
+	if err := checkMessageType(message, "transient"); err != nil {
+		return err
+	} else if message.TransientData.Type != "set" {
+		return fmt.Errorf("Expected transient set, got %+v", message.TransientData)
+	} else if message.TransientData.Key != key {
+		return fmt.Errorf("Expected transient set key %s, got %+v", key, message.TransientData)
+	} else if !reflect.DeepEqual(message.TransientData.Value, value) {
+		return fmt.Errorf("Expected transient set value %+v, got %+v", value, message.TransientData.Value)
+	} else if !reflect.DeepEqual(message.TransientData.OldValue, oldValue) {
+		return fmt.Errorf("Expected transient set old value %+v, got %+v", oldValue, message.TransientData.OldValue)
+	}
+
+	return nil
+}
+
+func checkMessageTransientRemove(message *ServerMessage, key string, oldValue interface{}) error {
+	if err := checkMessageType(message, "transient"); err != nil {
+		return err
+	} else if message.TransientData.Type != "remove" {
+		return fmt.Errorf("Expected transient remove, got %+v", message.TransientData)
+	} else if message.TransientData.Key != key {
+		return fmt.Errorf("Expected transient remove key %s, got %+v", key, message.TransientData)
+	} else if !reflect.DeepEqual(message.TransientData.OldValue, oldValue) {
+		return fmt.Errorf("Expected transient remove old value %+v, got %+v", oldValue, message.TransientData.OldValue)
+	}
+
+	return nil
+}
+
+func checkMessageTransientInitial(message *ServerMessage, data map[string]interface{}) error {
+	if err := checkMessageType(message, "transient"); err != nil {
+		return err
+	} else if message.TransientData.Type != "initial" {
+		return fmt.Errorf("Expected transient initial, got %+v", message.TransientData)
+	} else if !reflect.DeepEqual(message.TransientData.Data, data) {
+		return fmt.Errorf("Expected transient initial data %+v, got %+v", data, message.TransientData.Data)
 	}
 
 	return nil
