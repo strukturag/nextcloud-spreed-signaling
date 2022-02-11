@@ -143,12 +143,14 @@ func (b *BackendServer) Start(r *mux.Router) error {
 		"nextcloud-spreed-signaling": "Welcome",
 		"version":                    b.version,
 	}
-	if welcomeMessage, err := json.Marshal(welcome); err != nil {
+	welcomeMessage, err := json.Marshal(welcome)
+	if err != nil {
 		// Should never happen.
 		return err
-	} else {
-		b.welcomeMessage = string(welcomeMessage) + "\n"
 	}
+
+	b.welcomeMessage = string(welcomeMessage) + "\n"
+
 	s := r.PathPrefix("/api/v1").Subrouter()
 	s.HandleFunc("/welcome", b.setComonHeaders(b.welcomeFunc)).Methods("GET")
 	s.HandleFunc("/room/{roomid}", b.setComonHeaders(b.parseRequestBody(b.roomHandler))).Methods("POST")

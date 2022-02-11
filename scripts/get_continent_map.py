@@ -72,7 +72,7 @@ def generate_map(filename):
   out.write('// Source: %s\n' % (URL))
   out.write('\n')
   out.write('var (\n')
-  out.write('\tContinentMap map[string][]string = map[string][]string{\n')
+  out.write('\tContinentMap = map[string][]string{\n')
   for country, continents in sorted(continents.items()):
     value = []
     for continent in continents:

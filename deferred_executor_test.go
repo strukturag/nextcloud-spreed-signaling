@@ -70,7 +70,7 @@ func TestDeferredExecutor_Order(t *testing.T) {
 	}
 
 	done := make(chan bool)
-	for x := 0; x < 10; x += 1 {
+	for x := 0; x < 10; x++ {
 		e.Execute(getFunc(x))
 	}
 
@@ -79,7 +79,7 @@ func TestDeferredExecutor_Order(t *testing.T) {
 	})
 	<-done
 
-	for x := 0; x < 10; x += 1 {
+	for x := 0; x < 10; x++ {
 		if entries[x] != x {
 			t.Errorf("Expected %d at position %d, got %d", x, x, entries[x])
 		}

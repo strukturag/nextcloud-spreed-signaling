@@ -119,8 +119,8 @@ type MessagePayload struct {
 }
 
 type SignalingClient struct {
-	ready_wg *sync.WaitGroup
-	cookie   *securecookie.SecureCookie
+	readyWg *sync.WaitGroup
+	cookie  *securecookie.SecureCookie
 
 	conn *websocket.Conn
 
@@ -135,15 +135,15 @@ type SignalingClient struct {
 	userId           string
 }
 
-func NewSignalingClient(cookie *securecookie.SecureCookie, url string, stats *Stats, ready_wg *sync.WaitGroup, done_wg *sync.WaitGroup) (*SignalingClient, error) {
+func NewSignalingClient(cookie *securecookie.SecureCookie, url string, stats *Stats, readyWg *sync.WaitGroup, doneWg *sync.WaitGroup) (*SignalingClient, error) {
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	client := &SignalingClient{
-		ready_wg: ready_wg,
-		cookie:   cookie,
+		readyWg: readyWg,
+		cookie:  cookie,
 
 		conn: conn,
 
@@ -151,13 +151,13 @@ func NewSignalingClient(cookie *securecookie.SecureCookie, url string, stats *St
 
 		stopChan: make(chan bool),
 	}
-	done_wg.Add(2)
+	doneWg.Add(2)
 	go func() {
-		defer done_wg.Done()
+		defer doneWg.Done()
 		client.readPump()
 	}()
 	go func() {
-		defer done_wg.Done()
+		defer doneWg.Done()
 		client.writePump()
 	}()
 	return client, nil
@@ -240,7 +240,7 @@ func (c *SignalingClient) processHelloMessage(message *signaling.ServerMessage) 
 	c.publicSessionId = c.privateToPublicSessionId(c.privateSessionId)
 	c.userId = message.Hello.UserId
 	log.Printf("Registered as %s (userid %s)", c.privateSessionId, c.userId)
-	c.ready_wg.Done()
+	c.readyWg.Done()
 }
 
 func (c *SignalingClient) PublicSessionId() string {
@@ -381,21 +381,21 @@ func (c *SignalingClient) writePump() {
 }
 
 func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
-	session_ids := make(map[*SignalingClient]string)
+	sessionIds := make(map[*SignalingClient]string)
 	for _, c := range clients {
-		session_ids[c] = c.PublicSessionId()
+		sessionIds[c] = c.PublicSessionId()
 	}
 
 	for atomic.LoadUint32(&c.closed) == 0 {
 		now := time.Now()
 
 		sender := c
-		recipient_idx := pseudorand.Int() % len(clients)
+		recipientIdx := pseudorand.Int() % len(clients)
 		// Make sure a client is not sending to himself
-		for clients[recipient_idx] == sender {
-			recipient_idx = pseudorand.Int() % len(clients)
+		for clients[recipientIdx] == sender {
+			recipientIdx = pseudorand.Int() % len(clients)
 		}
-		recipient := clients[recipient_idx]
+		recipient := clients[recipientIdx]
 		msgdata := MessagePayload{
 			Now: now,
 		}
@@ -405,7 +405,7 @@ func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
 			Message: &signaling.MessageClientMessage{
 				Recipient: signaling.MessageClientMessageRecipient{
 					Type:      "session",
-					SessionId: session_ids[recipient],
+					SessionId: sessionIds[recipient],
 				},
 				Data: (*json.RawMessage)(&data),
 			},
@@ -589,16 +589,16 @@ func main() {
 
 	log.Printf("Starting %d clients", *maxClients)
 
-	var done_wg sync.WaitGroup
-	var ready_wg sync.WaitGroup
+	var doneWg sync.WaitGroup
+	var readyWg sync.WaitGroup
 
 	for i := 0; i < *maxClients; i++ {
-		client, err := NewSignalingClient(cookie, urls[i%len(urls)].String(), stats, &ready_wg, &done_wg)
+		client, err := NewSignalingClient(cookie, urls[i%len(urls)].String(), stats, &readyWg, &doneWg)
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer client.Close()
-		ready_wg.Add(1)
+		readyWg.Add(1)
 
 		request := &signaling.ClientMessage{
 			Type: "hello",
@@ -616,14 +616,14 @@ func main() {
 	}
 
 	log.Println("Clients created")
-	ready_wg.Wait()
+	readyWg.Wait()
 
 	log.Println("All connections established")
 
 	for _, c := range clients {
-		done_wg.Add(1)
+		doneWg.Add(1)
 		go func(c *SignalingClient) {
-			defer done_wg.Done()
+			defer doneWg.Done()
 			c.SendMessages(clients)
 		}(c)
 	}
@@ -646,5 +646,5 @@ loop:
 	for _, c := range clients {
 		c.Close()
 	}
-	done_wg.Wait()
+	doneWg.Wait()
 }

@@ -41,7 +41,7 @@ var (
 	testBackendSecret  = []byte("secret")
 	testInternalSecret = []byte("internal-secret")
 
-	NoMessageReceivedError = fmt.Errorf("No message was received by the server.")
+	ErrNoMessageReceived = fmt.Errorf("no message was received by the server")
 )
 
 type TestBackendClientAuthParams struct {
@@ -87,7 +87,7 @@ func toJsonString(o interface{}) string {
 
 func checkMessageType(message *ServerMessage, expectedType string) error {
 	if message == nil {
-		return NoMessageReceivedError
+		return ErrNoMessageReceived
 	}
 
 	if message.Type != expectedType {
@@ -546,38 +546,39 @@ func (c *TestClient) checkSingleMessageJoined(message *ServerMessage) error {
 func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId string, userId string) error {
 	if err := c.checkSingleMessageJoined(message); err != nil {
 		return err
-	} else {
-		evt := message.Event.Join[0]
-		if sessionId != "" && evt.SessionId != sessionId {
-			return fmt.Errorf("Expected join session id %+v, got %+v",
-				getPubliceSessionIdData(c.hub, sessionId), getPubliceSessionIdData(c.hub, evt.SessionId))
-		}
-		if evt.UserId != userId {
-			return fmt.Errorf("Expected join user id %s, got %+v", userId, evt)
-		}
+	}
+
+	evt := message.Event.Join[0]
+	if sessionId != "" && evt.SessionId != sessionId {
+		return fmt.Errorf("Expected join session id %+v, got %+v",
+			getPubliceSessionIdData(c.hub, sessionId), getPubliceSessionIdData(c.hub, evt.SessionId))
+	}
+	if evt.UserId != userId {
+		return fmt.Errorf("Expected join user id %s, got %+v", userId, evt)
 	}
 	return nil
 }
 
 func (c *TestClient) RunUntilJoined(ctx context.Context, hello ...*HelloServerMessage) error {
 	for len(hello) > 0 {
-		if message, err := c.RunUntilMessage(ctx); err != nil {
+		message, err := c.RunUntilMessage(ctx)
+		if err != nil {
 			return err
-		} else {
-			if err := c.checkSingleMessageJoined(message); err != nil {
-				return err
+		}
+
+		if err := c.checkSingleMessageJoined(message); err != nil {
+			return err
+		}
+		found := false
+		for idx, h := range hello {
+			if err := c.checkMessageJoined(message, h); err == nil {
+				hello = append(hello[:idx], hello[idx+1:]...)
+				found = true
+				break
 			}
-			found := false
-			for idx, h := range hello {
-				if err := c.checkMessageJoined(message, h); err == nil {
-					hello = append(hello[:idx], hello[idx+1:]...)
-					found = true
-					break
-				}
-			}
-			if !found {
-				return fmt.Errorf("expected one of the passed hello sessions, got %+v", message.Event.Join[0])
-			}
+		}
+		if !found {
+			return fmt.Errorf("expected one of the passed hello sessions, got %+v", message.Event.Join[0])
 		}
 	}
 	return nil
@@ -604,11 +605,12 @@ func (c *TestClient) checkMessageRoomLeaveSession(message *ServerMessage, sessio
 }
 
 func (c *TestClient) RunUntilLeft(ctx context.Context, hello *HelloServerMessage) error {
-	if message, err := c.RunUntilMessage(ctx); err != nil {
+	message, err := c.RunUntilMessage(ctx)
+	if err != nil {
 		return err
-	} else {
-		return c.checkMessageRoomLeave(message, hello)
 	}
+
+	return c.checkMessageRoomLeave(message, hello)
 }
 
 func checkMessageRoomlistUpdate(message *ServerMessage) (*RoomEventServerMessage, error) {
@@ -624,11 +626,12 @@ func checkMessageRoomlistUpdate(message *ServerMessage) (*RoomEventServerMessage
 }
 
 func (c *TestClient) RunUntilRoomlistUpdate(ctx context.Context) (*RoomEventServerMessage, error) {
-	if message, err := c.RunUntilMessage(ctx); err != nil {
+	message, err := c.RunUntilMessage(ctx)
+	if err != nil {
 		return nil, err
-	} else {
-		return checkMessageRoomlistUpdate(message)
 	}
+
+	return checkMessageRoomlistUpdate(message)
 }
 
 func checkMessageRoomlistDisinvite(message *ServerMessage) (*RoomDisinviteEventServerMessage, error) {
@@ -644,11 +647,12 @@ func checkMessageRoomlistDisinvite(message *ServerMessage) (*RoomDisinviteEventS
 }
 
 func (c *TestClient) RunUntilRoomlistDisinvite(ctx context.Context) (*RoomDisinviteEventServerMessage, error) {
-	if message, err := c.RunUntilMessage(ctx); err != nil {
+	message, err := c.RunUntilMessage(ctx)
+	if err != nil {
 		return nil, err
-	} else {
-		return checkMessageRoomlistDisinvite(message)
 	}
+
+	return checkMessageRoomlistDisinvite(message)
 }
 
 func checkMessageParticipantsInCall(message *ServerMessage) (*RoomEventServerMessage, error) {
@@ -688,11 +692,12 @@ func checkMessageRoomMessage(message *ServerMessage) (*RoomEventMessage, error) 
 }
 
 func (c *TestClient) RunUntilRoomMessage(ctx context.Context) (*RoomEventMessage, error) {
-	if message, err := c.RunUntilMessage(ctx); err != nil {
+	message, err := c.RunUntilMessage(ctx)
+	if err != nil {
 		return nil, err
-	} else {
-		return checkMessageRoomMessage(message)
 	}
+
+	return checkMessageRoomMessage(message)
 }
 
 func checkMessageError(message *ServerMessage, msgid string) error {

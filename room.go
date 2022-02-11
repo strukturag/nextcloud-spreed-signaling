@@ -84,17 +84,17 @@ type Room struct {
 func GetSubjectForRoomId(roomId string, backend *Backend) string {
 	if backend == nil || backend.IsCompat() {
 		return GetEncodedSubject("room", roomId)
-	} else {
-		return GetEncodedSubject("room", roomId+"|"+backend.Id())
 	}
+
+	return GetEncodedSubject("room", roomId+"|"+backend.Id())
 }
 
 func GetSubjectForBackendRoomId(roomId string, backend *Backend) string {
 	if backend == nil || backend.IsCompat() {
 		return GetEncodedSubject("backend.room", roomId)
-	} else {
-		return GetEncodedSubject("backend.room", roomId+"|"+backend.Id())
 	}
+
+	return GetEncodedSubject("backend.room", roomId+"|"+backend.Id())
 }
 
 func getRoomIdForBackend(id string, backend *Backend) string {

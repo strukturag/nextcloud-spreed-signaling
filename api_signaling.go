@@ -332,10 +332,10 @@ const (
 )
 
 var (
-	DefaultFeatures []string = []string{
+	DefaultFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
 	}
-	DefaultFeaturesInternal []string = []string{
+	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
 	}
 )
@@ -467,10 +467,7 @@ type ControlClientMessage struct {
 }
 
 func (m *ControlClientMessage) CheckValid() error {
-	if err := m.MessageClientMessage.CheckValid(); err != nil {
-		return err
-	}
-	return nil
+	return m.MessageClientMessage.CheckValid()
 }
 
 type ControlServerMessage struct {
@@ -514,10 +511,7 @@ type AddSessionInternalClientMessage struct {
 }
 
 func (m *AddSessionInternalClientMessage) CheckValid() error {
-	if err := m.CommonSessionInternalClientMessage.CheckValid(); err != nil {
-		return err
-	}
-	return nil
+	return m.CommonSessionInternalClientMessage.CheckValid()
 }
 
 type UpdateSessionInternalClientMessage struct {
@@ -527,10 +521,7 @@ type UpdateSessionInternalClientMessage struct {
 }
 
 func (m *UpdateSessionInternalClientMessage) CheckValid() error {
-	if err := m.CommonSessionInternalClientMessage.CheckValid(); err != nil {
-		return err
-	}
-	return nil
+	return m.CommonSessionInternalClientMessage.CheckValid()
 }
 
 type RemoveSessionInternalClientMessage struct {
@@ -540,10 +531,7 @@ type RemoveSessionInternalClientMessage struct {
 }
 
 func (m *RemoveSessionInternalClientMessage) CheckValid() error {
-	if err := m.CommonSessionInternalClientMessage.CheckValid(); err != nil {
-		return err
-	}
-	return nil
+	return m.CommonSessionInternalClientMessage.CheckValid()
 }
 
 type InternalClientMessage struct {

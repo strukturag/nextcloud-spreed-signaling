@@ -98,9 +98,9 @@ func (g *GeoLookup) Close() {
 func (g *GeoLookup) Update() error {
 	if g.isFile {
 		return g.updateFile()
-	} else {
-		return g.updateUrl()
 	}
+
+	return g.updateUrl()
 }
 
 func (g *GeoLookup) updateFile() error {
@@ -233,11 +233,12 @@ func (g *GeoLookup) LookupCountry(ip net.IP) (string, error) {
 }
 
 func LookupContinents(country string) []string {
-	if continents, found := ContinentMap[country]; !found {
+	continents, found := ContinentMap[country]
+	if !found {
 		return nil
-	} else {
-		return continents
 	}
+
+	return continents
 }
 
 func IsValidContinent(continent string) bool {
