@@ -4,7 +4,7 @@ package signaling
 // Source: https://datahub.io/core/country-codes/r/country-codes.json
 
 var (
-	ContinentMap map[string][]string = map[string][]string{
+	ContinentMap = map[string][]string{
 		"AD": {"EU"},
 		"AE": {"AS"},
 		"AF": {"AS"},

@@ -42,7 +42,7 @@ func NewHttpClientPool(constructor func() *http.Client, size int) (*HttpClientPo
 	for size > 0 {
 		c := constructor()
 		p.pool <- c
-		size -= 1
+		size--
 	}
 	return p, nil
 }

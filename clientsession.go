@@ -124,16 +124,17 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 			backendUrl += "/"
 		}
 		backendUrl += PathToOcsSignalingBackend
-		if u, err := url.Parse(backendUrl); err != nil {
+		u, err := url.Parse(backendUrl)
+		if err != nil {
 			return nil, err
-		} else {
-			if strings.Contains(u.Host, ":") && hasStandardPort(u) {
-				u.Host = u.Hostname()
-			}
-
-			s.backendUrl = backendUrl
-			s.parsedBackendUrl = u
 		}
+
+		if strings.Contains(u.Host, ":") && hasStandardPort(u) {
+			u.Host = u.Hostname()
+		}
+
+		s.backendUrl = backendUrl
+		s.parsedBackendUrl = u
 	}
 
 	if err := s.SubscribeNats(hub.nats); err != nil {
@@ -405,9 +406,9 @@ func (s *ClientSession) closeAndWait(wait bool) {
 func GetSubjectForUserId(userId string, backend *Backend) string {
 	if backend == nil || backend.IsCompat() {
 		return GetEncodedSubject("user", userId)
-	} else {
-		return GetEncodedSubject("user", userId+"|"+backend.Id())
 	}
+
+	return GetEncodedSubject("user", userId+"|"+backend.Id())
 }
 
 func (s *ClientSession) SubscribeNats(n NatsClient) error {

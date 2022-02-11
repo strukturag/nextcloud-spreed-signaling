@@ -69,9 +69,10 @@ func (r *BuiltinRoomSessions) DeleteRoomSession(session Session) {
 func (r *BuiltinRoomSessions) GetSessionId(roomSessionId string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if sid, found := r.roomSessionToSessionid[roomSessionId]; !found {
+	sid, found := r.roomSessionToSessionid[roomSessionId]
+	if !found {
 		return "", ErrNoSuchRoomSession
-	} else {
-		return sid, nil
 	}
+
+	return sid, nil
 }

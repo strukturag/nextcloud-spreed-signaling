@@ -51,11 +51,11 @@ const (
 )
 
 var (
-	noCountry string = "no-country"
+	noCountry = "no-country"
 
-	loopback string = "loopback"
+	loopback = "loopback"
 
-	unknownCountry string = "unknown-country"
+	unknownCountry = "unknown-country"
 )
 
 func init() {

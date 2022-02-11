@@ -2061,7 +2061,7 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	defer cancel2()
 
 	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err != nil {
-		if err != NoMessageReceivedError {
+		if err != ErrNoMessageReceived {
 			t.Error(err)
 		}
 	} else {
@@ -2194,7 +2194,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	defer cancel2()
 
 	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err != nil {
-		if err != NoMessageReceivedError {
+		if err != ErrNoMessageReceived {
 			t.Error(err)
 		}
 	} else {
@@ -2310,7 +2310,7 @@ func TestClientTakeoverRoomSession(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel2()
 
-	if message, err := client2.RunUntilMessage(ctx2); err != nil && err != NoMessageReceivedError && err != context.DeadlineExceeded {
+	if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 		t.Error(err)
 	} else if message != nil {
 		t.Errorf("Expected no message, got %+v", message)
@@ -3049,7 +3049,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err != nil {
-		if err != NoMessageReceivedError {
+		if err != ErrNoMessageReceived {
 			t.Error(err)
 		}
 	} else {
@@ -3059,7 +3059,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel3()
 	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err != nil {
-		if err != NoMessageReceivedError {
+		if err != ErrNoMessageReceived {
 			t.Error(err)
 		}
 	} else {
@@ -3159,7 +3159,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err != nil {
-		if err != NoMessageReceivedError {
+		if err != ErrNoMessageReceived {
 			t.Error(err)
 		}
 	} else {
@@ -3169,7 +3169,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel3()
 	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err != nil {
-		if err != NoMessageReceivedError {
+		if err != ErrNoMessageReceived {
 			t.Error(err)
 		}
 	} else {

@@ -68,9 +68,9 @@ func createListener(addr string) (net.Listener, error) {
 	if addr[0] == '/' {
 		os.Remove(addr)
 		return net.Listen("unix", addr)
-	} else {
-		return net.Listen("tcp", addr)
 	}
+
+	return net.Listen("tcp", addr)
 }
 
 func createTLSListener(addr string, certFile, keyFile string) (net.Listener, error) {
@@ -84,9 +84,9 @@ func createTLSListener(addr string, certFile, keyFile string) (net.Listener, err
 	if addr[0] == '/' {
 		os.Remove(addr)
 		return tls.Listen("unix", addr, &config)
-	} else {
-		return tls.Listen("tcp", addr, &config)
 	}
+
+	return tls.Listen("tcp", addr, &config)
 }
 
 func main() {

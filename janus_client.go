@@ -454,6 +454,7 @@ func (gateway *JanusGateway) recv() {
 			if base.Handle == 0 {
 				// Nope. No idea what's going on...
 				// Error()
+				log.Printf("Received event without handle, ignoring: %s", decodeBuffer.String())
 			} else {
 				// Lookup Session
 				gateway.Lock()
@@ -489,6 +490,7 @@ func (gateway *JanusGateway) recv() {
 			gateway.Unlock()
 			if transaction == nil {
 				// Error()
+				log.Printf("Received event for unknown transaction, ignoring: %s", decodeBuffer.String())
 				continue
 			}
 

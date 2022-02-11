@@ -291,18 +291,17 @@ func (m *mcuJanus) Start() error {
 	}
 
 	log.Printf("Connected to %s %s by %s", info.Name, info.VersionString, info.Author)
-	if plugin, found := info.Plugins[pluginVideoRoom]; !found {
+	plugin, found := info.Plugins[pluginVideoRoom]
+	if !found {
 		return fmt.Errorf("Plugin %s is not supported", pluginVideoRoom)
-	} else {
-		log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
 	}
 
+	log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
 	if !info.DataChannels {
 		return fmt.Errorf("Data channels are not supported")
-	} else {
-		log.Println("Data channels are supported")
 	}
 
+	log.Println("Data channels are supported")
 	if !info.FullTrickle {
 		log.Println("WARNING: Full-Trickle is NOT enabled in Janus!")
 	} else {
@@ -709,9 +708,9 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamTyp
 func min(a, b int) int {
 	if a <= b {
 		return a
-	} else {
-		return b
 	}
+
+	return b
 }
 
 func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType string, bitrate int) (*JanusHandle, uint64, uint64, error) {

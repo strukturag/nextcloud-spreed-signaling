@@ -139,7 +139,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 		if sessionLimit > 0 {
 			log.Printf("Allow a maximum of %d sessions", sessionLimit)
 		}
-		numBackends += 1
+		numBackends++
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
 		for host, configuredBackends := range getConfiguredHosts(backendIds, config) {
 			backends[host] = append(backends[host], configuredBackends...)
@@ -186,7 +186,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 			if sessionLimit > 0 {
 				log.Printf("Allow a maximum of %d sessions", sessionLimit)
 			}
-			numBackends += 1
+			numBackends++
 		}
 	}
 
