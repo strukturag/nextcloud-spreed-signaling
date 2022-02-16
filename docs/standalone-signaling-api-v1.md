@@ -657,6 +657,104 @@ Message format (Server -> Client, receive message)
 - The `userid` is omitted if a message was sent by an anonymous user.
 
 
+## Transient data
+
+Transient data can be used to share data in a room that is valid while sessions
+are still connected to the room. This can be used for example to have a shared
+state in a meeting without having each client to request data from the Nextcloud
+server. The data is automatically cleared when the last session disconnects.
+
+Sessions must be in a room and need the permission flag `transient-data` in
+order to set or remove values. All sessions in a room automatically receive
+all transient data update events.
+
+Transient data is supported if the server returns the `transient-data` feature
+id in the [hello response](#establish-connection).
+
+
+### Set value
+
+Message format (Client -> Server):
+
+    {
+      "type": "transient",
+      "transient": {
+        "type": "set",
+        "key": "sample-key",
+        "value": "any-json-object"
+      }
+    }
+
+- The `key` must be a string.
+- The `value` can be of any type (i.e. string, number, array, object, etc.).
+- Requests to set a value that is already present for the key are silently
+  ignored.
+
+
+Message format (Server -> Client):
+
+    {
+      "type": "transient",
+      "transient": {
+        "type": "set",
+        "key": "sample-key",
+        "value": "any-json-object",
+        "oldvalue": "the-previous-value-if-any"
+      }
+    }
+
+- The `oldvalue` is only present if a previous value was stored for the key.
+
+
+### Remove value
+
+Message format (Client -> Server):
+
+    {
+      "type": "transient",
+      "transient": {
+        "type": "remove",
+        "key": "sample-key"
+      }
+    }
+
+- The `key` must be a string.
+- Requests to remove a key that doesn't exist are silently ignored.
+
+
+Message format (Server -> Client):
+
+    {
+      "type": "transient",
+      "transient": {
+        "type": "remove",
+        "key": "sample-key",
+        "oldvalue": "the-previous-value-if-any"
+      }
+    }
+
+- The `oldvalue` is only present if a previous value was stored for the key.
+
+
+### Initial data
+
+When sessions initially join a room, they receive the current state of the
+transient data.
+
+Message format (Server -> Client):
+
+    {
+      "type": "transient",
+      "transient": {
+        "type": "initial",
+        "data": {
+          "sample-key": "sample-value",
+          ...
+        }
+      }
+    }
+
+
 # Internal signaling server API
 
 The signaling server provides an internal API that can be called from Nextcloud
