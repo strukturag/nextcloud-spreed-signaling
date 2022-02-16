@@ -53,6 +53,8 @@ type ClientMessage struct {
 	Control *ControlClientMessage `json:"control,omitempty"`
 
 	Internal *InternalClientMessage `json:"internal,omitempty"`
+
+	TransientData *TransientDataClientMessage `json:"transient,omitempty"`
 }
 
 func (m *ClientMessage) CheckValid() error {
@@ -89,6 +91,12 @@ func (m *ClientMessage) CheckValid() error {
 		if m.Internal == nil {
 			return fmt.Errorf("internal missing")
 		} else if err := m.Internal.CheckValid(); err != nil {
+			return err
+		}
+	case "transient":
+		if m.TransientData == nil {
+			return fmt.Errorf("transient missing")
+		} else if err := m.TransientData.CheckValid(); err != nil {
 			return err
 		}
 	}
@@ -138,6 +146,8 @@ type ServerMessage struct {
 	Control *ControlServerMessage `json:"control,omitempty"`
 
 	Event *EventServerMessage `json:"event,omitempty"`
+
+	TransientData *TransientDataServerMessage `json:"transient,omitempty"`
 }
 
 func (r *ServerMessage) CloseAfterSend(session Session) bool {
@@ -326,6 +336,7 @@ const (
 	ServerFeatureMcu                   = "mcu"
 	ServerFeatureSimulcast             = "simulcast"
 	ServerFeatureAudioVideoPermissions = "audio-video-permissions"
+	ServerFeatureTransientData         = "transient-data"
 
 	// Features for internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -334,9 +345,11 @@ const (
 var (
 	DefaultFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
+		ServerFeatureTransientData,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
+		ServerFeatureTransientData,
 	}
 )
 
@@ -635,4 +648,37 @@ type AnswerOfferMessage struct {
 	Type     string                 `json:"type"`
 	RoomType string                 `json:"roomType"`
 	Payload  map[string]interface{} `json:"payload"`
+}
+
+// Type "transient"
+
+type TransientDataClientMessage struct {
+	Type string `json:"type"`
+
+	Key   string           `json:"key,omitempty"`
+	Value *json.RawMessage `json:"value,omitempty"`
+}
+
+func (m *TransientDataClientMessage) CheckValid() error {
+	switch m.Type {
+	case "set":
+		if m.Key == "" {
+			return fmt.Errorf("key missing")
+		}
+		// A "nil" value is allowed and will remove the key.
+	case "remove":
+		if m.Key == "" {
+			return fmt.Errorf("key missing")
+		}
+	}
+	return nil
+}
+
+type TransientDataServerMessage struct {
+	Type string `json:"type"`
+
+	Key      string                 `json:"key,omitempty"`
+	OldValue interface{}            `json:"oldvalue,omitempty"`
+	Value    interface{}            `json:"value,omitempty"`
+	Data     map[string]interface{} `json:"data,omitempty"`
 }

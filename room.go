@@ -79,6 +79,8 @@ type Room struct {
 
 	// Timestamps of last NATS backend requests for the different types.
 	lastNatsRoomRequests map[string]int64
+
+	transientData *TransientData
 }
 
 func GetSubjectForRoomId(roomId string, backend *Backend) string {
@@ -139,6 +141,8 @@ func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient,
 		backendSubscription: backendSubscription,
 
 		lastNatsRoomRequests: make(map[string]int64),
+
+		transientData: NewTransientData(),
 	}
 	go room.run()
 
@@ -331,6 +335,9 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 				r.publishSessionFlagsChanged(session)
 			}
 		}
+		if clientSession, ok := session.(*ClientSession); ok {
+			r.transientData.AddListener(clientSession)
+		}
 	}
 	return result
 }
@@ -363,6 +370,9 @@ func (r *Room) RemoveSession(session Session) bool {
 	delete(r.internalSessions, session)
 	if virtualSession, ok := session.(*VirtualSession); ok {
 		delete(r.virtualSessions, virtualSession)
+	}
+	if clientSession, ok := session.(*ClientSession); ok {
+		r.transientData.RemoveListener(clientSession)
 	}
 	delete(r.inCallSessions, session)
 	delete(r.roomSessionData, sid)
@@ -791,4 +801,12 @@ func (r *Room) notifyInternalRoomDeleted() {
 	for s := range r.internalSessions {
 		s.(*ClientSession).SendMessage(msg)
 	}
+}
+
+func (r *Room) SetTransientData(key string, value interface{}) {
+	r.transientData.Set(key, value)
+}
+
+func (r *Room) RemoveTransientData(key string) {
+	r.transientData.Remove(key)
 }

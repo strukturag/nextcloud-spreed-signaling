@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"net"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,10 @@ func checkMessageType(message *ServerMessage, expectedType string) error {
 		}
 	case "event":
 		if message.Event == nil {
+			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+		}
+	case "transient":
+		if message.TransientData == nil {
 			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
 		}
 	}
@@ -407,6 +412,36 @@ func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data i
 	return c.WriteJSON(message)
 }
 
+func (c *TestClient) SetTransientData(key string, value interface{}) error {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+
+	message := &ClientMessage{
+		Id:   "efgh",
+		Type: "transient",
+		TransientData: &TransientDataClientMessage{
+			Type:  "set",
+			Key:   key,
+			Value: (*json.RawMessage)(&payload),
+		},
+	}
+	return c.WriteJSON(message)
+}
+
+func (c *TestClient) RemoveTransientData(key string) error {
+	message := &ClientMessage{
+		Id:   "ijkl",
+		Type: "transient",
+		TransientData: &TransientDataClientMessage{
+			Type: "remove",
+			Key:  key,
+		},
+	}
+	return c.WriteJSON(message)
+}
+
 func (c *TestClient) DrainMessages(ctx context.Context) error {
 	select {
 	case err := <-c.readErrorChan:
@@ -559,27 +594,51 @@ func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId
 	return nil
 }
 
-func (c *TestClient) RunUntilJoined(ctx context.Context, hello ...*HelloServerMessage) error {
+func (c *TestClient) RunUntilJoinedAndReturnIgnored(ctx context.Context, hello ...*HelloServerMessage) ([]*ServerMessage, error) {
+	var ignored []*ServerMessage
 	for len(hello) > 0 {
 		message, err := c.RunUntilMessage(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		if err := c.checkSingleMessageJoined(message); err != nil {
-			return err
+		if err := checkMessageType(message, "event"); err != nil {
+			ignored = append(ignored, message)
+			continue
+		} else if message.Event.Target != "room" {
+			return nil, fmt.Errorf("Expected event target room, got %+v", message.Event)
+		} else if message.Event.Type != "join" {
+			return nil, fmt.Errorf("Expected event type join, got %+v", message.Event)
 		}
-		found := false
-		for idx, h := range hello {
-			if err := c.checkMessageJoined(message, h); err == nil {
-				hello = append(hello[:idx], hello[idx+1:]...)
-				found = true
-				break
+
+		for len(message.Event.Join) > 0 {
+			found := false
+		loop:
+			for idx, h := range hello {
+				for idx2, evt := range message.Event.Join {
+					if evt.SessionId == h.SessionId && evt.UserId == h.UserId {
+						hello = append(hello[:idx], hello[idx+1:]...)
+						message.Event.Join = append(message.Event.Join[:idx2], message.Event.Join[idx2+1:]...)
+						found = true
+						break loop
+					}
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("expected one of the passed hello sessions, got %+v", message.Event.Join[0])
 			}
 		}
-		if !found {
-			return fmt.Errorf("expected one of the passed hello sessions, got %+v", message.Event.Join[0])
-		}
+	}
+	return ignored, nil
+}
+
+func (c *TestClient) RunUntilJoined(ctx context.Context, hello ...*HelloServerMessage) error {
+	unexpected, err := c.RunUntilJoinedAndReturnIgnored(ctx, hello...)
+	if err != nil {
+		return err
+	}
+	if len(unexpected) > 0 {
+		return fmt.Errorf("Received unexpected messages: %+v", unexpected)
 	}
 	return nil
 }
@@ -736,6 +795,48 @@ func (c *TestClient) RunUntilAnswer(ctx context.Context, answer string) error {
 	}
 	if payload["sdp"].(string) != answer {
 		return fmt.Errorf("expected payload answer %s, got %+v", answer, payload)
+	}
+
+	return nil
+}
+
+func checkMessageTransientSet(message *ServerMessage, key string, value interface{}, oldValue interface{}) error {
+	if err := checkMessageType(message, "transient"); err != nil {
+		return err
+	} else if message.TransientData.Type != "set" {
+		return fmt.Errorf("Expected transient set, got %+v", message.TransientData)
+	} else if message.TransientData.Key != key {
+		return fmt.Errorf("Expected transient set key %s, got %+v", key, message.TransientData)
+	} else if !reflect.DeepEqual(message.TransientData.Value, value) {
+		return fmt.Errorf("Expected transient set value %+v, got %+v", value, message.TransientData.Value)
+	} else if !reflect.DeepEqual(message.TransientData.OldValue, oldValue) {
+		return fmt.Errorf("Expected transient set old value %+v, got %+v", oldValue, message.TransientData.OldValue)
+	}
+
+	return nil
+}
+
+func checkMessageTransientRemove(message *ServerMessage, key string, oldValue interface{}) error {
+	if err := checkMessageType(message, "transient"); err != nil {
+		return err
+	} else if message.TransientData.Type != "remove" {
+		return fmt.Errorf("Expected transient remove, got %+v", message.TransientData)
+	} else if message.TransientData.Key != key {
+		return fmt.Errorf("Expected transient remove key %s, got %+v", key, message.TransientData)
+	} else if !reflect.DeepEqual(message.TransientData.OldValue, oldValue) {
+		return fmt.Errorf("Expected transient remove old value %+v, got %+v", oldValue, message.TransientData.OldValue)
+	}
+
+	return nil
+}
+
+func checkMessageTransientInitial(message *ServerMessage, data map[string]interface{}) error {
+	if err := checkMessageType(message, "transient"); err != nil {
+		return err
+	} else if message.TransientData.Type != "initial" {
+		return fmt.Errorf("Expected transient initial, got %+v", message.TransientData)
+	} else if !reflect.DeepEqual(message.TransientData.Data, data) {
+		return fmt.Errorf("Expected transient initial data %+v, got %+v", data, message.TransientData.Data)
 	}
 
 	return nil
