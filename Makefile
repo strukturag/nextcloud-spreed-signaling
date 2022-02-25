@@ -2,6 +2,7 @@ all: build
 
 GO := $(shell which go)
 GOPATH := "$(CURDIR)/vendor:$(CURDIR)"
+GOFMT := "$(shell dirname "$(GO)")/gofmt"
 GOOS ?= linux
 GOARCH ?= amd64
 BINDIR := "$(CURDIR)/bin"
@@ -64,7 +65,7 @@ get:
 	GOPATH=$(GOPATH) $(GO) get $(PACKAGE)
 
 fmt: hook
-	$(GO) fmt .
+	$(GOFMT) -s -w *.go client proxy server
 
 vet: common
 	$(GO) vet .

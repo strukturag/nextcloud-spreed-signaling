@@ -134,7 +134,7 @@ func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer map[strin
 		Payload: &signaling.PayloadProxyServerMessage{
 			Type:     "offer",
 			ClientId: id,
-			Payload:  map[string]interface{}{
+			Payload: map[string]interface{}{
 				"offer": offer,
 			},
 		},
