@@ -50,6 +50,8 @@ const (
 type McuListener interface {
 	PublicId() string
 
+	OnUpdateOffer(client McuClient, offer map[string]interface{})
+
 	OnIceCandidate(client McuClient, candidate interface{})
 	OnIceCompleted(client McuClient)
 

@@ -335,6 +335,7 @@ const (
 	// Features for all clients.
 	ServerFeatureMcu                   = "mcu"
 	ServerFeatureSimulcast             = "simulcast"
+	ServerFeatureUpdateSdp             = "update-sdp"
 	ServerFeatureAudioVideoPermissions = "audio-video-permissions"
 	ServerFeatureTransientData         = "transient-data"
 
@@ -648,6 +649,7 @@ type AnswerOfferMessage struct {
 	Type     string                 `json:"type"`
 	RoomType string                 `json:"roomType"`
 	Payload  map[string]interface{} `json:"payload"`
+	Update   bool                   `json:"update,omitempty"`
 }
 
 // Type "transient"

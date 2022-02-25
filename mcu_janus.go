@@ -1062,7 +1062,12 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 			log.Printf("Subscriber %d: associated room has been destroyed, closing", p.handleId)
 			go p.Close(ctx)
 		case "event":
-			// Ignore events like selected substream / temporal layer.
+			// Handle renegotiations, but ignore other events like selected
+			// substream / temporal layer.
+			if getPluginStringValue(event.Plugindata, pluginVideoRoom, "configured") == "ok" &&
+				event.Jsep != nil && event.Jsep["type"] == "offer" && event.Jsep["sdp"] != nil {
+				p.listener.OnUpdateOffer(p, event.Jsep)
+			}
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:

@@ -564,6 +564,34 @@ func (s *ClientSession) SetClient(client *Client) *Client {
 	return prev
 }
 
+func (s *ClientSession) sendOffer(client McuClient, sender string, streamType string, offer map[string]interface{}) {
+	offer_message := &AnswerOfferMessage{
+		To:       s.PublicId(),
+		From:     sender,
+		Type:     "offer",
+		RoomType: streamType,
+		Payload:  offer,
+		Update:   true,
+	}
+	offer_data, err := json.Marshal(offer_message)
+	if err != nil {
+		log.Println("Could not serialize offer", offer_message, err)
+		return
+	}
+	response_message := &ServerMessage{
+		Type: "message",
+		Message: &MessageServerMessage{
+			Sender: &MessageServerMessageSender{
+				Type:      "session",
+				SessionId: sender,
+			},
+			Data: (*json.RawMessage)(&offer_data),
+		},
+	}
+
+	s.sendMessageUnlocked(response_message)
+}
+
 func (s *ClientSession) sendCandidate(client McuClient, sender string, streamType string, candidate interface{}) {
 	candidate_message := &AnswerOfferMessage{
 		To:       s.PublicId(),
@@ -627,6 +655,18 @@ func (s *ClientSession) SendMessages(messages []*ServerMessage) bool {
 		s.sendMessageUnlocked(message)
 	}
 	return true
+}
+
+func (s *ClientSession) OnUpdateOffer(client McuClient, offer map[string]interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, sub := range s.subscribers {
+		if sub.Id() == client.Id() {
+			s.sendOffer(client, sub.Publisher(), client.StreamType(), offer)
+			return
+		}
+	}
 }
 
 func (s *ClientSession) OnIceCandidate(client McuClient, candidate interface{}) {
