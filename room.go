@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -607,6 +608,78 @@ func (r *Room) PublishUsersInCallChanged(changed []map[string]interface{}, users
 				RoomId:  r.id,
 				Changed: changed,
 				Users:   r.addInternalSessions(users),
+			},
+		},
+	}
+	if err := r.publish(message); err != nil {
+		log.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+	}
+}
+
+func (r *Room) PublishUsersInCallChangedAll(inCall int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if inCall&FlagInCall != 0 {
+		// All connected sessions join the call.
+		var joined []string
+		for _, session := range r.sessions {
+			if _, ok := session.(*ClientSession); !ok {
+				continue
+			}
+
+			if session.ClientType() == HelloClientTypeInternal {
+				continue
+			}
+
+			if !r.inCallSessions[session] {
+				r.inCallSessions[session] = true
+				joined = append(joined, session.PublicId())
+			}
+		}
+
+		if len(joined) == 0 {
+			return
+		}
+
+		log.Printf("Sessions %v joined call %s", joined, r.id)
+	} else if len(r.inCallSessions) > 0 {
+		// Perform actual leaving asynchronously.
+		ch := make(chan *ClientSession, 1)
+		go func() {
+			for {
+				session := <-ch
+				if session == nil {
+					break
+				}
+
+				session.LeaveCall()
+			}
+		}()
+
+		for session := range r.inCallSessions {
+			if clientSession, ok := session.(*ClientSession); ok {
+				ch <- clientSession
+			}
+		}
+		close(ch)
+		r.inCallSessions = make(map[Session]bool)
+	} else {
+		// All sessions already left the call, no need to notify.
+		return
+	}
+
+	inCallMsg := json.RawMessage(strconv.FormatInt(int64(inCall), 10))
+
+	message := &ServerMessage{
+		Type: "event",
+		Event: &EventServerMessage{
+			Target: "participants",
+			Type:   "update",
+			Update: &RoomEventServerMessage{
+				RoomId: r.id,
+				InCall: &inCallMsg,
+				All:    true,
 			},
 		},
 	}

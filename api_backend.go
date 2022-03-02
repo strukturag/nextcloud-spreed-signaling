@@ -127,6 +127,7 @@ type BackendRoomDeleteRequest struct {
 type BackendRoomInCallRequest struct {
 	// TODO(jojo): Change "InCall" to "int" when #914 has landed in NC Talk.
 	InCall  json.RawMessage          `json:"incall,omitempty"`
+	All     bool                     `json:"all,omitempty"`
 	Changed []map[string]interface{} `json:"changed,omitempty"`
 	Users   []map[string]interface{} `json:"users,omitempty"`
 }

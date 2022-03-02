@@ -445,16 +445,18 @@ func (b *BackendServer) fixupUserSessions(cache *ConcurrentStringStringMap, user
 }
 
 func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
-	timeout := time.Second
+	if !request.InCall.All {
+		timeout := time.Second
 
-	var cache ConcurrentStringStringMap
-	// Convert (Nextcloud) session ids to signaling session ids.
-	request.InCall.Users = b.fixupUserSessions(&cache, request.InCall.Users, timeout)
-	// Entries in "Changed" are most likely already fetched through the "Users" list.
-	request.InCall.Changed = b.fixupUserSessions(&cache, request.InCall.Changed, timeout)
+		var cache ConcurrentStringStringMap
+		// Convert (Nextcloud) session ids to signaling session ids.
+		request.InCall.Users = b.fixupUserSessions(&cache, request.InCall.Users, timeout)
+		// Entries in "Changed" are most likely already fetched through the "Users" list.
+		request.InCall.Changed = b.fixupUserSessions(&cache, request.InCall.Changed, timeout)
 
-	if len(request.InCall.Users) == 0 && len(request.InCall.Changed) == 0 {
-		return nil
+		if len(request.InCall.Users) == 0 && len(request.InCall.Changed) == 0 {
+			return nil
+		}
 	}
 
 	return b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), request)
