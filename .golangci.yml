@@ -13,7 +13,7 @@ linters-settings:
       - name: context-keys-type
       - name: dot-imports
       - name: error-return
-      - name: error-strings
+      #- name: error-strings
       - name: error-naming
       - name: exported
       - name: if-return
