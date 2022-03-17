@@ -20,3 +20,4 @@ markdown_extensions:
 nav:
   - 'API documentation':
       - 'Standalone signaling API': 'standalone-signaling-api-v1.md'
+  - 'Prometheus Metrics': 'prometheus-metrics.md'
