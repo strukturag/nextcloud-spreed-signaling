@@ -73,6 +73,7 @@ var (
 	TimeoutCreatingSubscriber = signaling.NewError("timeout", "Timeout creating subscriber.")
 	TokenAuthFailed           = signaling.NewError("auth_failed", "The token could not be authenticated.")
 	TokenExpired              = signaling.NewError("token_expired", "The token is expired.")
+	TokenNotValidYet          = signaling.NewError("token_not_valid_yet", "The token is not valid yet.")
 	UnknownClient             = signaling.NewError("unknown_client", "Unknown client id given.")
 	UnsupportedCommand        = signaling.NewError("bad_request", "Unsupported command received.")
 	UnsupportedMessage        = signaling.NewError("bad_request", "Unsupported message received.")
@@ -865,8 +866,15 @@ func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*Pro
 			reason = "unsupported-issuer"
 			return nil, fmt.Errorf("No key found for issuer")
 		}
+
 		return tokenKey.key, nil
 	})
+	if err, ok := err.(*jwt.ValidationError); ok {
+		if err.Errors&jwt.ValidationErrorIssuedAt == jwt.ValidationErrorIssuedAt {
+			statsTokenErrorsTotal.WithLabelValues("not-valid-yet").Inc()
+			return nil, TokenNotValidYet
+		}
+	}
 	if err != nil {
 		statsTokenErrorsTotal.WithLabelValues(reason).Inc()
 		return nil, TokenAuthFailed
