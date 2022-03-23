@@ -9,6 +9,7 @@ GOVERSION := $(shell "$(GO)" env GOVERSION | sed "s|go||" )
 BINDIR := "$(CURDIR)/bin"
 VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
+PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
 else
@@ -73,9 +74,15 @@ fmt: hook
 
 vet: common
 	$(GO) vet .
+	$(GO) vet $(PACKAGENAME)/client
+	$(GO) vet $(PACKAGENAME)/proxy
+	$(GO) vet $(PACKAGENAME)/server
 
 test: vet common
 	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) .
+	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) $(PACKAGENAME)/client
+	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) $(PACKAGENAME)/proxy
+	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) $(PACKAGENAME)/server
 
 cover: vet common
 	rm -f cover.out && \
