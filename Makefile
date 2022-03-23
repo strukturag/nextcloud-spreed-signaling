@@ -5,6 +5,7 @@ GOPATH := "$(CURDIR)/vendor:$(CURDIR)"
 GOFMT := "$(shell dirname "$(GO)")/gofmt"
 GOOS ?= linux
 GOARCH ?= amd64
+GOVERSION := $(shell "$(GO)" env GOVERSION | sed "s|go||" )
 BINDIR := "$(CURDIR)/bin"
 VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
@@ -49,6 +50,9 @@ hook:
 
 ./vendor/bin/easyjson:
 	GOPATH=$(GOPATH) $(GO) get -u github.com/mailru/easyjson/...
+	@if dpkg --compare-versions "$(GOVERSION)" "ge" "1.17" ; then \
+		GOPATH=$(GOPATH) $(GO) install github.com/mailru/easyjson/...; \
+	fi
 
 continentmap.go:
 	$(CURDIR)/scripts/get_continent_map.py $@
