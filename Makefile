@@ -10,6 +10,8 @@ BINDIR := "$(CURDIR)/bin"
 VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
 PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
+ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
+
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
 else
@@ -73,26 +75,20 @@ fmt: hook
 	$(GOFMT) -s -w *.go client proxy server
 
 vet: common
-	$(GO) vet .
-	$(GO) vet $(PACKAGENAME)/client
-	$(GO) vet $(PACKAGENAME)/proxy
-	$(GO) vet $(PACKAGENAME)/server
+	$(GO) vet $(ALL_PACKAGES)
 
 test: vet common
-	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) .
-	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) $(PACKAGENAME)/client
-	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) $(PACKAGENAME)/proxy
-	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) $(PACKAGENAME)/server
+	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) $(ALL_PACKAGES)
 
 cover: vet common
 	rm -f cover.out && \
-	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out . && \
+	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
 	GOPATH=$(GOPATH) $(GO) tool cover -func=cover.out
 
 coverhtml: vet common
 	rm -f cover.out && \
-	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out . && \
+	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
 	GOPATH=$(GOPATH) $(GO) tool cover -html=cover.out -o coverage.html
 
