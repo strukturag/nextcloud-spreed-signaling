@@ -338,6 +338,7 @@ const (
 	ServerFeatureUpdateSdp             = "update-sdp"
 	ServerFeatureAudioVideoPermissions = "audio-video-permissions"
 	ServerFeatureTransientData         = "transient-data"
+	ServerFeatureInCallAll             = "incall-all"
 
 	// Features for internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -347,10 +348,12 @@ var (
 	DefaultFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
 		ServerFeatureTransientData,
+		ServerFeatureInCallAll,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
 		ServerFeatureTransientData,
+		ServerFeatureInCallAll,
 	}
 )
 
@@ -591,6 +594,8 @@ type RoomEventServerMessage struct {
 	InCall  *json.RawMessage         `json:"incall,omitempty"`
 	Changed []map[string]interface{} `json:"changed,omitempty"`
 	Users   []map[string]interface{} `json:"users,omitempty"`
+
+	All bool `json:"all,omitempty"`
 }
 
 const (

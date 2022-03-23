@@ -1936,7 +1936,24 @@ func (h *Hub) processRoomDeleted(message *BackendServerRoomRequest) {
 
 func (h *Hub) processRoomInCallChanged(message *BackendServerRoomRequest) {
 	room := message.room
-	room.PublishUsersInCallChanged(message.InCall.Changed, message.InCall.Users)
+	if message.InCall.All {
+		var flags int
+		if err := json.Unmarshal(message.InCall.InCall, &flags); err != nil {
+			var incall bool
+			if err := json.Unmarshal(message.InCall.InCall, &incall); err != nil {
+				log.Printf("Unsupported InCall flags type: %+v, ignoring", string(message.InCall.InCall))
+				return
+			}
+
+			if incall {
+				flags = FlagInCall
+			}
+		}
+
+		room.PublishUsersInCallChangedAll(flags)
+	} else {
+		room.PublishUsersInCallChanged(message.InCall.Changed, message.InCall.Users)
+	}
 }
 
 func (h *Hub) processRoomParticipants(message *BackendServerRoomRequest) {

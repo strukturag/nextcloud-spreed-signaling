@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -31,6 +32,7 @@ import (
 	"net"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -839,5 +841,22 @@ func checkMessageTransientInitial(message *ServerMessage, data map[string]interf
 		return fmt.Errorf("Expected transient initial data %+v, got %+v", data, message.TransientData.Data)
 	}
 
+	return nil
+}
+
+func checkMessageInCallAll(message *ServerMessage, roomId string, inCall int) error {
+	if err := checkMessageType(message, "event"); err != nil {
+		return err
+	} else if message.Event.Type != "update" {
+		return fmt.Errorf("Expected update event, got %+v", message.Event)
+	} else if message.Event.Target != "participants" {
+		return fmt.Errorf("Expected participants update event, got %+v", message.Event)
+	} else if message.Event.Update.RoomId != roomId {
+		return fmt.Errorf("Expected participants update event for room %s, got %+v", roomId, message.Event.Update)
+	} else if !message.Event.Update.All {
+		return fmt.Errorf("Expected participants update event for all, got %+v", message.Event.Update)
+	} else if !bytes.Equal(*message.Event.Update.InCall, []byte(strconv.FormatInt(int64(inCall), 10))) {
+		return fmt.Errorf("Expected incall flags %d, got %+v", inCall, message.Event.Update)
+	}
 	return nil
 }

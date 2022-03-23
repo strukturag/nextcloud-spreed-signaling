@@ -555,6 +555,29 @@ for both the signaling session id (`sessionId`) and the Nextcloud session id
 (`nextcloudSessionId`).
 
 
+### All participants "incall" changed events
+
+When the `inCall` flag of all participants is changed from the backend (see
+[backend request](#in-call-state-of-all-participants-changed) below),
+a dedicated event is sent that doesn't include information on all participants,
+but an `all` flag.
+
+Message format (Server -> Client, incall change):
+
+    {
+      "type": "event"
+      "event": {
+        "target": "participants",
+        "type": "update",
+        "update": [
+          "roomid": "the-room-id",
+          "incall": new-incall-state,
+          "all": true
+        ]
+      }
+    }
+
+
 ## Room messages
 
 The server can notify clients about events that happened in a room. Currently
@@ -880,6 +903,23 @@ Message format (Backend -> Server)
         "users": [
           ...list of users in the room...
         ]
+      }
+    }
+
+
+### In call state of all participants changed
+
+This can be used to notify when all participants changed their `inCall` flag
+to the same new value (available if the server returns the `incall-all` feature
+id in the [hello response](#establish-connection)).
+
+Message format (Backend -> Server)
+
+    {
+      "type": "incall"
+      "incall" {
+        "incall": new-incall-state,
+        "all": true
       }
     }
 

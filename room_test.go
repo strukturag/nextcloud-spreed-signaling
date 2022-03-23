@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"strconv"
 	"testing"
 	"time"
 
@@ -420,4 +421,150 @@ func TestRoom_RoomSessionData(t *testing.T) {
 		t.Errorf("expected 1 entries, got %d", entries)
 	}
 	wg.Wait()
+}
+
+func TestRoom_InCallAll(t *testing.T) {
+	hub, _, router, server, shutdown := CreateHubForTest(t)
+	defer shutdown()
+
+	config, err := getTestConfig(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewBackendServer(config, hub, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(router); err != nil {
+		t.Fatal(err)
+	}
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+
+	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+		t.Fatal(err)
+	}
+
+	hello2, err := client2.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
+		t.Error(err)
+	}
+
+	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
+		t.Error(err)
+	}
+
+	if err := client1.RunUntilJoined(ctx, hello2.Hello); err != nil {
+		t.Error(err)
+	}
+
+	// Simulate backend request from Nextcloud to update the "inCall" flag of all participants.
+	msg1 := &BackendServerRoomRequest{
+		Type: "incall",
+		InCall: &BackendRoomInCallRequest{
+			All:    true,
+			InCall: json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
+		},
+	}
+
+	data1, err := json.Marshal(msg1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res1, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res1.Body.Close()
+	body1, err := ioutil.ReadAll(res1.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res1.StatusCode != 200 {
+		t.Errorf("Expected successful request, got %s: %s", res1.Status, string(body1))
+	}
+
+	if msg, err := client1.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else if err := checkMessageInCallAll(msg, roomId, FlagInCall); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, err := client2.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else if err := checkMessageInCallAll(msg, roomId, FlagInCall); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate backend request from Nextcloud to update the "inCall" flag of all participants.
+	msg2 := &BackendServerRoomRequest{
+		Type: "incall",
+		InCall: &BackendRoomInCallRequest{
+			All:    true,
+			InCall: json.RawMessage(strconv.FormatInt(0, 10)),
+		},
+	}
+
+	data2, err := json.Marshal(msg2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res2, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	body2, err := ioutil.ReadAll(res2.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res2.StatusCode != 200 {
+		t.Errorf("Expected successful request, got %s: %s", res2.Status, string(body2))
+	}
+
+	if msg, err := client1.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else if err := checkMessageInCallAll(msg, roomId, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, err := client2.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else if err := checkMessageInCallAll(msg, roomId, 0); err != nil {
+		t.Fatal(err)
+	}
 }
