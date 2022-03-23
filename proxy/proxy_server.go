@@ -357,7 +357,9 @@ func (s *ProxyServer) Stop() {
 		return
 	}
 
-	s.mcu.Stop()
+	if s.mcu != nil {
+		s.mcu.Stop()
+	}
 	s.tokens.Close()
 }
 
