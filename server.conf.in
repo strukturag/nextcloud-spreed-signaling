@@ -158,6 +158,13 @@ connectionsperhost = 8
 # connecting to proxy servers.
 #token_key = privkey.pem
 
+# For url type "static": Enable DNS discovery on hostname of configured URL.
+# If the hostname resolves to multiple IP addresses, a connection is established
+# to each of them.
+# Changes to the DNS are monitored regularly and proxy connections are created
+# or deleted as necessary.
+#dnsdiscovery = true
+
 # For url type "etcd": Comma-separated list of static etcd endpoints to
 # connect to.
 #endpoints = 127.0.0.1:2379,127.0.0.1:22379,127.0.0.1:32379
