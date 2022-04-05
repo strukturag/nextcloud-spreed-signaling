@@ -2,7 +2,8 @@ all: build
 
 GO := $(shell which go)
 GOPATH := $(shell "$(GO)" env GOPATH)
-GOFMT := "$(shell dirname "$(GO)")/gofmt"
+GODIR := $(shell dirname "$(GO)")
+GOFMT := "$(GODIR)/gofmt"
 GOOS ?= linux
 GOARCH ?= amd64
 GOVERSION := $(shell "$(GO)" env GOVERSION | sed "s|go||" )
@@ -91,7 +92,7 @@ coverhtml: vet common
 	$(GO) tool cover -html=cover.out -o coverage.html
 
 %_easyjson.go: %.go $(GOPATHBIN)/bin/easyjson
-	"$(GOPATHBIN)/easyjson" -all $*.go
+	PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
 
 common: \
 	api_signaling_easyjson.go \
