@@ -27,7 +27,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"io/ioutil"
-	"os"
 	"testing"
 	"time"
 
@@ -43,16 +42,12 @@ const (
 )
 
 func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, func()) {
-	tempdir, err := ioutil.TempDir("", "test")
-	if err != nil {
-		t.Fatalf("could not create temporary folder: %s", err)
-	}
+	tempdir := t.TempDir()
 	var server *ProxyServer
 	shutdown := func() {
 		if server != nil {
 			server.Stop()
 		}
-		os.RemoveAll(tempdir)
 	}
 
 	r := mux.NewRouter()
