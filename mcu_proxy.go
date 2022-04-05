@@ -144,6 +144,11 @@ func (p *mcuProxyPublisher) HasMedia(mt MediaType) bool {
 	return (p.mediaTypes & mt) == mt
 }
 
+func (p *mcuProxyPublisher) SetMedia(mt MediaType) {
+	// TODO: Also update mediaTypes on proxy.
+	p.mediaTypes = mt
+}
+
 func (p *mcuProxyPublisher) NotifyClosed() {
 	p.listener.PublisherClosed(p)
 	p.conn.removePublisher(p)

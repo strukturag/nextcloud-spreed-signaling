@@ -895,6 +895,8 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 			s.publishers[streamType] = publisher
 		}
 		log.Printf("Publishing %s as %s for session %s", streamType, publisher.Id(), s.PublicId())
+	} else {
+		publisher.SetMedia(mediaTypes)
 	}
 
 	return publisher, nil

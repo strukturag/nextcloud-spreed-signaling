@@ -883,6 +883,10 @@ func (p *mcuJanusPublisher) HasMedia(mt MediaType) bool {
 	return (p.mediaTypes & mt) == mt
 }
 
+func (p *mcuJanusPublisher) SetMedia(mt MediaType) {
+	p.mediaTypes = mt
+}
+
 func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
 	handle, session, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
