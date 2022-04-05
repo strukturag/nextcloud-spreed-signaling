@@ -1,7 +1,7 @@
 all: build
 
 GO := $(shell which go)
-GOPATH := "$(CURDIR)/vendor:$(CURDIR)"
+GOPATH := $(shell "$(GO)" env GOPATH)
 GOFMT := "$(shell dirname "$(GO)")/gofmt"
 GOOS ?= linux
 GOARCH ?= amd64
@@ -43,19 +43,17 @@ TESTARGS := $(TESTARGS) -count $(COUNT)
 endif
 
 ifeq ($(GOARCH), amd64)
-VENDORBIN := $(CURDIR)/vendor/bin
+GOPATHBIN := $(GOPATH)/bin
 else
-VENDORBIN := $(CURDIR)/vendor/bin/$(GOOS)_$(GOARCH)
+GOPATHBIN := $(GOPATH)/bin/$(GOOS)_$(GOARCH)
 endif
 
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
-./vendor/bin/easyjson:
-	GOPATH=$(GOPATH) $(GO) get -u github.com/mailru/easyjson/...
-	@if dpkg --compare-versions "$(GOVERSION)" "ge" "1.17" ; then \
-		GOPATH=$(GOPATH) $(GO) install github.com/mailru/easyjson/...; \
-	fi
+$(GOPATHBIN)/bin/easyjson:
+	$(GO) get -u -d github.com/mailru/easyjson/...
+	$(GO) install github.com/mailru/easyjson/...
 
 continentmap.go:
 	$(CURDIR)/scripts/get_continent_map.py $@
@@ -69,7 +67,7 @@ check-continentmap:
 	rm -rf $$TMP
 
 get:
-	GOPATH=$(GOPATH) $(GO) get $(PACKAGE)
+	$(GO) get $(PACKAGE)
 
 fmt: hook
 	$(GOFMT) -s -w *.go client proxy server
@@ -82,18 +80,18 @@ test: vet common
 
 cover: vet common
 	rm -f cover.out && \
-	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
+	$(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
-	GOPATH=$(GOPATH) $(GO) tool cover -func=cover.out
+	$(GO) tool cover -func=cover.out
 
 coverhtml: vet common
 	rm -f cover.out && \
-	GOPATH=$(GOPATH) $(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
+	$(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
-	GOPATH=$(GOPATH) $(GO) tool cover -html=cover.out -o coverage.html
+	$(GO) tool cover -html=cover.out -o coverage.html
 
-%_easyjson.go: %.go ./vendor/bin/easyjson
-	PATH=$(shell dirname $(GO)):$(PATH) GOPATH=$(GOPATH) "$(VENDORBIN)/easyjson" -all $*.go
+%_easyjson.go: %.go $(GOPATHBIN)/bin/easyjson
+	"$(GOPATHBIN)/easyjson" -all $*.go
 
 common: \
 	api_signaling_easyjson.go \
@@ -101,18 +99,19 @@ common: \
 	api_proxy_easyjson.go \
 	natsclient_easyjson.go \
 	room_easyjson.go
+	$(GO) mod tidy
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
 
 client: common $(BINDIR)
-	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/client ./client/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/client ./client/...
 
 server: common $(BINDIR)
-	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/signaling ./server/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/signaling ./server/...
 
 proxy: common $(BINDIR)
-	GOPATH=$(GOPATH) $(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./proxy/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./proxy/...
 
 clean:
 	rm -f *_easyjson.go
