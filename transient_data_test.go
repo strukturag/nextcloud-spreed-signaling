@@ -68,8 +68,7 @@ func Test_TransientData(t *testing.T) {
 }
 
 func Test_TransientMessages(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()

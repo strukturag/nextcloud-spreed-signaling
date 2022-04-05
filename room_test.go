@@ -73,8 +73,7 @@ func TestRoom_InCall(t *testing.T) {
 }
 
 func TestRoom_Update(t *testing.T) {
-	hub, _, router, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	if err != nil {
@@ -211,8 +210,7 @@ loop:
 }
 
 func TestRoom_Delete(t *testing.T) {
-	hub, _, router, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	if err != nil {
@@ -354,8 +352,7 @@ loop:
 }
 
 func TestRoom_RoomSessionData(t *testing.T) {
-	hub, _, router, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	if err != nil {
@@ -424,8 +421,7 @@ func TestRoom_RoomSessionData(t *testing.T) {
 }
 
 func TestRoom_InCallAll(t *testing.T) {
-	hub, _, router, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	if err != nil {

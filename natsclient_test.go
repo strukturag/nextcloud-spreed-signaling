@@ -31,28 +31,28 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/test"
 )
 
-func startLocalNatsServer() (string, func()) {
+func startLocalNatsServer(t *testing.T) string {
 	opts := natsserver.DefaultTestOptions
 	opts.Port = -1
 	opts.Cluster.Name = "testing"
 	srv := natsserver.RunServer(&opts)
-	shutdown := func() {
+	t.Cleanup(func() {
 		srv.Shutdown()
 		srv.WaitForShutdown()
-	}
-	return srv.ClientURL(), shutdown
+	})
+	return srv.ClientURL()
 }
 
-func CreateLocalNatsClientForTest(t *testing.T) (NatsClient, func()) {
-	url, shutdown := startLocalNatsServer()
+func CreateLocalNatsClientForTest(t *testing.T) NatsClient {
+	url := startLocalNatsServer(t)
 	result, err := NewNatsClient(url)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return result, func() {
+	t.Cleanup(func() {
 		result.Close()
-		shutdown()
-	}
+	})
+	return result
 }
 
 func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
@@ -106,8 +106,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 
 func TestNatsClient_Subscribe(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func() {
-		client, shutdown := CreateLocalNatsClientForTest(t)
-		defer shutdown()
+		client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_Subscribe(t, client)
 	})
@@ -123,8 +122,7 @@ func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
 
 func TestNatsClient_PublishAfterClose(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func() {
-		client, shutdown := CreateLocalNatsClientForTest(t)
-		defer shutdown()
+		client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_PublishAfterClose(t, client)
 	})
@@ -141,8 +139,7 @@ func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
 
 func TestNatsClient_SubscribeAfterClose(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func() {
-		client, shutdown := CreateLocalNatsClientForTest(t)
-		defer shutdown()
+		client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_SubscribeAfterClose(t, client)
 	})
@@ -164,8 +161,7 @@ func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
 
 func TestNatsClient_BadSubjects(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func() {
-		client, shutdown := CreateLocalNatsClientForTest(t)
-		defer shutdown()
+		client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_BadSubjects(t, client)
 	})

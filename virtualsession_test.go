@@ -28,8 +28,7 @@ import (
 )
 
 func TestVirtualSession(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
@@ -311,8 +310,7 @@ func TestVirtualSession(t *testing.T) {
 }
 
 func TestVirtualSessionCleanup(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")

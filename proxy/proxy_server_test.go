@@ -41,14 +41,14 @@ const (
 	TokenIdForTest     = "foo"
 )
 
-func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, func()) {
+func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey) {
 	tempdir := t.TempDir()
 	var server *ProxyServer
-	shutdown := func() {
+	t.Cleanup(func() {
 		if server != nil {
 			server.Stop()
 		}
-	}
+	})
 
 	r := mux.NewRouter()
 	key, err := rsa.GenerateKey(rand.Reader, KeypairSizeForTest)
@@ -89,12 +89,11 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, func())
 	if server, err = NewProxyServer(r, "0.0", config); err != nil {
 		t.Fatalf("could not create server: %s", err)
 	}
-	return server, key, shutdown
+	return server, key
 }
 
 func TestTokenInFuture(t *testing.T) {
-	server, key, shutdown := newProxyServerForTest(t)
-	defer shutdown()
+	server, key := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
 		StandardClaims: jwt.StandardClaims{
