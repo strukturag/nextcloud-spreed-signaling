@@ -28,7 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -232,7 +232,7 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 		return nil, ErrUnsupportedContentType
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Could not read response body from %s: %s", capUrl.String(), err)
 		return nil, err
@@ -363,7 +363,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		return ErrUnsupportedContentType
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Could not read response body from %s: %s", req.URL, err)
 		return err

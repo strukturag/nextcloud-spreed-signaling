@@ -24,7 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -183,7 +183,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 
 func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Request, *BackendClientRequest) *BackendClientResponse) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatal("Error reading body: ", err)
 		}
@@ -2644,7 +2644,7 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -2773,7 +2773,7 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}

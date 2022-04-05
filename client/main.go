@@ -27,7 +27,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	pseudorand "math/rand"
 	"net"
@@ -418,7 +418,7 @@ func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
 
 func registerAuthHandler(router *mux.Router) {
 	router.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Println("Error reading body:", err)
 			return

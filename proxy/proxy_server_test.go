@@ -26,7 +26,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
@@ -59,7 +59,7 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, func())
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	}
-	privkey, err := ioutil.TempFile(tempdir, "privkey*.pem")
+	privkey, err := os.CreateTemp(tempdir, "privkey*.pem")
 	if err != nil {
 		t.Fatalf("could not create temporary file for private key: %s", err)
 	}
@@ -75,7 +75,7 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, func())
 		Type:  "RSA PUBLIC KEY",
 		Bytes: pubData,
 	}
-	pubkey, err := ioutil.TempFile(tempdir, "pubkey*.pem")
+	pubkey, err := os.CreateTemp(tempdir, "pubkey*.pem")
 	if err != nil {
 		t.Fatalf("could not create temporary file for public key: %s", err)
 	}

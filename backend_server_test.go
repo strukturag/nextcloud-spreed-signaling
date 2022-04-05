@@ -29,7 +29,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -178,7 +178,7 @@ func TestBackendServer_NoAuth(t *testing.T) {
 	}
 
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -207,7 +207,7 @@ func TestBackendServer_InvalidAuth(t *testing.T) {
 	}
 
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -257,7 +257,7 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 	}
 
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -277,7 +277,7 @@ func TestBackendServer_InvalidBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -304,7 +304,7 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -361,7 +361,7 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -456,7 +456,7 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -557,7 +557,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -601,7 +601,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err = ioutil.ReadAll(res.Body)
+	body, err = io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -672,7 +672,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -754,7 +754,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -883,7 +883,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -971,7 +971,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -1075,7 +1075,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			return
 		}
 		defer res.Body.Close()
-		body, err := ioutil.ReadAll(res.Body)
+		body, err := io.ReadAll(res.Body)
 		if err != nil {
 			t.Error(err)
 		}
@@ -1128,7 +1128,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			return
 		}
 		defer res.Body.Close()
-		body, err := ioutil.ReadAll(res.Body)
+		body, err := io.ReadAll(res.Body)
 		if err != nil {
 			t.Error(err)
 		}
@@ -1248,7 +1248,7 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -1283,7 +1283,7 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}

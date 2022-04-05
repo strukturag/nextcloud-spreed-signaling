@@ -23,8 +23,8 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"sort"
 	"sync/atomic"
 
@@ -73,7 +73,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 			continue
 		}
 
-		keyData, err := ioutil.ReadFile(filename)
+		keyData, err := os.ReadFile(filename)
 		if err != nil {
 			if !ignoreErrors {
 				return fmt.Errorf("Could not read public key from %s: %s", filename, err)
