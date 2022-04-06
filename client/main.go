@@ -95,7 +95,7 @@ func (s *Stats) reset(start time.Time) {
 	s.start = start
 }
 
-func (s *Stats) Log() {
+func (s *Stats) Log(logger signaling.Logger) {
 	now := time.Now()
 	duration := now.Sub(s.start)
 	perSec := uint64(duration / time.Second)
@@ -107,7 +107,7 @@ func (s *Stats) Log() {
 	sentMessages := totalSentMessages - s.resetSentMessages
 	totalRecvMessages := atomic.AddUint64(&s.numRecvMessages, 0)
 	recvMessages := totalRecvMessages - s.resetRecvMessages
-	log.Printf("Stats: sent=%d (%d/sec), recv=%d (%d/sec), delta=%d",
+	logger.Infof("Stats: sent=%d (%d/sec), recv=%d (%d/sec), delta=%d",
 		totalSentMessages, sentMessages/perSec,
 		totalRecvMessages, recvMessages/perSec,
 		totalSentMessages-totalRecvMessages)
@@ -119,6 +119,8 @@ type MessagePayload struct {
 }
 
 type SignalingClient struct {
+	logger signaling.Logger
+
 	readyWg *sync.WaitGroup
 	cookie  *securecookie.SecureCookie
 
@@ -135,13 +137,15 @@ type SignalingClient struct {
 	userId           string
 }
 
-func NewSignalingClient(cookie *securecookie.SecureCookie, url string, stats *Stats, readyWg *sync.WaitGroup, doneWg *sync.WaitGroup) (*SignalingClient, error) {
+func NewSignalingClient(logger signaling.Logger, cookie *securecookie.SecureCookie, url string, stats *Stats, readyWg *sync.WaitGroup, doneWg *sync.WaitGroup) (*SignalingClient, error) {
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	client := &SignalingClient{
+		logger: logger.With("url", url),
+
 		readyWg: readyWg,
 		cookie:  cookie,
 
@@ -207,13 +211,13 @@ func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
 	case "message":
 		c.processMessageMessage(message)
 	case "bye":
-		log.Printf("Received bye: %+v", message.Bye)
+		c.logger.Infof("Received bye: %+v", message.Bye)
 		c.Close()
 	case "error":
-		log.Printf("Received error: %+v", message.Error)
+		c.logger.Errorf("Received error: %+v", message.Error)
 		c.Close()
 	default:
-		log.Printf("Unsupported message type: %+v", *message)
+		c.logger.Warnf("Unsupported message type: %+v", *message)
 	}
 }
 
@@ -239,7 +243,7 @@ func (c *SignalingClient) processHelloMessage(message *signaling.ServerMessage) 
 	c.privateSessionId = message.Hello.ResumeId
 	c.publicSessionId = c.privateToPublicSessionId(c.privateSessionId)
 	c.userId = message.Hello.UserId
-	log.Printf("Registered as %s (userid %s)", c.privateSessionId, c.userId)
+	c.logger.Infof("Registered as %s (userid %s)", c.privateSessionId, c.userId)
 	c.readyWg.Done()
 }
 
@@ -252,14 +256,14 @@ func (c *SignalingClient) PublicSessionId() string {
 func (c *SignalingClient) processMessageMessage(message *signaling.ServerMessage) {
 	var msg MessagePayload
 	if err := json.Unmarshal(*message.Message.Data, &msg); err != nil {
-		log.Println("Error in unmarshal", err)
+		c.logger.Errorf("Error in unmarshal %s", err)
 		return
 	}
 
 	now := time.Now()
 	duration := now.Sub(msg.Now)
 	if duration > messageReportDuration {
-		log.Printf("Message took %s", duration)
+		c.logger.Warnf("Message took %s", duration)
 	}
 }
 
@@ -286,13 +290,13 @@ func (c *SignalingClient) readPump() {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				log.Printf("Error: %v", err)
+				c.logger.Errorf("Error: %v", err)
 			}
 			break
 		}
 
 		if messageType != websocket.TextMessage {
-			log.Println("Unsupported message type", messageType)
+			c.logger.Warnf("Unsupported message type %d", messageType)
 			break
 		}
 
@@ -300,7 +304,7 @@ func (c *SignalingClient) readPump() {
 		if _, err := decodeBuffer.ReadFrom(reader); err != nil {
 			c.lock.Lock()
 			if c.conn != nil {
-				log.Println("Error reading message", err)
+				c.logger.Errorf("Error reading message %s", err)
 			}
 			c.lock.Unlock()
 			break
@@ -308,7 +312,7 @@ func (c *SignalingClient) readPump() {
 
 		var message signaling.ServerMessage
 		if err := message.UnmarshalJSON(decodeBuffer.Bytes()); err != nil {
-			log.Printf("Error: %v", err)
+			c.logger.Errorf("Error: %v", err)
 			break
 		}
 
@@ -330,7 +334,7 @@ func (c *SignalingClient) writeInternal(message *signaling.ClientMessage) bool {
 			return false
 		}
 
-		log.Println("Could not send message", message, err)
+		c.logger.Errorf("Could not send message %+v: %s", message, err)
 		// TODO(jojo): Differentiate between JSON encode errors and websocket errors.
 		closeData = websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "")
 		goto close
@@ -416,29 +420,29 @@ func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
 	}
 }
 
-func registerAuthHandler(router *mux.Router) {
+func registerAuthHandler(logger signaling.Logger, router *mux.Router) {
 	router.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			log.Println("Error reading body:", err)
+			logger.Errorf("Error reading body: %s", err)
 			return
 		}
 
 		rnd := r.Header.Get(signaling.HeaderBackendSignalingRandom)
 		checksum := r.Header.Get(signaling.HeaderBackendSignalingChecksum)
 		if rnd == "" || checksum == "" {
-			log.Println("No checksum headers found")
+			logger.Error("No checksum headers found")
 			return
 		}
 
 		if verify := signaling.CalculateBackendChecksum(rnd, body, backendSecret); verify != checksum {
-			log.Println("Backend checksum verification failed")
+			logger.Error("Backend checksum verification failed")
 			return
 		}
 
 		var request signaling.BackendClientRequest
 		if err := request.UnmarshalJSON(body); err != nil {
-			log.Println(err)
+			logger.Errorf("Could not unmarshal request: %s", err)
 			return
 		}
 
@@ -452,7 +456,7 @@ func registerAuthHandler(router *mux.Router) {
 
 		data, err := response.MarshalJSON()
 		if err != nil {
-			log.Println(err)
+			logger.Errorf("Could not marshal response: %s", err)
 			return
 		}
 
@@ -470,7 +474,7 @@ func registerAuthHandler(router *mux.Router) {
 
 		jsonpayload, err := payload.MarshalJSON()
 		if err != nil {
-			log.Println(err)
+			logger.Error("Could not marshal payload: %s", err)
 			return
 		}
 
@@ -480,10 +484,10 @@ func registerAuthHandler(router *mux.Router) {
 	})
 }
 
-func getLocalIP() string {
+func getLocalIP(logger signaling.Logger) string {
 	interfaces, err := net.InterfaceAddrs()
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatalf("Could not get interface addresses: %s", err)
 	}
 	for _, intf := range interfaces {
 		switch t := intf.(type) {
@@ -510,12 +514,18 @@ func reverseSessionId(s string) (string, error) {
 }
 
 func main() {
+	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime | log.Lmicroseconds)
 	flag.Parse()
-	log.SetFlags(0)
+
+	logger, err := signaling.NewLogger()
+	if err != nil {
+		log.Fatalf("Could not create logger: %s", err)
+	}
+	defer logger.Sync() // nolint
 
 	config, err := goconf.ReadConfigFile(*config)
 	if err != nil {
-		log.Fatal("Could not read configuration: ", err)
+		logger.Fatalf("Could not read configuration: %s", err)
 	}
 
 	secret, _ := config.GetString("backend", "secret")
@@ -526,7 +536,7 @@ func main() {
 	case 32:
 	case 64:
 	default:
-		log.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
+		logger.Warnf("The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
 	}
 
 	blockKey, _ := config.GetString("sessions", "blockkey")
@@ -538,24 +548,24 @@ func main() {
 	case 24:
 	case 32:
 	default:
-		log.Fatalf("The sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
+		logger.Fatalf("The sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
 	}
 	cookie := securecookie.New([]byte(hashKey), blockBytes).MaxAge(0)
 
 	cpus := runtime.NumCPU()
 	runtime.GOMAXPROCS(cpus)
-	log.Printf("Using a maximum of %d CPUs", cpus)
+	logger.Infof("Using a maximum of %d CPUs", cpus)
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
 	r := mux.NewRouter()
-	registerAuthHandler(r)
+	registerAuthHandler(logger, r)
 
-	localIP := getLocalIP()
+	localIP := getLocalIP(logger)
 	listener, err := net.Listen("tcp", localIP+":0")
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	server := http.Server{
@@ -565,7 +575,7 @@ func main() {
 		server.Serve(listener) // nolint
 	}()
 	backendUrl := "http://" + listener.Addr().String()
-	log.Println("Backend server running on", backendUrl)
+	logger.Infof("Backend server running on %s", backendUrl)
 
 	urls := make([]url.URL, 0)
 	urlstrings := make([]string, 0)
@@ -578,24 +588,24 @@ func main() {
 		urls = append(urls, u)
 		urlstrings = append(urlstrings, u.String())
 	}
-	log.Printf("Connecting to %s", urlstrings)
+	logger.Infof("Connecting to %s", urlstrings)
 
 	clients := make([]*SignalingClient, 0)
 	stats := &Stats{}
 
 	if *maxClients < 2 {
-		log.Fatalf("Need at least 2 clients, got %d", *maxClients)
+		logger.Fatalf("Need at least 2 clients, got %d", *maxClients)
 	}
 
-	log.Printf("Starting %d clients", *maxClients)
+	logger.Infof("Starting %d clients", *maxClients)
 
 	var doneWg sync.WaitGroup
 	var readyWg sync.WaitGroup
 
 	for i := 0; i < *maxClients; i++ {
-		client, err := NewSignalingClient(cookie, urls[i%len(urls)].String(), stats, &readyWg, &doneWg)
+		client, err := NewSignalingClient(logger, cookie, urls[i%len(urls)].String(), stats, &readyWg, &doneWg)
 		if err != nil {
-			log.Fatal(err)
+			logger.Fatalf("Could not create client: %s", err)
 		}
 		defer client.Close()
 		readyWg.Add(1)
@@ -615,10 +625,10 @@ func main() {
 		clients = append(clients, client)
 	}
 
-	log.Println("Clients created")
+	logger.Info("Clients created")
 	readyWg.Wait()
 
-	log.Println("All connections established")
+	logger.Info("All connections established")
 
 	for _, c := range clients {
 		doneWg.Add(1)
@@ -635,14 +645,14 @@ loop:
 	for {
 		select {
 		case <-interrupt:
-			log.Println("Interrupted")
+			logger.Info("Interrupted")
 			break loop
 		case <-report.C:
-			stats.Log()
+			stats.Log(logger)
 		}
 	}
 
-	log.Println("Waiting for clients to terminate ...")
+	logger.Info("Waiting for clients to terminate ...")
 	for _, c := range clients {
 		c.Close()
 	}

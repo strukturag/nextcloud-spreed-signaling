@@ -24,7 +24,6 @@ package signaling
 import (
 	"container/list"
 	"encoding/json"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +32,8 @@ import (
 )
 
 type LoopbackNatsClient struct {
+	logger Logger
+
 	mu            sync.Mutex
 	subscriptions map[string]map[*loopbackNatsSubscription]bool
 
@@ -41,8 +42,10 @@ type LoopbackNatsClient struct {
 	incoming list.List
 }
 
-func NewLoopbackNatsClient() (NatsClient, error) {
+func NewLoopbackNatsClient(logger Logger) (NatsClient, error) {
 	client := &LoopbackNatsClient{
+		logger: logger,
+
 		subscriptions: make(map[string]map[*loopbackNatsSubscription]bool),
 	}
 	client.wakeup.L = &client.mu
@@ -82,7 +85,7 @@ func (c *LoopbackNatsClient) processMessage(msg *nats.Msg) {
 		select {
 		case ch <- msg:
 		default:
-			log.Printf("Slow consumer %s, dropping message", msg.Subject)
+			c.logger.Warnf("Slow consumer %s, dropping message", msg.Subject)
 		}
 	}
 }

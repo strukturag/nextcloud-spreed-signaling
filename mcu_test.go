@@ -24,7 +24,6 @@ package signaling
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 
@@ -37,12 +36,14 @@ const (
 )
 
 type TestMCU struct {
+	logger     Logger
 	mu         sync.Mutex
 	publishers map[string]*TestMCUPublisher
 }
 
-func NewTestMCU() (*TestMCU, error) {
+func NewTestMCU(logger Logger) (*TestMCU, error) {
 	return &TestMCU{
+		logger:     logger,
 		publishers: make(map[string]*TestMCUPublisher),
 	}, nil
 }
@@ -81,6 +82,7 @@ func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id str
 	}
 	pub := &TestMCUPublisher{
 		TestMCUClient: TestMCUClient{
+			logger:     m.logger,
 			id:         id,
 			streamType: streamType,
 		},
@@ -119,6 +121,7 @@ func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publi
 }
 
 type TestMCUClient struct {
+	logger Logger
 	closed int32
 
 	id         string
@@ -134,7 +137,7 @@ func (c *TestMCUClient) StreamType() string {
 }
 
 func (c *TestMCUClient) Close(ctx context.Context) {
-	log.Printf("Close MCU client %s", c.id)
+	c.logger.Infof("Close MCU client %s", c.id)
 	atomic.StoreInt32(&c.closed, 1)
 }
 

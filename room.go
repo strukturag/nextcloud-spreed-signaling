@@ -26,7 +26,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"strconv"
 	"sync"
@@ -54,6 +53,7 @@ func init() {
 }
 
 type Room struct {
+	logger  Logger
 	id      string
 	hub     *Hub
 	nats    NatsClient
@@ -108,7 +108,7 @@ func getRoomIdForBackend(id string, backend *Backend) string {
 	return backend.Id() + "|" + id
 }
 
-func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient, backend *Backend) (*Room, error) {
+func NewRoom(logger Logger, roomId string, properties *json.RawMessage, hub *Hub, n NatsClient, backend *Backend) (*Room, error) {
 	natsReceiver := make(chan *nats.Msg, 64)
 	backendSubscription, err := n.Subscribe(GetSubjectForBackendRoomId(roomId, backend), natsReceiver)
 	if err != nil {
@@ -117,6 +117,7 @@ func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient,
 	}
 
 	room := &Room{
+		logger:  logger,
 		id:      roomId,
 		hub:     hub,
 		nats:    n,
@@ -217,7 +218,7 @@ func (r *Room) unsubscribeBackend() {
 
 	go func(subscription NatsSubscription) {
 		if err := subscription.Unsubscribe(); err != nil {
-			log.Printf("Error closing backend subscription for room %s: %s", r.Id(), err)
+			r.logger.Errorf("Error closing backend subscription for room %s: %s", r.Id(), err)
 		}
 	}(r.backendSubscription)
 	r.backendSubscription = nil
@@ -243,7 +244,7 @@ func (r *Room) Close() []Session {
 func (r *Room) processNatsMessage(message *nats.Msg) {
 	var msg NatsMessage
 	if err := r.nats.Decode(message, &msg); err != nil {
-		log.Printf("Could not decode nats message %+v, %s", message, err)
+		r.logger.Errorf("Could not decode nats message %+v, %s", message, err)
 		return
 	}
 
@@ -251,7 +252,7 @@ func (r *Room) processNatsMessage(message *nats.Msg) {
 	case "room":
 		r.processBackendRoomRequest(msg.Room)
 	default:
-		log.Printf("Unsupported NATS room request with type %s: %+v", msg.Type, msg)
+		r.logger.Errorf("Unsupported NATS room request with type %s: %+v", msg.Type, msg)
 	}
 }
 
@@ -259,9 +260,9 @@ func (r *Room) processBackendRoomRequest(message *BackendServerRoomRequest) {
 	received := message.ReceivedTime
 	if last, found := r.lastNatsRoomRequests[message.Type]; found && last > received {
 		if msg, err := json.Marshal(message); err == nil {
-			log.Printf("Ignore old NATS backend room request for %s: %s", r.Id(), string(msg))
+			r.logger.Errorf("Ignore old NATS backend room request for %s: %s", r.Id(), string(msg))
 		} else {
-			log.Printf("Ignore old NATS backend room request for %s: %+v", r.Id(), message)
+			r.logger.Errorf("Ignore old NATS backend room request for %s: %+v", r.Id(), message)
 		}
 		return
 	}
@@ -281,7 +282,7 @@ func (r *Room) processBackendRoomRequest(message *BackendServerRoomRequest) {
 	case "message":
 		r.publishRoomMessage(message.Message)
 	default:
-		log.Printf("Unsupported NATS backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
+		r.logger.Errorf("Unsupported NATS backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
 }
 
@@ -290,7 +291,7 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 	if sessionData != nil && len(*sessionData) > 0 {
 		roomSessionData = &RoomSessionData{}
 		if err := json.Unmarshal(*sessionData, roomSessionData); err != nil {
-			log.Printf("Error decoding room session data \"%s\": %s", string(*sessionData), err)
+			r.logger.Errorf("Error decoding room session data \"%s\": %s", string(*sessionData), err)
 			roomSessionData = nil
 		}
 	}
@@ -325,7 +326,7 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 	}
 	if roomSessionData != nil {
 		r.roomSessionData[sid] = roomSessionData
-		log.Printf("Session %s sent room session data %+v", session.PublicId(), roomSessionData)
+		r.logger.Infof("Session %s sent room session data %+v", session.PublicId(), roomSessionData)
 	}
 	r.mu.Unlock()
 	if !found {
@@ -415,7 +416,7 @@ func (r *Room) UpdateProperties(properties *json.RawMessage) {
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish update properties message in room %s: %s", r.Id(), err)
+		r.logger.Errorf("Could not publish update properties message in room %s: %s", r.Id(), err)
 	}
 }
 
@@ -454,7 +455,7 @@ func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionDat
 		message.Event.Join[0].RoomSessionId = session.RoomSessionId()
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish session joined message in room %s: %s", r.Id(), err)
+		r.logger.Errorf("Could not publish session joined message in room %s: %s", r.Id(), err)
 	}
 
 	if session.ClientType() == HelloClientTypeInternal {
@@ -479,7 +480,7 @@ func (r *Room) PublishSessionLeft(session Session) {
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish session left message in room %s: %s", r.Id(), err)
+		r.logger.Errorf("Could not publish session left message in room %s: %s", r.Id(), err)
 	}
 
 	if session.ClientType() == HelloClientTypeInternal {
@@ -583,7 +584,7 @@ func (r *Room) PublishUsersInCallChanged(changed []map[string]interface{}, users
 			r.mu.Lock()
 			if !r.inCallSessions[session] {
 				r.inCallSessions[session] = true
-				log.Printf("Session %s joined call %s", session.PublicId(), r.id)
+				r.logger.Infof("Session %s joined call %s", session.PublicId(), r.id)
 			}
 			r.mu.Unlock()
 		} else {
@@ -612,7 +613,7 @@ func (r *Room) PublishUsersInCallChanged(changed []map[string]interface{}, users
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+		r.logger.Errorf("Could not publish incall message in room %s: %s", r.Id(), err)
 	}
 }
 
@@ -642,7 +643,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 			return
 		}
 
-		log.Printf("Sessions %v joined call %s", joined, r.id)
+		r.logger.Infof("Sessions %v joined call %s", joined, r.id)
 	} else if len(r.inCallSessions) > 0 {
 		// Perform actual leaving asynchronously.
 		ch := make(chan *ClientSession, 1)
@@ -684,7 +685,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+		r.logger.Errorf("Could not publish incall message in room %s: %s", r.Id(), err)
 	}
 }
 
@@ -705,7 +706,7 @@ func (r *Room) PublishUsersChanged(changed []map[string]interface{}, users []map
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
+		r.logger.Errorf("Could not publish users changed message in room %s: %s", r.Id(), err)
 	}
 }
 
@@ -752,7 +753,7 @@ func (r *Room) NotifySessionChanged(session Session) {
 func (r *Room) publishUsersChangedWithInternal() {
 	message := r.getParticipantsUpdateMessage(r.users)
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
+		r.logger.Errorf("Could not publish users changed message in room %s: %s", r.Id(), err)
 	}
 }
 
@@ -770,7 +771,7 @@ func (r *Room) publishSessionFlagsChanged(session *VirtualSession) {
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish flags changed message in room %s: %s", r.Id(), err)
+		r.logger.Errorf("Could not publish flags changed message in room %s: %s", r.Id(), err)
 	}
 }
 
@@ -832,7 +833,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 			request := NewBackendClientPingRequest(r.id, entries)
 			var response BackendClientResponse
 			if err := r.hub.backend.PerformJSONRequest(ctx, url, request, &response); err != nil {
-				log.Printf("Error pinging room %s for active entries %+v: %s", r.id, entries, err)
+				r.logger.Errorf("Error pinging room %s for active entries %+v: %s", r.id, entries, err)
 			}
 		}(urls[u], e)
 	}
@@ -856,7 +857,7 @@ func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
 		},
 	}
 	if err := r.publish(msg); err != nil {
-		log.Printf("Could not publish room message in room %s: %s", r.Id(), err)
+		r.logger.Errorf("Could not publish room message in room %s: %s", r.Id(), err)
 	}
 }
 

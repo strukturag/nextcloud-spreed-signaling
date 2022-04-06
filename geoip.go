@@ -26,7 +26,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -55,6 +54,7 @@ func GetGeoIpDownloadUrl(license string) string {
 }
 
 type GeoLookup struct {
+	logger Logger
 	url    string
 	isFile bool
 	client http.Client
@@ -66,15 +66,17 @@ type GeoLookup struct {
 	reader *maxminddb.Reader
 }
 
-func NewGeoLookupFromUrl(url string) (*GeoLookup, error) {
+func NewGeoLookupFromUrl(logger Logger, url string) (*GeoLookup, error) {
 	geoip := &GeoLookup{
-		url: url,
+		logger: logger,
+		url:    url,
 	}
 	return geoip, nil
 }
 
-func NewGeoLookupFromFile(filename string) (*GeoLookup, error) {
+func NewGeoLookupFromFile(logger Logger, filename string) (*GeoLookup, error) {
 	geoip := &GeoLookup{
+		logger: logger,
 		url:    filename,
 		isFile: true,
 	}
@@ -122,7 +124,7 @@ func (g *GeoLookup) updateFile() error {
 	}
 
 	metadata := reader.Metadata
-	log.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
+	g.logger.Infof("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
 
 	g.mu.Lock()
 	if g.reader != nil {
@@ -149,7 +151,7 @@ func (g *GeoLookup) updateUrl() error {
 	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusNotModified {
-		log.Printf("GeoIP database at %s has not changed", g.url)
+		g.logger.Infof("GeoIP database at %s has not changed", g.url)
 		return nil
 	} else if response.StatusCode/100 != 2 {
 		return fmt.Errorf("downloading %s returned an error: %s", g.url, response.Status)
@@ -198,7 +200,7 @@ func (g *GeoLookup) updateUrl() error {
 	}
 
 	metadata := reader.Metadata
-	log.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
+	g.logger.Infof("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
 
 	g.mu.Lock()
 	if g.reader != nil {

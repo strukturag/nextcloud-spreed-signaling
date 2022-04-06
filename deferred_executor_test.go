@@ -26,17 +26,24 @@ import (
 	"time"
 )
 
+func NewDeferredExecutorForTest(t *testing.T, queueSize int) *DeferredExecutor {
+	logger := NewLoggerForTest(t)
+	e := NewDeferredExecutor(logger, queueSize)
+	t.Cleanup(func() {
+		e.waitForStop()
+	})
+	return e
+}
+
 func TestDeferredExecutor_MultiClose(t *testing.T) {
-	e := NewDeferredExecutor(0)
-	defer e.waitForStop()
+	e := NewDeferredExecutorForTest(t, 0)
 
 	e.Close()
 	e.Close()
 }
 
 func TestDeferredExecutor_QueueSize(t *testing.T) {
-	e := NewDeferredExecutor(0)
-	defer e.waitForStop()
+	e := NewDeferredExecutorForTest(t, 0)
 	defer e.Close()
 
 	delay := 100 * time.Millisecond
@@ -58,8 +65,7 @@ func TestDeferredExecutor_QueueSize(t *testing.T) {
 }
 
 func TestDeferredExecutor_Order(t *testing.T) {
-	e := NewDeferredExecutor(64)
-	defer e.waitForStop()
+	e := NewDeferredExecutorForTest(t, 64)
 	defer e.Close()
 
 	var entries []int
@@ -87,8 +93,7 @@ func TestDeferredExecutor_Order(t *testing.T) {
 }
 
 func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
-	e := NewDeferredExecutor(64)
-	defer e.waitForStop()
+	e := NewDeferredExecutorForTest(t, 64)
 
 	done := make(chan bool)
 	e.Execute(func() {
@@ -100,9 +105,7 @@ func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
 }
 
 func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
-	e := NewDeferredExecutor(64)
-	defer e.waitForStop()
-
+	e := NewDeferredExecutorForTest(t, 64)
 	e.Close()
 
 	e.Execute(func() {

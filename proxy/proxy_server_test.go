@@ -86,7 +86,8 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey) {
 	config := goconf.NewConfigFile()
 	config.AddOption("tokens", TokenIdForTest, pubkey.Name())
 
-	if server, err = NewProxyServer(r, "0.0", config); err != nil {
+	logger := NewLoggerForTest(t)
+	if server, err = NewProxyServer(logger, r, "0.0", config); err != nil {
 		t.Fatalf("could not create server: %s", err)
 	}
 	return server, key

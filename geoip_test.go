@@ -63,7 +63,8 @@ func TestGeoLookup(t *testing.T) {
 		t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
 	}
 
-	reader, err := NewGeoLookupFromUrl(GetGeoIpDownloadUrl(license))
+	logger := NewLoggerForTest(t)
+	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpDownloadUrl(license))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +83,8 @@ func TestGeoLookupCaching(t *testing.T) {
 		t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
 	}
 
-	reader, err := NewGeoLookupFromUrl(GetGeoIpDownloadUrl(license))
+	logger := NewLoggerForTest(t)
+	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpDownloadUrl(license))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +130,8 @@ func TestGeoLookupContinent(t *testing.T) {
 }
 
 func TestGeoLookupCloseEmpty(t *testing.T) {
-	reader, err := NewGeoLookupFromUrl("ignore-url")
+	logger := NewLoggerForTest(t)
+	reader, err := NewGeoLookupFromUrl(logger, "ignore-url")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +196,8 @@ func TestGeoLookupFromFile(t *testing.T) {
 		t.Fatal("Did not find MaxMind database in tarball")
 	}
 
-	reader, err := NewGeoLookupFromFile(tmpfile.Name())
+	logger := NewLoggerForTest(t)
+	reader, err := NewGeoLookupFromFile(logger, tmpfile.Name())
 	if err != nil {
 		t.Fatal(err)
 	}

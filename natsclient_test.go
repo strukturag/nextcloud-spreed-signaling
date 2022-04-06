@@ -45,7 +45,8 @@ func startLocalNatsServer(t *testing.T) string {
 
 func CreateLocalNatsClientForTest(t *testing.T) NatsClient {
 	url := startLocalNatsServer(t)
-	result, err := NewNatsClient(url)
+	logger := NewLoggerForTest(t)
+	result, err := NewNatsClient(logger, url)
 	if err != nil {
 		t.Fatal(err)
 	}

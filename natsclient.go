@@ -24,7 +24,6 @@ package signaling
 import (
 	"encoding/base64"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"time"
@@ -76,17 +75,20 @@ func GetEncodedSubject(prefix string, suffix string) string {
 }
 
 type natsClient struct {
-	nc   *nats.Conn
-	conn *nats.EncodedConn
+	logger Logger
+	nc     *nats.Conn
+	conn   *nats.EncodedConn
 }
 
-func NewNatsClient(url string) (NatsClient, error) {
+func NewNatsClient(logger Logger, url string) (NatsClient, error) {
 	if url == ":loopback:" {
-		log.Println("No NATS url configured, using internal loopback client")
-		return NewLoopbackNatsClient()
+		logger.Info("No NATS url configured, using internal loopback client")
+		return NewLoopbackNatsClient(logger)
 	}
 
-	client := &natsClient{}
+	client := &natsClient{
+		logger: logger,
+	}
 
 	var err error
 	client.nc, err = nats.Connect(url,
@@ -102,7 +104,7 @@ func NewNatsClient(url string) (NatsClient, error) {
 	timer := time.NewTimer(delay)
 	// The initial connect must succeed, so we retry in the case of an error.
 	for err != nil {
-		log.Printf("Could not create connection (%s), will retry in %s", err, delay)
+		logger.Errorf("Could not create connection (%s), will retry in %s", err, delay)
 		timer.Reset(delay)
 		select {
 		case <-interrupt:
@@ -117,7 +119,7 @@ func NewNatsClient(url string) (NatsClient, error) {
 
 		client.nc, err = nats.Connect(url)
 	}
-	log.Printf("Connection established to %s (%s)", client.nc.ConnectedUrl(), client.nc.ConnectedServerId())
+	logger.Infof("Connection established to %s (%s)", client.nc.ConnectedUrl(), client.nc.ConnectedServerId())
 
 	// All communication will be JSON based.
 	client.conn, _ = nats.NewEncodedConn(client.nc, nats.JSON_ENCODER)
@@ -129,15 +131,15 @@ func (c *natsClient) Close() {
 }
 
 func (c *natsClient) onClosed(conn *nats.Conn) {
-	log.Println("NATS client closed", conn.LastError())
+	c.logger.Errorf("NATS client closed: %s", conn.LastError())
 }
 
 func (c *natsClient) onDisconnected(conn *nats.Conn) {
-	log.Println("NATS client disconnected")
+	c.logger.Error("NATS client disconnected")
 }
 
 func (c *natsClient) onReconnected(conn *nats.Conn) {
-	log.Printf("NATS client reconnected to %s (%s)", conn.ConnectedUrl(), conn.ConnectedServerId())
+	c.logger.Infof("NATS client reconnected to %s (%s)", conn.ConnectedUrl(), conn.ConnectedServerId())
 }
 
 func (c *natsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error) {

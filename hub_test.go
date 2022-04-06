@@ -102,7 +102,8 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 	registerBackendHandler(t, r)
 
 	server := httptest.NewServer(r)
-	nats, err := NewLoopbackNatsClient()
+	logger := NewLoggerForTest(t)
+	nats, err := NewLoopbackNatsClient(logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,11 +111,11 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := NewHub(config, nats, r, "no-version")
+	h, err := NewHub(logger, config, nats, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := NewBackendServer(config, h, "no-version")
+	b, err := NewBackendServer(logger, config, h, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2303,7 +2304,7 @@ func TestClientTakeoverRoomSession(t *testing.T) {
 func TestClientSendOfferPermissions(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
-	mcu, err := NewTestMCU()
+	mcu, err := NewTestMCU(hub.logger)
 	if err != nil {
 		t.Fatal(err)
 	} else if err := mcu.Start(); err != nil {
@@ -2430,7 +2431,7 @@ func TestClientSendOfferPermissions(t *testing.T) {
 func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
-	mcu, err := NewTestMCU()
+	mcu, err := NewTestMCU(hub.logger)
 	if err != nil {
 		t.Fatal(err)
 	} else if err := mcu.Start(); err != nil {
@@ -2521,7 +2522,7 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
-	mcu, err := NewTestMCU()
+	mcu, err := NewTestMCU(hub.logger)
 	if err != nil {
 		t.Fatal(err)
 	} else if err := mcu.Start(); err != nil {
@@ -2649,7 +2650,7 @@ loop:
 func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
-	mcu, err := NewTestMCU()
+	mcu, err := NewTestMCU(hub.logger)
 	if err != nil {
 		t.Fatal(err)
 	} else if err := mcu.Start(); err != nil {
@@ -2781,7 +2782,7 @@ loop:
 func TestClientRequestOfferNotInRoom(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
-	mcu, err := NewTestMCU()
+	mcu, err := NewTestMCU(hub.logger)
 	if err != nil {
 		t.Fatal(err)
 	} else if err := mcu.Start(); err != nil {

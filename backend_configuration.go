@@ -22,7 +22,6 @@
 package signaling
 
 import (
-	"log"
 	"net/url"
 	"reflect"
 	"strings"
@@ -106,6 +105,7 @@ func (b *Backend) RemoveSession(session Session) {
 }
 
 type BackendConfiguration struct {
+	logger   Logger
 	backends map[string][]*Backend
 
 	// Deprecated
@@ -114,7 +114,7 @@ type BackendConfiguration struct {
 	compatBackend *Backend
 }
 
-func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, error) {
+func NewBackendConfiguration(logger Logger, config *goconf.ConfigFile) (*BackendConfiguration, error) {
 	allowAll, _ := config.GetBool("backend", "allowall")
 	allowHttp, _ := config.GetBool("backend", "allowhttp")
 	commonSecret, _ := config.GetString("backend", "secret")
@@ -126,7 +126,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 	var compatBackend *Backend
 	numBackends := 0
 	if allowAll {
-		log.Println("WARNING: All backend hostnames are allowed, only use for development!")
+		logger.Warn("All backend hostnames are allowed, only use for development!")
 		compatBackend = &Backend{
 			id:     "compat",
 			secret: []byte(commonSecret),
@@ -137,14 +137,14 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 			sessionLimit: uint64(sessionLimit),
 		}
 		if sessionLimit > 0 {
-			log.Printf("Allow a maximum of %d sessions", sessionLimit)
+			logger.Infof("Allow a maximum of %d sessions", sessionLimit)
 		}
 		numBackends++
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
-		for host, configuredBackends := range getConfiguredHosts(backendIds, config) {
+		for host, configuredBackends := range getConfiguredHosts(logger, backendIds, config) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
-				log.Printf("Backend %s added for %s", be.id, be.url)
+				logger.Infof("Backend %s added for %s", be.id, be.url)
 			}
 			numBackends += len(configuredBackends)
 		}
@@ -154,7 +154,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 		for _, u := range strings.Split(allowedUrls, ",") {
 			u = strings.TrimSpace(u)
 			if idx := strings.IndexByte(u, '/'); idx != -1 {
-				log.Printf("WARNING: Removing path from allowed hostname \"%s\", check your configuration!", u)
+				logger.Warnf("Removing path from allowed hostname \"%s\", check your configuration!", u)
 				u = u[:idx]
 			}
 			if u != "" {
@@ -163,7 +163,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 		}
 
 		if len(allowMap) == 0 {
-			log.Println("WARNING: No backend hostnames are allowed, check your configuration!")
+			logger.Warn("WARNING: No backend hostnames are allowed, check your configuration!")
 		} else {
 			compatBackend = &Backend{
 				id:     "compat",
@@ -180,11 +180,11 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 				backends[host] = []*Backend{compatBackend}
 			}
 			if len(hosts) > 1 {
-				log.Println("WARNING: Using deprecated backend configuration. Please migrate the \"allowed\" setting to the new \"backends\" configuration.")
+				logger.Warn("Using deprecated backend configuration. Please migrate the \"allowed\" setting to the new \"backends\" configuration.")
 			}
-			log.Printf("Allowed backend hostnames: %s", hosts)
+			logger.Infof("Allowed backend hostnames: %s", hosts)
 			if sessionLimit > 0 {
-				log.Printf("Allow a maximum of %d sessions", sessionLimit)
+				logger.Infof("Allow a maximum of %d sessions", sessionLimit)
 			}
 			numBackends++
 		}
@@ -194,6 +194,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 	statsBackendsCurrent.Add(float64(numBackends))
 
 	return &BackendConfiguration{
+		logger:   logger,
 		backends: backends,
 
 		allowAll:      allowAll,
@@ -205,7 +206,7 @@ func NewBackendConfiguration(config *goconf.ConfigFile) (*BackendConfiguration, 
 func (b *BackendConfiguration) RemoveBackendsForHost(host string) {
 	if oldBackends := b.backends[host]; len(oldBackends) > 0 {
 		for _, backend := range oldBackends {
-			log.Printf("Backend %s removed for %s", backend.id, backend.url)
+			b.logger.Infof("Backend %s removed for %s", backend.id, backend.url)
 		}
 		statsBackendsCurrent.Sub(float64(len(oldBackends)))
 	}
@@ -225,14 +226,14 @@ func (b *BackendConfiguration) UpsertHost(host string, backends []*Backend) {
 				found = true
 				b.backends[host][existingIndex] = newBackend
 				backends = append(backends[:index], backends[index+1:]...)
-				log.Printf("Backend %s updated for %s", newBackend.id, newBackend.url)
+				b.logger.Infof("Backend %s updated for %s", newBackend.id, newBackend.url)
 				break
 			}
 			index++
 		}
 		if !found {
 			removed := b.backends[host][existingIndex]
-			log.Printf("Backend %s removed for %s", removed.id, removed.url)
+			b.logger.Infof("Backend %s removed for %s", removed.id, removed.url)
 			b.backends[host] = append(b.backends[host][:existingIndex], b.backends[host][existingIndex+1:]...)
 			statsBackendsCurrent.Dec()
 		}
@@ -240,7 +241,7 @@ func (b *BackendConfiguration) UpsertHost(host string, backends []*Backend) {
 
 	b.backends[host] = append(b.backends[host], backends...)
 	for _, added := range backends {
-		log.Printf("Backend %s added for %s", added.id, added.url)
+		b.logger.Infof("Backend %s added for %s", added.id, added.url)
 	}
 	statsBackendsCurrent.Add(float64(len(backends)))
 }
@@ -264,12 +265,12 @@ func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	return ids
 }
 
-func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map[string][]*Backend) {
+func getConfiguredHosts(logger Logger, backendIds string, config *goconf.ConfigFile) (hosts map[string][]*Backend) {
 	hosts = make(map[string][]*Backend)
 	for _, id := range getConfiguredBackendIDs(backendIds) {
 		u, _ := config.GetString(id, "url")
 		if u == "" {
-			log.Printf("Backend %s is missing or incomplete, skipping", id)
+			logger.Warnf("Backend %s is missing or incomplete, skipping", id)
 			continue
 		}
 
@@ -278,7 +279,7 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 		}
 		parsed, err := url.Parse(u)
 		if err != nil {
-			log.Printf("Backend %s has an invalid url %s configured (%s), skipping", id, u, err)
+			logger.Warnf("Backend %s has an invalid url %s configured (%s), skipping", id, u, err)
 			continue
 		}
 
@@ -289,7 +290,7 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 
 		secret, _ := config.GetString(id, "secret")
 		if u == "" || secret == "" {
-			log.Printf("Backend %s is missing or incomplete, skipping", id)
+			logger.Warnf("Backend %s is missing or incomplete, skipping", id)
 			continue
 		}
 
@@ -298,7 +299,7 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 			sessionLimit = 0
 		}
 		if sessionLimit > 0 {
-			log.Printf("Backend %s allows a maximum of %d sessions", id, sessionLimit)
+			logger.Infof("Backend %s allows a maximum of %d sessions", id, sessionLimit)
 		}
 
 		maxStreamBitrate, err := config.GetInt(id, "maxstreambitrate")
@@ -329,12 +330,12 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 
 func (b *BackendConfiguration) Reload(config *goconf.ConfigFile) {
 	if b.compatBackend != nil {
-		log.Println("Old-style configuration active, reload is not supported")
+		b.logger.Warnf("Old-style configuration active, reload is not supported")
 		return
 	}
 
 	if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
-		configuredHosts := getConfiguredHosts(backendIds, config)
+		configuredHosts := getConfiguredHosts(b.logger, backendIds, config)
 
 		// remove backends that are no longer configured
 		for hostname := range b.backends {

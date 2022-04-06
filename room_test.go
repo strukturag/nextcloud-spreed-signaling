@@ -79,7 +79,8 @@ func TestRoom_Update(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := NewBackendServer(config, hub, "no-version")
+	logger := NewLoggerForTest(t)
+	b, err := NewBackendServer(logger, config, hub, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +217,8 @@ func TestRoom_Delete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := NewBackendServer(config, hub, "no-version")
+	logger := NewLoggerForTest(t)
+	b, err := NewBackendServer(logger, config, hub, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +360,8 @@ func TestRoom_RoomSessionData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := NewBackendServer(config, hub, "no-version")
+	logger := NewLoggerForTest(t)
+	b, err := NewBackendServer(logger, config, hub, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +430,8 @@ func TestRoom_InCallAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := NewBackendServer(config, hub, "no-version")
+	logger := NewLoggerForTest(t)
+	b, err := NewBackendServer(logger, config, hub, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}

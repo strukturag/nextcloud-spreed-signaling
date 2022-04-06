@@ -22,7 +22,6 @@
 package signaling
 
 import (
-	"log"
 	"reflect"
 	"runtime"
 	"runtime/debug"
@@ -32,17 +31,19 @@ import (
 // DeferredExecutor will asynchronously execute functions while maintaining
 // their order.
 type DeferredExecutor struct {
+	logger    Logger
 	queue     chan func()
 	closeChan chan bool
 	closed    chan bool
 	closeOnce sync.Once
 }
 
-func NewDeferredExecutor(queueSize int) *DeferredExecutor {
+func NewDeferredExecutor(logger Logger, queueSize int) *DeferredExecutor {
 	if queueSize < 0 {
 		queueSize = 0
 	}
 	result := &DeferredExecutor{
+		logger:    logger,
 		queue:     make(chan func(), queueSize),
 		closeChan: make(chan bool, 1),
 		closed:    make(chan bool, 1),
@@ -73,9 +74,9 @@ func getFunctionName(i interface{}) string {
 
 func (e *DeferredExecutor) Execute(f func()) {
 	defer func() {
-		if e := recover(); e != nil {
-			log.Printf("Could not defer function %v: %+v", getFunctionName(f), e)
-			log.Printf("Called from %s", string(debug.Stack()))
+		if err := recover(); err != nil {
+			e.logger.Errorf("Could not defer function %v: %+v", getFunctionName(f), err)
+			e.logger.Errorf("Called from %s", string(debug.Stack()))
 		}
 	}()
 

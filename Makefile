@@ -12,6 +12,7 @@ VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
 PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
 ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
+PRINTF_FUNCTIONS := ($(PACKAGENAME).Logger).Debugf,($(PACKAGENAME).Logger).Errorf,($(PACKAGENAME).Logger).Fatalf,($(PACKAGENAME).Logger).Infof,($(PACKAGENAME).Logger).Warnf
 
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
@@ -74,7 +75,7 @@ fmt: hook
 	$(GOFMT) -s -w *.go client proxy server
 
 vet: common
-	$(GO) vet $(ALL_PACKAGES)
+	$(GO) vet -printf.funcs "$(PRINTF_FUNCTIONS)" $(ALL_PACKAGES)
 
 test: vet common
 	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) $(ALL_PACKAGES)

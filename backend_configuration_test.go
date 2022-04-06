@@ -104,7 +104,8 @@ func TestIsUrlAllowed_Compat(t *testing.T) {
 	config.AddOption("backend", "allowed", "domain.invalid")
 	config.AddOption("backend", "allowhttp", "true")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config)
+	logger := NewLoggerForTest(t)
+	cfg, err := NewBackendConfiguration(logger, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,8 @@ func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", "domain.invalid")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config)
+	logger := NewLoggerForTest(t)
+	cfg, err := NewBackendConfiguration(logger, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +172,8 @@ func TestIsUrlAllowed(t *testing.T) {
 	config.AddOption("baz", "secret", string(testBackendSecret)+"-baz")
 	config.AddOption("lala", "url", "https://otherdomain.invalid/")
 	config.AddOption("lala", "secret", string(testBackendSecret)+"-lala")
-	cfg, err := NewBackendConfiguration(config)
+	logger := NewLoggerForTest(t)
+	cfg, err := NewBackendConfiguration(logger, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +190,8 @@ func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", "")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config)
+	logger := NewLoggerForTest(t)
+	cfg, err := NewBackendConfiguration(logger, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +211,8 @@ func TestIsUrlAllowed_AllowAll(t *testing.T) {
 	config.AddOption("backend", "allowall", "true")
 	config.AddOption("backend", "allowed", "")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config)
+	logger := NewLoggerForTest(t)
+	cfg, err := NewBackendConfiguration(logger, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +252,8 @@ func TestBackendReloadNoChange(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	logger := NewLoggerForTest(t)
+	o_cfg, err := NewBackendConfiguration(logger, original_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +266,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(logger, new_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +288,8 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	logger := NewLoggerForTest(t)
+	o_cfg, err := NewBackendConfiguration(logger, original_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +303,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 	new_config.AddOption("backend1", "sessionlimit", "10")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(logger, new_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +329,8 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	logger := NewLoggerForTest(t)
+	o_cfg, err := NewBackendConfiguration(logger, original_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +343,7 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend3")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(logger, new_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +366,8 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	original_config.AddOption("backend", "allowall", "false")
 	original_config.AddOption("backend1", "url", "http://domain1.invalid")
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	logger := NewLoggerForTest(t)
+	o_cfg, err := NewBackendConfiguration(logger, original_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +381,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
 	new_config.AddOption("backend2", "sessionlimit", "10")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(logger, new_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +409,8 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	logger := NewLoggerForTest(t)
+	o_cfg, err := NewBackendConfiguration(logger, original_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +421,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 	new_config.AddOption("backend", "allowall", "false")
 	new_config.AddOption("backend1", "url", "http://domain1.invalid")
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(logger, new_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +447,8 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain1.invalid/bar/")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	logger := NewLoggerForTest(t)
+	o_cfg, err := NewBackendConfiguration(logger, original_config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +459,7 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	new_config.AddOption("backend", "allowall", "false")
 	new_config.AddOption("backend1", "url", "http://domain1.invalid/foo/")
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(logger, new_config)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,9 +39,10 @@ type ProxySession struct {
 	// 64-bit members that are accessed atomically must be 64-bit aligned.
 	lastUsed int64
 
-	proxy *ProxyServer
-	id    string
-	sid   uint64
+	logger signaling.Logger
+	proxy  *ProxyServer
+	id     string
+	sid    uint64
 
 	clientLock      sync.Mutex
 	client          *ProxyClient
@@ -57,8 +57,9 @@ type ProxySession struct {
 	subscriberIds   map[signaling.McuSubscriber]string
 }
 
-func NewProxySession(proxy *ProxyServer, sid uint64, id string) *ProxySession {
+func NewProxySession(logger signaling.Logger, proxy *ProxyServer, sid uint64, id string) *ProxySession {
 	return &ProxySession{
+		logger:   logger.With("sessionid", id),
 		proxy:    proxy,
 		id:       id,
 		sid:      sid,
@@ -125,7 +126,7 @@ func (s *ProxySession) SetClient(client *ProxyClient) *ProxyClient {
 func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer map[string]interface{}) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
-		log.Printf("Received offer %+v from unknown %s client %s (%+v)", offer, client.StreamType(), client.Id(), client)
+		s.logger.Warnf("Received offer %+v from unknown %s client %s (%+v)", offer, client.StreamType(), client.Id(), client)
 		return
 	}
 
@@ -145,7 +146,7 @@ func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer map[strin
 func (s *ProxySession) OnIceCandidate(client signaling.McuClient, candidate interface{}) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
-		log.Printf("Received candidate %+v from unknown %s client %s (%+v)", candidate, client.StreamType(), client.Id(), client)
+		s.logger.Warnf("Received candidate %+v from unknown %s client %s (%+v)", candidate, client.StreamType(), client.Id(), client)
 		return
 	}
 
@@ -178,7 +179,7 @@ func (s *ProxySession) sendMessage(message *signaling.ProxyServerMessage) {
 func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
-		log.Printf("Received ice completed event from unknown %s client %s (%+v)", client.StreamType(), client.Id(), client)
+		s.logger.Warnf("Received ice completed event from unknown %s client %s (%+v)", client.StreamType(), client.Id(), client)
 		return
 	}
 

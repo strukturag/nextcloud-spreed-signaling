@@ -33,7 +33,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"sync"
@@ -227,6 +226,7 @@ func (l *dummyGatewayListener) ConnectionInterrupted() {
 type JanusGateway struct {
 	nextTransaction uint64
 
+	logger   Logger
 	listener GatewayListener
 
 	// Sessions is a map of the currently active sessions to the gateway.
@@ -263,13 +263,14 @@ type JanusGateway struct {
 // 	return gateway, nil
 // }
 
-func NewJanusGateway(wsURL string, listener GatewayListener) (*JanusGateway, error) {
+func NewJanusGateway(logger Logger, wsURL string, listener GatewayListener) (*JanusGateway, error) {
 	conn, _, err := janusDialer.Dial(wsURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	gateway := new(JanusGateway)
+	gateway.logger = logger
 	gateway.conn = conn
 	gateway.transactions = make(map[uint64]*transaction)
 	gateway.Sessions = make(map[uint64]*JanusSession)
@@ -380,7 +381,7 @@ loop:
 			err := gateway.conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(20*time.Second))
 			gateway.writeMu.Unlock()
 			if err != nil {
-				log.Println("Error sending ping to MCU:", err)
+				gateway.logger.Errorf("Error sending ping to MCU: %s", err)
 			}
 		case <-gateway.closeChan:
 			break loop
@@ -405,7 +406,7 @@ func (gateway *JanusGateway) recv() {
 
 		_, reader, err := conn.NextReader()
 		if err != nil {
-			log.Printf("conn.NextReader: %s", err)
+			gateway.logger.Errorf("conn.NextReader: %s", err)
 			gateway.writeMu.Lock()
 			gateway.conn = nil
 			gateway.writeMu.Unlock()
@@ -416,7 +417,7 @@ func (gateway *JanusGateway) recv() {
 
 		decodeBuffer.Reset()
 		if _, err := decodeBuffer.ReadFrom(reader); err != nil {
-			log.Printf("decodeBuffer.ReadFrom: %s", err)
+			gateway.logger.Errorf("decodeBuffer.ReadFrom: %s", err)
 			gateway.writeMu.Lock()
 			gateway.conn = nil
 			gateway.writeMu.Unlock()
@@ -429,13 +430,13 @@ func (gateway *JanusGateway) recv() {
 		decoder := json.NewDecoder(data)
 		decoder.UseNumber()
 		if err := decoder.Decode(&base); err != nil {
-			log.Printf("json.Unmarshal of %s: %s", decodeBuffer.String(), err)
+			gateway.logger.Errorf("json.Unmarshal of %s: %s", decodeBuffer.String(), err)
 			continue
 		}
 
 		typeFunc, ok := msgtypes[base.Type]
 		if !ok {
-			log.Printf("Unknown message type received: %s", decodeBuffer.String())
+			gateway.logger.Errorf("Unknown message type received: %s", decodeBuffer.String())
 			continue
 		}
 
@@ -444,7 +445,7 @@ func (gateway *JanusGateway) recv() {
 		decoder = json.NewDecoder(data)
 		decoder.UseNumber()
 		if err := decoder.Decode(&msg); err != nil {
-			log.Printf("json.Unmarshal of %s: %s", decodeBuffer.String(), err)
+			gateway.logger.Errorf("json.Unmarshal of %s: %s", decodeBuffer.String(), err)
 			continue // Decode error
 		}
 
@@ -454,14 +455,14 @@ func (gateway *JanusGateway) recv() {
 			if base.Handle == 0 {
 				// Nope. No idea what's going on...
 				// Error()
-				log.Printf("Received event without handle, ignoring: %s", decodeBuffer.String())
+				gateway.logger.Errorf("Received event without handle, ignoring: %s", decodeBuffer.String())
 			} else {
 				// Lookup Session
 				gateway.Lock()
 				session := gateway.Sessions[base.Session]
 				gateway.Unlock()
 				if session == nil {
-					log.Printf("Unable to deliver message %s. Session %d gone?", decodeBuffer.String(), base.Session)
+					gateway.logger.Errorf("Unable to deliver message %s. Session %d gone?", decodeBuffer.String(), base.Session)
 					continue
 				}
 
@@ -470,7 +471,7 @@ func (gateway *JanusGateway) recv() {
 				handle := session.Handles[base.Handle]
 				session.Unlock()
 				if handle == nil {
-					log.Printf("Unable to deliver message %s. Handle %d gone?", decodeBuffer.String(), base.Handle)
+					gateway.logger.Errorf("Unable to deliver message %s. Handle %d gone?", decodeBuffer.String(), base.Handle)
 					continue
 				}
 
@@ -480,7 +481,7 @@ func (gateway *JanusGateway) recv() {
 		} else {
 			id, err := strconv.ParseUint(base.ID, 10, 64)
 			if err != nil {
-				log.Printf("Could not decode transaction id %s: %s", base.ID, err)
+				gateway.logger.Errorf("Could not decode transaction id %s: %s", base.ID, err)
 				continue
 			}
 
@@ -490,7 +491,7 @@ func (gateway *JanusGateway) recv() {
 			gateway.Unlock()
 			if transaction == nil {
 				// Error()
-				log.Printf("Received event for unknown transaction, ignoring: %s", decodeBuffer.String())
+				gateway.logger.Errorf("Received event for unknown transaction, ignoring: %s", decodeBuffer.String())
 				continue
 			}
 

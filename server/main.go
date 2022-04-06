@@ -90,13 +90,19 @@ func createTLSListener(addr string, certFile, keyFile string) (net.Listener, err
 }
 
 func main() {
-	log.SetFlags(log.Lshortfile)
+	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime | log.Lmicroseconds)
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("nextcloud-spreed-signaling version %s/%s\n", version, runtime.Version())
 		os.Exit(0)
 	}
+
+	logger, err := signaling.NewLogger()
+	if err != nil {
+		log.Fatalf("Could not create logger: %s", err)
+	}
+	defer logger.Sync() // nolint
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
@@ -105,41 +111,41 @@ func main() {
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
 		if err != nil {
-			log.Fatal(err)
+			logger.Fatal(err)
 		}
 
 		if err := runtimepprof.StartCPUProfile(f); err != nil {
-			log.Fatalf("Error writing CPU profile to %s: %s", *cpuprofile, err)
+			logger.Fatalf("Error writing CPU profile to %s: %s", *cpuprofile, err)
 		}
-		log.Printf("Writing CPU profile to %s ...", *cpuprofile)
+		logger.Infof("Writing CPU profile to %s ...", *cpuprofile)
 		defer runtimepprof.StopCPUProfile()
 	}
 
 	if *memprofile != "" {
 		f, err := os.Create(*memprofile)
 		if err != nil {
-			log.Fatal(err)
+			logger.Fatal(err)
 		}
 
 		defer func() {
-			log.Printf("Writing Memory profile to %s ...", *memprofile)
+			logger.Info("Writing Memory profile to %s ...", *memprofile)
 			runtime.GC()
 			if err := runtimepprof.WriteHeapProfile(f); err != nil {
-				log.Printf("Error writing Memory profile to %s: %s", *memprofile, err)
+				logger.Infof("Error writing Memory profile to %s: %s", *memprofile, err)
 			}
 		}()
 	}
 
-	log.Printf("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
+	logger.Infof("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
 
 	config, err := goconf.ReadConfigFile(*configFlag)
 	if err != nil {
-		log.Fatal("Could not read configuration: ", err)
+		logger.Fatalf("Could not read configuration: %s", err)
 	}
 
 	cpus := runtime.NumCPU()
 	runtime.GOMAXPROCS(cpus)
-	log.Printf("Using a maximum of %d CPUs", cpus)
+	logger.Infof("Using a maximum of %d CPUs", cpus)
 
 	signaling.RegisterStats()
 
@@ -148,24 +154,24 @@ func main() {
 		natsUrl = nats.DefaultURL
 	}
 
-	nats, err := signaling.NewNatsClient(natsUrl)
+	nats, err := signaling.NewNatsClient(logger, natsUrl)
 	if err != nil {
-		log.Fatal("Could not create NATS client: ", err)
+		logger.Fatalf("Could not create NATS client: %s", err)
 	}
 
 	r := mux.NewRouter()
-	hub, err := signaling.NewHub(config, nats, r, version)
+	hub, err := signaling.NewHub(logger, config, nats, r, version)
 	if err != nil {
-		log.Fatal("Could not create hub: ", err)
+		logger.Fatalf("Could not create hub: %s", err)
 	}
 
 	mcuUrl, _ := config.GetString("mcu", "url")
 	mcuType, _ := config.GetString("mcu", "type")
 	if mcuType == "" && mcuUrl != "" {
-		log.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
+		logger.Warnf("Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
 		mcuType = signaling.McuTypeJanus
 	} else if mcuType == signaling.McuTypeJanus && mcuUrl == "" {
-		log.Printf("WARNING: Old-style MCU configuration detected with type but no url, disabling")
+		logger.Warn("Old-style MCU configuration detected with type but no url, disabling")
 		mcuType = ""
 	}
 
@@ -177,45 +183,45 @@ func main() {
 		for {
 			switch mcuType {
 			case signaling.McuTypeJanus:
-				mcu, err = signaling.NewMcuJanus(mcuUrl, config)
+				mcu, err = signaling.NewMcuJanus(logger, mcuUrl, config)
 				signaling.UnregisterProxyMcuStats()
 				signaling.RegisterJanusMcuStats()
 			case signaling.McuTypeProxy:
-				mcu, err = signaling.NewMcuProxy(config)
+				mcu, err = signaling.NewMcuProxy(logger, config)
 				signaling.UnregisterJanusMcuStats()
 				signaling.RegisterProxyMcuStats()
 			default:
-				log.Fatal("Unsupported MCU type: ", mcuType)
+				logger.Fatalf("Unsupported MCU type: %s", mcuType)
 			}
 			if err == nil {
 				err = mcu.Start()
 				if err != nil {
-					log.Printf("Could not create %s MCU: %s", mcuType, err)
+					logger.Errorf("Could not create %s MCU: %s", mcuType, err)
 				}
 			}
 			if err == nil {
 				break
 			}
 
-			log.Printf("Could not initialize %s MCU (%s) will retry in %s", mcuType, err, mcuRetry)
+			logger.Errorf("Could not initialize %s MCU (%s) will retry in %s", mcuType, err, mcuRetry)
 			mcuRetryTimer.Reset(mcuRetry)
 			select {
 			case sig := <-sigChan:
 				switch sig {
 				case os.Interrupt:
-					log.Fatalf("Cancelled")
+					logger.Fatal("Cancelled")
 				case syscall.SIGHUP:
-					log.Printf("Received SIGHUP, reloading %s", *configFlag)
+					logger.Info("Received SIGHUP, reloading %s", *configFlag)
 					if config, err = goconf.ReadConfigFile(*configFlag); err != nil {
-						log.Printf("Could not read configuration from %s: %s", *configFlag, err)
+						logger.Infof("Could not read configuration from %s: %s", *configFlag, err)
 					} else {
 						mcuUrl, _ = config.GetString("mcu", "url")
 						mcuType, _ = config.GetString("mcu", "type")
 						if mcuType == "" && mcuUrl != "" {
-							log.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
+							logger.Warnf("Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
 							mcuType = signaling.McuTypeJanus
 						} else if mcuType == signaling.McuTypeJanus && mcuUrl == "" {
-							log.Printf("WARNING: Old-style MCU configuration detected with type but no url, disabling")
+							logger.Warnf("Old-style MCU configuration detected with type but no url, disabling")
 							mcuType = ""
 							break mcuTypeLoop
 						}
@@ -232,7 +238,7 @@ func main() {
 		if mcu != nil {
 			defer mcu.Stop()
 
-			log.Printf("Using %s MCU", mcuType)
+			logger.Infof("Using %s MCU", mcuType)
 			hub.SetMcu(mcu)
 		}
 	}
@@ -240,16 +246,16 @@ func main() {
 	go hub.Run()
 	defer hub.Stop()
 
-	server, err := signaling.NewBackendServer(config, hub, version)
+	server, err := signaling.NewBackendServer(logger, config, hub, version)
 	if err != nil {
-		log.Fatal("Could not create backend server: ", err)
+		logger.Fatalf("Could not create backend server: %s", err)
 	}
 	if err := server.Start(r); err != nil {
-		log.Fatal("Could not start backend server: ", err)
+		logger.Fatalf("Could not start backend server: %s", err)
 	}
 
 	if debug, _ := config.GetBool("app", "debug"); debug {
-		log.Println("Installing debug handlers in \"/debug/pprof\"")
+		logger.Info("Installing debug handlers in \"/debug/pprof\"")
 		r.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
 		r.Handle("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
 		r.Handle("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
@@ -265,7 +271,7 @@ func main() {
 		cert, _ := config.GetString("https", "certificate")
 		key, _ := config.GetString("https", "key")
 		if cert == "" || key == "" {
-			log.Fatal("Need a certificate and key for the HTTPS listener")
+			logger.Fatal("Need a certificate and key for the HTTPS listener")
 		}
 
 		readTimeout, _ := config.GetInt("https", "readtimeout")
@@ -278,10 +284,10 @@ func main() {
 		}
 		for _, address := range strings.Split(saddr, " ") {
 			go func(address string) {
-				log.Println("Listening on", address)
+				logger.Infof("Listening on %s", address)
 				listener, err := createTLSListener(address, cert, key)
 				if err != nil {
-					log.Fatal("Could not start listening: ", err)
+					logger.Fatalf("Could not start listening: %s", err)
 				}
 				srv := &http.Server{
 					Handler: r,
@@ -290,7 +296,7 @@ func main() {
 					WriteTimeout: time.Duration(writeTimeout) * time.Second,
 				}
 				if err := srv.Serve(listener); err != nil {
-					log.Fatal("Could not start server: ", err)
+					logger.Fatalf("Could not start server: %s", err)
 				}
 			}(address)
 		}
@@ -308,10 +314,10 @@ func main() {
 
 		for _, address := range strings.Split(addr, " ") {
 			go func(address string) {
-				log.Println("Listening on", address)
+				logger.Infof("Listening on %s", address)
 				listener, err := createListener(address)
 				if err != nil {
-					log.Fatal("Could not start listening: ", err)
+					logger.Fatalf("Could not start listening: %s", err)
 				}
 				srv := &http.Server{
 					Handler: r,
@@ -321,7 +327,7 @@ func main() {
 					WriteTimeout: time.Duration(writeTimeout) * time.Second,
 				}
 				if err := srv.Serve(listener); err != nil {
-					log.Fatal("Could not start server: ", err)
+					logger.Fatalf("Could not start server: %s", err)
 				}
 			}(address)
 		}
@@ -331,12 +337,12 @@ loop:
 	for sig := range sigChan {
 		switch sig {
 		case os.Interrupt:
-			log.Println("Interrupted")
+			logger.Info("Interrupted")
 			break loop
 		case syscall.SIGHUP:
-			log.Printf("Received SIGHUP, reloading %s", *configFlag)
+			logger.Infof("Received SIGHUP, reloading %s", *configFlag)
 			if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
-				log.Printf("Could not read configuration from %s: %s", *configFlag, err)
+				logger.Errorf("Could not read configuration from %s: %s", *configFlag, err)
 			} else {
 				hub.Reload(config)
 			}

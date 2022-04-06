@@ -85,15 +85,16 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
-	nats, err := NewLoopbackNatsClient()
+	logger := NewLoggerForTest(t)
+	nats, err := NewLoopbackNatsClient(logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hub, err := NewHub(config, nats, r, "no-version")
+	hub, err := NewHub(logger, config, nats, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(logger, config, hub, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}

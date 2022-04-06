@@ -1,9 +1,19 @@
 linters:
   enable:
     - gofmt
+    - govet
     - revive
 
 linters-settings:
+  govet:
+    settings:
+      printf:
+        funcs:
+          - (github.com/strukturag/nextcloud-spreed-signaling.Logger).Debugf
+          - (github.com/strukturag/nextcloud-spreed-signaling.Logger).Errorf
+          - (github.com/strukturag/nextcloud-spreed-signaling.Logger).Fatalf
+          - (github.com/strukturag/nextcloud-spreed-signaling.Logger).Infof
+          - (github.com/strukturag/nextcloud-spreed-signaling.Logger).Warnf
   revive:
     ignoreGeneratedHeader: true
     severity: warning

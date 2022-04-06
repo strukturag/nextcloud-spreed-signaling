@@ -29,7 +29,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -56,6 +55,7 @@ const (
 )
 
 type BackendClient struct {
+	logger    Logger
 	hub       *Hub
 	transport *http.Transport
 	version   string
@@ -71,15 +71,15 @@ type BackendClient struct {
 	nextCapabilities map[string]time.Time
 }
 
-func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string) (*BackendClient, error) {
-	backends, err := NewBackendConfiguration(config)
+func NewBackendClient(logger Logger, config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string) (*BackendClient, error) {
+	backends, err := NewBackendConfiguration(logger, config)
 	if err != nil {
 		return nil, err
 	}
 
 	skipverify, _ := config.GetBool("backend", "skipverify")
 	if skipverify {
-		log.Println("WARNING: Backend verification is disabled!")
+		logger.Warn("Backend verification is disabled!")
 	}
 
 	tlsconfig := &tls.Config{
@@ -91,6 +91,7 @@ func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost in
 	}
 
 	return &BackendClient{
+		logger:    logger,
 		transport: transport,
 		version:   version,
 		backends:  backends,
@@ -196,24 +197,24 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 		capUrl.Path = capUrl.Path[:pos+11] + "/cloud/capabilities"
 	}
 
-	log.Printf("Capabilities expired for %s, updating", capUrl.String())
+	b.logger.Infof("Capabilities expired for %s, updating", capUrl.String())
 
 	pool, err := b.getPool(&capUrl)
 	if err != nil {
-		log.Printf("Could not get client pool for host %s: %s", capUrl.Host, err)
+		b.logger.Errorf("Could not get client pool for host %s: %s", capUrl.Host, err)
 		return nil, err
 	}
 
 	c, err := pool.Get(ctx)
 	if err != nil {
-		log.Printf("Could not get client for host %s: %s", capUrl.Host, err)
+		b.logger.Errorf("Could not get client for host %s: %s", capUrl.Host, err)
 		return nil, err
 	}
 	defer pool.Put(c)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", capUrl.String(), nil)
 	if err != nil {
-		log.Printf("Could not create request to %s: %s", &capUrl, err)
+		b.logger.Errorf("Could not create request to %s: %s", &capUrl, err)
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
@@ -228,38 +229,38 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
-		log.Printf("Received unsupported content-type from %s: %s (%s)", capUrl.String(), ct, resp.Status)
+		b.logger.Errorf("Received unsupported content-type from %s: %s (%s)", capUrl.String(), ct, resp.Status)
 		return nil, ErrUnsupportedContentType
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Could not read response body from %s: %s", capUrl.String(), err)
+		b.logger.Errorf("Could not read response body from %s: %s", capUrl.String(), err)
 		return nil, err
 	}
 
 	var ocs OcsResponse
 	if err := json.Unmarshal(body, &ocs); err != nil {
-		log.Printf("Could not decode OCS response %s from %s: %s", string(body), capUrl.String(), err)
+		b.logger.Errorf("Could not decode OCS response %s from %s: %s", string(body), capUrl.String(), err)
 		return nil, err
 	} else if ocs.Ocs == nil || ocs.Ocs.Data == nil {
-		log.Printf("Incomplete OCS response %s from %s", string(body), u)
+		b.logger.Errorf("Incomplete OCS response %s from %s", string(body), u)
 		return nil, fmt.Errorf("incomplete OCS response")
 	}
 
 	var response CapabilitiesResponse
 	if err := json.Unmarshal(*ocs.Ocs.Data, &response); err != nil {
-		log.Printf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), capUrl.String(), err)
+		b.logger.Errorf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), capUrl.String(), err)
 		return nil, err
 	}
 
 	capa, found := response.Capabilities[AppNameSpreed]
 	if !found {
-		log.Printf("No capabilities received for app spreed from %s: %+v", capUrl.String(), response)
+		b.logger.Errorf("No capabilities received for app %s from %s: %+v", AppNameSpreed, capUrl.String(), response)
 		return nil, nil
 	}
 
-	log.Printf("Received capabilities %+v from %s", capa, capUrl.String())
+	b.logger.Infof("Received capabilities %+v from %s", capa, capUrl.String())
 	b.capabilitiesLock.Lock()
 	b.capabilities[key] = capa
 	b.nextCapabilities[key] = now.Add(CapabilitiesCacheDuration)
@@ -270,7 +271,7 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 func (b *BackendClient) HasCapabilityFeature(ctx context.Context, u *url.URL, feature string) bool {
 	caps, err := b.getCapabilities(ctx, u)
 	if err != nil {
-		log.Printf("Could not get capabilities for %s: %s", u, err)
+		b.logger.Errorf("Could not get capabilities for %s: %s", u, err)
 		return false
 	}
 
@@ -281,7 +282,7 @@ func (b *BackendClient) HasCapabilityFeature(ctx context.Context, u *url.URL, fe
 
 	features, ok := featuresInterface.([]interface{})
 	if !ok {
-		log.Printf("Invalid features list received for %s: %+v", u, featuresInterface)
+		b.logger.Errorf("Invalid features list received for %s: %+v", u, featuresInterface)
 		return false
 	}
 
@@ -317,26 +318,26 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	pool, err := b.getPool(u)
 	if err != nil {
-		log.Printf("Could not get client pool for host %s: %s", u.Host, err)
+		b.logger.Errorf("Could not get client pool for host %s: %s", u.Host, err)
 		return err
 	}
 
 	c, err := pool.Get(ctx)
 	if err != nil {
-		log.Printf("Could not get client for host %s: %s", u.Host, err)
+		b.logger.Errorf("Could not get client for host %s: %s", u.Host, err)
 		return err
 	}
 	defer pool.Put(c)
 
 	data, err := json.Marshal(request)
 	if err != nil {
-		log.Printf("Could not marshal request %+v: %s", request, err)
+		b.logger.Errorf("Could not marshal request %+v: %s", request, err)
 		return err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", requestUrl.String(), bytes.NewReader(data))
 	if err != nil {
-		log.Printf("Could not create request to %s: %s", requestUrl, err)
+		b.logger.Errorf("Could not create request to %s: %s", requestUrl, err)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -352,20 +353,20 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	resp, err := c.Do(req)
 	if err != nil {
-		log.Printf("Could not send request %s to %s: %s", string(data), req.URL, err)
+		b.logger.Errorf("Could not send request %s to %s: %s", string(data), req.URL, err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
-		log.Printf("Received unsupported content-type from %s: %s (%s)", req.URL, ct, resp.Status)
+		b.logger.Errorf("Received unsupported content-type from %s: %s (%s)", req.URL, ct, resp.Status)
 		return ErrUnsupportedContentType
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Could not read response body from %s: %s", req.URL, err)
+		b.logger.Errorf("Could not read response body from %s: %s", req.URL, err)
 		return err
 	}
 
@@ -380,17 +381,17 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		// }
 		var ocs OcsResponse
 		if err := json.Unmarshal(body, &ocs); err != nil {
-			log.Printf("Could not decode OCS response %s from %s: %s", string(body), req.URL, err)
+			b.logger.Errorf("Could not decode OCS response %s from %s: %s", string(body), req.URL, err)
 			return err
 		} else if ocs.Ocs == nil || ocs.Ocs.Data == nil {
-			log.Printf("Incomplete OCS response %s from %s", string(body), req.URL)
+			b.logger.Errorf("Incomplete OCS response %s from %s", string(body), req.URL)
 			return fmt.Errorf("incomplete OCS response")
 		} else if err := json.Unmarshal(*ocs.Ocs.Data, response); err != nil {
-			log.Printf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), req.URL, err)
+			b.logger.Errorf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), req.URL, err)
 			return err
 		}
 	} else if err := json.Unmarshal(body, response); err != nil {
-		log.Printf("Could not decode response body %s from %s: %s", string(body), req.URL, err)
+		b.logger.Errorf("Could not decode response body %s from %s: %s", string(body), req.URL, err)
 		return err
 	}
 	return nil

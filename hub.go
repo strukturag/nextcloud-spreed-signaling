@@ -30,7 +30,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -103,6 +102,7 @@ type Hub struct {
 	// 64-bit members that are accessed atomically must be 64-bit aligned.
 	sid uint64
 
+	logger       Logger
 	nats         NatsClient
 	upgrader     websocket.Upgrader
 	cookie       *securecookie.SecureCookie
@@ -149,13 +149,13 @@ type Hub struct {
 	geoipUpdating  int32
 }
 
-func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version string) (*Hub, error) {
+func NewHub(logger Logger, config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version string) (*Hub, error) {
 	hashKey, _ := config.GetString("sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
 	case 64:
 	default:
-		log.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
+		logger.Warnf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
 	}
 
 	blockKey, _ := config.GetString("sessions", "blockkey")
@@ -172,7 +172,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 
 	internalClientsSecret, _ := config.GetString("clients", "internalsecret")
 	if internalClientsSecret == "" {
-		log.Println("WARNING: No shared secret has been set for internal clients.")
+		logger.Warn("WARNING: No shared secret has been set for internal clients.")
 	}
 
 	maxConcurrentRequestsPerHost, _ := config.GetInt("backend", "connectionsperhost")
@@ -180,18 +180,18 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
 	}
 
-	backend, err := NewBackendClient(config, maxConcurrentRequestsPerHost, version)
+	backend, err := NewBackendClient(logger, config, maxConcurrentRequestsPerHost, version)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Using a maximum of %d concurrent backend connections per host", maxConcurrentRequestsPerHost)
+	logger.Infof("Using a maximum of %d concurrent backend connections per host", maxConcurrentRequestsPerHost)
 
 	backendTimeoutSeconds, _ := config.GetInt("backend", "timeout")
 	if backendTimeoutSeconds <= 0 {
 		backendTimeoutSeconds = defaultBackendTimeoutSeconds
 	}
 	backendTimeout := time.Duration(backendTimeoutSeconds) * time.Second
-	log.Printf("Using a timeout of %s for backend connections", backendTimeout)
+	logger.Infof("Using a timeout of %s for backend connections", backendTimeout)
 
 	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
 	if mcuTimeoutSeconds <= 0 {
@@ -201,7 +201,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 
 	allowSubscribeAnyStream, _ := config.GetBool("app", "allowsubscribeany")
 	if allowSubscribeAnyStream {
-		log.Printf("WARNING: Allow subscribing any streams, this is insecure and should only be enabled for testing")
+		logger.Warn("Allow subscribing any streams, this is insecure and should only be enabled for testing")
 	}
 
 	decodeCaches := make([]*LruCache, 0, numDecodeCaches)
@@ -229,11 +229,11 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 	if geoipUrl != "" {
 		if strings.HasPrefix(geoipUrl, "file://") {
 			geoipUrl = geoipUrl[7:]
-			log.Printf("Using GeoIP database from %s", geoipUrl)
-			geoip, err = NewGeoLookupFromFile(geoipUrl)
+			logger.Infof("Using GeoIP database from %s", geoipUrl)
+			geoip, err = NewGeoLookupFromFile(logger, geoipUrl)
 		} else {
-			log.Printf("Downloading GeoIP database from %s", geoipUrl)
-			geoip, err = NewGeoLookupFromUrl(geoipUrl)
+			logger.Infof("Downloading GeoIP database from %s", geoipUrl)
+			geoip, err = NewGeoLookupFromUrl(logger, geoipUrl)
 		}
 		if err != nil {
 			return nil, err
@@ -270,23 +270,24 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 				value, _ := config.GetString("geoip-overrides", option)
 				value = strings.ToUpper(strings.TrimSpace(value))
 				if value == "" {
-					log.Printf("IP %s doesn't have a country assigned, skipping", option)
+					logger.Errorf("IP %s doesn't have a country assigned, skipping", option)
 					continue
 				} else if !IsValidCountry(value) {
-					log.Printf("Country %s for IP %s is invalid, skipping", value, option)
+					logger.Errorf("Country %s for IP %s is invalid, skipping", value, option)
 					continue
 				}
 
-				log.Printf("Using country %s for %s", value, ipNet)
+				logger.Infof("Using country %s for %s", value, ipNet)
 				geoipOverrides[ipNet] = value
 			}
 		}
 	} else {
-		log.Printf("Not using GeoIP database")
+		logger.Infof("Not using GeoIP database")
 	}
 
 	hub := &Hub{
-		nats: nats,
+		logger: logger,
+		nats:   nats,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  websocketReadBufferSize,
 			WriteBufferSize: websocketWriteBufferSize,
@@ -376,7 +377,7 @@ func (h *Hub) SetMcu(mcu Mcu) {
 		removeFeature(h.infoInternal, ServerFeatureSimulcast)
 		removeFeature(h.infoInternal, ServerFeatureUpdateSdp)
 	} else {
-		log.Printf("Using a timeout of %s for MCU requests", h.mcuTimeout)
+		h.logger.Infof("Using a timeout of %s for MCU requests", h.mcuTimeout)
 		addFeature(h.info, ServerFeatureMcu)
 		addFeature(h.info, ServerFeatureSimulcast)
 		addFeature(h.info, ServerFeatureUpdateSdp)
@@ -417,7 +418,7 @@ func (h *Hub) updateGeoDatabase() {
 			break
 		}
 
-		log.Printf("Could not update GeoIP database, will retry later (%s)", err)
+		h.logger.Warnf("Could not update GeoIP database, will retry later (%s)", err)
 		time.Sleep(delay)
 		delay = delay * 2
 		if delay > 5*time.Minute {
@@ -573,7 +574,7 @@ func (h *Hub) checkExpiredSessions(now time.Time) {
 	for s := range h.expiredSessions {
 		if s.IsExpired(now) {
 			h.mu.Unlock()
-			log.Printf("Closing expired session %s (private=%s)", s.PublicId(), s.PrivateId())
+			h.logger.Infof("Closing expired session %s (private=%s)", s.PublicId(), s.PrivateId())
 			s.Close()
 			h.mu.Lock()
 			// Should already be deleted by the close code, but better be sure.
@@ -723,21 +724,21 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 
 	userId := auth.Auth.UserId
 	if userId != "" {
-		log.Printf("Register user %s@%s from %s in %s (%s) %s (private=%s)", userId, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
+		h.logger.Infof("Register user %s@%s from %s in %s (%s) %s (private=%s)", userId, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
 	} else if message.Hello.Auth.Type != HelloClientTypeClient {
-		log.Printf("Register %s@%s from %s in %s (%s) %s (private=%s)", message.Hello.Auth.Type, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
+		h.logger.Infof("Register %s@%s from %s in %s (%s) %s (private=%s)", message.Hello.Auth.Type, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
 	} else {
-		log.Printf("Register anonymous@%s from %s in %s (%s) %s (private=%s)", backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
+		h.logger.Infof("Register anonymous@%s from %s in %s (%s) %s (private=%s)", backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
 	}
 
-	session, err := NewClientSession(h, privateSessionId, publicSessionId, sessionIdData, backend, message.Hello, auth.Auth)
+	session, err := NewClientSession(h.logger, h, privateSessionId, publicSessionId, sessionIdData, backend, message.Hello, auth.Auth)
 	if err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		return
 	}
 
 	if err := backend.AddSession(session); err != nil {
-		log.Printf("Error adding session %s to backend %s: %s", session.PublicId(), backend.Id(), err)
+		h.logger.Errorf("Error adding session %s to backend %s: %s", session.PublicId(), backend.Id(), err)
 		session.Close()
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		return
@@ -784,7 +785,7 @@ func (h *Hub) processUnregister(client *Client) *ClientSession {
 	}
 	h.mu.Unlock()
 	if session != nil {
-		log.Printf("Unregister %s (private=%s)", session.PublicId(), session.PrivateId())
+		h.logger.Infof("Unregister %s (private=%s)", session.PublicId(), session.PrivateId())
 		session.ClearClient(client)
 	}
 
@@ -796,10 +797,10 @@ func (h *Hub) processMessage(client *Client, data []byte) {
 	var message ClientMessage
 	if err := message.UnmarshalJSON(data); err != nil {
 		if session := client.GetSession(); session != nil {
-			log.Printf("Error decoding message from client %s: %v", session.PublicId(), err)
+			h.logger.Errorf("Error decoding message from client %s: %v", session.PublicId(), err)
 			session.SendError(InvalidFormat)
 		} else {
-			log.Printf("Error decoding message from %s: %v", client.RemoteAddr(), err)
+			h.logger.Errorf("Error decoding message from %s: %v", client.RemoteAddr(), err)
 			client.SendError(InvalidFormat)
 		}
 		return
@@ -807,10 +808,10 @@ func (h *Hub) processMessage(client *Client, data []byte) {
 
 	if err := message.CheckValid(); err != nil {
 		if session := client.GetSession(); session != nil {
-			log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
+			h.logger.Errorf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
 			session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
 		} else {
-			log.Printf("Invalid message %+v from %s: %v", message, client.RemoteAddr(), err)
+			h.logger.Errorf("Invalid message %+v from %s: %v", message, client.RemoteAddr(), err)
 			client.SendMessage(message.NewErrorServerMessage(InvalidFormat))
 		}
 		return
@@ -841,9 +842,9 @@ func (h *Hub) processMessage(client *Client, data []byte) {
 	case "bye":
 		h.processByeMsg(client, &message)
 	case "hello":
-		log.Printf("Ignore hello %+v for already authenticated connection %s", message.Hello, session.PublicId())
+		h.logger.Warnf("Ignore hello %+v for already authenticated connection %s", message.Hello, session.PublicId())
 	default:
-		log.Printf("Ignore unknown message %+v from %s", message, session.PublicId())
+		h.logger.Errorf("Ignore unknown message %+v from %s", message, session.PublicId())
 	}
 }
 
@@ -885,7 +886,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 		if !ok {
 			// Should never happen as clients only can resume their own sessions.
 			h.mu.Unlock()
-			log.Printf("Client resumed non-client session %s (private=%s)", session.PublicId(), session.PrivateId())
+			h.logger.Infof("Client resumed non-client session %s (private=%s)", session.PublicId(), session.PrivateId())
 			statsHubSessionResumeFailed.Inc()
 			client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 			return
@@ -898,7 +899,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 		}
 
 		if prev := clientSession.SetClient(client); prev != nil {
-			log.Printf("Closing previous client from %s for session %s", prev.RemoteAddr(), session.PublicId())
+			h.logger.Infof("Closing previous client from %s for session %s", prev.RemoteAddr(), session.PublicId())
 			prev.SendByeResponseWithReason(nil, "session_resumed")
 		}
 
@@ -907,7 +908,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 		delete(h.expectHelloClients, client)
 		h.mu.Unlock()
 
-		log.Printf("Resume session from %s in %s (%s) %s (private=%s)", client.RemoteAddr(), client.Country(), client.UserAgent(), session.PublicId(), session.PrivateId())
+		h.logger.Infof("Resume session from %s in %s (%s) %s (private=%s)", client.RemoteAddr(), client.Country(), client.UserAgent(), session.PublicId(), session.PrivateId())
 
 		statsHubSessionsResumedTotal.WithLabelValues(clientSession.Backend().Id(), clientSession.ClientType()).Inc()
 		h.sendHelloResponse(clientSession, message)
@@ -993,7 +994,7 @@ func (h *Hub) disconnectByRoomSessionId(roomSessionId string) {
 	if err == ErrNoSuchRoomSession {
 		return
 	} else if err != nil {
-		log.Printf("Could not get session id for room session %s: %s", roomSessionId, err)
+		h.logger.Errorf("Could not get session id for room session %s: %s", roomSessionId, err)
 		return
 	}
 
@@ -1007,12 +1008,12 @@ func (h *Hub) disconnectByRoomSessionId(roomSessionId string) {
 			},
 		}
 		if err := h.nats.PublishMessage("session."+sessionId, msg); err != nil {
-			log.Printf("Could not send reconnect bye to session %s: %s", sessionId, err)
+			h.logger.Errorf("Could not send reconnect bye to session %s: %s", sessionId, err)
 		}
 		return
 	}
 
-	log.Printf("Closing session %s because same room session %s connected", session.PublicId(), roomSessionId)
+	h.logger.Infof("Closing session %s because same room session %s connected", session.PublicId(), roomSessionId)
 	session.LeaveRoom(false)
 	switch sess := session.(type) {
 	case *ClientSession:
@@ -1086,7 +1087,7 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		sessionId := message.Room.SessionId
 		if sessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
-			log.Printf("User did not send a room session id, assuming session %s", session.PublicId())
+			h.logger.Warnf("User did not send a room session id, assuming session %s", session.PublicId())
 			sessionId = session.PublicId()
 		}
 		request := NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
@@ -1127,7 +1128,7 @@ func (h *Hub) removeRoom(room *Room) {
 
 func (h *Hub) createRoom(id string, properties *json.RawMessage, backend *Backend) (*Room, error) {
 	// Note the write lock must be held.
-	room, err := NewRoom(id, properties, h, h.nats, backend)
+	room, err := NewRoom(h.logger, id, properties, h, h.nats, backend)
 	if err != nil {
 		return nil, err
 	}
@@ -1343,7 +1344,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 		}
 	}
 	if subject == "" {
-		log.Printf("Unknown recipient in message %+v from %s", msg, session.PublicId())
+		h.logger.Errorf("Unknown recipient in message %+v from %s", msg, session.PublicId())
 		return
 	}
 
@@ -1363,7 +1364,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				return
 			}
 
-			log.Printf("Closing screen publisher for %s", session.PublicId())
+			h.logger.Infof("Closing screen publisher for %s", session.PublicId())
 			ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
 			defer cancel()
 			publisher.Close(ctx)
@@ -1386,7 +1387,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 		// The recipient is connected to this instance, no need to go through NATS.
 		if clientData != nil && clientData.Type == "sendoffer" {
 			if err := session.IsAllowedToSend(clientData); err != nil {
-				log.Printf("Session %s is not allowed to send offer for %s, ignoring (%s)", session.PublicId(), clientData.RoomType, err)
+				h.logger.Infof("Session %s is not allowed to send offer for %s, ignoring (%s)", session.PublicId(), clientData.RoomType, err)
 				sendNotAllowed(session, message, "Not allowed to send offer")
 				return
 			}
@@ -1406,11 +1407,11 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 	} else {
 		if clientData != nil && clientData.Type == "sendoffer" {
 			// TODO(jojo): Implement this.
-			log.Printf("Sending offers to remote clients is not supported yet (client %s)", session.PublicId())
+			h.logger.Errorf("Sending offers to remote clients is not supported yet (client %s)", session.PublicId())
 			return
 		}
 		if err := h.nats.PublishMessage(subject, response); err != nil {
-			log.Printf("Error publishing message to remote session: %s", err)
+			h.logger.Errorf("Error publishing message to remote session: %s", err)
 		}
 	}
 }
@@ -1436,7 +1437,7 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 		// Client is not connected yet.
 		return
 	} else if !isAllowedToControl(session) {
-		log.Printf("Ignore control message %+v from %s", msg, session.PublicId())
+		h.logger.Infof("Ignore control message %+v from %s", msg, session.PublicId())
 		return
 	}
 
@@ -1491,7 +1492,7 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 		}
 	}
 	if subject == "" {
-		log.Printf("Unknown recipient in message %+v from %s", msg, session.PublicId())
+		h.logger.Errorf("Unknown recipient in message %+v from %s", msg, session.PublicId())
 		return
 	}
 
@@ -1511,7 +1512,7 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 		recipient.SendMessage(response)
 	} else {
 		if err := h.nats.PublishMessage(subject, response); err != nil {
-			log.Printf("Error publishing message to remote session: %s", err)
+			h.logger.Errorf("Error publishing message to remote session: %s", err)
 		}
 	}
 }
@@ -1523,7 +1524,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		// Client is not connected yet.
 		return
 	} else if session.ClientType() != HelloClientTypeInternal {
-		log.Printf("Ignore internal message %+v from %s", msg, session.PublicId())
+		h.logger.Infof("Ignore internal message %+v from %s", msg, session.PublicId())
 		return
 	}
 
@@ -1532,19 +1533,19 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		msg := msg.AddSession
 		room := h.getRoomForBackend(msg.RoomId, session.Backend())
 		if room == nil {
-			log.Printf("Ignore add session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
+			h.logger.Infof("Ignore add session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
 			return
 		}
 
 		sessionIdData := h.newSessionIdData(session.Backend())
 		privateSessionId, err := h.encodeSessionId(sessionIdData, privateSessionName)
 		if err != nil {
-			log.Printf("Could not encode private virtual session id: %s", err)
+			h.logger.Errorf("Could not encode private virtual session id: %s", err)
 			return
 		}
 		publicSessionId, err := h.encodeSessionId(sessionIdData, publicSessionName)
 		if err != nil {
-			log.Printf("Could not encode public virtual session id: %s", err)
+			h.logger.Errorf("Could not encode public virtual session id: %s", err)
 			return
 		}
 
@@ -1561,14 +1562,14 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 
 			var response BackendClientResponse
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
-				log.Printf("Could not join virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
+				h.logger.Errorf("Could not join virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
 				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not join virtual session."))
 				session.SendMessage(reply)
 				return
 			}
 
 			if response.Type == "error" {
-				log.Printf("Could not join virtual session %s at backend %s: %+v", virtualSessionId, session.BackendUrl(), response.Error)
+				h.logger.Errorf("Could not join virtual session %s at backend %s: %+v", virtualSessionId, session.BackendUrl(), response.Error)
 				reply := message.NewErrorServerMessage(NewError("add_failed", response.Error.Error()))
 				session.SendMessage(reply)
 				return
@@ -1577,21 +1578,21 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			request := NewBackendClientSessionRequest(room.Id(), "add", publicSessionId, msg)
 			var response BackendClientSessionResponse
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
-				log.Printf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
+				h.logger.Errorf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
 				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not add virtual session."))
 				session.SendMessage(reply)
 				return
 			}
 		}
 
-		sess := NewVirtualSession(session, privateSessionId, publicSessionId, sessionIdData, msg)
+		sess := NewVirtualSession(h.logger, session, privateSessionId, publicSessionId, sessionIdData, msg)
 		h.mu.Lock()
 		h.sessions[sessionIdData.Sid] = sess
 		h.virtualSessions[virtualSessionId] = sessionIdData.Sid
 		h.mu.Unlock()
 		statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), sess.ClientType()).Inc()
 		statsHubSessionsTotal.WithLabelValues(session.Backend().Id(), sess.ClientType()).Inc()
-		log.Printf("Session %s added virtual session %s with initial flags %d", session.PublicId(), sess.PublicId(), sess.Flags())
+		h.logger.Infof("Session %s added virtual session %s with initial flags %d", session.PublicId(), sess.PublicId(), sess.Flags())
 		session.AddVirtualSession(sess)
 		sess.SetRoom(room)
 		room.AddSession(sess, nil)
@@ -1599,7 +1600,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		msg := msg.UpdateSession
 		room := h.getRoomForBackend(msg.RoomId, session.Backend())
 		if room == nil {
-			log.Printf("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
+			h.logger.Infof("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
 			return
 		}
 
@@ -1622,7 +1623,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 					}
 				}
 			} else {
-				log.Printf("Ignore update request for non-virtual session %s", sess.PublicId())
+				h.logger.Infof("Ignore update request for non-virtual session %s", sess.PublicId())
 			}
 			if update {
 				room.NotifySessionChanged(sess)
@@ -1632,7 +1633,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		msg := msg.RemoveSession
 		room := h.getRoomForBackend(msg.RoomId, session.Backend())
 		if room == nil {
-			log.Printf("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
+			h.logger.Infof("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
 			return
 		}
 
@@ -1648,7 +1649,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		sess := h.sessions[sid]
 		h.mu.Unlock()
 		if sess != nil {
-			log.Printf("Session %s removed virtual session %s", session.PublicId(), sess.PublicId())
+			h.logger.Infof("Session %s removed virtual session %s", session.PublicId(), sess.PublicId())
 			if vsess, ok := sess.(*VirtualSession); ok {
 				// We should always have a VirtualSession here.
 				vsess.CloseWithFeedback(session, message)
@@ -1657,7 +1658,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			}
 		}
 	default:
-		log.Printf("Ignore unsupported internal message %+v from %s", msg, session.PublicId())
+		h.logger.Errorf("Ignore unsupported internal message %+v from %s", msg, session.PublicId())
 		return
 	}
 }
@@ -1768,14 +1769,14 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 	switch data.Type {
 	case "requestoffer":
 		if session.PublicId() == message.Recipient.SessionId {
-			log.Printf("Not requesting offer from itself for session %s", session.PublicId())
+			h.logger.Infof("Not requesting offer from itself for session %s", session.PublicId())
 			return
 		}
 
 		// A user is only allowed to subscribe a stream if she is in the same room
 		// as the other user and both have their "inCall" flag set.
 		if !h.allowSubscribeAnyStream && !h.isInSameCall(senderSession, message.Recipient.SessionId) {
-			log.Printf("Session %s is not in the same call as session %s, not requesting offer", session.PublicId(), message.Recipient.SessionId)
+			h.logger.Infof("Session %s is not in the same call as session %s, not requesting offer", session.PublicId(), message.Recipient.SessionId)
 			sendNotAllowed(senderSession, client_message, "Not allowed to request offer.")
 			return
 		}
@@ -1790,18 +1791,18 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 		clientType = "publisher"
 		mc, err = session.GetOrCreatePublisher(ctx, h.mcu, data.RoomType, data)
 		if err, ok := err.(*PermissionError); ok {
-			log.Printf("Session %s is not allowed to offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
+			h.logger.Infof("Session %s is not allowed to offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
 			sendNotAllowed(senderSession, client_message, "Not allowed to publish.")
 			return
 		}
 		if err, ok := err.(*SdpError); ok {
-			log.Printf("Session %s sent unsupported offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
+			h.logger.Infof("Session %s sent unsupported offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
 			sendNotAllowed(senderSession, client_message, "Not allowed to publish.")
 			return
 		}
 	case "selectStream":
 		if session.PublicId() == message.Recipient.SessionId {
-			log.Printf("Not selecting substream for own %s stream in session %s", data.RoomType, session.PublicId())
+			h.logger.Infof("Not selecting substream for own %s stream in session %s", data.RoomType, session.PublicId())
 			return
 		}
 
@@ -1810,7 +1811,7 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 	default:
 		if session.PublicId() == message.Recipient.SessionId {
 			if err := session.IsAllowedToSend(data); err != nil {
-				log.Printf("Session %s is not allowed to send candidate for %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
+				h.logger.Infof("Session %s is not allowed to send candidate for %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
 				sendNotAllowed(senderSession, client_message, "Not allowed to send candidate.")
 				return
 			}
@@ -1823,18 +1824,18 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 		}
 	}
 	if err != nil {
-		log.Printf("Could not create MCU %s for session %s to send %+v to %s: %s", clientType, session.PublicId(), data, message.Recipient.SessionId, err)
+		h.logger.Errorf("Could not create MCU %s for session %s to send %+v to %s: %s", clientType, session.PublicId(), data, message.Recipient.SessionId, err)
 		sendMcuClientNotFound(senderSession, client_message)
 		return
 	} else if mc == nil {
-		log.Printf("No MCU %s found for session %s to send %+v to %s", clientType, session.PublicId(), data, message.Recipient.SessionId)
+		h.logger.Errorf("No MCU %s found for session %s to send %+v to %s", clientType, session.PublicId(), data, message.Recipient.SessionId)
 		sendMcuClientNotFound(senderSession, client_message)
 		return
 	}
 
 	mc.SendMessage(context.TODO(), message, data, func(err error, response map[string]interface{}) {
 		if err != nil {
-			log.Printf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
+			h.logger.Errorf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
 			sendMcuProcessingFailed(senderSession, client_message)
 			return
 		} else if response == nil {
@@ -1859,7 +1860,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, message *MessageCli
 		}
 		answer_data, err := json.Marshal(answer_message)
 		if err != nil {
-			log.Printf("Could not serialize answer %+v to %s: %s", answer_message, session.PublicId(), err)
+			h.logger.Errorf("Could not serialize answer %+v to %s: %s", answer_message, session.PublicId(), err)
 			return
 		}
 		response_message = &ServerMessage{
@@ -1883,7 +1884,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, message *MessageCli
 		}
 		offer_data, err := json.Marshal(offer_message)
 		if err != nil {
-			log.Printf("Could not serialize offer %+v to %s: %s", offer_message, session.PublicId(), err)
+			h.logger.Errorf("Could not serialize offer %+v to %s: %s", offer_message, session.PublicId(), err)
 			return
 		}
 		response_message = &ServerMessage{
@@ -1898,7 +1899,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, message *MessageCli
 			},
 		}
 	default:
-		log.Printf("Unsupported response %+v received to send to %s", response, session.PublicId())
+		h.logger.Errorf("Unsupported response %+v received to send to %s", response, session.PublicId())
 		return
 	}
 
@@ -1941,7 +1942,7 @@ func (h *Hub) processRoomInCallChanged(message *BackendServerRoomRequest) {
 		if err := json.Unmarshal(message.InCall.InCall, &flags); err != nil {
 			var incall bool
 			if err := json.Unmarshal(message.InCall.InCall, &incall); err != nil {
-				log.Printf("Unsupported InCall flags type: %+v, ignoring", string(message.InCall.InCall))
+				h.logger.Errorf("Unsupported InCall flags type: %+v, ignoring", string(message.InCall.InCall))
 				return
 			}
 
@@ -2013,7 +2014,7 @@ func (h *Hub) lookupClientCountry(client *Client) string {
 
 	country, err := h.geoip.LookupCountry(ip)
 	if err != nil {
-		log.Printf("Could not lookup country for %s: %s", ip, err)
+		h.logger.Errorf("Could not lookup country for %s: %s", ip, err)
 		return unknownCountry
 	}
 
@@ -2029,13 +2030,13 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("Could not upgrade request from %s: %s", addr, err)
+		h.logger.Errorf("Could not upgrade request from %s: %s", addr, err)
 		return
 	}
 
-	client, err := NewClient(conn, addr, agent)
+	client, err := NewClient(h.logger, conn, addr, agent)
 	if err != nil {
-		log.Printf("Could not create client for %s: %s", addr, err)
+		h.logger.Errorf("Could not create client for %s: %s", addr, err)
 		return
 	}
 

@@ -49,7 +49,8 @@ func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *t
 }
 
 func CreateLoopbackNatsClientForTest(t *testing.T) NatsClient {
-	result, err := NewLoopbackNatsClient()
+	logger := NewLoggerForTest(t)
+	result, err := NewLoopbackNatsClient(logger)
 	if err != nil {
 		t.Fatal(err)
 	}

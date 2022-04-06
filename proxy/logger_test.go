@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2020 struktur AG
+ * Copyright (C) 2022 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -22,35 +22,27 @@
 package main
 
 import (
-	"sync/atomic"
-	"unsafe"
+	"testing"
 
-	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
-type ProxyClient struct {
-	signaling.Client
-
-	logger signaling.Logger
-	proxy  *ProxyServer
-
-	session unsafe.Pointer
-}
-
-func NewProxyClient(logger signaling.Logger, proxy *ProxyServer, conn *websocket.Conn, addr string) (*ProxyClient, error) {
-	client := &ProxyClient{
-		logger: logger,
-		proxy:  proxy,
+func NewLoggerForTest(t *testing.T) signaling.Logger {
+	cfg := zap.NewDevelopmentConfig()
+	cfg.EncoderConfig.TimeKey = "timestamp"
+	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	logger, err := cfg.Build()
+	if err != nil {
+		t.Fatalf("could not create logger: %s", err)
 	}
-	client.SetConn(conn, addr)
-	return client, nil
-}
 
-func (c *ProxyClient) GetSession() *ProxySession {
-	return (*ProxySession)(atomic.LoadPointer(&c.session))
-}
+	t.Cleanup(func() {
+		logger.Sync() // nolint
+	})
 
-func (c *ProxyClient) SetSession(session *ProxySession) {
-	atomic.StorePointer(&c.session, unsafe.Pointer(session))
+	sugar := logger.Sugar()
+	return signaling.WrapSugaredLogger(sugar)
 }

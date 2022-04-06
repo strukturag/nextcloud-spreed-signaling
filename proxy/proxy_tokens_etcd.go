@@ -25,7 +25,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -50,14 +49,18 @@ type tokenCacheEntry struct {
 }
 
 type tokensEtcd struct {
+	logger signaling.Logger
+
 	client atomic.Value
 
 	tokenFormats atomic.Value
 	tokenCache   *signaling.LruCache
 }
 
-func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
+func NewProxyTokensEtcd(logger signaling.Logger, config *goconf.ConfigFile) (ProxyTokens, error) {
 	result := &tokensEtcd{
+		logger: logger,
+
 		tokenCache: signaling.NewLruCache(tokenCacheSize),
 	}
 	if err := result.load(config, false); err != nil {
@@ -97,7 +100,7 @@ func (t *tokensEtcd) getByKey(id string, key string) (*ProxyToken, error) {
 	if len(resp.Kvs) == 0 {
 		return nil, nil
 	} else if len(resp.Kvs) > 1 {
-		log.Printf("Received multiple keys for %s, using last", key)
+		t.logger.Warnf("Received multiple keys for %s, using last", key)
 	}
 
 	keyValue := resp.Kvs[len(resp.Kvs)-1].Value
@@ -126,7 +129,7 @@ func (t *tokensEtcd) Get(id string) (*ProxyToken, error) {
 	for _, k := range t.getKeys(id) {
 		token, err := t.getByKey(id, k)
 		if err != nil {
-			log.Printf("Could not get public key from %s for %s: %s", k, id, err)
+			t.logger.Errorf("Could not get public key from %s for %s: %s", k, id, err)
 			continue
 		} else if token == nil {
 			continue
@@ -164,7 +167,7 @@ func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 			return fmt.Errorf("No token endpoints configured")
 		}
 
-		log.Printf("No token endpoints configured, not changing client")
+		t.logger.Infof("No token endpoints configured, not changing client")
 	} else {
 		cfg := clientv3.Config{
 			Endpoints: endpoints,
@@ -188,7 +191,7 @@ func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 					return fmt.Errorf("Could not setup TLS configuration: %s", err)
 				}
 
-				log.Printf("Could not setup TLS configuration, will be disabled (%s)", err)
+				t.logger.Errorf("Could not setup TLS configuration, will be disabled (%s)", err)
 			} else {
 				cfg.TLS = tlsConfig
 			}
@@ -200,14 +203,14 @@ func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 				return err
 			}
 
-			log.Printf("Could not create new client from token endpoints %+v: %s", endpoints, err)
+			t.logger.Errorf("Could not create new client from token endpoints %+v: %s", endpoints, err)
 		} else {
 			prev := t.getClient()
 			if prev != nil {
 				prev.Close()
 			}
 			t.client.Store(c)
-			log.Printf("Using token endpoints %+v", endpoints)
+			t.logger.Infof("Using token endpoints %+v", endpoints)
 		}
 	}
 
@@ -226,13 +229,13 @@ func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 	}
 
 	t.tokenFormats.Store(tokenFormats)
-	log.Printf("Using %v as token formats", tokenFormats)
+	t.logger.Infof("Using %v as token formats", tokenFormats)
 	return nil
 }
 
 func (t *tokensEtcd) Reload(config *goconf.ConfigFile) {
 	if err := t.load(config, true); err != nil {
-		log.Printf("Error reloading etcd tokens: %s", err)
+		t.logger.Errorf("Error reloading etcd tokens: %s", err)
 	}
 }
 

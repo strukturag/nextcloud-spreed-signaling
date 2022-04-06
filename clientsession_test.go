@@ -128,7 +128,7 @@ func Test_permissionsEqual(t *testing.T) {
 func TestBandwidth_Client(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
-	mcu, err := NewTestMCU()
+	mcu, err := NewTestMCU(hub.logger)
 	if err != nil {
 		t.Fatal(err)
 	} else if err := mcu.Start(); err != nil {
@@ -212,7 +212,7 @@ func TestBandwidth_Backend(t *testing.T) {
 	backend.maxScreenBitrate = 1000
 	backend.maxStreamBitrate = 2000
 
-	mcu, err := NewTestMCU()
+	mcu, err := NewTestMCU(hub.logger)
 	if err != nil {
 		t.Fatal(err)
 	} else if err := mcu.Start(); err != nil {

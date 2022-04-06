@@ -25,7 +25,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"reflect"
 	"strconv"
 	"sync"
@@ -96,7 +95,7 @@ func convertIntValue(value interface{}) (uint64, error) {
 	}
 }
 
-func getPluginIntValue(data janus.PluginData, pluginName string, key string) uint64 {
+func getPluginIntValue(logger Logger, data janus.PluginData, pluginName string, key string) uint64 {
 	val := getPluginValue(data, pluginName, key)
 	if val == nil {
 		return 0
@@ -104,7 +103,7 @@ func getPluginIntValue(data janus.PluginData, pluginName string, key string) uin
 
 	result, err := convertIntValue(val)
 	if err != nil {
-		log.Printf("Invalid value %+v for %s: %s", val, key, err)
+		logger.Errorf("Invalid value %+v for %s: %s", val, key, err)
 		result = 0
 	}
 	return result
@@ -134,8 +133,9 @@ type mcuJanus struct {
 	// 64-bit members that are accessed atomically must be 64-bit aligned.
 	clientId uint64
 
-	url string
-	mu  sync.Mutex
+	logger Logger
+	url    string
+	mu     sync.Mutex
 
 	maxStreamBitrate int
 	maxScreenBitrate int
@@ -165,7 +165,7 @@ type mcuJanus struct {
 func emptyOnConnected()    {}
 func emptyOnDisconnected() {}
 
-func NewMcuJanus(url string, config *goconf.ConfigFile) (Mcu, error) {
+func NewMcuJanus(logger Logger, url string, config *goconf.ConfigFile) (Mcu, error) {
 	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
 	if maxStreamBitrate <= 0 {
 		maxStreamBitrate = defaultMaxStreamBitrate
@@ -181,6 +181,7 @@ func NewMcuJanus(url string, config *goconf.ConfigFile) (Mcu, error) {
 	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
 
 	mcu := &mcuJanus{
+		logger:           logger.With("url", url),
 		url:              url,
 		maxStreamBitrate: maxStreamBitrate,
 		maxScreenBitrate: maxScreenBitrate,
@@ -206,20 +207,20 @@ func NewMcuJanus(url string, config *goconf.ConfigFile) (Mcu, error) {
 func (m *mcuJanus) disconnect() {
 	if m.handle != nil {
 		if _, err := m.handle.Detach(context.TODO()); err != nil {
-			log.Printf("Error detaching handle %d: %s", m.handle.Id, err)
+			m.logger.Errorf("Error detaching handle %d: %s", m.handle.Id, err)
 		}
 		m.handle = nil
 	}
 	if m.session != nil {
 		m.closeChan <- true
 		if _, err := m.session.Destroy(context.TODO()); err != nil {
-			log.Printf("Error destroying session %d: %s", m.session.Id, err)
+			m.logger.Errorf("Error destroying session %d: %s", m.session.Id, err)
 		}
 		m.session = nil
 	}
 	if m.gw != nil {
 		if err := m.gw.Close(); err != nil {
-			log.Println("Error while closing connection to MCU", err)
+			m.logger.Errorf("Error while closing connection to MCU: %s", err)
 		}
 		m.gw = nil
 	}
@@ -227,7 +228,7 @@ func (m *mcuJanus) disconnect() {
 
 func (m *mcuJanus) reconnect() error {
 	m.disconnect()
-	gw, err := NewJanusGateway(m.url, m)
+	gw, err := NewJanusGateway(m.logger, m.url, m)
 	if err != nil {
 		return err
 	}
@@ -247,7 +248,7 @@ func (m *mcuJanus) doReconnect() {
 		return
 	}
 
-	log.Println("Reconnection to Janus gateway successful")
+	m.logger.Info("Reconnection to Janus gateway successful")
 	m.mu.Lock()
 	m.publishers = make(map[string]*mcuJanusPublisher)
 	m.publisherCreated.Reset()
@@ -267,9 +268,9 @@ func (m *mcuJanus) scheduleReconnect(err error) {
 	defer m.mu.Unlock()
 	m.reconnectTimer.Reset(m.reconnectInterval)
 	if err == nil {
-		log.Printf("Connection to Janus gateway was interrupted, reconnecting in %s", m.reconnectInterval)
+		m.logger.Warnf("Connection to Janus gateway was interrupted, reconnecting in %s", m.reconnectInterval)
 	} else {
-		log.Printf("Reconnect to Janus gateway failed (%s), reconnecting in %s", err, m.reconnectInterval)
+		m.logger.Errorf("Reconnect to Janus gateway failed (%s), reconnecting in %s", err, m.reconnectInterval)
 	}
 
 	m.reconnectInterval = m.reconnectInterval * 2
@@ -290,38 +291,38 @@ func (m *mcuJanus) Start() error {
 		return err
 	}
 
-	log.Printf("Connected to %s %s by %s", info.Name, info.VersionString, info.Author)
+	m.logger.Infof("Connected to %s %s by %s", info.Name, info.VersionString, info.Author)
 	plugin, found := info.Plugins[pluginVideoRoom]
 	if !found {
 		return fmt.Errorf("Plugin %s is not supported", pluginVideoRoom)
 	}
 
-	log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
+	m.logger.Infof("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
 	if !info.DataChannels {
 		return fmt.Errorf("Data channels are not supported")
 	}
 
-	log.Println("Data channels are supported")
+	m.logger.Info("Data channels are supported")
 	if !info.FullTrickle {
-		log.Println("WARNING: Full-Trickle is NOT enabled in Janus!")
+		m.logger.Warn("Full-Trickle is NOT enabled in Janus!")
 	} else {
-		log.Println("Full-Trickle is enabled")
+		m.logger.Info("Full-Trickle is enabled")
 	}
-	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate)
-	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate)
+	m.logger.Infof("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate)
+	m.logger.Infof("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate)
 
 	if m.session, err = m.gw.Create(ctx); err != nil {
 		m.disconnect()
 		return err
 	}
-	log.Println("Created Janus session", m.session.Id)
+	m.logger.Infof("Created Janus session %d", m.session.Id)
 	m.connectedSince = time.Now()
 
 	if m.handle, err = m.session.Attach(ctx, pluginVideoRoom); err != nil {
 		m.disconnect()
 		return err
 	}
-	log.Println("Created Janus handle", m.handle.Id)
+	m.logger.Infof("Created Janus handle %d", m.handle.Id)
 
 	go m.run()
 
@@ -418,7 +419,7 @@ func (m *mcuJanus) GetStats() interface{} {
 func (m *mcuJanus) sendKeepalive() {
 	ctx := context.TODO()
 	if _, err := m.session.KeepAlive(ctx); err != nil {
-		log.Println("Could not send keepalive request", err)
+		m.logger.Errorf("Could not send keepalive request: %s", err)
 		if e, ok := err.(*janus.ErrorMsg); ok {
 			switch e.Err.Code {
 			case JANUS_ERROR_SESSION_NOT_FOUND:
@@ -429,6 +430,7 @@ func (m *mcuJanus) sendKeepalive() {
 }
 
 type mcuJanusClient struct {
+	logger   Logger
 	mcu      *mcuJanus
 	listener McuListener
 	mu       sync.Mutex // nolint
@@ -471,7 +473,7 @@ func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
 		c.closeChan <- true
 		if _, err := handle.Detach(ctx); err != nil {
 			if e, ok := err.(*janus.ErrorMsg); !ok || e.Err.Code != JANUS_ERROR_HANDLE_NOT_FOUND {
-				log.Println("Could not detach client", handle.Id, err)
+				c.logger.Errorf("Could not detach client %d: %s", handle.Id, err)
 			}
 		}
 		return true
@@ -501,7 +503,7 @@ loop:
 			case *TrickleMsg:
 				c.handleTrickle(t)
 			default:
-				log.Println("Received unsupported event type", msg, reflect.TypeOf(msg))
+				c.logger.Errorf("Received unsupported event type: %+v %s", msg, reflect.TypeOf(msg))
 			}
 		case f := <-c.deferred:
 			f()
@@ -549,7 +551,7 @@ func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer map[string]inter
 		callback(err, nil)
 		return
 	}
-	log.Println("Started listener", start_response)
+	c.logger.Infof("Started listener: %+v", start_response)
 	callback(nil, nil)
 }
 
@@ -723,7 +725,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		return nil, 0, 0, err
 	}
 
-	log.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
+	m.logger.Infof("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
 	create_msg := map[string]interface{}{
 		"request":     "create",
 		"description": id + "|" + streamType,
@@ -748,20 +750,20 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 	create_response, err := handle.Request(ctx, create_msg)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.logger.Errorf("Error detaching handle %d: %s", handle.Id, err2)
 		}
 		return nil, 0, 0, err
 	}
 
-	roomId := getPluginIntValue(create_response.PluginData, pluginVideoRoom, "room")
+	roomId := getPluginIntValue(m.logger, create_response.PluginData, pluginVideoRoom, "room")
 	if roomId == 0 {
 		if _, err := handle.Detach(ctx); err != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err)
+			m.logger.Errorf("Error detaching handle %d: %s", handle.Id, err)
 		}
 		return nil, 0, 0, fmt.Errorf("No room id received: %+v", create_response)
 	}
 
-	log.Println("Created room", roomId, create_response.PluginData)
+	m.logger.Infof("Created room %d: %+v", roomId, create_response.PluginData)
 
 	msg := map[string]interface{}{
 		"request": "join",
@@ -773,7 +775,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 	response, err := handle.Message(ctx, msg, nil)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.logger.Errorf("Error detaching handle %d: %s", handle.Id, err2)
 		}
 		return nil, 0, 0, err
 	}
@@ -793,6 +795,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 
 	client := &mcuJanusPublisher{
 		mcuJanusClient: mcuJanusClient{
+			logger:   m.logger,
 			mcu:      m,
 			listener: listener,
 
@@ -818,7 +821,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 	client.mcuJanusClient.handleMedia = client.handleMedia
 
 	m.registerClient(client)
-	log.Printf("Publisher %s is using handle %d", client.id, client.handleId)
+	m.logger.Infof("Publisher %s is using handle %d", client.id, client.handleId)
 	go client.run(handle, client.closeChan)
 	m.mu.Lock()
 	m.publishers[id+"|"+streamType] = client
@@ -834,38 +837,38 @@ func (p *mcuJanusPublisher) handleEvent(event *janus.EventMsg) {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Publisher %d: associated room has been destroyed, closing", p.handleId)
+			p.logger.Infof("Publisher %d: associated room has been destroyed, closing", p.handleId)
 			go p.Close(ctx)
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom publisher event in %d: %+v", p.handleId, event)
+			p.logger.Errorf("Unsupported videoroom publisher event in %d: %+v", p.handleId, event)
 		}
 	} else {
-		log.Printf("Unsupported publisher event in %d: %+v", p.handleId, event)
+		p.logger.Errorf("Unsupported publisher event in %d: %+v", p.handleId, event)
 	}
 }
 
 func (p *mcuJanusPublisher) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Publisher %d received hangup (%s), closing", p.handleId, event.Reason)
+	p.logger.Infof("Publisher %d received hangup (%s), closing", p.handleId, event.Reason)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusPublisher) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Publisher %d received detached, closing", p.handleId)
+	p.logger.Infof("Publisher %d received detached, closing", p.handleId)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusPublisher) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Publisher %d received connected", p.handleId)
+	p.logger.Infof("Publisher %d received connected", p.handleId)
 	p.mcu.publisherConnected.Notify(p.id + "|" + p.streamType)
 }
 
 func (p *mcuJanusPublisher) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Publisher %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.logger.Infof("Publisher %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
 	} else {
-		log.Printf("Publisher %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.logger.Infof("Publisher %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
 	}
 }
 
@@ -887,7 +890,7 @@ func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
 	handle, session, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
 	if err != nil {
-		log.Printf("Could not reconnect publisher %s: %s", p.id, err)
+		p.logger.Errorf("Could not reconnect publisher %s: %s", p.id, err)
 		// TODO(jojo): Retry
 		return
 	}
@@ -897,7 +900,7 @@ func (p *mcuJanusPublisher) NotifyReconnected() {
 	p.session = session
 	p.roomId = roomId
 
-	log.Printf("Publisher %s reconnected on handle %d", p.id, p.handleId)
+	p.logger.Infof("Publisher %s reconnected on handle %d", p.id, p.handleId)
 }
 
 func (p *mcuJanusPublisher) Close(ctx context.Context) {
@@ -909,9 +912,9 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 			"room":    p.roomId,
 		}
 		if _, err := handle.Request(ctx, destroy_msg); err != nil {
-			log.Printf("Error destroying room %d: %s", p.roomId, err)
+			p.logger.Errorf("Error destroying room %d: %s", p.roomId, err)
 		} else {
-			log.Printf("Room %d destroyed", p.roomId)
+			p.logger.Infof("Room %d destroyed", p.roomId)
 		}
 		p.mcu.mu.Lock()
 		delete(p.mcu.publishers, p.id+"|"+p.streamType)
@@ -1007,7 +1010,7 @@ func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher st
 		return nil, nil, err
 	}
 
-	log.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, publisher, pluginVideoRoom, session.Id, handle.Id)
+	m.logger.Infof("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, publisher, pluginVideoRoom, session.Id, handle.Id)
 	return handle, pub, nil
 }
 
@@ -1023,6 +1026,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 
 	client := &mcuJanusSubscriber{
 		mcuJanusClient: mcuJanusClient{
+			logger:   m.logger,
 			mcu:      m,
 			listener: listener,
 
@@ -1059,7 +1063,7 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Subscriber %d: associated room has been destroyed, closing", p.handleId)
+			p.logger.Infof("Subscriber %d: associated room has been destroyed, closing", p.handleId)
 			go p.Close(ctx)
 		case "event":
 			// Handle renegotiations, but ignore other events like selected
@@ -1071,33 +1075,33 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom event %s for subscriber %d: %+v", videoroom, p.handleId, event)
+			p.logger.Errorf("Unsupported videoroom event %s for subscriber %d: %+v", videoroom, p.handleId, event)
 		}
 	} else {
-		log.Printf("Unsupported event for subscriber %d: %+v", p.handleId, event)
+		p.logger.Errorf("Unsupported event for subscriber %d: %+v", p.handleId, event)
 	}
 }
 
 func (p *mcuJanusSubscriber) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Subscriber %d received hangup (%s), closing", p.handleId, event.Reason)
+	p.logger.Infof("Subscriber %d received hangup (%s), closing", p.handleId, event.Reason)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusSubscriber) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Subscriber %d received detached, closing", p.handleId)
+	p.logger.Infof("Subscriber %d received detached, closing", p.handleId)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusSubscriber) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Subscriber %d received connected", p.handleId)
+	p.logger.Infof("Subscriber %d received connected", p.handleId)
 	p.mcu.SubscriberConnected(p.Id(), p.publisher, p.streamType)
 }
 
 func (p *mcuJanusSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.logger.Infof("Subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
 	} else {
-		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.logger.Infof("Subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
 	}
 }
 
@@ -1111,7 +1115,7 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 	handle, pub, err := p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
 	if err != nil {
 		// TODO(jojo): Retry?
-		log.Printf("Could not reconnect subscriber for publisher %s: %s", p.publisher, err)
+		p.logger.Errorf("Could not reconnect subscriber for publisher %s: %s", p.publisher, err)
 		p.Close(context.Background())
 		return
 	}
@@ -1119,7 +1123,7 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 	p.handle = handle
 	p.handleId = handle.Id
 	p.roomId = pub.roomId
-	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId)
+	p.logger.Infof("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId)
 }
 
 func (p *mcuJanusSubscriber) Close(ctx context.Context) {
@@ -1160,7 +1164,7 @@ retry:
 		return
 	}
 
-	if error_code := getPluginIntValue(join_response.Plugindata, pluginVideoRoom, "error_code"); error_code > 0 {
+	if error_code := getPluginIntValue(p.logger, join_response.Plugindata, pluginVideoRoom, "error_code"); error_code > 0 {
 		switch error_code {
 		case JANUS_VIDEOROOM_ERROR_ALREADY_JOINED:
 			// The subscriber is already connected to the room. This can happen
@@ -1189,16 +1193,16 @@ retry:
 			p.roomId = pub.roomId
 			p.closeChan = make(chan bool, 1)
 			go p.run(p.handle, p.closeChan)
-			log.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId)
+			p.logger.Warnf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId)
 			goto retry
 		case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
 			fallthrough
 		case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
 			switch error_code {
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
-				log.Printf("Publisher %s not created yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
+				p.logger.Infof("Publisher %s not created yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
-				log.Printf("Publisher %s not sending yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
+				p.logger.Infof("Publisher %s not sending yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
 			}
 
 			if !loggedNotPublishingYet {
@@ -1210,7 +1214,7 @@ retry:
 				callback(err, nil)
 				return
 			}
-			log.Printf("Retry subscribing %s from %s", p.streamType, p.publisher)
+			p.logger.Infof("Retry subscribing %s from %s", p.streamType, p.publisher)
 			goto retry
 		default:
 			// TODO(jojo): Should we handle other errors, too?
@@ -1218,7 +1222,7 @@ retry:
 			return
 		}
 	}
-	//log.Println("Joined as listener", join_response)
+	//p.logger.Infof("Joined as listener: %+v", join_response)
 
 	p.session = join_response.Session
 	callback(nil, join_response.Jsep)

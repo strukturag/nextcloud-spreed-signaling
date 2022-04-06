@@ -27,7 +27,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -75,6 +74,7 @@ const (
 )
 
 type mcuProxyPubSubCommon struct {
+	logger     Logger
 	streamType string
 	proxyId    string
 	conn       *mcuProxyConnection
@@ -97,7 +97,7 @@ func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClie
 		}
 
 		if proxyDebugMessages {
-			log.Printf("Response from %s: %+v", c.conn, response)
+			c.logger.Debugf("Response from %s: %+v", c.conn, response)
 		}
 		if response.Type == "error" {
 			callback(response.Error, nil)
@@ -116,7 +116,7 @@ func (c *mcuProxyPubSubCommon) doProcessPayload(client McuClient, msg *PayloadPr
 	case "candidate":
 		c.listener.OnIceCandidate(client, msg.Payload["candidate"])
 	default:
-		log.Printf("Unsupported payload from %s: %+v", c.conn, msg)
+		c.logger.Errorf("Unsupported payload from %s: %+v", c.conn, msg)
 	}
 }
 
@@ -127,9 +127,10 @@ type mcuProxyPublisher struct {
 	mediaTypes MediaType
 }
 
-func newMcuProxyPublisher(id string, streamType string, mediaTypes MediaType, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
+func newMcuProxyPublisher(logger Logger, id string, streamType string, mediaTypes MediaType, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
 	return &mcuProxyPublisher{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
+			logger:     logger,
 			streamType: streamType,
 			proxyId:    proxyId,
 			conn:       conn,
@@ -161,11 +162,11 @@ func (p *mcuProxyPublisher) Close(ctx context.Context) {
 	}
 
 	if _, err := p.conn.performSyncRequest(ctx, msg); err != nil {
-		log.Printf("Could not delete publisher %s at %s: %s", p.proxyId, p.conn, err)
+		p.logger.Errorf("Could not delete publisher %s at %s: %s", p.proxyId, p.conn, err)
 		return
 	}
 
-	log.Printf("Delete publisher %s at %s", p.proxyId, p.conn)
+	p.logger.Infof("Delete publisher %s at %s", p.proxyId, p.conn)
 }
 
 func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
@@ -192,7 +193,7 @@ func (p *mcuProxyPublisher) ProcessEvent(msg *EventProxyServerMessage) {
 	case "publisher-closed":
 		p.NotifyClosed()
 	default:
-		log.Printf("Unsupported event from %s: %+v", p.conn, msg)
+		p.logger.Errorf("Unsupported event from %s: %+v", p.conn, msg)
 	}
 }
 
@@ -202,9 +203,10 @@ type mcuProxySubscriber struct {
 	publisherId string
 }
 
-func newMcuProxySubscriber(publisherId string, streamType string, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxySubscriber {
+func newMcuProxySubscriber(logger Logger, publisherId string, streamType string, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxySubscriber {
 	return &mcuProxySubscriber{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
+			logger:     logger,
 			streamType: streamType,
 			proxyId:    proxyId,
 			conn:       conn,
@@ -236,11 +238,11 @@ func (s *mcuProxySubscriber) Close(ctx context.Context) {
 	}
 
 	if _, err := s.conn.performSyncRequest(ctx, msg); err != nil {
-		log.Printf("Could not delete subscriber %s at %s: %s", s.proxyId, s.conn, err)
+		s.logger.Errorf("Could not delete subscriber %s at %s: %s", s.proxyId, s.conn, err)
 		return
 	}
 
-	log.Printf("Delete subscriber %s at %s", s.proxyId, s.conn)
+	s.logger.Infof("Delete subscriber %s at %s", s.proxyId, s.conn)
 }
 
 func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
@@ -267,7 +269,7 @@ func (s *mcuProxySubscriber) ProcessEvent(msg *EventProxyServerMessage) {
 	case "subscriber-closed":
 		s.NotifyClosed()
 	default:
-		log.Printf("Unsupported event from %s: %+v", s.conn, msg)
+		s.logger.Errorf("Unsupported event from %s: %+v", s.conn, msg)
 	}
 }
 
@@ -277,6 +279,7 @@ type mcuProxyConnection struct {
 	msgId             int64
 	load              int64
 
+	logger Logger
 	proxy  *mcuProxy
 	rawUrl string
 	url    *url.URL
@@ -308,13 +311,14 @@ type mcuProxyConnection struct {
 	subscribers     map[string]*mcuProxySubscriber
 }
 
-func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP) (*mcuProxyConnection, error) {
+func newMcuProxyConnection(logger Logger, proxy *mcuProxy, baseUrl string, ip net.IP) (*mcuProxyConnection, error) {
 	parsed, err := url.Parse(baseUrl)
 	if err != nil {
 		return nil, err
 	}
 
 	conn := &mcuProxyConnection{
+		logger:            logger,
 		proxy:             proxy,
 		rawUrl:            baseUrl,
 		url:               parsed,
@@ -413,7 +417,7 @@ func (c *mcuProxyConnection) readPump() {
 			rtt := now.Sub(time.Unix(0, ts))
 			if rtt >= rttLogDuration {
 				rtt_ms := rtt.Nanoseconds() / time.Millisecond.Nanoseconds()
-				log.Printf("Proxy at %s has RTT of %d ms (%s)", c, rtt_ms, rtt)
+				c.logger.Infof("Proxy at %s has RTT of %d ms (%s)", c, rtt_ms, rtt)
 			}
 		}
 		return nil
@@ -427,14 +431,14 @@ func (c *mcuProxyConnection) readPump() {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				log.Printf("Error reading from %s: %v", c, err)
+				c.logger.Errorf("Error reading from %s: %v", c, err)
 			}
 			break
 		}
 
 		var msg ProxyServerMessage
 		if err := json.Unmarshal(message, &msg); err != nil {
-			log.Printf("Error unmarshaling %s from %s: %s", string(message), c, err)
+			c.logger.Errorf("Error unmarshaling %s from %s: %s", string(message), c, err)
 			continue
 		}
 
@@ -453,7 +457,7 @@ func (c *mcuProxyConnection) sendPing() bool {
 	msg := strconv.FormatInt(now.UnixNano(), 10)
 	c.conn.SetWriteDeadline(now.Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
-		log.Printf("Could not send ping to proxy at %s: %v", c, err)
+		c.logger.Errorf("Could not send ping to proxy at %s: %v", c, err)
 		c.scheduleReconnect()
 		return false
 	}
@@ -505,7 +509,7 @@ func (c *mcuProxyConnection) stop(ctx context.Context) {
 	c.closeChan <- true
 	if err := c.sendClose(); err != nil {
 		if err != ErrNotConnected {
-			log.Printf("Could not send close message to %s: %s", c, err)
+			c.logger.Errorf("Could not send close message to %s: %s", c, err)
 		}
 		c.close()
 		return
@@ -515,7 +519,7 @@ func (c *mcuProxyConnection) stop(ctx context.Context) {
 	case <-c.closedChan:
 	case <-ctx.Done():
 		if err := ctx.Err(); err != nil {
-			log.Printf("Error waiting for connection to %s get closed: %s", c, err)
+			c.logger.Errorf("Error waiting for connection to %s get closed: %s", c, err)
 			c.close()
 		}
 	}
@@ -550,7 +554,7 @@ func (c *mcuProxyConnection) closeIfEmpty() bool {
 	c.subscribersLock.RUnlock()
 	if total > 0 {
 		// Connection will be closed once all clients have disconnected.
-		log.Printf("Connection to %s is still used by %d clients, defer closing", c, total)
+		c.logger.Infof("Connection to %s is still used by %d clients, defer closing", c, total)
 		return false
 	}
 
@@ -558,7 +562,7 @@ func (c *mcuProxyConnection) closeIfEmpty() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
 		defer cancel()
 
-		log.Printf("All clients disconnected, closing connection to %s", c)
+		c.logger.Infof("All clients disconnected, closing connection to %s", c)
 		c.stop(ctx)
 
 		c.proxy.removeConnection(c)
@@ -568,7 +572,7 @@ func (c *mcuProxyConnection) closeIfEmpty() bool {
 
 func (c *mcuProxyConnection) scheduleReconnect() {
 	if err := c.sendClose(); err != nil && err != ErrNotConnected {
-		log.Printf("Could not send close message to %s: %s", c, err)
+		c.logger.Errorf("Could not send close message to %s: %s", c, err)
 	}
 	c.close()
 
@@ -585,7 +589,7 @@ func (c *mcuProxyConnection) scheduleReconnect() {
 func (c *mcuProxyConnection) reconnect() {
 	u, err := c.url.Parse("proxy")
 	if err != nil {
-		log.Printf("Could not resolve url to proxy at %s: %s", c, err)
+		c.logger.Errorf("Could not resolve url to proxy at %s: %s", c, err)
 		c.scheduleReconnect()
 		return
 	}
@@ -614,12 +618,12 @@ func (c *mcuProxyConnection) reconnect() {
 	}
 	conn, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Printf("Could not connect to %s: %s", c, err)
+		c.logger.Errorf("Could not connect to %s: %s", c, err)
 		c.scheduleReconnect()
 		return
 	}
 
-	log.Printf("Connected to %s", c)
+	c.logger.Infof("Connected to %s", c)
 	atomic.StoreUint32(&c.closed, 0)
 
 	c.mu.Lock()
@@ -630,7 +634,7 @@ func (c *mcuProxyConnection) reconnect() {
 	atomic.StoreInt64(&c.reconnectInterval, int64(initialReconnectInterval))
 	atomic.StoreUint32(&c.shutdownScheduled, 0)
 	if err := c.sendHello(); err != nil {
-		log.Printf("Could not send hello request to %s: %s", c, err)
+		c.logger.Errorf("Could not send hello request to %s: %s", c, err)
 		c.scheduleReconnect()
 		return
 	}
@@ -730,19 +734,19 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 		switch msg.Type {
 		case "error":
 			if msg.Error.Code == "no_such_session" {
-				log.Printf("Session %s could not be resumed on %s, registering new", c.sessionId, c)
+				c.logger.Warnf("Session %s could not be resumed on %s, registering new", c.sessionId, c)
 				c.clearPublishers()
 				c.clearSubscribers()
 				c.clearCallbacks()
 				c.sessionId = ""
 				if err := c.sendHello(); err != nil {
-					log.Printf("Could not send hello request to %s: %s", c, err)
+					c.logger.Errorf("Could not send hello request to %s: %s", c, err)
 					c.scheduleReconnect()
 				}
 				return
 			}
 
-			log.Printf("Hello connection to %s failed with %+v, reconnecting", c, msg.Error)
+			c.logger.Errorf("Hello connection to %s failed with %+v, reconnecting", c, msg.Error)
 			c.scheduleReconnect()
 		case "hello":
 			resumed := c.sessionId == msg.Hello.SessionId
@@ -750,30 +754,30 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			country := ""
 			if msg.Hello.Server != nil {
 				if country = msg.Hello.Server.Country; country != "" && !IsValidCountry(country) {
-					log.Printf("Proxy %s sent invalid country %s in hello response", c, country)
+					c.logger.Warnf("Proxy %s sent invalid country %s in hello response", c, country)
 					country = ""
 				}
 			}
 			c.country.Store(country)
 			if resumed {
-				log.Printf("Resumed session %s on %s", c.sessionId, c)
+				c.logger.Infof("Resumed session %s on %s", c.sessionId, c)
 			} else if country != "" {
-				log.Printf("Received session %s from %s (in %s)", c.sessionId, c, country)
+				c.logger.Infof("Received session %s from %s (in %s)", c.sessionId, c, country)
 			} else {
-				log.Printf("Received session %s from %s", c.sessionId, c)
+				c.logger.Infof("Received session %s from %s", c.sessionId, c)
 			}
 			if atomic.CompareAndSwapUint32(&c.trackClose, 0, 1) {
 				statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Inc()
 			}
 		default:
-			log.Printf("Received unsupported hello response %+v from %s, reconnecting", msg, c)
+			c.logger.Errorf("Received unsupported hello response %+v from %s, reconnecting", msg, c)
 			c.scheduleReconnect()
 		}
 		return
 	}
 
 	if proxyDebugMessages {
-		log.Printf("Received from %s: %+v", c, msg)
+		c.logger.Debugf("Received from %s: %+v", c, msg)
 	}
 	callback := c.getCallback(msg.Id)
 	if callback != nil {
@@ -789,7 +793,7 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 	case "bye":
 		c.processBye(msg)
 	default:
-		log.Printf("Unsupported message received from %s: %+v", c, msg)
+		c.logger.Errorf("Unsupported message received from %s: %+v", c, msg)
 	}
 }
 
@@ -811,37 +815,37 @@ func (c *mcuProxyConnection) processPayload(msg *ProxyServerMessage) {
 		return
 	}
 
-	log.Printf("Received payload for unknown client %+v from %s", payload, c)
+	c.logger.Errorf("Received payload for unknown client %+v from %s", payload, c)
 }
 
 func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 	event := msg.Event
 	switch event.Type {
 	case "backend-disconnected":
-		log.Printf("Upstream backend at %s got disconnected, reset MCU objects", c)
+		c.logger.Warnf("Upstream backend at %s got disconnected, reset MCU objects", c)
 		c.clearPublishers()
 		c.clearSubscribers()
 		c.clearCallbacks()
 		// TODO: Should we also reconnect?
 		return
 	case "backend-connected":
-		log.Printf("Upstream backend at %s is connected", c)
+		c.logger.Infof("Upstream backend at %s is connected", c)
 		return
 	case "update-load":
 		if proxyDebugMessages {
-			log.Printf("Load of %s now at %d", c, event.Load)
+			c.logger.Debugf("Load of %s now at %d", c, event.Load)
 		}
 		atomic.StoreInt64(&c.load, event.Load)
 		statsProxyBackendLoadCurrent.WithLabelValues(c.url.String()).Set(float64(event.Load))
 		return
 	case "shutdown-scheduled":
-		log.Printf("Proxy %s is scheduled to shutdown", c)
+		c.logger.Infof("Proxy %s is scheduled to shutdown", c)
 		atomic.StoreUint32(&c.shutdownScheduled, 1)
 		return
 	}
 
 	if proxyDebugMessages {
-		log.Printf("Process event from %s: %+v", c, event)
+		c.logger.Debugf("Process event from %s: %+v", c, event)
 	}
 	c.publishersLock.RLock()
 	publisher, found := c.publishers[event.ClientId]
@@ -859,17 +863,17 @@ func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 		return
 	}
 
-	log.Printf("Received event for unknown client %+v from %s", event, c)
+	c.logger.Errorf("Received event for unknown client %+v from %s", event, c)
 }
 
 func (c *mcuProxyConnection) processBye(msg *ProxyServerMessage) {
 	bye := msg.Bye
 	switch bye.Reason {
 	case "session_resumed":
-		log.Printf("Session %s on %s was resumed by other client, resetting", c.sessionId, c)
+		c.logger.Warnf("Session %s on %s was resumed by other client, resetting", c.sessionId, c)
 		c.sessionId = ""
 	default:
-		log.Printf("Received bye with unsupported reason from %s %+v", c, bye)
+		c.logger.Errorf("Received bye with unsupported reason from %s %+v", c, bye)
 	}
 }
 
@@ -911,7 +915,7 @@ func (c *mcuProxyConnection) sendMessage(msg *ProxyClientMessage) error {
 
 func (c *mcuProxyConnection) sendMessageLocked(msg *ProxyClientMessage) error {
 	if proxyDebugMessages {
-		log.Printf("Send message to %s: %+v", c, msg)
+		c.logger.Debugf("Send message to %s: %+v", c, msg)
 	}
 	if c.conn == nil {
 		return ErrNotConnected
@@ -979,8 +983,8 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 	}
 
 	proxyId := response.Command.Id
-	log.Printf("Created %s publisher %s on %s for %s", streamType, proxyId, c, id)
-	publisher := newMcuProxyPublisher(id, streamType, mediaTypes, proxyId, c, listener)
+	c.logger.Infof("Created %s publisher %s on %s for %s", streamType, proxyId, c, id)
+	publisher := newMcuProxyPublisher(c.logger, id, streamType, mediaTypes, proxyId, c, listener)
 	c.publishersLock.Lock()
 	c.publishers[proxyId] = publisher
 	c.publisherIds[id+"|"+streamType] = proxyId
@@ -1014,8 +1018,8 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 	}
 
 	proxyId := response.Command.Id
-	log.Printf("Created %s subscriber %s on %s for %s", streamType, proxyId, c, publisher)
-	subscriber := newMcuProxySubscriber(publisher, streamType, proxyId, c, listener)
+	c.logger.Infof("Created %s subscriber %s on %s for %s", streamType, proxyId, c, publisher)
+	subscriber := newMcuProxySubscriber(c.logger, publisher, streamType, proxyId, c, listener)
 	c.subscribersLock.Lock()
 	c.subscribers[proxyId] = subscriber
 	c.subscribersLock.Unlock()
@@ -1029,6 +1033,7 @@ type mcuProxy struct {
 	connRequests int64
 	nextSort     int64
 
+	logger   Logger
 	urlType  string
 	tokenId  string
 	tokenKey *rsa.PrivateKey
@@ -1060,7 +1065,7 @@ type mcuProxy struct {
 	continentsMap atomic.Value
 }
 
-func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
+func NewMcuProxy(logger Logger, config *goconf.ConfigFile) (Mcu, error) {
 	urlType, _ := config.GetString("mcu", "urltype")
 	if urlType == "" {
 		urlType = proxyUrlTypeStatic
@@ -1088,7 +1093,7 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 		proxyTimeoutSeconds = defaultProxyTimeoutSeconds
 	}
 	proxyTimeout := time.Duration(proxyTimeoutSeconds) * time.Second
-	log.Printf("Using a timeout of %s for proxy requests", proxyTimeout)
+	logger.Infof("Using a timeout of %s for proxy requests", proxyTimeout)
 
 	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
 	if maxStreamBitrate <= 0 {
@@ -1100,6 +1105,7 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 	}
 
 	mcu := &mcuProxy{
+		logger:   logger,
 		urlType:  urlType,
 		tokenId:  tokenId,
 		tokenKey: tokenKey,
@@ -1128,7 +1134,7 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 
 	skipverify, _ := config.GetBool("mcu", "skipverify")
 	if skipverify {
-		log.Println("WARNING: MCU verification is disabled!")
+		logger.Warn("MCU verification is disabled!")
 		mcu.dialer.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: skipverify,
 		}
@@ -1166,7 +1172,7 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 	for _, option := range options {
 		option = strings.ToUpper(strings.TrimSpace(option))
 		if !IsValidContinent(option) {
-			log.Printf("Ignore unknown continent %s", option)
+			m.logger.Errorf("Ignore unknown continent %s", option)
 			continue
 		}
 
@@ -1175,18 +1181,18 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 		for _, v := range strings.Split(value, ",") {
 			v = strings.ToUpper(strings.TrimSpace(v))
 			if !IsValidContinent(v) {
-				log.Printf("Ignore unknown continent %s for override %s", v, option)
+				m.logger.Errorf("Ignore unknown continent %s for override %s", v, option)
 				continue
 			}
 			values = append(values, v)
 		}
 		if len(values) == 0 {
-			log.Printf("No valid values found for continent override %s, ignoring", option)
+			m.logger.Errorf("No valid values found for continent override %s, ignoring", option)
 			continue
 		}
 
 		continentsMap[option] = values
-		log.Printf("Mapping users on continent %s to %s", option, values)
+		m.logger.Infof("Mapping users on continent %s to %s", option, values)
 	}
 
 	m.setContinentsMap(continentsMap)
@@ -1206,8 +1212,8 @@ func (m *mcuProxy) Start() error {
 	m.connectionsMu.RLock()
 	defer m.connectionsMu.RUnlock()
 
-	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate)
-	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate)
+	m.logger.Infof("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate)
+	m.logger.Infof("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate)
 
 	for _, c := range m.connections {
 		if err := c.start(); err != nil {
@@ -1239,7 +1245,7 @@ func (m *mcuProxy) Stop() {
 }
 
 func (m *mcuProxy) monitorProxyIPs() {
-	log.Printf("Start monitoring proxy IPs")
+	m.logger.Info("Start monitoring proxy IPs")
 	ticker := time.NewTicker(updateDnsInterval)
 	for {
 		select {
@@ -1268,7 +1274,7 @@ func (m *mcuProxy) updateProxyIPs() {
 
 		ips, err := net.LookupIP(host)
 		if err != nil {
-			log.Printf("Could not lookup %s: %s", host, err)
+			m.logger.Errorf("Could not lookup %s: %s", host, err)
 			continue
 		}
 
@@ -1288,24 +1294,24 @@ func (m *mcuProxy) updateProxyIPs() {
 
 			if !found {
 				changed = true
-				log.Printf("Removing connection to %s", conn)
+				m.logger.Infof("Removing connection to %s", conn)
 				conn.closeIfEmpty()
 			}
 		}
 
 		for _, ip := range ips {
-			conn, err := newMcuProxyConnection(m, u, ip)
+			conn, err := newMcuProxyConnection(m.logger, m, u, ip)
 			if err != nil {
-				log.Printf("Could not create proxy connection to %s (%s): %s", u, ip, err)
+				m.logger.Errorf("Could not create proxy connection to %s (%s): %s", u, ip, err)
 				continue
 			}
 
 			if err := conn.start(); err != nil {
-				log.Printf("Could not start new connection to %s: %s", conn, err)
+				m.logger.Errorf("Could not start new connection to %s: %s", conn, err)
 				continue
 			}
 
-			log.Printf("Adding new connection to %s", conn)
+			m.logger.Infof("Adding new connection to %s", conn)
 			m.connections = append(m.connections, conn)
 			newConns = append(newConns, conn)
 			changed = true
@@ -1359,7 +1365,7 @@ func (m *mcuProxy) configureStatic(config *goconf.ConfigFile, fromReload bool) e
 					return err
 				}
 
-				log.Printf("Could not parse URL %s: %s", u, err)
+				m.logger.Errorf("Could not parse URL %s: %s", u, err)
 				continue
 			}
 
@@ -1370,33 +1376,33 @@ func (m *mcuProxy) configureStatic(config *goconf.ConfigFile, fromReload bool) e
 			ips, err = net.LookupIP(parsed.Host)
 			if err != nil {
 				// Will be retried later.
-				log.Printf("Could not lookup %s: %s\n", parsed.Host, err)
+				m.logger.Errorf("Could not lookup %s: %s\n", parsed.Host, err)
 				continue
 			}
 		}
 
 		var conns []*mcuProxyConnection
 		if ips == nil {
-			conn, err := newMcuProxyConnection(m, u, nil)
+			conn, err := newMcuProxyConnection(m.logger, m, u, nil)
 			if err != nil {
 				if !fromReload {
 					return err
 				}
 
-				log.Printf("Could not create proxy connection to %s: %s", u, err)
+				m.logger.Errorf("Could not create proxy connection to %s: %s", u, err)
 				continue
 			}
 
 			conns = append(conns, conn)
 		} else {
 			for _, ip := range ips {
-				conn, err := newMcuProxyConnection(m, u, ip)
+				conn, err := newMcuProxyConnection(m.logger, m, u, ip)
 				if err != nil {
 					if !fromReload {
 						return err
 					}
 
-					log.Printf("Could not create proxy connection to %s (%s): %s", u, ip, err)
+					m.logger.Errorf("Could not create proxy connection to %s (%s): %s", u, ip, err)
 					continue
 				}
 
@@ -1417,11 +1423,11 @@ func (m *mcuProxy) configureStatic(config *goconf.ConfigFile, fromReload bool) e
 			var started []*mcuProxyConnection
 			for _, conn := range conns {
 				if err := conn.start(); err != nil {
-					log.Printf("Could not start new connection to %s: %s", conn, err)
+					m.logger.Errorf("Could not start new connection to %s: %s", conn, err)
 					continue
 				}
 
-				log.Printf("Adding new connection to %s", conn)
+				m.logger.Infof("Adding new connection to %s", conn)
 				started = append(started, conn)
 				m.connections = append(m.connections, conn)
 			}
@@ -1476,7 +1482,7 @@ func (m *mcuProxy) configureEtcd(config *goconf.ConfigFile, ignoreErrors bool) e
 			return fmt.Errorf("No proxy URL endpoints configured")
 		}
 
-		log.Printf("No proxy URL endpoints configured, not changing client")
+		m.logger.Infof("No proxy URL endpoints configured, not changing client")
 	} else {
 		cfg := clientv3.Config{
 			Endpoints: endpoints,
@@ -1500,7 +1506,7 @@ func (m *mcuProxy) configureEtcd(config *goconf.ConfigFile, ignoreErrors bool) e
 					return fmt.Errorf("Could not setup TLS configuration: %s", err)
 				}
 
-				log.Printf("Could not setup TLS configuration, will be disabled (%s)", err)
+				m.logger.Errorf("Could not setup TLS configuration, will be disabled (%s)", err)
 			} else {
 				cfg.TLS = tlsConfig
 			}
@@ -1512,19 +1518,19 @@ func (m *mcuProxy) configureEtcd(config *goconf.ConfigFile, ignoreErrors bool) e
 				return err
 			}
 
-			log.Printf("Could not create new client from proxy URL endpoints %+v: %s", endpoints, err)
+			m.logger.Errorf("Could not create new client from proxy URL endpoints %+v: %s", endpoints, err)
 		} else {
 			prev := m.getEtcdClient()
 			if prev != nil {
 				prev.Close()
 			}
 			m.client.Store(c)
-			log.Printf("Using proxy URL endpoints %+v", endpoints)
+			m.logger.Infof("Using proxy URL endpoints %+v", endpoints)
 
 			go func(client *clientv3.Client) {
-				log.Printf("Wait for leader and start watching on %s", keyPrefix)
+				m.logger.Infof("Wait for leader and start watching on %s", keyPrefix)
 				ch := client.Watch(clientv3.WithRequireLeader(context.Background()), keyPrefix, clientv3.WithPrefix())
-				log.Printf("Watch created for %s", keyPrefix)
+				m.logger.Infof("Watch created for %s", keyPrefix)
 				m.processWatches(ch)
 			}(c)
 
@@ -1536,9 +1542,9 @@ func (m *mcuProxy) configureEtcd(config *goconf.ConfigFile, ignoreErrors bool) e
 					response, err := m.getProxyUrls(keyPrefix)
 					if err != nil {
 						if err == context.DeadlineExceeded {
-							log.Printf("Timeout getting initial list of proxy URLs, retry in %s", waitDelay)
+							m.logger.Errorf("Timeout getting initial list of proxy URLs, retry in %s", waitDelay)
 						} else {
-							log.Printf("Could not get initial list of proxy URLs, retry in %s: %s", waitDelay, err)
+							m.logger.Errorf("Could not get initial list of proxy URLs, retry in %s: %s", waitDelay, err)
 						}
 
 						time.Sleep(waitDelay)
@@ -1573,9 +1579,9 @@ func (m *mcuProxy) waitForConnection() {
 	for {
 		if err := m.syncClient(); err != nil {
 			if err == context.DeadlineExceeded {
-				log.Printf("Timeout waiting for etcd client to connect to the cluster, retry in %s", waitDelay)
+				m.logger.Errorf("Timeout waiting for etcd client to connect to the cluster, retry in %s", waitDelay)
 			} else {
-				log.Printf("Could not sync etcd client with the cluster, retry in %s: %s", waitDelay, err)
+				m.logger.Errorf("Could not sync etcd client with the cluster, retry in %s: %s", waitDelay, err)
 			}
 
 			time.Sleep(waitDelay)
@@ -1586,7 +1592,7 @@ func (m *mcuProxy) waitForConnection() {
 			continue
 		}
 
-		log.Printf("Client using endpoints %+v", m.getEtcdClient().Endpoints())
+		m.logger.Infof("Client using endpoints %+v", m.getEtcdClient().Endpoints())
 		return
 	}
 }
@@ -1600,13 +1606,13 @@ func (m *mcuProxy) syncClient() error {
 
 func (m *mcuProxy) Reload(config *goconf.ConfigFile) {
 	if err := m.loadContinentsMap(config); err != nil {
-		log.Printf("Error loading continents map: %s", err)
+		m.logger.Errorf("Error loading continents map: %s", err)
 	}
 
 	switch m.urlType {
 	case proxyUrlTypeStatic:
 		if err := m.configureStatic(config, true); err != nil {
-			log.Printf("Could not configure static proxy urls: %s", err)
+			m.logger.Errorf("Could not configure static proxy urls: %s", err)
 		}
 	default:
 		// Reloading not supported yet.
@@ -1622,7 +1628,7 @@ func (m *mcuProxy) processWatches(ch clientv3.WatchChan) {
 			case clientv3.EventTypeDelete:
 				m.removeEtcdProxy(string(ev.Kv.Key))
 			default:
-				log.Printf("Unsupported event %s %q -> %q", ev.Type, ev.Kv.Key, ev.Kv.Value)
+				m.logger.Errorf("Unsupported event %s %q -> %q", ev.Type, ev.Kv.Key, ev.Kv.Value)
 			}
 		}
 	}
@@ -1631,11 +1637,11 @@ func (m *mcuProxy) processWatches(ch clientv3.WatchChan) {
 func (m *mcuProxy) addEtcdProxy(key string, data []byte) {
 	var info ProxyInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
-		log.Printf("Could not decode proxy information %s: %s", string(data), err)
+		m.logger.Errorf("Could not decode proxy information %s: %s", string(data), err)
 		return
 	}
 	if err := info.CheckValid(); err != nil {
-		log.Printf("Received invalid proxy information %s: %s", string(data), err)
+		m.logger.Errorf("Received invalid proxy information %s: %s", string(data), err)
 		return
 	}
 
@@ -1649,7 +1655,7 @@ func (m *mcuProxy) addEtcdProxy(key string, data []byte) {
 	}
 
 	if otherKey, found := m.urlToKey[info.Address]; found && otherKey != key {
-		log.Printf("Address %s is already registered for key %s, ignoring %s", info.Address, otherKey, key)
+		m.logger.Errorf("Address %s is already registered for key %s, ignoring %s", info.Address, otherKey, key)
 		return
 	}
 
@@ -1662,18 +1668,18 @@ func (m *mcuProxy) addEtcdProxy(key string, data []byte) {
 			conn.stopCloseIfEmpty()
 		}
 	} else {
-		conn, err := newMcuProxyConnection(m, info.Address, nil)
+		conn, err := newMcuProxyConnection(m.logger, m, info.Address, nil)
 		if err != nil {
-			log.Printf("Could not create proxy connection to %s: %s", info.Address, err)
+			m.logger.Errorf("Could not create proxy connection to %s: %s", info.Address, err)
 			return
 		}
 
 		if err := conn.start(); err != nil {
-			log.Printf("Could not start new connection to %s: %s", info.Address, err)
+			m.logger.Errorf("Could not start new connection to %s: %s", info.Address, err)
 			return
 		}
 
-		log.Printf("Adding new connection to %s (from %s)", info.Address, key)
+		m.logger.Infof("Adding new connection to %s (from %s)", info.Address, key)
 		m.keyInfos[key] = &info
 		m.urlToKey[info.Address] = key
 		m.connections = append(m.connections, conn)
@@ -1698,7 +1704,7 @@ func (m *mcuProxy) removeEtcdProxyLocked(key string) {
 	delete(m.keyInfos, key)
 	delete(m.urlToKey, info.Address)
 
-	log.Printf("Removing connection to %s (from %s)", info.Address, key)
+	m.logger.Infof("Removing connection to %s (from %s)", info.Address, key)
 
 	m.connectionsMu.RLock()
 	defer m.connectionsMu.RUnlock()
@@ -1934,7 +1940,7 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 		}
 		publisher, err := conn.newPublisher(subctx, listener, id, streamType, bitrate, mediaTypes)
 		if err != nil {
-			log.Printf("Could not create %s publisher for %s on %s: %s", streamType, id, conn, err)
+			m.logger.Errorf("Could not create %s publisher for %s on %s: %s", streamType, id, conn, err)
 			continue
 		}
 
@@ -1957,7 +1963,7 @@ func (m *mcuProxy) getPublisherConnection(ctx context.Context, publisher string,
 		return conn
 	}
 
-	log.Printf("No %s publisher %s found yet, deferring", streamType, publisher)
+	m.logger.Warnf("No %s publisher %s found yet, deferring", streamType, publisher)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

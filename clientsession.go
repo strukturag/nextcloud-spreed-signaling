@@ -25,7 +25,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"strings"
 	"sync"
@@ -50,6 +49,7 @@ var (
 type ClientSession struct {
 	roomJoinTime int64
 
+	logger    Logger
 	running   int32
 	hub       *Hub
 	privateId string
@@ -93,8 +93,9 @@ type ClientSession struct {
 	virtualSessions map[*VirtualSession]bool
 }
 
-func NewClientSession(hub *Hub, privateId string, publicId string, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
+func NewClientSession(logger Logger, hub *Hub, privateId string, publicId string, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
 	s := &ClientSession{
+		logger:    logger,
 		hub:       hub,
 		privateId: privateId,
 		publicId:  publicId,
@@ -260,7 +261,7 @@ func (s *ClientSession) SetPermissions(permissions []Permission) {
 
 	s.permissions = p
 	s.supportsPermissions = true
-	log.Printf("Permissions of session %s changed: %s", s.PublicId(), permissions)
+	s.logger.Infof("Permissions of session %s changed: %s", s.PublicId(), permissions)
 }
 
 func (s *ClientSession) Backend() *Backend {
@@ -372,13 +373,13 @@ func (s *ClientSession) closeAndWait(wait bool) {
 	defer s.mu.Unlock()
 	if s.userSubscription != nil {
 		if err := s.userSubscription.Unsubscribe(); err != nil {
-			log.Printf("Error closing user subscription in session %s: %s", s.PublicId(), err)
+			s.logger.Errorf("Error closing user subscription in session %s: %s", s.PublicId(), err)
 		}
 		s.userSubscription = nil
 	}
 	if s.sessionSubscription != nil {
 		if err := s.sessionSubscription.Unsubscribe(); err != nil {
-			log.Printf("Error closing session subscription in session %s: %s", s.PublicId(), err)
+			s.logger.Errorf("Error closing session subscription in session %s: %s", s.PublicId(), err)
 		}
 		s.sessionSubscription = nil
 	}
@@ -444,7 +445,7 @@ func (s *ClientSession) SubscribeRoomNats(n NatsClient, roomid string, roomSessi
 			return err
 		}
 	}
-	log.Printf("Session %s joined room %s with room session id %s", s.PublicId(), roomid, roomSessionId)
+	s.logger.Infof("Session %s joined room %s with room session id %s", s.PublicId(), roomid, roomSessionId)
 	s.roomSessionId = roomSessionId
 	return nil
 }
@@ -458,7 +459,7 @@ func (s *ClientSession) LeaveCall() {
 		return
 	}
 
-	log.Printf("Session %s left call %s", s.PublicId(), room.Id())
+	s.logger.Infof("Session %s left call %s", s.PublicId(), room.Id())
 	s.releaseMcuObjects()
 }
 
@@ -488,7 +489,7 @@ func (s *ClientSession) UnsubscribeRoomNats() {
 func (s *ClientSession) doUnsubscribeRoomNats(notify bool) {
 	if s.roomSubscription != nil {
 		if err := s.roomSubscription.Unsubscribe(); err != nil {
-			log.Printf("Error closing room subscription in session %s: %s", s.PublicId(), err)
+			s.logger.Errorf("Error closing room subscription in session %s: %s", s.PublicId(), err)
 		}
 		s.roomSubscription = nil
 	}
@@ -502,9 +503,9 @@ func (s *ClientSession) doUnsubscribeRoomNats(notify bool) {
 			request.Room.Action = "leave"
 			var response map[string]interface{}
 			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response); err != nil {
-				log.Printf("Could not notify about room session %s left room %s: %s", sid, room.Id(), err)
+				s.logger.Errorf("Could not notify about room session %s left room %s: %s", sid, room.Id(), err)
 			} else {
-				log.Printf("Removed room session %s: %+v", sid, response)
+				s.logger.Infof("Removed room session %s: %+v", sid, response)
 			}
 		}(s.roomSessionId)
 	}
@@ -522,7 +523,7 @@ func (s *ClientSession) clearClientLocked(client *Client) {
 	if s.client == nil {
 		return
 	} else if client != nil && s.client != client {
-		log.Printf("Trying to clear other client in session %s", s.PublicId())
+		s.logger.Warnf("Trying to clear other client in session %s", s.PublicId())
 		return
 	}
 
@@ -575,7 +576,7 @@ func (s *ClientSession) sendOffer(client McuClient, sender string, streamType st
 	}
 	offer_data, err := json.Marshal(offer_message)
 	if err != nil {
-		log.Println("Could not serialize offer", offer_message, err)
+		s.logger.Errorf("Could not serialize offer %+v: %s", offer_message, err)
 		return
 	}
 	response_message := &ServerMessage{
@@ -604,7 +605,7 @@ func (s *ClientSession) sendCandidate(client McuClient, sender string, streamTyp
 	}
 	candidate_data, err := json.Marshal(candidate_message)
 	if err != nil {
-		log.Println("Could not serialize candidate", candidate_message, err)
+		s.logger.Errorf("Could not serialize candidate %+v: %s", candidate_message, err)
 		return
 	}
 	response_message := &ServerMessage{
@@ -687,7 +688,7 @@ func (s *ClientSession) OnIceCandidate(client McuClient, candidate interface{}) 
 		}
 	}
 
-	log.Printf("Session %s received candidate %+v for unknown client %s", s.PublicId(), candidate, client.Id())
+	s.logger.Errorf("Session %s received candidate %+v for unknown client %s", s.PublicId(), candidate, client.Id())
 }
 
 func (s *ClientSession) OnIceCompleted(client McuClient) {
@@ -894,7 +895,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		} else {
 			s.publishers[streamType] = publisher
 		}
-		log.Printf("Publishing %s as %s for session %s", streamType, publisher.Id(), s.PublicId())
+		s.logger.Infof("Publishing %s as %s for session %s", streamType, publisher.Id(), s.PublicId())
 	}
 
 	return publisher, nil
@@ -935,7 +936,7 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id s
 		} else {
 			s.subscribers[id+"|"+streamType] = subscriber
 		}
-		log.Printf("Subscribing %s from %s as %s in session %s", streamType, id, subscriber.Id(), s.PublicId())
+		s.logger.Infof("Subscribing %s from %s as %s in session %s", streamType, id, subscriber.Id(), s.PublicId())
 	}
 
 	return subscriber, nil
@@ -951,7 +952,7 @@ func (s *ClientSession) GetSubscriber(id string, streamType string) McuSubscribe
 func (s *ClientSession) processClientMessage(msg *nats.Msg) {
 	var message NatsMessage
 	if err := s.hub.nats.Decode(msg, &message); err != nil {
-		log.Printf("Could not decode NATS message %+v for session %s: %s", *msg, s.PublicId(), err)
+		s.logger.Errorf("Could not decode NATS message %+v for session %s: %s", *msg, s.PublicId(), err)
 		return
 	}
 
@@ -967,7 +968,7 @@ func (s *ClientSession) processClientMessage(msg *nats.Msg) {
 					if (publisher.HasMedia(MediaTypeAudio) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO)) ||
 						(publisher.HasMedia(MediaTypeVideo) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_VIDEO)) {
 						delete(s.publishers, streamTypeVideo)
-						log.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
+						s.logger.Infof("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
 						go func() {
 							publisher.Close(context.Background())
 						}()
@@ -978,7 +979,7 @@ func (s *ClientSession) processClientMessage(msg *nats.Msg) {
 			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
 				if publisher, found := s.publishers[streamTypeScreen]; found {
 					delete(s.publishers, streamTypeScreen)
-					log.Printf("Session %s is no longer allowed to publish screen, closing publisher %s", s.PublicId(), publisher.Id())
+					s.logger.Infof("Session %s is no longer allowed to publish screen, closing publisher %s", s.PublicId(), publisher.Id())
 					go func() {
 						publisher.Close(context.Background())
 					}()
@@ -992,7 +993,7 @@ func (s *ClientSession) processClientMessage(msg *nats.Msg) {
 			s.mu.Lock()
 			roomSessionId := s.RoomSessionId()
 			s.mu.Unlock()
-			log.Printf("Closing session %s because same room session %s connected", s.PublicId(), roomSessionId)
+			s.logger.Warnf("Closing session %s because same room session %s connected", s.PublicId(), roomSessionId)
 			s.LeaveRoom(false)
 			defer s.closeAndWait(false)
 		}
@@ -1020,7 +1021,7 @@ func (s *ClientSession) storePendingMessage(message *ServerMessage) {
 	}
 	s.pendingClientMessages = append(s.pendingClientMessages, message)
 	if len(s.pendingClientMessages) >= warnPendingMessagesCount {
-		log.Printf("Session %s has %d pending messages", s.PublicId(), len(s.pendingClientMessages))
+		s.logger.Infof("Session %s has %d pending messages", s.PublicId(), len(s.pendingClientMessages))
 	}
 }
 
@@ -1028,7 +1029,7 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 	switch msg.Type {
 	case "message":
 		if msg.Message == nil {
-			log.Printf("Received NATS message without payload: %+v", msg)
+			s.logger.Errorf("Received NATS message without payload: %+v", msg)
 			return nil
 		}
 
@@ -1068,7 +1069,7 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 				// Can happen mostly during tests where an older room NATS message
 				// could be received by a subscriber that joined after it was sent.
 				if msg.SendTime.Before(s.getRoomJoinTime()) {
-					log.Printf("Message %+v was sent before room was joined, ignoring", msg.Message)
+					s.logger.Infof("Message %+v was sent before room was joined, ignoring", msg.Message)
 					return nil
 				}
 			}
@@ -1076,7 +1077,7 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 
 		return msg.Message
 	default:
-		log.Printf("Received NATS message with unsupported type %s: %+v", msg.Type, msg)
+		s.logger.Errorf("Received NATS message with unsupported type %s: %+v", msg.Type, msg)
 		return nil
 	}
 }
@@ -1098,7 +1099,7 @@ func (s *ClientSession) NotifySessionResumed(client *Client) {
 	s.hasPendingParticipantsUpdate = false
 	s.mu.Unlock()
 
-	log.Printf("Send %d pending messages to session %s", len(messages), s.PublicId())
+	s.logger.Infof("Send %d pending messages to session %s", len(messages), s.PublicId())
 	// Send through session to handle connection interruptions.
 	s.SendMessages(messages)
 

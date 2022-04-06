@@ -23,21 +23,26 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"sort"
 	"sync/atomic"
 
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt"
+
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 type tokensStatic struct {
+	logger signaling.Logger
+
 	tokenKeys atomic.Value
 }
 
-func NewProxyTokensStatic(config *goconf.ConfigFile) (ProxyTokens, error) {
-	result := &tokensStatic{}
+func NewProxyTokensStatic(logger signaling.Logger, config *goconf.ConfigFile) (ProxyTokens, error) {
+	result := &tokensStatic{
+		logger: logger,
+	}
 	if err := result.load(config, false); err != nil {
 		return nil, err
 	}
@@ -69,7 +74,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 				return fmt.Errorf("No filename given for token %s", id)
 			}
 
-			log.Printf("No filename given for token %s, ignoring", id)
+			t.logger.Warnf("No filename given for token %s, ignoring", id)
 			continue
 		}
 
@@ -79,7 +84,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 				return fmt.Errorf("Could not read public key from %s: %s", filename, err)
 			}
 
-			log.Printf("Could not read public key from %s, ignoring: %s", filename, err)
+			t.logger.Errorf("Could not read public key from %s, ignoring: %s", filename, err)
 			continue
 		}
 		key, err := jwt.ParseRSAPublicKeyFromPEM(keyData)
@@ -88,7 +93,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 				return fmt.Errorf("Could not parse public key from %s: %s", filename, err)
 			}
 
-			log.Printf("Could not parse public key from %s, ignoring: %s", filename, err)
+			t.logger.Errorf("Could not parse public key from %s, ignoring: %s", filename, err)
 			continue
 		}
 
@@ -99,14 +104,14 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 	}
 
 	if len(tokenKeys) == 0 {
-		log.Printf("No token keys loaded")
+		t.logger.Warnf("No token keys loaded")
 	} else {
 		var keyIds []string
 		for k := range tokenKeys {
 			keyIds = append(keyIds, k)
 		}
 		sort.Strings(keyIds)
-		log.Printf("Enabled token keys: %v", keyIds)
+		t.logger.Infof("Enabled token keys: %v", keyIds)
 	}
 	t.setTokenKeys(tokenKeys)
 	return nil
@@ -114,7 +119,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 
 func (t *tokensStatic) Reload(config *goconf.ConfigFile) {
 	if err := t.load(config, true); err != nil {
-		log.Printf("Error reloading static tokens: %s", err)
+		t.logger.Errorf("Error reloading static tokens: %s", err)
 	}
 }
 
