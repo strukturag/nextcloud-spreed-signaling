@@ -257,7 +257,7 @@ func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Reque
 		}
 		ct := r.Header.Get("Content-Type")
 		if !strings.HasPrefix(ct, "application/json") {
-			b.logger.Errorf("Received unsupported content-type: %s", ct)
+			b.logger.Errorw("Received unsupported content-type", "contenttype", ct)
 			http.Error(w, "Unsupported Content-Type", http.StatusBadRequest)
 			return
 		}
@@ -270,7 +270,7 @@ func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Reque
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			b.logger.Errorf("Error reading body: %s", err)
+			b.logger.Errorw("Error reading body", "error", err)
 			http.Error(w, "Could not read body", http.StatusBadRequest)
 			return
 		}
@@ -293,7 +293,7 @@ func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids 
 	}
 	for _, userid := range userids {
 		if err := b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg); err != nil {
-			b.logger.Errorf("Could not publish room invite for user %s in backend %s: %s", userid, backend.Id(), err)
+			b.logger.Errorw("Could not publish room invite", "userid", userid, "backend", backend.Id(), "error", err)
 		}
 	}
 }
@@ -314,7 +314,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 	}
 	for _, userid := range userids {
 		if err := b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg); err != nil {
-			b.logger.Errorf("Could not publish room disinvite for user %s in backend %s: %s", userid, backend.Id(), err)
+			b.logger.Errorw("Could not publish room disinvite", "userid", userid, "backend", backend.Id(), "error", err)
 		}
 	}
 
@@ -330,10 +330,10 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 		go func(sessionid string) {
 			defer wg.Done()
 			if sid, err := b.lookupByRoomSessionId(sessionid, nil, timeout); err != nil {
-				b.logger.Errorf("Could not lookup by room session %s: %s", sessionid, err)
+				b.logger.Errorw("Could not lookup by room session", "roomsessionid", sessionid, "error", err)
 			} else if sid != "" {
 				if err := b.nats.PublishMessage("session."+sid, msg); err != nil {
-					b.logger.Errorf("Could not publish room disinvite for session %s: %s", sid, err)
+					b.logger.Errorw("Could not publish room disinvite", "sessionid", sid, "error", err)
 				}
 			}
 		}(sessionid)
@@ -364,14 +364,14 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified
 		}
 
 		if err := b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg); err != nil {
-			b.logger.Errorf("Could not publish room update for user %s in backend %s: %s", userid, backend.Id(), err)
+			b.logger.Errorw("Could not publish room update", "userid", userid, "backend", backend.Id(), "error", err)
 		}
 	}
 }
 
 func (b *BackendServer) lookupByRoomSessionId(roomSessionId string, cache *ConcurrentStringStringMap, timeout time.Duration) (string, error) {
 	if roomSessionId == sessionIdNotInMeeting {
-		b.logger.Infof("Trying to lookup empty room session id: %s", roomSessionId)
+		b.logger.Infow("Trying to lookup empty room session id", "roomsessionid", roomSessionId)
 		return "", nil
 	}
 
@@ -408,13 +408,13 @@ func (b *BackendServer) fixupUserSessions(cache *ConcurrentStringStringMap, user
 
 		roomSessionId, ok := roomSessionIdOb.(string)
 		if !ok {
-			b.logger.Infof("User %+v has invalid room session id, ignoring", user)
+			b.logger.Infow("User has invalid room session id, ignoring", "user", user)
 			delete(user, "sessionId")
 			continue
 		}
 
 		if roomSessionId == sessionIdNotInMeeting {
-			b.logger.Infof("User %+v is not in the meeting, ignoring", user)
+			b.logger.Infow("User is not in the meeting, ignoring", "user", user)
 			delete(user, "sessionId")
 			continue
 		}
@@ -423,7 +423,7 @@ func (b *BackendServer) fixupUserSessions(cache *ConcurrentStringStringMap, user
 		go func(roomSessionId string, u map[string]interface{}) {
 			defer wg.Done()
 			if sessionId, err := b.lookupByRoomSessionId(roomSessionId, cache, timeout); err != nil {
-				b.logger.Errorf("Could not lookup by room session %s: %s", roomSessionId, err)
+				b.logger.Errorw("Could not lookup by room session", "roomsessionid", roomSessionId, "error", err)
 				delete(u, "sessionId")
 			} else if sessionId != "" {
 				u["sessionId"] = sessionId
@@ -485,14 +485,14 @@ loop:
 		sessionId := user["sessionId"].(string)
 		permissionsList, ok := permissionsInterface.([]interface{})
 		if !ok {
-			b.logger.Errorf("Received invalid permissions %+v (%s) for session %s", permissionsInterface, reflect.TypeOf(permissionsInterface), sessionId)
+			b.logger.Errorw(fmt.Sprintf("Received invalid permissions %+v (%s)", permissionsInterface, reflect.TypeOf(permissionsInterface)), "sessionid", sessionId)
 			continue
 		}
 		var permissions []Permission
 		for idx, ob := range permissionsList {
 			permission, ok := ob.(string)
 			if !ok {
-				b.logger.Errorf("Received invalid permission at position %d %+v (%s) for session %s", idx, ob, reflect.TypeOf(ob), sessionId)
+				b.logger.Errorw(fmt.Sprintf("Received invalid permission at position %d %+v (%s)", idx, ob, reflect.TypeOf(ob)), "sessionid", sessionId)
 				continue loop
 			}
 			permissions = append(permissions, Permission(permission))
@@ -506,7 +506,7 @@ loop:
 				Permissions: permissions,
 			}
 			if err := b.nats.Publish("session."+sessionId, message); err != nil {
-				b.logger.Errorf("Could not send permissions update (%+v) to session %s: %s", permissions, sessionId, err)
+				b.logger.Errorw("Could not send permissions update", "message", permissions, "sessionid", sessionId, "error", err)
 			}
 		}(sessionId, permissions)
 	}
@@ -565,7 +565,7 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 
 	var request BackendServerRoomRequest
 	if err := json.Unmarshal(body, &request); err != nil {
-		b.logger.Errorf("Error decoding body %s: %s", string(body), err)
+		b.logger.Errorw("Error decoding body", "request", string(body), "error", err)
 		http.Error(w, "Could not read body", http.StatusBadRequest)
 		return
 	}
@@ -598,7 +598,7 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 	}
 
 	if err != nil {
-		b.logger.Errorf("Error processing %s for room %s: %s", string(body), roomid, err)
+		b.logger.Errorw("Error processing room request", "request", string(body), "roomid", roomid, "error", err)
 		http.Error(w, "Error while processing", http.StatusInternalServerError)
 		return
 	}
@@ -631,7 +631,7 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := b.hub.GetStats()
 	statsData, err := json.MarshalIndent(stats, "", "  ")
 	if err != nil {
-		b.logger.Errorf("Could not serialize stats %+v: %s", stats, err)
+		b.logger.Errorw(fmt.Sprintf("Could not serialize stats %+v", stats), "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}

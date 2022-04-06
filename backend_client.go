@@ -197,24 +197,24 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 		capUrl.Path = capUrl.Path[:pos+11] + "/cloud/capabilities"
 	}
 
-	b.logger.Infof("Capabilities expired for %s, updating", capUrl.String())
+	b.logger.Infow("Capabilities expired", "url", capUrl.String())
 
 	pool, err := b.getPool(&capUrl)
 	if err != nil {
-		b.logger.Errorf("Could not get client pool for host %s: %s", capUrl.Host, err)
+		b.logger.Errorw("Could not get client pool", "host", capUrl.Host, "error", err)
 		return nil, err
 	}
 
 	c, err := pool.Get(ctx)
 	if err != nil {
-		b.logger.Errorf("Could not get client for host %s: %s", capUrl.Host, err)
+		b.logger.Errorw("Could not get client", "host", capUrl.Host, "error", err)
 		return nil, err
 	}
 	defer pool.Put(c)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", capUrl.String(), nil)
 	if err != nil {
-		b.logger.Errorf("Could not create request to %s: %s", &capUrl, err)
+		b.logger.Errorw("Could not create request", "url", capUrl.String(), "error", err)
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
@@ -229,38 +229,38 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
-		b.logger.Errorf("Received unsupported content-type from %s: %s (%s)", capUrl.String(), ct, resp.Status)
+		b.logger.Errorw("Received unsupported content-type", "url", capUrl.String(), "contenttype", ct, "status", resp.Status)
 		return nil, ErrUnsupportedContentType
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		b.logger.Errorf("Could not read response body from %s: %s", capUrl.String(), err)
+		b.logger.Errorw("Could not read response body", "url", capUrl.String(), "error", err)
 		return nil, err
 	}
 
 	var ocs OcsResponse
 	if err := json.Unmarshal(body, &ocs); err != nil {
-		b.logger.Errorf("Could not decode OCS response %s from %s: %s", string(body), capUrl.String(), err)
+		b.logger.Errorw("Could not decode OCS response", "response", string(body), "url", capUrl.String(), "error", err)
 		return nil, err
 	} else if ocs.Ocs == nil || ocs.Ocs.Data == nil {
-		b.logger.Errorf("Incomplete OCS response %s from %s", string(body), u)
+		b.logger.Errorw("Incomplete OCS response", "response", string(body), "url", capUrl.String())
 		return nil, fmt.Errorf("incomplete OCS response")
 	}
 
 	var response CapabilitiesResponse
 	if err := json.Unmarshal(*ocs.Ocs.Data, &response); err != nil {
-		b.logger.Errorf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), capUrl.String(), err)
+		b.logger.Errorw("Could not decode OCS response body", "response", string(*ocs.Ocs.Data), "url", capUrl.String(), "error", err)
 		return nil, err
 	}
 
 	capa, found := response.Capabilities[AppNameSpreed]
 	if !found {
-		b.logger.Errorf("No capabilities received for app %s from %s: %+v", AppNameSpreed, capUrl.String(), response)
+		b.logger.Errorw("No capabilities received for app", "app", AppNameSpreed, "url", capUrl.String(), "response", response)
 		return nil, nil
 	}
 
-	b.logger.Infof("Received capabilities %+v from %s", capa, capUrl.String())
+	b.logger.Infow("Received capabilities", "capabilities", capa, "url", capUrl.String())
 	b.capabilitiesLock.Lock()
 	b.capabilities[key] = capa
 	b.nextCapabilities[key] = now.Add(CapabilitiesCacheDuration)
@@ -271,7 +271,7 @@ func (b *BackendClient) getCapabilities(ctx context.Context, u *url.URL) (map[st
 func (b *BackendClient) HasCapabilityFeature(ctx context.Context, u *url.URL, feature string) bool {
 	caps, err := b.getCapabilities(ctx, u)
 	if err != nil {
-		b.logger.Errorf("Could not get capabilities for %s: %s", u, err)
+		b.logger.Errorw("Could not get capabilities", "url", u.String(), "error", err)
 		return false
 	}
 
@@ -282,7 +282,7 @@ func (b *BackendClient) HasCapabilityFeature(ctx context.Context, u *url.URL, fe
 
 	features, ok := featuresInterface.([]interface{})
 	if !ok {
-		b.logger.Errorf("Invalid features list received for %s: %+v", u, featuresInterface)
+		b.logger.Errorw(fmt.Sprintf("Invalid features list received: %+v", featuresInterface), "url", u.String())
 		return false
 	}
 
@@ -318,26 +318,26 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	pool, err := b.getPool(u)
 	if err != nil {
-		b.logger.Errorf("Could not get client pool for host %s: %s", u.Host, err)
+		b.logger.Errorw("Could not get client pool", "host", u.Host, "error", err)
 		return err
 	}
 
 	c, err := pool.Get(ctx)
 	if err != nil {
-		b.logger.Errorf("Could not get client for host %s: %s", u.Host, err)
+		b.logger.Errorw("Could not get client", "host", u.Host, "error", err)
 		return err
 	}
 	defer pool.Put(c)
 
 	data, err := json.Marshal(request)
 	if err != nil {
-		b.logger.Errorf("Could not marshal request %+v: %s", request, err)
+		b.logger.Errorw(fmt.Sprintf("Could not marshal request %+v", request), "error", err)
 		return err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", requestUrl.String(), bytes.NewReader(data))
 	if err != nil {
-		b.logger.Errorf("Could not create request to %s: %s", requestUrl, err)
+		b.logger.Errorw("Could not create request", "url", requestUrl.String(), "error", err)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -353,20 +353,20 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	resp, err := c.Do(req)
 	if err != nil {
-		b.logger.Errorf("Could not send request %s to %s: %s", string(data), req.URL, err)
+		b.logger.Errorw("Could not send request", "request", string(data), "url", req.URL.String(), "error", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
-		b.logger.Errorf("Received unsupported content-type from %s: %s (%s)", req.URL, ct, resp.Status)
+		b.logger.Errorw("Received unsupported content-type", "url", req.URL.String(), "contenttype", ct, "status", resp.Status)
 		return ErrUnsupportedContentType
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		b.logger.Errorf("Could not read response body from %s: %s", req.URL, err)
+		b.logger.Errorw("Could not read response body", "url", req.URL.String(), "error", err)
 		return err
 	}
 
@@ -381,17 +381,17 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		// }
 		var ocs OcsResponse
 		if err := json.Unmarshal(body, &ocs); err != nil {
-			b.logger.Errorf("Could not decode OCS response %s from %s: %s", string(body), req.URL, err)
+			b.logger.Errorw("Could not decode OCS response", "response", string(body), "url", req.URL.String(), "error", err)
 			return err
 		} else if ocs.Ocs == nil || ocs.Ocs.Data == nil {
-			b.logger.Errorf("Incomplete OCS response %s from %s", string(body), req.URL)
+			b.logger.Errorw("Incomplete OCS response", "response", string(body), "url", req.URL.String())
 			return fmt.Errorf("incomplete OCS response")
 		} else if err := json.Unmarshal(*ocs.Ocs.Data, response); err != nil {
-			b.logger.Errorf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), req.URL, err)
+			b.logger.Errorw("Could not decode OCS response body", "response", string(*ocs.Ocs.Data), "url", req.URL.String(), "error", err)
 			return err
 		}
 	} else if err := json.Unmarshal(body, response); err != nil {
-		b.logger.Errorf("Could not decode response body %s from %s: %s", string(body), req.URL, err)
+		b.logger.Errorw("Could not decode response body", "response", string(body), "url", req.URL.String(), "error", err)
 		return err
 	}
 	return nil

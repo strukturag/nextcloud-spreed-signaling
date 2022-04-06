@@ -29,18 +29,23 @@ import (
 type Logger interface {
 	Debug(args ...interface{})
 	Debugf(template string, args ...interface{})
+	Debugw(msg string, args ...interface{})
 
 	Error(args ...interface{})
 	Errorf(template string, args ...interface{})
+	Errorw(msg string, args ...interface{})
 
 	Fatal(args ...interface{})
 	Fatalf(template string, args ...interface{})
+	Fatalw(msg string, args ...interface{})
 
 	Info(args ...interface{})
 	Infof(template string, args ...interface{})
+	Infow(msg string, args ...interface{})
 
 	Warn(args ...interface{})
 	Warnf(template string, args ...interface{})
+	Warnw(msg string, args ...interface{})
 
 	With(args ...interface{}) Logger
 

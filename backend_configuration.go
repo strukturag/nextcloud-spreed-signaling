@@ -137,14 +137,14 @@ func NewBackendConfiguration(logger Logger, config *goconf.ConfigFile) (*Backend
 			sessionLimit: uint64(sessionLimit),
 		}
 		if sessionLimit > 0 {
-			logger.Infof("Allow a maximum of %d sessions", sessionLimit)
+			logger.Infow("Backend limits maximum number of sessions", "backend", compatBackend.id, "limit", sessionLimit)
 		}
 		numBackends++
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
 		for host, configuredBackends := range getConfiguredHosts(logger, backendIds, config) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
-				logger.Infof("Backend %s added for %s", be.id, be.url)
+				logger.Infow("Backend added", "backend", be.id, "url", be.url)
 			}
 			numBackends += len(configuredBackends)
 		}
@@ -182,9 +182,9 @@ func NewBackendConfiguration(logger Logger, config *goconf.ConfigFile) (*Backend
 			if len(hosts) > 1 {
 				logger.Warn("Using deprecated backend configuration. Please migrate the \"allowed\" setting to the new \"backends\" configuration.")
 			}
-			logger.Infof("Allowed backend hostnames: %s", hosts)
+			logger.Infow("Allowed backend hostnames", "hosts", hosts)
 			if sessionLimit > 0 {
-				logger.Infof("Allow a maximum of %d sessions", sessionLimit)
+				logger.Infow("Backend limits maximum number of sessions", "backend", compatBackend.id, "limit", sessionLimit)
 			}
 			numBackends++
 		}
@@ -206,7 +206,7 @@ func NewBackendConfiguration(logger Logger, config *goconf.ConfigFile) (*Backend
 func (b *BackendConfiguration) RemoveBackendsForHost(host string) {
 	if oldBackends := b.backends[host]; len(oldBackends) > 0 {
 		for _, backend := range oldBackends {
-			b.logger.Infof("Backend %s removed for %s", backend.id, backend.url)
+			b.logger.Infow("Backend removed", "backend", backend.id, "url", backend.url)
 		}
 		statsBackendsCurrent.Sub(float64(len(oldBackends)))
 	}
@@ -226,14 +226,14 @@ func (b *BackendConfiguration) UpsertHost(host string, backends []*Backend) {
 				found = true
 				b.backends[host][existingIndex] = newBackend
 				backends = append(backends[:index], backends[index+1:]...)
-				b.logger.Infof("Backend %s updated for %s", newBackend.id, newBackend.url)
+				b.logger.Infow("Backend updated", "backend", newBackend.id, "url", newBackend.url)
 				break
 			}
 			index++
 		}
 		if !found {
 			removed := b.backends[host][existingIndex]
-			b.logger.Infof("Backend %s removed for %s", removed.id, removed.url)
+			b.logger.Infow("Backend removed", "backend", removed.id, "url", removed.url)
 			b.backends[host] = append(b.backends[host][:existingIndex], b.backends[host][existingIndex+1:]...)
 			statsBackendsCurrent.Dec()
 		}
@@ -241,7 +241,7 @@ func (b *BackendConfiguration) UpsertHost(host string, backends []*Backend) {
 
 	b.backends[host] = append(b.backends[host], backends...)
 	for _, added := range backends {
-		b.logger.Infof("Backend %s added for %s", added.id, added.url)
+		b.logger.Infow("Backend added", "backend", added.id, "url", added.url)
 	}
 	statsBackendsCurrent.Add(float64(len(backends)))
 }
@@ -270,7 +270,7 @@ func getConfiguredHosts(logger Logger, backendIds string, config *goconf.ConfigF
 	for _, id := range getConfiguredBackendIDs(backendIds) {
 		u, _ := config.GetString(id, "url")
 		if u == "" {
-			logger.Warnf("Backend %s is missing or incomplete, skipping", id)
+			logger.Warnw("Backend is missing or incomplete, skipping", "backend", id)
 			continue
 		}
 
@@ -279,7 +279,7 @@ func getConfiguredHosts(logger Logger, backendIds string, config *goconf.ConfigF
 		}
 		parsed, err := url.Parse(u)
 		if err != nil {
-			logger.Warnf("Backend %s has an invalid url %s configured (%s), skipping", id, u, err)
+			logger.Warnw("Backend has an invalid url configured, skipping", "backend", id, "url", u, "error", err)
 			continue
 		}
 
@@ -290,7 +290,7 @@ func getConfiguredHosts(logger Logger, backendIds string, config *goconf.ConfigF
 
 		secret, _ := config.GetString(id, "secret")
 		if u == "" || secret == "" {
-			logger.Warnf("Backend %s is missing or incomplete, skipping", id)
+			logger.Warnw("Backend is missing or incomplete, skipping", "backend", id)
 			continue
 		}
 
@@ -299,7 +299,7 @@ func getConfiguredHosts(logger Logger, backendIds string, config *goconf.ConfigF
 			sessionLimit = 0
 		}
 		if sessionLimit > 0 {
-			logger.Infof("Backend %s allows a maximum of %d sessions", id, sessionLimit)
+			logger.Infow("Backend limits maximum number of sessions", "backend", id, "limit", sessionLimit)
 		}
 
 		maxStreamBitrate, err := config.GetInt(id, "maxstreambitrate")
