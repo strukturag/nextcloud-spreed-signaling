@@ -26,7 +26,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -178,7 +177,7 @@ func (g *GeoLookup) updateUrl() error {
 			continue
 		}
 
-		geoipdata, err = ioutil.ReadAll(tarfile)
+		geoipdata, err = io.ReadAll(tarfile)
 		if err != nil {
 			return err
 		}

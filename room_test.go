@@ -26,7 +26,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"strconv"
 	"testing"
 	"time"
@@ -73,8 +73,7 @@ func TestRoom_InCall(t *testing.T) {
 }
 
 func TestRoom_Update(t *testing.T) {
-	hub, _, router, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	if err != nil {
@@ -137,7 +136,7 @@ func TestRoom_Update(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -211,8 +210,7 @@ loop:
 }
 
 func TestRoom_Delete(t *testing.T) {
-	hub, _, router, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	if err != nil {
@@ -273,7 +271,7 @@ func TestRoom_Delete(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -354,8 +352,7 @@ loop:
 }
 
 func TestRoom_RoomSessionData(t *testing.T) {
-	hub, _, router, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	if err != nil {
@@ -424,8 +421,7 @@ func TestRoom_RoomSessionData(t *testing.T) {
 }
 
 func TestRoom_InCallAll(t *testing.T) {
-	hub, _, router, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	if err != nil {
@@ -510,7 +506,7 @@ func TestRoom_InCallAll(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res1.Body.Close()
-	body1, err := ioutil.ReadAll(res1.Body)
+	body1, err := io.ReadAll(res1.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -548,7 +544,7 @@ func TestRoom_InCallAll(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res2.Body.Close()
-	body2, err := ioutil.ReadAll(res2.Body)
+	body2, err := io.ReadAll(res2.Body)
 	if err != nil {
 		t.Error(err)
 	}

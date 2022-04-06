@@ -27,11 +27,11 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -1074,7 +1074,7 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 	if tokenKeyFilename == "" {
 		return nil, fmt.Errorf("No token key configured")
 	}
-	tokenKeyData, err := ioutil.ReadFile(tokenKeyFilename)
+	tokenKeyData, err := os.ReadFile(tokenKeyFilename)
 	if err != nil {
 		return nil, fmt.Errorf("Could not read private key from %s: %s", tokenKeyFilename, err)
 	}

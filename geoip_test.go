@@ -25,7 +25,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -157,11 +156,13 @@ func TestGeoLookupFromFile(t *testing.T) {
 		}
 	}
 
-	tmpfile, err := ioutil.TempFile("", "geoipdb")
+	tmpfile, err := os.CreateTemp("", "geoipdb")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpfile.Name())
+	t.Cleanup(func() {
+		os.Remove(tmpfile.Name())
+	})
 
 	tarfile := tar.NewReader(body)
 	foundDatabase := false

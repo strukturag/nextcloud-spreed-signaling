@@ -29,7 +29,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -52,11 +52,11 @@ var (
 	turnServers       = strings.Split(turnServersString, ",")
 )
 
-func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server, func()) {
+func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server) {
 	return CreateBackendServerForTestFromConfig(t, nil)
 }
 
-func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server, func()) {
+func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server) {
 	config := goconf.NewConfigFile()
 	config.AddOption("turn", "apikey", turnApiKey)
 	config.AddOption("turn", "secret", turnSecret)
@@ -64,7 +64,7 @@ func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *Back
 	return CreateBackendServerForTestFromConfig(t, config)
 }
 
-func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server, func()) {
+func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server) {
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
@@ -103,7 +103,7 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 
 	go hub.Run()
 
-	shutdown := func() {
+	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 		defer cancel()
 
@@ -111,9 +111,9 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 		(nats).(*LoopbackNatsClient).waitForSubscriptionsEmpty(ctx, t)
 		nats.Close()
 		server.Close()
-	}
+	})
 
-	return config, b, nats, hub, r, server, shutdown
+	return config, b, nats, hub, r, server
 }
 
 func performBackendRequest(url string, body []byte) (*http.Response, error) {
@@ -161,8 +161,7 @@ func expectRoomlistEvent(n NatsClient, ch chan *nats.Msg, subject string, msgTyp
 }
 
 func TestBackendServer_NoAuth(t *testing.T) {
-	_, _, _, _, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	roomId := "the-room-id"
 	data := []byte{'{', '}'}
@@ -178,7 +177,7 @@ func TestBackendServer_NoAuth(t *testing.T) {
 	}
 
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -188,8 +187,7 @@ func TestBackendServer_NoAuth(t *testing.T) {
 }
 
 func TestBackendServer_InvalidAuth(t *testing.T) {
-	_, _, _, _, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	roomId := "the-room-id"
 	data := []byte{'{', '}'}
@@ -207,7 +205,7 @@ func TestBackendServer_InvalidAuth(t *testing.T) {
 	}
 
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -217,8 +215,7 @@ func TestBackendServer_InvalidAuth(t *testing.T) {
 }
 
 func TestBackendServer_OldCompatAuth(t *testing.T) {
-	_, _, _, _, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	roomId := "the-room-id"
 	userid := "the-user-id"
@@ -257,7 +254,7 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 	}
 
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -267,8 +264,7 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 }
 
 func TestBackendServer_InvalidBody(t *testing.T) {
-	_, _, _, _, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	roomId := "the-room-id"
 	data := []byte{1, 2, 3, 4} // Invalid JSON
@@ -277,7 +273,7 @@ func TestBackendServer_InvalidBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -287,8 +283,7 @@ func TestBackendServer_InvalidBody(t *testing.T) {
 }
 
 func TestBackendServer_UnsupportedRequest(t *testing.T) {
-	_, _, _, _, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	msg := &BackendServerRoomRequest{
 		Type: "lala",
@@ -304,7 +299,7 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -314,8 +309,7 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 }
 
 func TestBackendServer_RoomInvite(t *testing.T) {
-	_, _, n, hub, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, n, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -361,7 +355,7 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -382,8 +376,7 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 }
 
 func TestBackendServer_RoomDisinvite(t *testing.T) {
-	_, _, n, hub, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, n, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -456,7 +449,7 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -491,8 +484,7 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 }
 
 func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
-	_, _, _, hub, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -557,7 +549,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -601,7 +593,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err = ioutil.ReadAll(res.Body)
+	body, err = io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -618,8 +610,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 }
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
-	_, _, n, hub, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, n, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -672,7 +663,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -704,8 +695,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 }
 
 func TestBackendServer_RoomDelete(t *testing.T) {
-	_, _, n, hub, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, n, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -754,7 +744,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -786,8 +776,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
-	_, _, _, hub, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -883,7 +872,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -901,8 +890,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
-	_, _, _, hub, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -971,7 +959,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -987,8 +975,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
-	_, _, _, hub, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -1075,7 +1062,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			return
 		}
 		defer res.Body.Close()
-		body, err := ioutil.ReadAll(res.Body)
+		body, err := io.ReadAll(res.Body)
 		if err != nil {
 			t.Error(err)
 		}
@@ -1128,7 +1115,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			return
 		}
 		defer res.Body.Close()
-		body, err := ioutil.ReadAll(res.Body)
+		body, err := io.ReadAll(res.Body)
 		if err != nil {
 			t.Error(err)
 		}
@@ -1201,8 +1188,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 }
 
 func TestBackendServer_RoomMessage(t *testing.T) {
-	_, _, _, hub, _, server, shutdown := CreateBackendServerForTest(t)
-	defer shutdown()
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1248,7 +1234,7 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -1267,8 +1253,7 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 }
 
 func TestBackendServer_TurnCredentials(t *testing.T) {
-	_, _, _, _, _, server, shutdown := CreateBackendServerForTestWithTurn(t)
-	defer shutdown()
+	_, _, _, _, _, server := CreateBackendServerForTestWithTurn(t)
 
 	q := make(url.Values)
 	q.Set("service", "turn")
@@ -1283,7 +1268,7 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}

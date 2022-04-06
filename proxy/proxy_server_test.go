@@ -26,7 +26,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -42,18 +41,14 @@ const (
 	TokenIdForTest     = "foo"
 )
 
-func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, func()) {
-	tempdir, err := ioutil.TempDir("", "test")
-	if err != nil {
-		t.Fatalf("could not create temporary folder: %s", err)
-	}
+func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey) {
+	tempdir := t.TempDir()
 	var server *ProxyServer
-	shutdown := func() {
+	t.Cleanup(func() {
 		if server != nil {
 			server.Stop()
 		}
-		os.RemoveAll(tempdir)
-	}
+	})
 
 	r := mux.NewRouter()
 	key, err := rsa.GenerateKey(rand.Reader, KeypairSizeForTest)
@@ -64,7 +59,7 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, func())
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	}
-	privkey, err := ioutil.TempFile(tempdir, "privkey*.pem")
+	privkey, err := os.CreateTemp(tempdir, "privkey*.pem")
 	if err != nil {
 		t.Fatalf("could not create temporary file for private key: %s", err)
 	}
@@ -80,7 +75,7 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, func())
 		Type:  "RSA PUBLIC KEY",
 		Bytes: pubData,
 	}
-	pubkey, err := ioutil.TempFile(tempdir, "pubkey*.pem")
+	pubkey, err := os.CreateTemp(tempdir, "pubkey*.pem")
 	if err != nil {
 		t.Fatalf("could not create temporary file for public key: %s", err)
 	}
@@ -94,12 +89,11 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, func())
 	if server, err = NewProxyServer(r, "0.0", config); err != nil {
 		t.Fatalf("could not create server: %s", err)
 	}
-	return server, key, shutdown
+	return server, key
 }
 
 func TestTokenInFuture(t *testing.T) {
-	server, key, shutdown := newProxyServerForTest(t)
-	defer shutdown()
+	server, key := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
 		StandardClaims: jwt.StandardClaims{

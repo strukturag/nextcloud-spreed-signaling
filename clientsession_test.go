@@ -126,8 +126,7 @@ func Test_permissionsEqual(t *testing.T) {
 }
 
 func TestBandwidth_Client(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
 	if err != nil {
@@ -199,8 +198,7 @@ func TestBandwidth_Client(t *testing.T) {
 }
 
 func TestBandwidth_Backend(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubWithMultipleBackendsForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
 	u, err := url.Parse(server.URL + "/one")
 	if err != nil {

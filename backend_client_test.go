@@ -25,7 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -66,7 +66,7 @@ func TestPostOnRedirect(t *testing.T) {
 		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusTemporaryRedirect)
 	})
 	r.HandleFunc("/ocs/v2.php/two", func(w http.ResponseWriter, r *http.Request) {
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatal(err)
 			return
@@ -161,7 +161,7 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusFound)
 	})
 	r.HandleFunc("/ocs/v2.php/two", func(w http.ResponseWriter, r *http.Request) {
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatal(err)
 			return

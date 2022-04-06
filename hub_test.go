@@ -24,7 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -97,7 +97,7 @@ func getTestConfigWithMultipleBackends(server *httptest.Server) (*goconf.ConfigF
 	return config, nil
 }
 
-func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, NatsClient, *mux.Router, *httptest.Server, func()) {
+func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, NatsClient, *mux.Router, *httptest.Server) {
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
@@ -124,7 +124,7 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 
 	go h.Run()
 
-	shutdown := func() {
+	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 		defer cancel()
 
@@ -132,20 +132,20 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 		(nats).(*LoopbackNatsClient).waitForSubscriptionsEmpty(ctx, t)
 		nats.Close()
 		server.Close()
-	}
+	})
 
-	return h, nats, r, server, shutdown
+	return h, nats, r, server
 }
 
-func CreateHubForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Server, func()) {
+func CreateHubForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Server) {
 	return CreateHubForTestWithConfig(t, getTestConfig)
 }
 
-func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Server, func()) {
-	h, nats, r, server, shutdown := CreateHubForTestWithConfig(t, getTestConfigWithMultipleBackends)
+func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Server) {
+	h, nats, r, server := CreateHubForTestWithConfig(t, getTestConfigWithMultipleBackends)
 	registerBackendHandlerUrl(t, r, "/one")
 	registerBackendHandlerUrl(t, r, "/two")
-	return h, nats, r, server, shutdown
+	return h, nats, r, server
 }
 
 func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
@@ -183,7 +183,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 
 func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Request, *BackendClientRequest) *BackendClientResponse) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatal("Error reading body: ", err)
 		}
@@ -426,8 +426,7 @@ func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {
 }
 
 func TestExpectClientHello(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	// The server will send an error and close the connection if no "Hello"
 	// is sent.
@@ -461,8 +460,7 @@ func TestExpectClientHello(t *testing.T) {
 }
 
 func TestClientHello(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -487,8 +485,7 @@ func TestClientHello(t *testing.T) {
 }
 
 func TestClientHelloWithSpaces(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -514,7 +511,7 @@ func TestClientHelloWithSpaces(t *testing.T) {
 }
 
 func TestClientHelloAllowAll(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+	hub, _, _, server := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
 		config, err := getTestConfig(server)
 		if err != nil {
 			return nil, err
@@ -524,7 +521,6 @@ func TestClientHelloAllowAll(t *testing.T) {
 		config.AddOption("backend", "allowall", "true")
 		return config, nil
 	})
-	defer shutdown()
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -549,7 +545,7 @@ func TestClientHelloAllowAll(t *testing.T) {
 }
 
 func TestClientHelloSessionLimit(t *testing.T) {
-	hub, _, router, server, shutdown := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+	hub, _, router, server := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
 		config, err := getTestConfig(server)
 		if err != nil {
 			return nil, err
@@ -567,7 +563,6 @@ func TestClientHelloSessionLimit(t *testing.T) {
 		config.AddOption("backend2", "secret", string(testBackendSecret))
 		return config, nil
 	})
-	defer shutdown()
 
 	registerBackendHandlerUrl(t, router, "/one")
 	registerBackendHandlerUrl(t, router, "/two")
@@ -663,8 +658,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 }
 
 func TestSessionIdsUnordered(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	publicSessionIds := make([]string, 0)
 	for i := 0; i < 20; i++ {
@@ -737,8 +731,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 }
 
 func TestClientHelloResume(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -793,8 +786,7 @@ func TestClientHelloResume(t *testing.T) {
 }
 
 func TestClientHelloResumeExpired(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -849,8 +841,7 @@ func TestClientHelloResumeExpired(t *testing.T) {
 }
 
 func TestClientHelloResumeTakeover(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -918,8 +909,7 @@ func TestClientHelloResumeTakeover(t *testing.T) {
 }
 
 func TestClientHelloResumeOtherHub(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1014,8 +1004,7 @@ func TestClientHelloResumeOtherHub(t *testing.T) {
 
 func TestClientHelloResumePublicId(t *testing.T) {
 	// Test that a client can't resume a "public" session of another user.
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -1088,8 +1077,7 @@ func TestClientHelloResumePublicId(t *testing.T) {
 }
 
 func TestClientHelloByeResume(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1154,8 +1142,7 @@ func TestClientHelloByeResume(t *testing.T) {
 }
 
 func TestClientHelloResumeAndJoin(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1218,8 +1205,7 @@ func TestClientHelloResumeAndJoin(t *testing.T) {
 }
 
 func TestClientHelloClient(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1247,8 +1233,7 @@ func TestClientHelloClient(t *testing.T) {
 }
 
 func TestClientHelloClient_V3Api(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1281,8 +1266,7 @@ func TestClientHelloClient_V3Api(t *testing.T) {
 }
 
 func TestClientHelloInternal(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1310,8 +1294,7 @@ func TestClientHelloInternal(t *testing.T) {
 }
 
 func TestClientMessageToSessionId(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -1368,8 +1351,7 @@ func TestClientMessageToSessionId(t *testing.T) {
 }
 
 func TestClientMessageToUserId(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -1429,8 +1411,7 @@ func TestClientMessageToUserId(t *testing.T) {
 }
 
 func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -1552,8 +1533,7 @@ func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, 
 }
 
 func TestClientMessageToRoom(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1627,8 +1607,7 @@ func TestClientMessageToRoom(t *testing.T) {
 }
 
 func TestJoinRoom(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1667,8 +1646,7 @@ func TestJoinRoom(t *testing.T) {
 }
 
 func TestExpectAnonymousJoinRoom(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1720,8 +1698,7 @@ func TestExpectAnonymousJoinRoom(t *testing.T) {
 }
 
 func TestJoinRoomChange(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1773,8 +1750,7 @@ func TestJoinRoomChange(t *testing.T) {
 }
 
 func TestJoinMultiple(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -1852,8 +1828,7 @@ func TestJoinMultiple(t *testing.T) {
 }
 
 func TestJoinRoomSwitchClient(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1978,8 +1953,7 @@ func TestGetRealUserIP(t *testing.T) {
 }
 
 func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -2070,8 +2044,7 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 }
 
 func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -2203,8 +2176,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 }
 
 func TestClientTakeoverRoomSession(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -2329,8 +2301,7 @@ func TestClientTakeoverRoomSession(t *testing.T) {
 }
 
 func TestClientSendOfferPermissions(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
 	if err != nil {
@@ -2457,8 +2428,7 @@ func TestClientSendOfferPermissions(t *testing.T) {
 }
 
 func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
 	if err != nil {
@@ -2549,8 +2519,7 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 }
 
 func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
 	if err != nil {
@@ -2644,7 +2613,7 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -2678,8 +2647,7 @@ loop:
 }
 
 func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
 	if err != nil {
@@ -2773,7 +2741,7 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
 	}
@@ -2811,8 +2779,7 @@ loop:
 }
 
 func TestClientRequestOfferNotInRoom(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
 	if err != nil {
@@ -2997,8 +2964,7 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 
 func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	// Clients can't send messages to sessions connected from other backends.
-	hub, _, _, server, shutdown := CreateHubWithMultipleBackendsForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -3068,8 +3034,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 }
 
 func TestNoSameRoomOnDifferentBackends(t *testing.T) {
-	hub, _, _, server, shutdown := CreateHubWithMultipleBackendsForTest(t)
-	defer shutdown()
+	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
