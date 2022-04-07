@@ -90,6 +90,7 @@ type McuPublisher interface {
 	McuClient
 
 	HasMedia(MediaType) bool
+	SetMedia(MediaType)
 }
 
 type McuSubscriber interface {

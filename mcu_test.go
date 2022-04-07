@@ -153,6 +153,10 @@ func (p *TestMCUPublisher) HasMedia(mt MediaType) bool {
 	return (p.mediaTypes & mt) == mt
 }
 
+func (p *TestMCUPublisher) SetMedia(mt MediaType) {
+	p.mediaTypes = mt
+}
+
 func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
 	go func() {
 		if p.isClosed() {
