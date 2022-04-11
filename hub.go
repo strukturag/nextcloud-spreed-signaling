@@ -1253,7 +1253,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 		return
 	}
 
-	var recipient *Client
+	var recipient *ClientSession
 	var subject string
 	var clientData *MessageClientMessageData
 	var serverRecipient *MessageClientMessageRecipient
@@ -1299,15 +1299,18 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 
 			subject = "session." + msg.Recipient.SessionId
 			h.mu.RLock()
-			recipient = h.clients[data.Sid]
-			if recipient == nil {
+			sess, found := h.sessions[data.Sid]
+			if found {
+				if sess, ok := sess.(*ClientSession); ok {
+					recipient = sess
+				}
+
 				// Send to client connection for virtual sessions.
-				sess := h.sessions[data.Sid]
-				if sess != nil && sess.ClientType() == HelloClientTypeVirtual {
+				if sess.ClientType() == HelloClientTypeVirtual {
 					virtualSession := sess.(*VirtualSession)
 					clientSession := virtualSession.Session()
 					subject = "session." + clientSession.PublicId()
-					recipient = clientSession.GetClient()
+					recipient = clientSession
 					// The client should see his session id as recipient.
 					serverRecipient = &MessageClientMessageRecipient{
 						Type:      "session",
@@ -1391,15 +1394,11 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				return
 			}
 
-			if recipientSession := recipient.GetSession(); recipientSession != nil {
-				msg.Recipient.SessionId = session.PublicId()
-				// It may take some time for the publisher (which is the current
-				// client) to start his stream, so we must not block the active
-				// goroutine.
-				go h.processMcuMessage(session, recipientSession, message, msg, clientData)
-			} else { // nolint
-				// Client is not connected yet.
-			}
+			msg.Recipient.SessionId = session.PublicId()
+			// It may take some time for the publisher (which is the current
+			// client) to start his stream, so we must not block the active
+			// goroutine.
+			go h.processMcuMessage(session, recipient, message, msg, clientData)
 			return
 		}
 		recipient.SendMessage(response)
