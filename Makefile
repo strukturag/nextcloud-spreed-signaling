@@ -52,7 +52,7 @@ endif
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
-$(GOPATHBIN)/bin/easyjson:
+$(GOPATHBIN)/easyjson:
 	$(GO) get -u -d github.com/mailru/easyjson/...
 	$(GO) install github.com/mailru/easyjson/...
 
@@ -91,7 +91,7 @@ coverhtml: vet common
 	sed -i "/_easyjson/d" cover.out && \
 	$(GO) tool cover -html=cover.out -o coverage.html
 
-%_easyjson.go: %.go $(GOPATHBIN)/bin/easyjson
+%_easyjson.go: %.go $(GOPATHBIN)/easyjson
 	PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
 
 common: \
