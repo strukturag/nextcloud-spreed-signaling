@@ -1841,11 +1841,11 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 			return
 		}
 
-		h.sendMcuMessageResponse(session, message, data, response)
+		h.sendMcuMessageResponse(session, mc, message, data, response)
 	})
 }
 
-func (h *Hub) sendMcuMessageResponse(session *ClientSession, message *MessageClientMessage, data *MessageClientMessageData, response map[string]interface{}) {
+func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *MessageClientMessage, data *MessageClientMessageData, response map[string]interface{}) {
 	var response_message *ServerMessage
 	switch response["type"] {
 	case "answer":
@@ -1855,6 +1855,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, message *MessageCli
 			Type:     "answer",
 			RoomType: data.RoomType,
 			Payload:  response,
+			Sid:      mcuClient.Sid(),
 		}
 		answer_data, err := json.Marshal(answer_message)
 		if err != nil {
@@ -1879,6 +1880,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, message *MessageCli
 			Type:     "offer",
 			RoomType: data.RoomType,
 			Payload:  response,
+			Sid:      mcuClient.Sid(),
 		}
 		offer_data, err := json.Marshal(offer_message)
 		if err != nil {

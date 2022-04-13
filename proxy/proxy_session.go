@@ -192,6 +192,24 @@ func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
 	s.sendMessage(msg)
 }
 
+func (s *ProxySession) SubscriberSidUpdated(subscriber signaling.McuSubscriber) {
+	id := s.proxy.GetClientId(subscriber)
+	if id == "" {
+		log.Printf("Received subscriber sid updated event from unknown %s subscriber %s (%+v)", subscriber.StreamType(), subscriber.Id(), subscriber)
+		return
+	}
+
+	msg := &signaling.ProxyServerMessage{
+		Type: "event",
+		Event: &signaling.EventProxyServerMessage{
+			Type:     "subscriber-sid-updated",
+			ClientId: id,
+			Sid:      subscriber.Sid(),
+		},
+	}
+	s.sendMessage(msg)
+}
+
 func (s *ProxySession) PublisherClosed(publisher signaling.McuPublisher) {
 	if id := s.DeletePublisher(publisher); id != "" {
 		if s.proxy.DeleteClient(id, publisher) {
