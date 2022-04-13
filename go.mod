@@ -16,8 +16,8 @@ require (
 	github.com/oschwald/maxminddb-golang v1.9.0
 	github.com/pion/sdp v1.3.0
 	github.com/prometheus/client_golang v1.12.1
-	go.etcd.io/etcd/client/pkg/v3 v3.5.2
-	go.etcd.io/etcd/client/v3 v3.5.2
+	go.etcd.io/etcd/client/pkg/v3 v3.5.3
+	go.etcd.io/etcd/client/v3 v3.5.3
 )
 
 require (
@@ -38,7 +38,7 @@ require (
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.32.1 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
-	go.etcd.io/etcd/api/v3 v3.5.2 // indirect
+	go.etcd.io/etcd/api/v3 v3.5.3 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.17.0 // indirect
