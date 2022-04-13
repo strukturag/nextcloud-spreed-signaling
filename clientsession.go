@@ -572,7 +572,6 @@ func (s *ClientSession) sendOffer(client McuClient, sender string, streamType st
 		RoomType: streamType,
 		Payload:  offer,
 		Sid:      client.Sid(),
-		Update:   true,
 	}
 	offer_data, err := json.Marshal(offer_message)
 	if err != nil {
