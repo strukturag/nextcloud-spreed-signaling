@@ -951,6 +951,8 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
+			// TODO Tear down previous publisher and get a new one if sid does
+			// not match?
 			p.sendOffer(msgctx, jsep_msg, callback)
 		}
 	case "candidate":
@@ -958,7 +960,11 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
-			p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
+			if data.Sid == "" || data.Sid == p.Sid() {
+				p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
+			} else {
+				go callback(fmt.Errorf("Candidate message sid (%s) does not match publisher sid (%s)", data.Sid, p.Sid()), nil)
+			}
 		}
 	case "endOfCandidates":
 		// Ignore
@@ -1250,6 +1256,8 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
+			// TODO Only join the room if there is no sid or it does not match
+			// the subscriber sid; otherwise configure/update the subscriber.
 			p.joinRoom(msgctx, callback)
 		}
 	case "answer":
@@ -1257,14 +1265,22 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
-			p.sendAnswer(msgctx, jsep_msg, callback)
+			if data.Sid == "" || data.Sid == p.Sid() {
+				p.sendAnswer(msgctx, jsep_msg, callback)
+			} else {
+				go callback(fmt.Errorf("Answer message sid (%s) does not match subscriber sid (%s)", data.Sid, p.Sid()), nil)
+			}
 		}
 	case "candidate":
 		p.deferred <- func() {
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
-			p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
+			if data.Sid == "" || data.Sid == p.Sid() {
+				p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
+			} else {
+				go callback(fmt.Errorf("Candidate message sid (%s) does not match subscriber sid (%s)", data.Sid, p.Sid()), nil)
+			}
 		}
 	case "endOfCandidates":
 		// Ignore

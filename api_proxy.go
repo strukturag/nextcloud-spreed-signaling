@@ -216,6 +216,7 @@ type PayloadProxyClientMessage struct {
 	Type string `json:"type"`
 
 	ClientId string                 `json:"clientId"`
+	Sid      string                 `json:"sid,omitempty"`
 	Payload  map[string]interface{} `json:"payload,omitempty"`
 }
 

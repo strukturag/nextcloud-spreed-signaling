@@ -185,6 +185,7 @@ func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *MessageCli
 		Payload: &PayloadProxyClientMessage{
 			Type:     data.Type,
 			ClientId: p.proxyId,
+			Sid:      data.Sid,
 			Payload:  data.Payload,
 		},
 	}
@@ -261,6 +262,7 @@ func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageCl
 		Payload: &PayloadProxyClientMessage{
 			Type:     data.Type,
 			ClientId: s.proxyId,
+			Sid:      data.Sid,
 			Payload:  data.Payload,
 		},
 	}

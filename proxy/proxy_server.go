@@ -789,6 +789,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 	case "candidate":
 		mcuData = &signaling.MessageClientMessageData{
 			Type:    payload.Type,
+			Sid:     payload.Sid,
 			Payload: payload.Payload,
 		}
 	case "endOfCandidates":
@@ -807,6 +808,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 	case "sendoffer":
 		mcuData = &signaling.MessageClientMessageData{
 			Type: payload.Type,
+			Sid:  payload.Sid,
 		}
 	default:
 		session.sendMessage(message.NewErrorServerMessage(UnsupportedPayload))
