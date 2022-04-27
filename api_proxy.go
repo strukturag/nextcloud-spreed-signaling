@@ -172,6 +172,7 @@ type ByeProxyServerMessage struct {
 type CommandProxyClientMessage struct {
 	Type string `json:"type"`
 
+	Sid         string    `json:"sid,omitempty"`
 	StreamType  string    `json:"streamType,omitempty"`
 	PublisherId string    `json:"publisherId,omitempty"`
 	ClientId    string    `json:"clientId,omitempty"`
@@ -205,7 +206,8 @@ func (m *CommandProxyClientMessage) CheckValid() error {
 }
 
 type CommandProxyServerMessage struct {
-	Id string `json:"id,omitempty"`
+	Id  string `json:"id,omitempty"`
+	Sid string `json:"sid,omitempty"`
 }
 
 // Type "payload"
@@ -214,6 +216,7 @@ type PayloadProxyClientMessage struct {
 	Type string `json:"type"`
 
 	ClientId string                 `json:"clientId"`
+	Sid      string                 `json:"sid,omitempty"`
 	Payload  map[string]interface{} `json:"payload,omitempty"`
 }
 
@@ -254,6 +257,7 @@ type EventProxyServerMessage struct {
 
 	ClientId string `json:"clientId,omitempty"`
 	Load     int64  `json:"load,omitempty"`
+	Sid      string `json:"sid,omitempty"`
 }
 
 // Information on a proxy in the etcd cluster.

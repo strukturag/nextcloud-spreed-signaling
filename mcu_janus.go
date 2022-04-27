@@ -436,6 +436,7 @@ type mcuJanusClient struct {
 	id         uint64
 	session    uint64
 	roomId     uint64
+	sid        string
 	streamType string
 
 	handle    *JanusHandle
@@ -453,6 +454,10 @@ type mcuJanusClient struct {
 
 func (c *mcuJanusClient) Id() string {
 	return strconv.FormatUint(c.id, 10)
+}
+
+func (c *mcuJanusClient) Sid() string {
+	return c.sid
 }
 
 func (c *mcuJanusClient) StreamType() string {
@@ -781,7 +786,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 	return handle, response.Session, roomId, nil
 }
 
-func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
 	}
@@ -799,6 +804,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 			id:         atomic.AddUint64(&m.clientId, 1),
 			session:    session,
 			roomId:     roomId,
+			sid:        sid,
 			streamType: streamType,
 
 			handle:    handle,
@@ -945,6 +951,8 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
+			// TODO Tear down previous publisher and get a new one if sid does
+			// not match?
 			p.sendOffer(msgctx, jsep_msg, callback)
 		}
 	case "candidate":
@@ -952,7 +960,11 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
-			p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
+			if data.Sid == "" || data.Sid == p.Sid() {
+				p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
+			} else {
+				go callback(fmt.Errorf("Candidate message sid (%s) does not match publisher sid (%s)", data.Sid, p.Sid()), nil)
+			}
 		}
 	case "endOfCandidates":
 		// Ignore
@@ -1032,6 +1044,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 
 			id:         atomic.AddUint64(&m.clientId, 1),
 			roomId:     pub.roomId,
+			sid:        strconv.FormatUint(handle.Id, 10),
 			streamType: streamType,
 
 			handle:    handle,
@@ -1123,6 +1136,8 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 	p.handle = handle
 	p.handleId = handle.Id
 	p.roomId = pub.roomId
+	p.sid = strconv.FormatUint(handle.Id, 10)
+	p.listener.SubscriberSidUpdated(p)
 	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId)
 }
 
@@ -1191,6 +1206,8 @@ retry:
 			p.handle = handle
 			p.handleId = handle.Id
 			p.roomId = pub.roomId
+			p.sid = strconv.FormatUint(handle.Id, 10)
+			p.listener.SubscriberSidUpdated(p)
 			p.closeChan = make(chan bool, 1)
 			go p.run(p.handle, p.closeChan)
 			log.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId)
@@ -1239,6 +1256,8 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
+			// TODO Only join the room if there is no sid or it does not match
+			// the subscriber sid; otherwise configure/update the subscriber.
 			p.joinRoom(msgctx, callback)
 		}
 	case "answer":
@@ -1246,14 +1265,22 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
-			p.sendAnswer(msgctx, jsep_msg, callback)
+			if data.Sid == "" || data.Sid == p.Sid() {
+				p.sendAnswer(msgctx, jsep_msg, callback)
+			} else {
+				go callback(fmt.Errorf("Answer message sid (%s) does not match subscriber sid (%s)", data.Sid, p.Sid()), nil)
+			}
 		}
 	case "candidate":
 		p.deferred <- func() {
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
 			defer cancel()
 
-			p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
+			if data.Sid == "" || data.Sid == p.Sid() {
+				p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
+			} else {
+				go callback(fmt.Errorf("Candidate message sid (%s) does not match subscriber sid (%s)", data.Sid, p.Sid()), nil)
+			}
 		}
 	case "endOfCandidates":
 		// Ignore

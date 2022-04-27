@@ -67,7 +67,7 @@ func (m *TestMCU) GetStats() interface{} {
 	return nil
 }
 
-func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
+func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
 	var maxBitrate int
 	if streamType == streamTypeScreen {
 		maxBitrate = TestMaxBitrateScreen
@@ -82,6 +82,7 @@ func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id str
 	pub := &TestMCUPublisher{
 		TestMCUClient: TestMCUClient{
 			id:         id,
+			sid:        sid,
 			streamType: streamType,
 		},
 
@@ -122,11 +123,16 @@ type TestMCUClient struct {
 	closed int32
 
 	id         string
+	sid        string
 	streamType string
 }
 
 func (c *TestMCUClient) Id() string {
 	return c.id
+}
+
+func (c *TestMCUClient) Sid() string {
+	return c.sid
 }
 
 func (c *TestMCUClient) StreamType() string {

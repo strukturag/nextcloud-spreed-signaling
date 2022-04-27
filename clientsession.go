@@ -571,7 +571,7 @@ func (s *ClientSession) sendOffer(client McuClient, sender string, streamType st
 		Type:     "offer",
 		RoomType: streamType,
 		Payload:  offer,
-		Update:   true,
+		Sid:      client.Sid(),
 	}
 	offer_data, err := json.Marshal(offer_message)
 	if err != nil {
@@ -601,6 +601,7 @@ func (s *ClientSession) sendCandidate(client McuClient, sender string, streamTyp
 		Payload: map[string]interface{}{
 			"candidate": candidate,
 		},
+		Sid: client.Sid(),
 	}
 	candidate_data, err := json.Marshal(candidate_message)
 	if err != nil {
@@ -696,6 +697,9 @@ func (s *ClientSession) OnIceCompleted(client McuClient) {
 
 	// An empty candidate signals the end of candidates.
 	// s.OnIceCandidate(client, nil)
+}
+
+func (s *ClientSession) SubscriberSidUpdated(subscriber McuSubscriber) {
 }
 
 func (s *ClientSession) PublisherClosed(publisher McuPublisher) {
@@ -876,7 +880,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 			}
 		}
 		var err error
-		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), streamType, bitrate, mediaTypes, client)
+		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), data.Sid, streamType, bitrate, mediaTypes, client)
 		s.mu.Lock()
 		if err != nil {
 			return nil, err
