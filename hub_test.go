@@ -259,6 +259,14 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 			UserId:  params.UserId,
 		},
 	}
+	userdata := map[string]string{
+		"displayname": "Displayname " + params.UserId,
+	}
+	if data, err := json.Marshal(userdata); err != nil {
+		t.Fatal(err)
+	} else {
+		response.Auth.User = (*json.RawMessage)(&data)
+	}
 	return response
 }
 
@@ -1824,6 +1832,88 @@ func TestJoinMultiple(t *testing.T) {
 		t.Fatal(err)
 	} else if room.Room.RoomId != "" {
 		t.Fatalf("Expected empty room, got %s", room.Room.RoomId)
+	}
+}
+
+func TestJoinMultipleDisplaynamesPermission(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+		t.Fatal(err)
+	}
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hello2, err := client2.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session2 := hub.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+	if session2 == nil {
+		t.Fatalf("Session %s does not exist", hello2.Hello.SessionId)
+	}
+
+	// Client 2 may not receive display names.
+	session2.SetPermissions([]Permission{PERMISSION_HIDE_DISPLAYNAMES})
+
+	// Join room by id (first client).
+	roomId := "test-room"
+	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	// We will receive a "joined" event.
+	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
+		t.Error(err)
+	}
+
+	// Join room by id (second client).
+	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	// We will receive a "joined" event for the first and the second client.
+	if events, unexpected, err := client2.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello); err != nil {
+		t.Error(err)
+	} else {
+		if len(unexpected) > 0 {
+			t.Errorf("Received unexpected messages: %+v", unexpected)
+		} else if len(events) != 2 {
+			t.Errorf("Expected two event, got %+v", events)
+		} else if events[0].User != nil {
+			t.Errorf("Expected empty userdata for first event, got %+v", events[0].User)
+		} else if events[1].User != nil {
+			t.Errorf("Expected empty userdata for second event, got %+v", events[1].User)
+		}
+	}
+	// The first client will also receive a "joined" event from the second client.
+	if events, unexpected, err := client1.RunUntilJoinedAndReturn(ctx, hello2.Hello); err != nil {
+		t.Error(err)
+	} else {
+		if len(unexpected) > 0 {
+			t.Errorf("Received unexpected messages: %+v", unexpected)
+		} else if len(events) != 1 {
+			t.Errorf("Expected one event, got %+v", events)
+		} else if events[0].User == nil {
+			t.Errorf("Expected userdata for first event, got nothing")
+		}
 	}
 }
 

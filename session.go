@@ -36,6 +36,14 @@ var (
 	PERMISSION_MAY_PUBLISH_SCREEN Permission = "publish-screen"
 	PERMISSION_MAY_CONTROL        Permission = "control"
 	PERMISSION_TRANSIENT_DATA     Permission = "transient-data"
+	PERMISSION_HIDE_DISPLAYNAMES  Permission = "hide-displaynames"
+
+	// DefaultPermissionOverrides contains permission overrides for users where
+	// no permissions have been set by the server. If a permission is not set in
+	// this map, it's assumed the user has that permission.
+	DefaultPermissionOverrides = map[Permission]bool{
+		PERMISSION_HIDE_DISPLAYNAMES: false,
+	}
 )
 
 type SessionIdData struct {
