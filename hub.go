@@ -816,6 +816,8 @@ func (h *Hub) processMessage(client *Client, data []byte) {
 		return
 	}
 
+	statsMessagesTotal.WithLabelValues(message.Type).Inc()
+
 	session := client.GetSession()
 	if session == nil {
 		if message.Type != "hello" {
