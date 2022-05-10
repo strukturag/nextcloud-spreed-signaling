@@ -1903,9 +1903,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 		return
 	}
 
-	if response_message != nil {
-		session.SendMessage(response_message)
-	}
+	session.SendMessage(response_message)
 }
 
 func (h *Hub) processByeMsg(client *Client, message *ClientMessage) {
