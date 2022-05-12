@@ -127,6 +127,7 @@ type Hub struct {
 	rooms    map[string]*Room
 
 	roomSessions    RoomSessions
+	roomPing        *RoomPing
 	virtualSessions map[string]uint64
 
 	decodeCaches []*LruCache
@@ -210,6 +211,11 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 	}
 
 	roomSessions, err := NewBuiltinRoomSessions()
+	if err != nil {
+		return nil, err
+	}
+
+	roomPing, err := NewRoomPing(backend, backend.capabilities)
 	if err != nil {
 		return nil, err
 	}
@@ -313,6 +319,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 		rooms:    make(map[string]*Room),
 
 		roomSessions:    roomSessions,
+		roomPing:        roomPing,
 		virtualSessions: make(map[string]uint64),
 
 		decodeCaches: decodeCaches,
@@ -428,6 +435,8 @@ func (h *Hub) updateGeoDatabase() {
 
 func (h *Hub) Run() {
 	go h.updateGeoDatabase()
+	h.roomPing.Start()
+	defer h.roomPing.Stop()
 
 	housekeeping := time.NewTicker(housekeepingInterval)
 	geoipUpdater := time.NewTicker(24 * time.Hour)
@@ -1125,6 +1134,7 @@ func (h *Hub) removeRoom(room *Room) {
 		statsHubRoomsCurrent.WithLabelValues(room.Backend().Id()).Dec()
 	}
 	h.ru.Unlock()
+	h.roomPing.DeleteRoom(room)
 }
 
 func (h *Hub) createRoom(id string, properties *json.RawMessage, backend *Backend) (*Room, error) {
