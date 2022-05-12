@@ -238,7 +238,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			params := TestBackendClientAuthParams{
 				UserId: testDefaultUserId,
 			}
-			if err := client.SendHelloParams(server.URL+"/one", "client", params); err != nil {
+			if err := client.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", params); err != nil {
 				t.Fatal(err)
 			}
 

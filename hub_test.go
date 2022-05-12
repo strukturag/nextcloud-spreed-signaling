@@ -23,12 +23,21 @@ package signaling
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -37,6 +46,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
@@ -52,6 +62,12 @@ var (
 	clusteredTests = []string{
 		"local",
 		"clustered",
+	}
+
+	testHelloV2Algorithms = []string{
+		"RSA",
+		"ECDSA",
+		"Ed25519",
 	}
 )
 
@@ -511,6 +527,131 @@ func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	return response
 }
 
+func ensureAuthTokens(t *testing.T) (string, string) {
+	if privateKey := os.Getenv("PRIVATE_AUTH_TOKEN_" + t.Name()); privateKey != "" {
+		publicKey := os.Getenv("PUBLIC_AUTH_TOKEN_" + t.Name())
+		if publicKey == "" {
+			// should not happen, always both keys are created
+			t.Fatal("public key is empty")
+		}
+		return privateKey, publicKey
+	}
+
+	var private []byte
+	var public []byte
+
+	if strings.Contains(t.Name(), "ECDSA") {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		private, err = x509.MarshalECPrivateKey(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		private = pem.EncodeToMemory(&pem.Block{
+			Type:  "ECDSA PRIVATE KEY",
+			Bytes: private,
+		})
+
+		public, err = x509.MarshalPKIXPublicKey(&key.PublicKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		public = pem.EncodeToMemory(&pem.Block{
+			Type:  "ECDSA PUBLIC KEY",
+			Bytes: public,
+		})
+	} else if strings.Contains(t.Name(), "Ed25519") {
+		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		private, err = x509.MarshalPKCS8PrivateKey(privateKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		private = pem.EncodeToMemory(&pem.Block{
+			Type:  "Ed25519 PRIVATE KEY",
+			Bytes: private,
+		})
+
+		public, err = x509.MarshalPKIXPublicKey(publicKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		public = pem.EncodeToMemory(&pem.Block{
+			Type:  "Ed25519 PUBLIC KEY",
+			Bytes: public,
+		})
+	} else {
+		key, err := rsa.GenerateKey(rand.Reader, 1024)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		private = pem.EncodeToMemory(&pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: x509.MarshalPKCS1PrivateKey(key),
+		})
+
+		public, err = x509.MarshalPKIXPublicKey(&key.PublicKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		public = pem.EncodeToMemory(&pem.Block{
+			Type:  "RSA PUBLIC KEY",
+			Bytes: public,
+		})
+	}
+
+	privateKey := base64.StdEncoding.EncodeToString(private)
+	t.Setenv("PRIVATE_AUTH_TOKEN_"+t.Name(), privateKey)
+	publicKey := base64.StdEncoding.EncodeToString(public)
+	t.Setenv("PUBLIC_AUTH_TOKEN_"+t.Name(), publicKey)
+	return privateKey, publicKey
+}
+
+func getPrivateAuthToken(t *testing.T) (key interface{}) {
+	private, _ := ensureAuthTokens(t)
+	data, err := base64.StdEncoding.DecodeString(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(t.Name(), "ECDSA") {
+		key, err = jwt.ParseECPrivateKeyFromPEM(data)
+	} else if strings.Contains(t.Name(), "Ed25519") {
+		key, err = jwt.ParseEdPrivateKeyFromPEM(data)
+	} else {
+		key, err = jwt.ParseRSAPrivateKeyFromPEM(data)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func getPublicAuthToken(t *testing.T) (key interface{}) {
+	_, public := ensureAuthTokens(t)
+	data, err := base64.StdEncoding.DecodeString(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(t.Name(), "ECDSA") {
+		key, err = jwt.ParseECPublicKeyFromPEM(data)
+	} else if strings.Contains(t.Name(), "Ed25519") {
+		key, err = jwt.ParseEdPublicKeyFromPEM(data)
+	} else {
+		key, err = jwt.ParseRSAPublicKeyFromPEM(data)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
 func registerBackendHandler(t *testing.T, router *mux.Router) {
 	registerBackendHandlerUrl(t, router, "/")
 }
@@ -554,6 +695,27 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		}
 		if strings.Contains(t.Name(), "MultiRoom") {
 			signaling[ConfigKeySessionPingLimit] = 2
+		}
+		if strings.Contains(t.Name(), "V2") {
+			key := getPublicAuthToken(t)
+			public, err := x509.MarshalPKIXPublicKey(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var pemType string
+			if strings.Contains(t.Name(), "ECDSA") {
+				pemType = "ECDSA PUBLIC KEY"
+			} else if strings.Contains(t.Name(), "Ed25519") {
+				pemType = "Ed25519 PUBLIC KEY"
+			} else {
+				pemType = "RSA PUBLIC KEY"
+			}
+
+			public = pem.EncodeToMemory(&pem.Block{
+				Type:  pemType,
+				Bytes: public,
+			})
+			signaling[ConfigKeyHelloV2TokenKey] = string(public)
 		}
 		spreedCapa, _ := json.Marshal(map[string]interface{}{
 			"features": features,
@@ -665,7 +827,35 @@ func TestExpectClientHello(t *testing.T) {
 	}
 }
 
-func TestClientHello(t *testing.T) {
+func TestExpectClientHelloUnsupportedVersion(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	params := TestBackendClientAuthParams{
+		UserId: testDefaultUserId,
+	}
+	if err := client.SendHelloParams(server.URL, "0.0", "", params); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	message, err := client.RunUntilMessage(ctx)
+	if err := checkUnexpectedClose(err); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkMessageType(message, "error"); err != nil {
+		t.Error(err)
+	} else if message.Error.Code != "invalid_hello_version" {
+		t.Errorf("Expected \"invalid_hello_version\" reason, got %+v", message.Error)
+	}
+}
+
+func TestClientHelloV1(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -687,6 +877,179 @@ func TestClientHello(t *testing.T) {
 		if hello.Hello.SessionId == "" {
 			t.Errorf("Expected session id, got %+v", hello.Hello)
 		}
+	}
+}
+
+func TestClientHelloV2(t *testing.T) {
+	for _, algo := range testHelloV2Algorithms {
+		t.Run(algo, func(t *testing.T) {
+			hub, _, _, server := CreateHubForTest(t)
+
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+
+			if err := client.SendHelloV2(testDefaultUserId); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello, err := client.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hello.Hello.UserId != testDefaultUserId {
+				t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
+			}
+			if hello.Hello.SessionId == "" {
+				t.Errorf("Expected session id, got %+v", hello.Hello)
+			}
+
+			data := hub.decodeSessionId(hello.Hello.SessionId, publicSessionName)
+			if data == nil {
+				t.Fatalf("Could not decode session id: %s", hello.Hello.SessionId)
+			}
+
+			hub.mu.RLock()
+			session := hub.sessions[data.Sid]
+			hub.mu.RUnlock()
+			if session == nil {
+				t.Fatalf("Could not get session for id %+v", data)
+			}
+
+			var userdata map[string]string
+			if err := json.Unmarshal(*session.UserData(), &userdata); err != nil {
+				t.Fatal(err)
+			}
+
+			if expected := "Displayname " + testDefaultUserId; userdata["displayname"] != expected {
+				t.Errorf("Expected displayname %s, got %s", expected, userdata["displayname"])
+			}
+		})
+	}
+}
+
+func TestClientHelloV2_IssuedInFuture(t *testing.T) {
+	for _, algo := range testHelloV2Algorithms {
+		t.Run(algo, func(t *testing.T) {
+			hub, _, _, server := CreateHubForTest(t)
+
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+
+			issuedAt := time.Now().Add(time.Minute)
+			expiresAt := issuedAt.Add(time.Second)
+			if err := client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			message, err := client.RunUntilMessage(ctx)
+			if err := checkUnexpectedClose(err); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := checkMessageType(message, "error"); err != nil {
+				t.Error(err)
+			} else if message.Error.Code != "token_not_valid_yet" {
+				t.Errorf("Expected \"token_not_valid_yet\" reason, got %+v", message.Error)
+			}
+		})
+	}
+}
+
+func TestClientHelloV2_Expired(t *testing.T) {
+	for _, algo := range testHelloV2Algorithms {
+		t.Run(algo, func(t *testing.T) {
+			hub, _, _, server := CreateHubForTest(t)
+
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+
+			issuedAt := time.Now().Add(-time.Minute)
+			if err := client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, issuedAt.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			message, err := client.RunUntilMessage(ctx)
+			if err := checkUnexpectedClose(err); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := checkMessageType(message, "error"); err != nil {
+				t.Error(err)
+			} else if message.Error.Code != "token_expired" {
+				t.Errorf("Expected \"token_expired\" reason, got %+v", message.Error)
+			}
+		})
+	}
+}
+
+func TestClientHelloV2_IssuedAtMissing(t *testing.T) {
+	for _, algo := range testHelloV2Algorithms {
+		t.Run(algo, func(t *testing.T) {
+			hub, _, _, server := CreateHubForTest(t)
+
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+
+			var issuedAt time.Time
+			expiresAt := time.Now().Add(time.Minute)
+			if err := client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			message, err := client.RunUntilMessage(ctx)
+			if err := checkUnexpectedClose(err); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := checkMessageType(message, "error"); err != nil {
+				t.Error(err)
+			} else if message.Error.Code != "token_not_valid_yet" {
+				t.Errorf("Expected \"token_not_valid_yet\" reason, got %+v", message.Error)
+			}
+		})
+	}
+}
+
+func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
+	for _, algo := range testHelloV2Algorithms {
+		t.Run(algo, func(t *testing.T) {
+			hub, _, _, server := CreateHubForTest(t)
+
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+
+			issuedAt := time.Now().Add(-time.Minute)
+			var expiresAt time.Time
+			if err := client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			message, err := client.RunUntilMessage(ctx)
+			if err := checkUnexpectedClose(err); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := checkMessageType(message, "error"); err != nil {
+				t.Error(err)
+			} else if message.Error.Code != "token_expired" {
+				t.Errorf("Expected \"token_expired\" reason, got %+v", message.Error)
+			}
+		})
 	}
 }
 
@@ -826,7 +1189,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params1 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId,
 			}
-			if err := client.SendHelloParams(server1.URL+"/one", "client", params1); err != nil {
+			if err := client.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", params1); err != nil {
 				t.Fatal(err)
 			}
 
@@ -851,7 +1214,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params2 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId + "2",
 			}
-			if err := client2.SendHelloParams(server1.URL+"/one", "client", params2); err != nil {
+			if err := client2.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", params2); err != nil {
 				t.Fatal(err)
 			}
 
@@ -867,7 +1230,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			}
 
 			// The client can connect to a different backend.
-			if err := client2.SendHelloParams(server1.URL+"/two", "client", params2); err != nil {
+			if err := client2.SendHelloParams(server1.URL+"/two", HelloVersionV1, "client", params2); err != nil {
 				t.Fatal(err)
 			}
 
@@ -894,7 +1257,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params3 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId + "3",
 			}
-			if err := client3.SendHelloParams(server1.URL+"/one", "client", params3); err != nil {
+			if err := client3.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", params3); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1498,7 +1861,7 @@ func TestClientHelloClient_V3Api(t *testing.T) {
 	}
 	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
 	// feature is returned by the capabilities endpoint.
-	if err := client.SendHelloParams(server.URL+"/ocs/v2.php/apps/spreed/api/v1/signaling/backend", "client", params); err != nil {
+	if err := client.SendHelloParams(server.URL+"/ocs/v2.php/apps/spreed/api/v1/signaling/backend", HelloVersionV1, "client", params); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3841,7 +4204,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	if err := client1.SendHelloParams(server.URL+"/one", "client", params1); err != nil {
+	if err := client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", params1); err != nil {
 		t.Fatal(err)
 	}
 	hello1, err := client1.RunUntilHello(ctx)
@@ -3855,7 +4218,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	if err := client2.SendHelloParams(server.URL+"/two", "client", params2); err != nil {
+	if err := client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", params2); err != nil {
 		t.Fatal(err)
 	}
 	hello2, err := client2.RunUntilHello(ctx)
@@ -3911,7 +4274,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	if err := client1.SendHelloParams(server.URL+"/one", "client", params1); err != nil {
+	if err := client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", params1); err != nil {
 		t.Fatal(err)
 	}
 	hello1, err := client1.RunUntilHello(ctx)
@@ -3925,7 +4288,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	if err := client2.SendHelloParams(server.URL+"/two", "client", params2); err != nil {
+	if err := client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", params2); err != nil {
 		t.Fatal(err)
 	}
 	hello2, err := client2.RunUntilHello(ctx)

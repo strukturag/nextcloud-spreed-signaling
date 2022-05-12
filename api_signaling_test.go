@@ -90,16 +90,18 @@ func TestClientMessage(t *testing.T) {
 
 func TestHelloClientMessage(t *testing.T) {
 	internalAuthParams := []byte("{\"backend\":\"https://domain.invalid\"}")
+	tokenAuthParams := []byte("{\"token\":\"invalid-token\"}")
 	valid_messages := []testCheckValid{
+		// Hello version 1
 		&HelloClientMessage{
-			Version: HelloVersion,
+			Version: HelloVersionV1,
 			Auth: HelloClientMessageAuth{
 				Params: &json.RawMessage{'{', '}'},
 				Url:    "https://domain.invalid",
 			},
 		},
 		&HelloClientMessage{
-			Version: HelloVersion,
+			Version: HelloVersionV1,
 			Auth: HelloClientMessageAuth{
 				Type:   "client",
 				Params: &json.RawMessage{'{', '}'},
@@ -107,59 +109,114 @@ func TestHelloClientMessage(t *testing.T) {
 			},
 		},
 		&HelloClientMessage{
-			Version: HelloVersion,
+			Version: HelloVersionV1,
 			Auth: HelloClientMessageAuth{
 				Type:   "internal",
 				Params: (*json.RawMessage)(&internalAuthParams),
 			},
 		},
 		&HelloClientMessage{
-			Version:  HelloVersion,
+			Version:  HelloVersionV1,
+			ResumeId: "the-resume-id",
+		},
+		// Hello version 2
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: HelloClientMessageAuth{
+				Params: (*json.RawMessage)(&tokenAuthParams),
+				Url:    "https://domain.invalid",
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: HelloClientMessageAuth{
+				Type:   "client",
+				Params: (*json.RawMessage)(&tokenAuthParams),
+				Url:    "https://domain.invalid",
+			},
+		},
+		&HelloClientMessage{
+			Version:  HelloVersionV2,
 			ResumeId: "the-resume-id",
 		},
 	}
 	invalid_messages := []testCheckValid{
+		// Hello version 1
 		&HelloClientMessage{},
 		&HelloClientMessage{Version: "0.0"},
-		&HelloClientMessage{Version: HelloVersion},
+		&HelloClientMessage{Version: HelloVersionV1},
 		&HelloClientMessage{
-			Version: HelloVersion,
+			Version: HelloVersionV1,
 			Auth: HelloClientMessageAuth{
 				Params: &json.RawMessage{'{', '}'},
 				Type:   "invalid-type",
 			},
 		},
 		&HelloClientMessage{
-			Version: HelloVersion,
+			Version: HelloVersionV1,
 			Auth: HelloClientMessageAuth{
 				Url: "https://domain.invalid",
 			},
 		},
 		&HelloClientMessage{
-			Version: HelloVersion,
+			Version: HelloVersionV1,
 			Auth: HelloClientMessageAuth{
 				Params: &json.RawMessage{'{', '}'},
 			},
 		},
 		&HelloClientMessage{
-			Version: HelloVersion,
+			Version: HelloVersionV1,
 			Auth: HelloClientMessageAuth{
 				Params: &json.RawMessage{'{', '}'},
 				Url:    "invalid-url",
 			},
 		},
 		&HelloClientMessage{
-			Version: HelloVersion,
+			Version: HelloVersionV1,
 			Auth: HelloClientMessageAuth{
 				Type:   "internal",
 				Params: &json.RawMessage{'{', '}'},
 			},
 		},
 		&HelloClientMessage{
-			Version: HelloVersion,
+			Version: HelloVersionV1,
 			Auth: HelloClientMessageAuth{
 				Type:   "internal",
 				Params: &json.RawMessage{'x', 'y', 'z'}, // Invalid JSON.
+			},
+		},
+		// Hello version 2
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: HelloClientMessageAuth{
+				Url: "https://domain.invalid",
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: HelloClientMessageAuth{
+				Params: (*json.RawMessage)(&tokenAuthParams),
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: HelloClientMessageAuth{
+				Params: (*json.RawMessage)(&tokenAuthParams),
+				Url:    "invalid-url",
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: HelloClientMessageAuth{
+				Params: (*json.RawMessage)(&internalAuthParams),
+				Url:    "https://domain.invalid",
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: HelloClientMessageAuth{
+				Params: &json.RawMessage{'x', 'y', 'z'}, // Invalid JSON.
+				Url:    "https://domain.invalid",
 			},
 		},
 	}

@@ -29,11 +29,6 @@ import (
 	"time"
 )
 
-const (
-	ConfigGroupSignaling      = "signaling"
-	ConfigKeySessionPingLimit = "session-ping-limit"
-)
-
 type pingEntries struct {
 	url *url.URL
 
