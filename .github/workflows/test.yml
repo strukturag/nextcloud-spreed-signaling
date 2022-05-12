@@ -4,12 +4,14 @@ on:
   push:
     branches: [ master ]
     paths:
+      - '.github/workflows/test.yml'
       - '**.go'
       - 'go.*'
       - 'Makefile'
   pull_request:
     branches: [ master ]
     paths:
+      - '.github/workflows/test.yml'
       - '**.go'
       - 'go.*'
       - 'Makefile'

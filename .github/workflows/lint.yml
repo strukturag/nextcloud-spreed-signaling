@@ -4,11 +4,13 @@ on:
   push:
     branches: [ master ]
     paths:
+      - '.github/workflows/lint.yml'
       - '**.go'
       - 'go.*'
   pull_request:
     branches: [ master ]
     paths:
+      - '.github/workflows/lint.yml'
       - '**.go'
       - 'go.*'
 
