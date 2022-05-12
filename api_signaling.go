@@ -431,6 +431,7 @@ const (
 	ServerFeatureTransientData         = "transient-data"
 	ServerFeatureInCallAll             = "incall-all"
 	ServerFeatureWelcome               = "welcome"
+	ServerFeatureHelloV2               = "hello-v2"
 
 	// Features for internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -442,12 +443,14 @@ var (
 		ServerFeatureTransientData,
 		ServerFeatureInCallAll,
 		ServerFeatureWelcome,
+		ServerFeatureHelloV2,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
 		ServerFeatureTransientData,
 		ServerFeatureInCallAll,
 		ServerFeatureWelcome,
+		ServerFeatureHelloV2,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -455,6 +458,7 @@ var (
 		ServerFeatureTransientData,
 		ServerFeatureInCallAll,
 		ServerFeatureWelcome,
+		ServerFeatureHelloV2,
 	}
 )
 
