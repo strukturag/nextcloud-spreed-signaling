@@ -23,38 +23,52 @@ package signaling
 
 import (
 	"context"
-	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
 
 func TestHttpClientPool(t *testing.T) {
-	transport := &http.Transport{}
-	if _, err := NewHttpClientPool(func() *http.Client {
-		return &http.Client{
-			Transport: transport,
-		}
-	}, 0); err == nil {
+	if _, err := NewHttpClientPool(0, false); err == nil {
 		t.Error("should not be possible to create empty pool")
 	}
 
-	pool, err := NewHttpClientPool(func() *http.Client {
-		return &http.Client{
-			Transport: transport,
-		}
-	}, 1)
+	pool, err := NewHttpClientPool(1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := url.Parse("http://localhost/foo/bar")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	ctx := context.Background()
-	if _, err := pool.Get(ctx); err != nil {
+	if _, _, err := pool.Get(ctx, u); err != nil {
 		t.Fatal(err)
 	}
 
 	ctx2, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
 	defer cancel()
-	if _, err := pool.Get(ctx2); err == nil {
+	if _, _, err := pool.Get(ctx2, u); err == nil {
+		t.Error("fetching from empty pool should have timed out")
+	} else if err != context.DeadlineExceeded {
+		t.Errorf("fetching from empty pool should have timed out, got %s", err)
+	}
+
+	// Pools are separated by hostname, so can get client for different host.
+	u2, err := url.Parse("http://local.host/foo/bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := pool.Get(ctx, u2); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx3, cancel2 := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel2()
+	if _, _, err := pool.Get(ctx3, u2); err == nil {
 		t.Error("fetching from empty pool should have timed out")
 	} else if err != context.DeadlineExceeded {
 		t.Errorf("fetching from empty pool should have timed out, got %s", err)
