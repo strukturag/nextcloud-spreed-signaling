@@ -64,12 +64,13 @@ jobs:
     - name: Generate coverage report
       run: |
         make cover || make cover
+        echo "GOROOT=$(go env GOROOT)" >> $GITHUB_ENV
 
     - name: Convert coverage to lcov
       uses: jandelgado/gcov2lcov-action@v1.0.8
       with:
-          infile: cover.out
-          outfile: cover.lcov
+        infile: cover.out
+        outfile: cover.lcov
 
     - name: Coveralls Parallel
       uses: coverallsapp/github-action@1.1.3
