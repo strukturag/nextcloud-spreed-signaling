@@ -28,7 +28,7 @@ import (
 type BuiltinRoomSessions struct {
 	sessionIdToRoomSession map[string]string
 	roomSessionToSessionid map[string]string
-	mu                     sync.Mutex
+	mu                     sync.RWMutex
 }
 
 func NewBuiltinRoomSessions() (RoomSessions, error) {
@@ -44,9 +44,10 @@ func (r *BuiltinRoomSessions) SetRoomSession(session Session, roomSessionId stri
 		return nil
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if sid := session.PublicId(); sid != "" {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+
 		r.sessionIdToRoomSession[sid] = roomSessionId
 		r.roomSessionToSessionid[roomSessionId] = sid
 	}
@@ -54,9 +55,10 @@ func (r *BuiltinRoomSessions) SetRoomSession(session Session, roomSessionId stri
 }
 
 func (r *BuiltinRoomSessions) DeleteRoomSession(session Session) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if sid := session.PublicId(); sid != "" {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+
 		if roomSessionId, found := r.sessionIdToRoomSession[sid]; found {
 			delete(r.sessionIdToRoomSession, sid)
 			if r.roomSessionToSessionid[roomSessionId] == sid {
@@ -67,8 +69,8 @@ func (r *BuiltinRoomSessions) DeleteRoomSession(session Session) {
 }
 
 func (r *BuiltinRoomSessions) GetSessionId(roomSessionId string) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	sid, found := r.roomSessionToSessionid[roomSessionId]
 	if !found {
 		return "", ErrNoSuchRoomSession
