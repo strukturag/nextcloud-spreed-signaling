@@ -210,3 +210,81 @@ func (c *Capabilities) HasCapabilityFeature(ctx context.Context, u *url.URL, fea
 	}
 	return false
 }
+
+func (c *Capabilities) getConfigGroup(ctx context.Context, u *url.URL, group string) (map[string]interface{}, bool) {
+	caps, err := c.loadCapabilities(ctx, u)
+	if err != nil {
+		log.Printf("Could not get capabilities for %s: %s", u, err)
+		return nil, false
+	}
+
+	configInterface := caps["config"]
+	if configInterface == nil {
+		return nil, false
+	}
+
+	config, ok := configInterface.(map[string]interface{})
+	if !ok {
+		log.Printf("Invalid config mapping received from %s: %+v", u, configInterface)
+		return nil, false
+	}
+
+	groupInterface := config[group]
+	if groupInterface == nil {
+		return nil, false
+	}
+
+	groupConfig, ok := groupInterface.(map[string]interface{})
+	if !ok {
+		log.Printf("Invalid group mapping \"%s\" received from %s: %+v", group, u, groupInterface)
+		return nil, false
+	}
+
+	return groupConfig, true
+}
+
+func (c *Capabilities) GetIntegerConfig(ctx context.Context, u *url.URL, group, key string) (int, bool) {
+	groupConfig, found := c.getConfigGroup(ctx, u, group)
+	if !found {
+		return 0, false
+	}
+
+	value, found := groupConfig[key]
+	if !found {
+		return 0, false
+	}
+
+	switch value := value.(type) {
+	case int:
+		return value, true
+	case float32:
+		return int(value), true
+	case float64:
+		return int(value), true
+	default:
+		log.Printf("Invalid config value for \"%s\" received from %s: %+v", key, u, value)
+	}
+
+	return 0, false
+}
+
+func (c *Capabilities) GetStringConfig(ctx context.Context, u *url.URL, group, key string) (string, bool) {
+	groupConfig, found := c.getConfigGroup(ctx, u, group)
+	if !found {
+		return "", false
+	}
+
+	value, found := groupConfig[key]
+	if !found {
+		return "", false
+	}
+
+	switch value := value.(type) {
+	case string:
+		return value, true
+	default:
+		log.Printf("Invalid config value for \"%s\" received from %s: %+v", key, u, value)
+	}
+
+	return "", false
+}
