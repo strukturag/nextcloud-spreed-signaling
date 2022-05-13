@@ -44,7 +44,7 @@ import (
 )
 
 const (
-	maxBodySize = 64 * 1024
+	maxBodySize = 256 * 1024
 
 	randomUsernameLength = 32
 
