@@ -1,0 +1,26 @@
+name: Coturn Docker image
+
+on:
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/docker-coturn.yml'
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/docker-coturn.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v3
+        with:
+          context: docker/coturn
