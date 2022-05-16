@@ -5,10 +5,12 @@ on:
     branches: [ master ]
     paths:
       - '.github/workflows/docker-janus.yml'
+      - 'docker/janus/Dockerfile'
   push:
     branches: [ master ]
     paths:
       - '.github/workflows/docker-janus.yml'
+      - 'docker/janus/Dockerfile'
 
 jobs:
   build:

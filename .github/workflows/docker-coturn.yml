@@ -5,10 +5,12 @@ on:
     branches: [ master ]
     paths:
       - '.github/workflows/docker-coturn.yml'
+      - 'docker/coturn/Dockerfile'
   push:
     branches: [ master ]
     paths:
       - '.github/workflows/docker-coturn.yml'
+      - 'docker/coturn/Dockerfile'
 
 jobs:
   build:
