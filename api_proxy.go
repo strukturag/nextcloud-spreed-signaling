@@ -22,12 +22,16 @@
 package signaling
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/golang-jwt/jwt"
 )
 
 type ProxyClientMessage struct {
+	json.Marshaler
+	json.Unmarshaler
+
 	// The unique request id (optional).
 	Id string `json:"id,omitempty"`
 
@@ -91,6 +95,9 @@ func (m *ProxyClientMessage) NewWrappedErrorServerMessage(e error) *ProxyServerM
 
 // ProxyServerMessage is a message that is sent from the server to a client.
 type ProxyServerMessage struct {
+	json.Marshaler
+	json.Unmarshaler
+
 	Id string `json:"id,omitempty"`
 
 	Type string `json:"type"`

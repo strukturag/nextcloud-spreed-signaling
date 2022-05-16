@@ -149,6 +149,9 @@ type BackendClientAuthRequest struct {
 }
 
 type BackendClientRequest struct {
+	json.Marshaler
+	json.Unmarshaler
+
 	Type string `json:"type"`
 
 	Auth *BackendClientAuthRequest `json:"auth,omitempty"`
@@ -171,6 +174,9 @@ func NewBackendClientAuthRequest(params *json.RawMessage) *BackendClientRequest 
 }
 
 type BackendClientResponse struct {
+	json.Marshaler
+	json.Unmarshaler
+
 	Type string `json:"type"`
 
 	Error *Error `json:"error,omitempty"`
@@ -302,6 +308,9 @@ type OcsBody struct {
 }
 
 type OcsResponse struct {
+	json.Marshaler
+	json.Unmarshaler
+
 	Ocs *OcsBody `json:"ocs"`
 }
 

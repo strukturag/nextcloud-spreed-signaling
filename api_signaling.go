@@ -35,6 +35,9 @@ const (
 
 // ClientMessage is a message that is sent from a client to the server.
 type ClientMessage struct {
+	json.Marshaler
+	json.Unmarshaler
+
 	// The unique request id (optional).
 	Id string `json:"id,omitempty"`
 
@@ -129,6 +132,9 @@ func (m *ClientMessage) NewWrappedErrorServerMessage(e error) *ServerMessage {
 
 // ServerMessage is a message that is sent from the server to a client.
 type ServerMessage struct {
+	json.Marshaler
+	json.Unmarshaler
+
 	Id string `json:"id,omitempty"`
 
 	Type string `json:"type"`
