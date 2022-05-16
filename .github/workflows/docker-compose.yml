@@ -1,0 +1,32 @@
+name: docker-compose
+
+on:
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/docker-compose.yml'
+      - 'docker-compose.yml'
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/docker-compose.yml'
+      - 'docker-compose.yml'
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Pull Docker images
+        run: docker-compose pull
+
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build Docker images
+        run: docker-compose build

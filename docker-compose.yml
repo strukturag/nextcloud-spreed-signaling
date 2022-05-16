@@ -24,9 +24,25 @@ services:
     network_mode: host
     restart: unless-stopped
   coturn:
-    build: docker/coturn
+    image: coturn/coturn:latest
     network_mode: host
-    environment:
-      REALM: nextcloud.domain.invalid
-      STATIC_SECRET: static_secret_same_in_server_conf
+    #
+    # Update command parameters as necessary.
+    #
+    # See https://github.com/coturn/coturn/blob/master/README.turnserver for
+    # available options.
+    command:
+      - "--realm"
+      - "nextcloud.domain.invalid"
+      - "--static-auth-secret"
+      - "static_secret_same_in_server_conf"
+      - "--no-stdout-log"
+      - "--log-file"
+      - "stdout"
+      - "--stale-nonce=600"
+      - "--use-auth-secret"
+      - "--lt-cred-mech"
+      - "--fingerprint"
+      - "--no-software-attribute"
+      - "--no-multicast-peers"
     restart: unless-stopped
