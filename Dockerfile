@@ -5,7 +5,7 @@ WORKDIR /workdir
 COPY . .
 RUN make build
 
-FROM alpine:3.13
+FROM alpine:3.15
 
 ENV CONFIG=/config/server.conf
 RUN adduser -D spreedbackend && \
