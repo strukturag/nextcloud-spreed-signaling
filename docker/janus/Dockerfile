@@ -6,8 +6,8 @@ RUN apk add --no-cache curl autoconf automake libtool pkgconf build-base \
   gengetopt libwebsockets-dev git curl-dev libogg-dev
 
 # usrsctp
-# 29 Mar 2021
-ARG USRSCTP_VERSION=70d42ae95a1de83bd317c8cc9503f894671d1392
+# 08 Oct 2021
+ARG USRSCTP_VERSION=7c31bd35c79ba67084ce029511193a19ceb97447
 
 RUN cd /tmp && \
     git clone https://github.com/sctplab/usrsctp && \
