@@ -829,9 +829,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 			ctx, cancel := context.WithTimeout(context.Background(), r.hub.backendTimeout)
 			defer cancel()
 
-			request := NewBackendClientPingRequest(r.id, entries)
-			var response BackendClientResponse
-			if err := r.hub.backend.PerformJSONRequest(ctx, url, request, &response); err != nil {
+			if err := r.hub.roomPing.SendPings(ctx, r, url, entries); err != nil {
 				log.Printf("Error pinging room %s for active entries %+v: %s", r.id, entries, err)
 			}
 		}(urls[u], e)

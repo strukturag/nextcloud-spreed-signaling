@@ -323,6 +323,32 @@ func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request,
 	return response
 }
 
+var pingRequests map[*testing.T][]*BackendClientRequest
+
+func getPingRequests(t *testing.T) []*BackendClientRequest {
+	return pingRequests[t]
+}
+
+func clearPingRequests(t *testing.T) {
+	delete(pingRequests, t)
+}
+
+func storePingRequest(t *testing.T, request *BackendClientRequest) {
+	if entries, found := pingRequests[t]; !found {
+		if pingRequests == nil {
+			pingRequests = make(map[*testing.T][]*BackendClientRequest)
+		}
+		pingRequests[t] = []*BackendClientRequest{
+			request,
+		}
+		t.Cleanup(func() {
+			clearPingRequests(t)
+		})
+	} else {
+		pingRequests[t] = append(entries, request)
+	}
+}
+
 func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
 	if request.Type != "ping" || request.Ping == nil {
 		t.Fatalf("Expected an ping backend request, got %+v", request)
@@ -337,6 +363,8 @@ func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 			}
 		}
 	}
+
+	storePingRequest(t, request)
 
 	response := &BackendClientResponse{
 		Type: "ping",
@@ -382,6 +410,16 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if strings.Contains(t.Name(), "V3Api") {
 			features = append(features, "signaling-v3")
 		}
+		signaling := map[string]interface{}{
+			"foo": "bar",
+			"baz": 42,
+		}
+		config := map[string]interface{}{
+			"signaling": signaling,
+		}
+		if strings.Contains(t.Name(), "MultiRoom") {
+			signaling[ConfigKeySessionPingLimit] = 2
+		}
 		response := &CapabilitiesResponse{
 			Version: CapabilitiesVersion{
 				Major: 20,
@@ -389,6 +427,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			Capabilities: map[string]map[string]interface{}{
 				"spreed": {
 					"features": features,
+					"config":   config,
 				},
 			},
 		}
