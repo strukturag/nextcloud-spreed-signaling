@@ -2,6 +2,139 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.5.0 - 2022-06-02
+
+### Added
+- Add API documentation (previously in https://github.com/nextcloud/spreed)
+  [#194](https://github.com/strukturag/nextcloud-spreed-signaling/pull/194)
+- CI: Enable gofmt linter.
+  [#196](https://github.com/strukturag/nextcloud-spreed-signaling/pull/196)
+- CI: Enable revive linter.
+  [#197](https://github.com/strukturag/nextcloud-spreed-signaling/pull/197)
+- Add API for transient room data.
+  [#193](https://github.com/strukturag/nextcloud-spreed-signaling/pull/193)
+- Send updated offers to subscribers after publisher renegotiations.
+  [#195](https://github.com/strukturag/nextcloud-spreed-signaling/pull/195)
+- Add documentation on the available metrics.
+  [#210](https://github.com/strukturag/nextcloud-spreed-signaling/pull/210)
+- Add special events to update "incall" flags of all sessions.
+  [#208](https://github.com/strukturag/nextcloud-spreed-signaling/pull/208)
+- CI: Also test with Golang 1.18.
+  [#209](https://github.com/strukturag/nextcloud-spreed-signaling/pull/209)
+- Support DNS discovery for proxy server URLs.
+  [#214](https://github.com/strukturag/nextcloud-spreed-signaling/pull/214)
+- CI: Build docker image.
+  [#238](https://github.com/strukturag/nextcloud-spreed-signaling/pull/238)
+- Add specific id for connections and replace "update" parameter with it.
+  [#229](https://github.com/strukturag/nextcloud-spreed-signaling/pull/229)
+- Add "permission" for sessions that may not receive display names.
+  [#227](https://github.com/strukturag/nextcloud-spreed-signaling/pull/227)
+- Add support for request offers to update subscriber connections.
+  [#191](https://github.com/strukturag/nextcloud-spreed-signaling/pull/191)
+- Support toggling audio/video in subscribed streams.
+  [#239](https://github.com/strukturag/nextcloud-spreed-signaling/pull/239)
+- CI: Test building coturn/janus Docker images.
+  [#258](https://github.com/strukturag/nextcloud-spreed-signaling/pull/258)
+- Add command bot for "/rebase".
+  [#260](https://github.com/strukturag/nextcloud-spreed-signaling/pull/260)
+- Add Go Report card.
+  [#262](https://github.com/strukturag/nextcloud-spreed-signaling/pull/262)
+- Combine ping requests of different rooms on the same backend.
+  [#250](https://github.com/strukturag/nextcloud-spreed-signaling/pull/250)
+
+### Changed
+- Bump github.com/gorilla/websocket from 1.4.2 to 1.5.0
+  [#198](https://github.com/strukturag/nextcloud-spreed-signaling/pull/198)
+- Bump golangci/golangci-lint-action from 2.5.2 to 3.1.0
+  [#202](https://github.com/strukturag/nextcloud-spreed-signaling/pull/202)
+- Bump actions/checkout from 2.4.0 to 3
+  [#205](https://github.com/strukturag/nextcloud-spreed-signaling/pull/205)
+- Bump actions/cache from 2.1.7 to 3
+  [#211](https://github.com/strukturag/nextcloud-spreed-signaling/pull/211)
+- Return dedicated error if proxy receives token that is not valid yet.
+  [#212](https://github.com/strukturag/nextcloud-spreed-signaling/pull/212)
+- CI: Only run workflows if relevant files have changed.
+  [#218](https://github.com/strukturag/nextcloud-spreed-signaling/pull/218)
+- Bump sphinx from 4.2.0 to 4.5.0 in /docs
+  [#216](https://github.com/strukturag/nextcloud-spreed-signaling/pull/216)
+- Bump github.com/oschwald/maxminddb-golang from 1.8.0 to 1.9.0
+  [#213](https://github.com/strukturag/nextcloud-spreed-signaling/pull/213)
+- Only support last two versions of Golang (1.17 / 1.18).
+  [#219](https://github.com/strukturag/nextcloud-spreed-signaling/pull/219)
+- Bump github.com/golang-jwt/jwt from 3.2.1+incompatible to 3.2.2+incompatible
+  [#161](https://github.com/strukturag/nextcloud-spreed-signaling/pull/161)
+- Bump github.com/nats-io/nats-server/v2 from 2.2.6 to 2.7.4
+  [#207](https://github.com/strukturag/nextcloud-spreed-signaling/pull/207)
+- Update etcd to v3.5.1
+  [#179](https://github.com/strukturag/nextcloud-spreed-signaling/pull/179)
+- Bump github.com/prometheus/client_golang from 1.11.0 to 1.12.1
+  [#190](https://github.com/strukturag/nextcloud-spreed-signaling/pull/190)
+- Bump go.etcd.io/etcd/client/v3 from 3.5.1 to 3.5.2
+  [#222](https://github.com/strukturag/nextcloud-spreed-signaling/pull/222)
+- Use features from newer Golang versions.
+  [#220](https://github.com/strukturag/nextcloud-spreed-signaling/pull/220)
+- Bump actions/setup-go from 2 to 3
+  [#226](https://github.com/strukturag/nextcloud-spreed-signaling/pull/226)
+- Send directly to local session with disconnected client.
+  [#228](https://github.com/strukturag/nextcloud-spreed-signaling/pull/228)
+- Bump github.com/nats-io/nats-server/v2 from 2.7.4 to 2.8.1
+  [#234](https://github.com/strukturag/nextcloud-spreed-signaling/pull/234)
+- Bump go.etcd.io/etcd/client/pkg/v3 from 3.5.2 to 3.5.4
+  [#235](https://github.com/strukturag/nextcloud-spreed-signaling/pull/235)
+- Bump github/codeql-action from 1 to 2
+  [#237](https://github.com/strukturag/nextcloud-spreed-signaling/pull/237)
+- Bump go.etcd.io/etcd/client/v3 from 3.5.2 to 3.5.4
+  [#236](https://github.com/strukturag/nextcloud-spreed-signaling/pull/236)
+- Bump github.com/nats-io/nats-server/v2 from 2.8.1 to 2.8.2
+  [#242](https://github.com/strukturag/nextcloud-spreed-signaling/pull/242)
+- Bump docker/setup-buildx-action from 1 to 2
+  [#245](https://github.com/strukturag/nextcloud-spreed-signaling/pull/245)
+- Bump docker/build-push-action from 2 to 3
+  [#244](https://github.com/strukturag/nextcloud-spreed-signaling/pull/244)
+- Bump github.com/nats-io/nats.go from 1.14.0 to 1.15.0
+  [#243](https://github.com/strukturag/nextcloud-spreed-signaling/pull/243)
+- Bump readthedocs-sphinx-search from 0.1.1 to 0.1.2 in /docs
+  [#248](https://github.com/strukturag/nextcloud-spreed-signaling/pull/248)
+- CI: Run when workflow yaml file has changed.
+  [#249](https://github.com/strukturag/nextcloud-spreed-signaling/pull/249)
+- Bump golangci/golangci-lint-action from 3.1.0 to 3.2.0
+  [#247](https://github.com/strukturag/nextcloud-spreed-signaling/pull/247)
+- Move capabilities handling to own file and refactor http client pool.
+  [#252](https://github.com/strukturag/nextcloud-spreed-signaling/pull/252)
+- Increase allowed body size for backend requests.
+  [#255](https://github.com/strukturag/nextcloud-spreed-signaling/pull/255)
+- Improve test coverage.
+  [#253](https://github.com/strukturag/nextcloud-spreed-signaling/pull/253)
+- Switch to official Coturn docker image.
+  [#259](https://github.com/strukturag/nextcloud-spreed-signaling/pull/259)
+- Bump github.com/prometheus/client_golang from 1.12.1 to 1.12.2
+  [#256](https://github.com/strukturag/nextcloud-spreed-signaling/pull/256)
+- Update Dockerfile versions.
+  [#257](https://github.com/strukturag/nextcloud-spreed-signaling/pull/257)
+- Update Alpine to 3.15 version, fix CVE-2022-28391
+  [#261](https://github.com/strukturag/nextcloud-spreed-signaling/pull/261)
+- Bump cirrus-actions/rebase from 1.6 to 1.7
+  [#263](https://github.com/strukturag/nextcloud-spreed-signaling/pull/263)
+- Bump github.com/nats-io/nats.go from 1.15.0 to 1.16.0
+  [#267](https://github.com/strukturag/nextcloud-spreed-signaling/pull/267)
+- Bump jandelgado/gcov2lcov-action from 1.0.8 to 1.0.9
+  [#264](https://github.com/strukturag/nextcloud-spreed-signaling/pull/264)
+- Bump github.com/nats-io/nats-server/v2 from 2.8.2 to 2.8.4
+  [#266](https://github.com/strukturag/nextcloud-spreed-signaling/pull/266)
+- Bump sphinx from 4.5.0 to 5.0.0 in /docs
+  [#268](https://github.com/strukturag/nextcloud-spreed-signaling/pull/268)
+
+### Fixed
+- CI: Fix linter errors.
+  [#206](https://github.com/strukturag/nextcloud-spreed-signaling/pull/206)
+- CI: Pin dependencies to fix readthedocs build.
+  [#215](https://github.com/strukturag/nextcloud-spreed-signaling/pull/215)
+- Fix mediaType not updated after publisher renegotiations.
+  [#221](https://github.com/strukturag/nextcloud-spreed-signaling/pull/221)
+- Fix "signaling_server_messages_total" stat not being incremented.
+  [#190](https://github.com/strukturag/nextcloud-spreed-signaling/pull/190)
+
+
 ## 0.4.1 - 2022-01-25
 
 ### Added
