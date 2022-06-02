@@ -100,7 +100,6 @@ common: \
 	api_proxy_easyjson.go \
 	natsclient_easyjson.go \
 	room_easyjson.go
-	$(GO) mod tidy
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
