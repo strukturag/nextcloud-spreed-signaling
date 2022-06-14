@@ -27,7 +27,6 @@ import (
 	"log"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -168,28 +167,6 @@ func (c *LoopbackNatsClient) Publish(subject string, message interface{}) error 
 	c.incoming.PushBack(msg)
 	c.wakeup.Signal()
 	return nil
-}
-
-func (c *LoopbackNatsClient) PublishNats(subject string, message *NatsMessage) error {
-	return c.Publish(subject, message)
-}
-
-func (c *LoopbackNatsClient) PublishMessage(subject string, message *ServerMessage) error {
-	msg := &NatsMessage{
-		SendTime: time.Now(),
-		Type:     "message",
-		Message:  message,
-	}
-	return c.PublishNats(subject, msg)
-}
-
-func (c *LoopbackNatsClient) PublishBackendServerRoomRequest(subject string, message *BackendServerRoomRequest) error {
-	msg := &NatsMessage{
-		SendTime: time.Now(),
-		Type:     "room",
-		Room:     message,
-	}
-	return c.PublishNats(subject, msg)
 }
 
 func (c *LoopbackNatsClient) Decode(msg *nats.Msg, v interface{}) error {

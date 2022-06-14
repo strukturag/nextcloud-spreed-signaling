@@ -32,7 +32,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -56,7 +55,7 @@ func init() {
 type Room struct {
 	id      string
 	hub     *Hub
-	nats    NatsClient
+	events  AsyncEvents
 	backend *Backend
 
 	properties *json.RawMessage
@@ -72,32 +71,13 @@ type Room struct {
 
 	statsRoomSessionsCurrent *prometheus.GaugeVec
 
-	natsReceiver        chan *nats.Msg
-	backendSubscription NatsSubscription
-
 	// Users currently in the room
 	users []map[string]interface{}
 
-	// Timestamps of last NATS backend requests for the different types.
-	lastNatsRoomRequests map[string]int64
+	// Timestamps of last backend requests for the different types.
+	lastRoomRequests map[string]int64
 
 	transientData *TransientData
-}
-
-func GetSubjectForRoomId(roomId string, backend *Backend) string {
-	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("room", roomId)
-	}
-
-	return GetEncodedSubject("room", roomId+"|"+backend.Id())
-}
-
-func GetSubjectForBackendRoomId(roomId string, backend *Backend) string {
-	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("backend.room", roomId)
-	}
-
-	return GetEncodedSubject("backend.room", roomId+"|"+backend.Id())
 }
 
 func getRoomIdForBackend(id string, backend *Backend) string {
@@ -108,18 +88,11 @@ func getRoomIdForBackend(id string, backend *Backend) string {
 	return backend.Id() + "|" + id
 }
 
-func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient, backend *Backend) (*Room, error) {
-	natsReceiver := make(chan *nats.Msg, 64)
-	backendSubscription, err := n.Subscribe(GetSubjectForBackendRoomId(roomId, backend), natsReceiver)
-	if err != nil {
-		close(natsReceiver)
-		return nil, err
-	}
-
+func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, events AsyncEvents, backend *Backend) (*Room, error) {
 	room := &Room{
 		id:      roomId,
 		hub:     hub,
-		nats:    n,
+		events:  events,
 		backend: backend,
 
 		properties: properties,
@@ -138,13 +111,15 @@ func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient,
 			"room":    roomId,
 		}),
 
-		natsReceiver:        natsReceiver,
-		backendSubscription: backendSubscription,
-
-		lastNatsRoomRequests: make(map[string]int64),
+		lastRoomRequests: make(map[string]int64),
 
 		transientData: NewTransientData(),
 	}
+
+	if err := events.RegisterBackendRoomListener(roomId, backend, room); err != nil {
+		return nil, err
+	}
+
 	go room.run()
 
 	return room, nil
@@ -193,10 +168,6 @@ loop:
 		select {
 		case <-r.closeChan:
 			break loop
-		case msg := <-r.natsReceiver:
-			if msg != nil {
-				r.processNatsMessage(msg)
-			}
 		case <-ticker.C:
 			r.publishActiveSessions()
 		}
@@ -211,16 +182,7 @@ func (r *Room) doClose() {
 }
 
 func (r *Room) unsubscribeBackend() {
-	if r.backendSubscription == nil {
-		return
-	}
-
-	go func(subscription NatsSubscription) {
-		if err := subscription.Unsubscribe(); err != nil {
-			log.Printf("Error closing backend subscription for room %s: %s", r.Id(), err)
-		}
-	}(r.backendSubscription)
-	r.backendSubscription = nil
+	r.events.UnregisterBackendRoomListener(r.id, r.backend, r)
 }
 
 func (r *Room) Close() []Session {
@@ -240,33 +202,18 @@ func (r *Room) Close() []Session {
 	return result
 }
 
-func (r *Room) processNatsMessage(message *nats.Msg) {
-	var msg NatsMessage
-	if err := r.nats.Decode(message, &msg); err != nil {
-		log.Printf("Could not decode nats message %+v, %s", message, err)
-		return
-	}
-
-	switch msg.Type {
-	case "room":
-		r.processBackendRoomRequest(msg.Room)
-	default:
-		log.Printf("Unsupported NATS room request with type %s: %+v", msg.Type, msg)
-	}
-}
-
-func (r *Room) processBackendRoomRequest(message *BackendServerRoomRequest) {
+func (r *Room) ProcessBackendRoomRequest(message *BackendServerRoomRequest) {
 	received := message.ReceivedTime
-	if last, found := r.lastNatsRoomRequests[message.Type]; found && last > received {
+	if last, found := r.lastRoomRequests[message.Type]; found && last > received {
 		if msg, err := json.Marshal(message); err == nil {
-			log.Printf("Ignore old NATS backend room request for %s: %s", r.Id(), string(msg))
+			log.Printf("Ignore old backend room request for %s: %s", r.Id(), string(msg))
 		} else {
-			log.Printf("Ignore old NATS backend room request for %s: %+v", r.Id(), message)
+			log.Printf("Ignore old backend room request for %s: %+v", r.Id(), message)
 		}
 		return
 	}
 
-	r.lastNatsRoomRequests[message.Type] = received
+	r.lastRoomRequests[message.Type] = received
 	message.room = r
 	switch message.Type {
 	case "update":
@@ -281,7 +228,7 @@ func (r *Room) processBackendRoomRequest(message *BackendServerRoomRequest) {
 	case "message":
 		r.publishRoomMessage(message.Message)
 	default:
-		log.Printf("Unsupported NATS backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
+		log.Printf("Unsupported backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
 }
 
@@ -394,7 +341,10 @@ func (r *Room) RemoveSession(session Session) bool {
 }
 
 func (r *Room) publish(message *ServerMessage) error {
-	return r.nats.PublishMessage(GetSubjectForRoomId(r.id, r.backend), message)
+	return r.events.PublishRoomMessage(r.id, r.backend, &AsyncMessage{
+		Type:    "message",
+		Message: message,
+	})
 }
 
 func (r *Room) UpdateProperties(properties *json.RawMessage) {

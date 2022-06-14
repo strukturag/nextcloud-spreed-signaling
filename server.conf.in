@@ -109,7 +109,7 @@ connectionsperhost = 8
 
 [nats]
 # Url of NATS backend to use. This can also be a list of URLs to connect to
-# multiple backends. For local development, this can be set to ":loopback:"
+# multiple backends. For local development, this can be set to "nats://loopback"
 # to process NATS messages internally instead of sending them through an
 # external NATS backend.
 #url = nats://localhost:4222

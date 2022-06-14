@@ -97,20 +97,21 @@ func getTestConfigWithMultipleBackends(server *httptest.Server) (*goconf.ConfigF
 	return config, nil
 }
 
-func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, NatsClient, *mux.Router, *httptest.Server) {
+func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
 	server := httptest.NewServer(r)
-	nats, err := NewLoopbackNatsClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() {
+		server.Close()
+	})
+
+	events := getAsyncEventsForTest(t)
 	config, err := getConfigFunc(server)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := NewHub(config, nats, r, "no-version")
+	h, err := NewHub(config, events, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,23 +130,20 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 		defer cancel()
 
 		WaitForHub(ctx, t, h)
-		(nats).(*LoopbackNatsClient).waitForSubscriptionsEmpty(ctx, t)
-		nats.Close()
-		server.Close()
 	})
 
-	return h, nats, r, server
+	return h, events, r, server
 }
 
-func CreateHubForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Server) {
+func CreateHubForTest(t *testing.T) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
 	return CreateHubForTestWithConfig(t, getTestConfig)
 }
 
-func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, NatsClient, *mux.Router, *httptest.Server) {
-	h, nats, r, server := CreateHubForTestWithConfig(t, getTestConfigWithMultipleBackends)
+func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
+	h, events, r, server := CreateHubForTestWithConfig(t, getTestConfigWithMultipleBackends)
 	registerBackendHandlerUrl(t, r, "/one")
 	registerBackendHandlerUrl(t, r, "/two")
-	return h, nats, r, server
+	return h, events, r, server
 }
 
 func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
@@ -178,7 +176,6 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 			time.Sleep(time.Millisecond)
 		}
 	}
-
 }
 
 func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Request, *BackendClientRequest) *BackendClientResponse) func(http.ResponseWriter, *http.Request) {
@@ -1531,7 +1528,7 @@ func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
 
 func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, hello1 *ServerMessage, client2 *TestClient, hello2 *ServerMessage) {
 	// We will receive "joined" events for all clients. The ordering is not
-	// defined as messages are processed and sent by asynchronous NATS handlers.
+	// defined as messages are processed and sent by asynchronous event handlers.
 	msg1_1, err := client1.RunUntilMessage(ctx)
 	if err != nil {
 		t.Error(err)
@@ -2244,7 +2241,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 
 	room.PublishUsersInCallChanged(users, users)
 
-	// Give NATS message some time to be processed.
+	// Give asynchronous events some time to be processed.
 	time.Sleep(100 * time.Millisecond)
 
 	recipient2 := MessageClientMessageRecipient{
@@ -2305,6 +2302,14 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 }
 
 func TestClientTakeoverRoomSession(t *testing.T) {
+	for _, backend := range eventBackendsForTest {
+		t.Run(backend, func(t *testing.T) {
+			RunTestClientTakeoverRoomSession(t)
+		})
+	}
+}
+
+func RunTestClientTakeoverRoomSession(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)

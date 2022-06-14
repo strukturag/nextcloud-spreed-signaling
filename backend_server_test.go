@@ -42,7 +42,6 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/nats-io/nats.go"
 )
 
 var (
@@ -52,11 +51,11 @@ var (
 	turnServers       = strings.Split(turnServersString, ",")
 )
 
-func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	return CreateBackendServerForTestFromConfig(t, nil)
 }
 
-func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	config := goconf.NewConfigFile()
 	config.AddOption("turn", "apikey", turnApiKey)
 	config.AddOption("turn", "secret", turnSecret)
@@ -64,11 +63,14 @@ func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *Back
 	return CreateBackendServerForTestFromConfig(t, config)
 }
 
-func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
 	server := httptest.NewServer(r)
+	t.Cleanup(func() {
+		server.Close()
+	})
 	if config == nil {
 		config = goconf.NewConfigFile()
 	}
@@ -85,11 +87,8 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
-	nats, err := NewLoopbackNatsClient()
-	if err != nil {
-		t.Fatal(err)
-	}
-	hub, err := NewHub(config, nats, r, "no-version")
+	events := getAsyncEventsForTest(t)
+	hub, err := NewHub(config, events, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,12 +107,9 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 		defer cancel()
 
 		WaitForHub(ctx, t, hub)
-		(nats).(*LoopbackNatsClient).waitForSubscriptionsEmpty(ctx, t)
-		nats.Close()
-		server.Close()
 	})
 
-	return config, b, nats, hub, r, server
+	return config, b, events, hub, r, server
 }
 
 func performBackendRequest(url string, body []byte) (*http.Response, error) {
@@ -131,23 +127,16 @@ func performBackendRequest(url string, body []byte) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func expectRoomlistEvent(n NatsClient, ch chan *nats.Msg, subject string, msgType string) (*EventServerMessage, error) {
+func expectRoomlistEvent(ch chan *AsyncMessage, msgType string) (*EventServerMessage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	select {
 	case message := <-ch:
-		if message.Subject != subject {
-			return nil, fmt.Errorf("Expected subject %s, got %s", subject, message.Subject)
-		}
-		var natsMsg NatsMessage
-		if err := n.Decode(message, &natsMsg); err != nil {
-			return nil, err
-		}
-		if natsMsg.Type != "message" || natsMsg.Message == nil {
-			return nil, fmt.Errorf("Expected message type message, got %+v", natsMsg)
+		if message.Type != "message" || message.Message == nil {
+			return nil, fmt.Errorf("Expected message type message, got %+v", message)
 		}
 
-		msg := natsMsg.Message
+		msg := message.Message
 		if msg.Type != "event" || msg.Event == nil {
 			return nil, fmt.Errorf("Expected message type event, got %+v", msg)
 		}
@@ -309,7 +298,23 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 }
 
 func TestBackendServer_RoomInvite(t *testing.T) {
-	_, _, n, hub, _, server := CreateBackendServerForTest(t)
+	for _, backend := range eventBackendsForTest {
+		t.Run(backend, func(t *testing.T) {
+			RunTestBackendServer_RoomInvite(t)
+		})
+	}
+}
+
+type channelEventListener struct {
+	ch chan *AsyncMessage
+}
+
+func (l *channelEventListener) ProcessAsyncUserMessage(message *AsyncMessage) {
+	l.ch <- message
+}
+
+func RunTestBackendServer_RoomInvite(t *testing.T) {
+	_, _, events, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -320,17 +325,14 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 	backend := hub.backend.GetBackend(u)
 
-	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(userid, backend)
-	sub, err := n.Subscribe(subject, natsChan)
-	if err != nil {
+	eventsChan := make(chan *AsyncMessage, 1)
+	listener := &channelEventListener{
+		ch: eventsChan,
+	}
+	if err := events.RegisterUserListener(userid, backend, listener); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer events.UnregisterUserListener(userid, backend, listener)
 
 	msg := &BackendServerRoomRequest{
 		Type: "invite",
@@ -363,7 +365,7 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
 	}
 
-	event, err := expectRoomlistEvent(n, natsChan, subject, "invite")
+	event, err := expectRoomlistEvent(eventsChan, "invite")
 	if err != nil {
 		t.Error(err)
 	} else if event.Invite == nil {
@@ -376,7 +378,15 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 }
 
 func TestBackendServer_RoomDisinvite(t *testing.T) {
-	_, _, n, hub, _, server := CreateBackendServerForTest(t)
+	for _, backend := range eventBackendsForTest {
+		t.Run(backend, func(t *testing.T) {
+			RunTestBackendServer_RoomDisinvite(t)
+		})
+	}
+}
+
+func RunTestBackendServer_RoomDisinvite(t *testing.T) {
+	_, _, events, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -414,17 +424,14 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(testDefaultUserId, backend)
-	sub, err := n.Subscribe(subject, natsChan)
-	if err != nil {
+	eventsChan := make(chan *AsyncMessage, 1)
+	listener := &channelEventListener{
+		ch: eventsChan,
+	}
+	if err := events.RegisterUserListener(testDefaultUserId, backend, listener); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer events.UnregisterUserListener(testDefaultUserId, backend, listener)
 
 	msg := &BackendServerRoomRequest{
 		Type: "disinvite",
@@ -457,7 +464,7 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
 	}
 
-	event, err := expectRoomlistEvent(n, natsChan, subject, "disinvite")
+	event, err := expectRoomlistEvent(eventsChan, "disinvite")
 	if err != nil {
 		t.Error(err)
 	} else if event.Disinvite == nil {
@@ -606,11 +613,18 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	} else if message.RoomId != roomId2 {
 		t.Errorf("Expected message for room %s, got %s", roomId2, message.RoomId)
 	}
-
 }
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
-	_, _, n, hub, _, server := CreateBackendServerForTest(t)
+	for _, backend := range eventBackendsForTest {
+		t.Run(backend, func(t *testing.T) {
+			RunTestBackendServer_RoomUpdate(t)
+		})
+	}
+}
+
+func RunTestBackendServer_RoomUpdate(t *testing.T) {
+	_, _, events, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -632,17 +646,14 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 	userid := "test-userid"
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(userid, backend)
-	sub, err := n.Subscribe(subject, natsChan)
-	if err != nil {
+	eventsChan := make(chan *AsyncMessage, 1)
+	listener := &channelEventListener{
+		ch: eventsChan,
+	}
+	if err := events.RegisterUserListener(userid, backend, listener); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer events.UnregisterUserListener(userid, backend, listener)
 
 	msg := &BackendServerRoomRequest{
 		Type: "update",
@@ -671,7 +682,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
 	}
 
-	event, err := expectRoomlistEvent(n, natsChan, subject, "update")
+	event, err := expectRoomlistEvent(eventsChan, "update")
 	if err != nil {
 		t.Error(err)
 	} else if event.Update == nil {
@@ -682,7 +693,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 		t.Errorf("Room properties don't match: expected %s, got %s", string(roomProperties), string(*event.Update.Properties))
 	}
 
-	// TODO: Use event to wait for NATS messages.
+	// TODO: Use event to wait for asynchronous messages.
 	time.Sleep(10 * time.Millisecond)
 
 	room = hub.getRoom(roomId)
@@ -695,7 +706,15 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 }
 
 func TestBackendServer_RoomDelete(t *testing.T) {
-	_, _, n, hub, _, server := CreateBackendServerForTest(t)
+	for _, backend := range eventBackendsForTest {
+		t.Run(backend, func(t *testing.T) {
+			RunTestBackendServer_RoomDelete(t)
+		})
+	}
+}
+
+func RunTestBackendServer_RoomDelete(t *testing.T) {
+	_, _, events, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -713,18 +732,14 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 	}
 
 	userid := "test-userid"
-
-	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(userid, backend)
-	sub, err := n.Subscribe(subject, natsChan)
-	if err != nil {
+	eventsChan := make(chan *AsyncMessage, 1)
+	listener := &channelEventListener{
+		ch: eventsChan,
+	}
+	if err := events.RegisterUserListener(userid, backend, listener); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer events.UnregisterUserListener(userid, backend, listener)
 
 	msg := &BackendServerRoomRequest{
 		Type: "delete",
@@ -753,7 +768,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 	}
 
 	// A deleted room is signalled as a "disinvite" event.
-	event, err := expectRoomlistEvent(n, natsChan, subject, "disinvite")
+	event, err := expectRoomlistEvent(eventsChan, "disinvite")
 	if err != nil {
 		t.Error(err)
 	} else if event.Disinvite == nil {
@@ -766,7 +781,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 		t.Errorf("Reason should be deleted, got %s", event.Disinvite.Reason)
 	}
 
-	// TODO: Use event to wait for NATS messages.
+	// TODO: Use event to wait for asynchronous messages.
 	time.Sleep(10 * time.Millisecond)
 
 	room := hub.getRoom(roomId)
@@ -880,7 +895,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
 	}
 
-	// TODO: Use event to wait for NATS messages.
+	// TODO: Use event to wait for asynchronous messages.
 	time.Sleep(10 * time.Millisecond)
 
 	assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_MEDIA)
@@ -967,7 +982,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
 	}
 
-	// TODO: Use event to wait for NATS messages.
+	// TODO: Use event to wait for asynchronous messages.
 	time.Sleep(10 * time.Millisecond)
 
 	assertSessionHasNotPermission(t, session, PERMISSION_MAY_PUBLISH_MEDIA)

@@ -148,10 +148,11 @@ func main() {
 		natsUrl = nats.DefaultURL
 	}
 
-	nats, err := signaling.NewNatsClient(natsUrl)
+	events, err := signaling.NewAsyncEvents(natsUrl)
 	if err != nil {
-		log.Fatal("Could not create NATS client: ", err)
+		log.Fatal("Could not create async events client: ", err)
 	}
+	defer events.Close()
 
 	etcdClient, err := signaling.NewEtcdClient(config, "mcu")
 	if err != nil {
@@ -164,7 +165,7 @@ func main() {
 	}()
 
 	r := mux.NewRouter()
-	hub, err := signaling.NewHub(config, nats, r, version)
+	hub, err := signaling.NewHub(config, events, r, version)
 	if err != nil {
 		log.Fatal("Could not create hub: ", err)
 	}

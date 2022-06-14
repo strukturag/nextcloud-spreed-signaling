@@ -33,7 +33,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/nats-io/nats.go"
 	"github.com/pion/sdp"
 )
 
@@ -50,8 +49,8 @@ var (
 type ClientSession struct {
 	roomJoinTime int64
 
-	running   int32
 	hub       *Hub
+	events    AsyncEvents
 	privateId string
 	publicId  string
 	data      *SessionIdData
@@ -68,20 +67,13 @@ type ClientSession struct {
 	backendUrl       string
 	parsedBackendUrl *url.URL
 
-	natsReceiver chan *nats.Msg
-	stopRun      chan bool
-	runStopped   chan bool
-	expires      time.Time
+	expires time.Time
 
 	mu sync.Mutex
 
 	client        *Client
 	room          unsafe.Pointer
 	roomSessionId string
-
-	userSubscription    NatsSubscription
-	sessionSubscription NatsSubscription
-	roomSubscription    NatsSubscription
 
 	publishers  map[string]McuPublisher
 	subscribers map[string]McuSubscriber
@@ -96,6 +88,7 @@ type ClientSession struct {
 func NewClientSession(hub *Hub, privateId string, publicId string, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
 	s := &ClientSession{
 		hub:       hub,
+		events:    hub.events,
 		privateId: privateId,
 		publicId:  publicId,
 		data:      data,
@@ -106,10 +99,6 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 		userData:   auth.User,
 
 		backend: backend,
-
-		natsReceiver: make(chan *nats.Msg, 64),
-		stopRun:      make(chan bool, 1),
-		runStopped:   make(chan bool, 1),
 	}
 	if s.clientType == HelloClientTypeInternal {
 		s.backendUrl = hello.Auth.internalParams.Backend
@@ -137,11 +126,9 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 		s.parsedBackendUrl = u
 	}
 
-	if err := s.SubscribeNats(hub.nats); err != nil {
+	if err := s.SubscribeEvents(); err != nil {
 		return nil, err
 	}
-	atomic.StoreInt32(&s.running, 1)
-	go s.run()
 	return s, nil
 }
 
@@ -298,19 +285,6 @@ func (s *ClientSession) UserData() *json.RawMessage {
 	return s.userData
 }
 
-func (s *ClientSession) run() {
-loop:
-	for {
-		select {
-		case msg := <-s.natsReceiver:
-			s.processClientMessage(msg)
-		case <-s.stopRun:
-			break loop
-		}
-	}
-	s.runStopped <- true
-}
-
 func (s *ClientSession) StartExpire() {
 	// The hub mutex must be held when calling this method.
 	s.expires = time.Now().Add(sessionExpireDuration)
@@ -378,18 +352,10 @@ func (s *ClientSession) closeAndWait(wait bool) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.userSubscription != nil {
-		if err := s.userSubscription.Unsubscribe(); err != nil {
-			log.Printf("Error closing user subscription in session %s: %s", s.PublicId(), err)
-		}
-		s.userSubscription = nil
+	if s.userId != "" {
+		s.events.UnregisterUserListener(s.userId, s.backend, s)
 	}
-	if s.sessionSubscription != nil {
-		if err := s.sessionSubscription.Unsubscribe(); err != nil {
-			log.Printf("Error closing session subscription in session %s: %s", s.PublicId(), err)
-		}
-		s.sessionSubscription = nil
-	}
+	s.events.UnregisterSessionListener(s.publicId, s.backend, s)
 	go func(virtualSessions map[*VirtualSession]bool) {
 		for session := range virtualSessions {
 			session.Close()
@@ -399,56 +365,32 @@ func (s *ClientSession) closeAndWait(wait bool) {
 	s.releaseMcuObjects()
 	s.clearClientLocked(nil)
 	s.backend.RemoveSession(s)
-	if atomic.CompareAndSwapInt32(&s.running, 1, 0) {
-		s.stopRun <- true
-		// Only wait if called from outside the Session goroutine.
-		if wait {
-			s.mu.Unlock()
-			// Wait for Session goroutine to stop
-			<-s.runStopped
-			s.mu.Lock()
-		}
-	}
 }
 
-func GetSubjectForUserId(userId string, backend *Backend) string {
-	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("user", userId)
-	}
-
-	return GetEncodedSubject("user", userId+"|"+backend.Id())
-}
-
-func (s *ClientSession) SubscribeNats(n NatsClient) error {
+func (s *ClientSession) SubscribeEvents() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var err error
 	if s.userId != "" {
-		if s.userSubscription, err = n.Subscribe(GetSubjectForUserId(s.userId, s.backend), s.natsReceiver); err != nil {
+		if err := s.events.RegisterUserListener(s.userId, s.backend, s); err != nil {
 			return err
 		}
 	}
 
-	if s.sessionSubscription, err = n.Subscribe("session."+s.publicId, s.natsReceiver); err != nil {
-		return err
-	}
-
-	return nil
+	return s.events.RegisterSessionListener(s.publicId, s.backend, s)
 }
 
-func (s *ClientSession) SubscribeRoomNats(n NatsClient, roomid string, roomSessionId string) error {
+func (s *ClientSession) SubscribeRoomEvents(roomid string, roomSessionId string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var err error
-	if s.roomSubscription, err = n.Subscribe(GetSubjectForRoomId(roomid, s.Backend()), s.natsReceiver); err != nil {
+	if err := s.events.RegisterRoomListener(roomid, s.backend, s); err != nil {
 		return err
 	}
 
 	if roomSessionId != "" {
-		if err = s.hub.roomSessions.SetRoomSession(s, roomSessionId); err != nil {
-			s.doUnsubscribeRoomNats(true)
+		if err := s.hub.roomSessions.SetRoomSession(s, roomSessionId); err != nil {
+			s.doUnsubscribeRoomEvents(true)
 			return err
 		}
 	}
@@ -479,29 +421,26 @@ func (s *ClientSession) LeaveRoom(notify bool) *Room {
 		return nil
 	}
 
-	s.doUnsubscribeRoomNats(notify)
+	s.doUnsubscribeRoomEvents(notify)
 	s.SetRoom(nil)
 	s.releaseMcuObjects()
 	room.RemoveSession(s)
 	return room
 }
 
-func (s *ClientSession) UnsubscribeRoomNats() {
+func (s *ClientSession) UnsubscribeRoomEvents() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.doUnsubscribeRoomNats(true)
+	s.doUnsubscribeRoomEvents(true)
 }
 
-func (s *ClientSession) doUnsubscribeRoomNats(notify bool) {
-	if s.roomSubscription != nil {
-		if err := s.roomSubscription.Unsubscribe(); err != nil {
-			log.Printf("Error closing room subscription in session %s: %s", s.PublicId(), err)
-		}
-		s.roomSubscription = nil
+func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
+	room := s.GetRoom()
+	if room != nil {
+		s.events.UnregisterRoomListener(room.Id(), s.Backend(), s)
 	}
 	s.hub.roomSessions.DeleteRoomSession(s)
-	room := s.GetRoom()
 	if notify && room != nil && s.roomSessionId != "" {
 		// Notify
 		go func(sid string) {
@@ -967,13 +906,19 @@ func (s *ClientSession) GetSubscriber(id string, streamType string) McuSubscribe
 	return s.subscribers[id+"|"+streamType]
 }
 
-func (s *ClientSession) processClientMessage(msg *nats.Msg) {
-	var message NatsMessage
-	if err := s.hub.nats.Decode(msg, &message); err != nil {
-		log.Printf("Could not decode NATS message %+v for session %s: %s", *msg, s.PublicId(), err)
-		return
-	}
+func (s *ClientSession) ProcessAsyncRoomMessage(message *AsyncMessage) {
+	s.processAsyncMessage(message)
+}
 
+func (s *ClientSession) ProcessAsyncUserMessage(message *AsyncMessage) {
+	s.processAsyncMessage(message)
+}
+
+func (s *ClientSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
+	s.processAsyncMessage(message)
+}
+
+func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 	switch message.Type {
 	case "permissions":
 		s.SetPermissions(message.Permissions)
@@ -1017,7 +962,7 @@ func (s *ClientSession) processClientMessage(msg *nats.Msg) {
 		}
 	}
 
-	serverMessage := s.processNatsMessage(&message)
+	serverMessage := s.filterAsyncMessage(message)
 	if serverMessage == nil {
 		return
 	}
@@ -1147,11 +1092,11 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 	return message
 }
 
-func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
+func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
 	switch msg.Type {
 	case "message":
 		if msg.Message == nil {
-			log.Printf("Received NATS message without payload: %+v", msg)
+			log.Printf("Received asynchronous message without payload: %+v", msg)
 			return nil
 		}
 
@@ -1172,7 +1117,7 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 			}
 		case "event":
 			if msg.Message.Event.Target == "room" {
-				// Can happen mostly during tests where an older room NATS message
+				// Can happen mostly during tests where an older room async message
 				// could be received by a subscriber that joined after it was sent.
 				if joined := s.getRoomJoinTime(); joined.IsZero() || msg.SendTime.Before(joined) {
 					log.Printf("Message %+v was sent before room was joined, ignoring", msg.Message)
@@ -1183,7 +1128,7 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 
 		return msg.Message
 	default:
-		log.Printf("Received NATS message with unsupported type %s: %+v", msg.Type, msg)
+		log.Printf("Received async message with unsupported type %s: %+v", msg.Type, msg)
 		return nil
 	}
 }
