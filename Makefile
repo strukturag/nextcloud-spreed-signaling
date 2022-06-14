@@ -95,11 +95,10 @@ coverhtml: vet common
 	PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
 
 common: \
-	api_signaling_easyjson.go \
 	api_backend_easyjson.go \
 	api_proxy_easyjson.go \
-	natsclient_easyjson.go \
-	room_easyjson.go
+	api_signaling_easyjson.go \
+	natsclient_easyjson.go
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
