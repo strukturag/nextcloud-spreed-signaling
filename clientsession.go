@@ -340,7 +340,12 @@ func (s *ClientSession) GetRoom() *Room {
 }
 
 func (s *ClientSession) getRoomJoinTime() time.Time {
-	return time.Unix(0, atomic.LoadInt64(&s.roomJoinTime))
+	t := atomic.LoadInt64(&s.roomJoinTime)
+	if t == 0 {
+		return time.Time{}
+	}
+
+	return time.Unix(0, t)
 }
 
 func (s *ClientSession) releaseMcuObjects() {
@@ -1169,7 +1174,7 @@ func (s *ClientSession) processNatsMessage(msg *NatsMessage) *ServerMessage {
 			if msg.Message.Event.Target == "room" {
 				// Can happen mostly during tests where an older room NATS message
 				// could be received by a subscriber that joined after it was sent.
-				if msg.SendTime.Before(s.getRoomJoinTime()) {
+				if joined := s.getRoomJoinTime(); joined.IsZero() || msg.SendTime.Before(joined) {
 					log.Printf("Message %+v was sent before room was joined, ignoring", msg.Message)
 					return nil
 				}
