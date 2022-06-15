@@ -136,12 +136,7 @@ func (s *asyncBackendRoomSubscriberNats) doProcessMessage(msg *nats.Msg) {
 		return
 	}
 
-	switch message.Type {
-	case "room":
-		s.processBackendRoomRequest(message.Room)
-	default:
-		log.Printf("Unsupported NATS room request with type %s: %+v", message.Type, message)
-	}
+	s.processBackendRoomRequest(&message)
 }
 
 type asyncRoomSubscriberNats struct {
@@ -256,22 +251,31 @@ func NewAsyncEventsNats(client NatsClient) (AsyncEvents, error) {
 func (e *asyncEventsNats) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func(subscriptions map[string]*asyncBackendRoomSubscriberNats) {
+		defer wg.Done()
 		for _, sub := range subscriptions {
 			sub.close()
 		}
 	}(e.backendRoomSubscriptions)
+	wg.Add(1)
 	go func(subscriptions map[string]*asyncRoomSubscriberNats) {
+		defer wg.Done()
 		for _, sub := range subscriptions {
 			sub.close()
 		}
 	}(e.roomSubscriptions)
+	wg.Add(1)
 	go func(subscriptions map[string]*asyncUserSubscriberNats) {
+		defer wg.Done()
 		for _, sub := range subscriptions {
 			sub.close()
 		}
 	}(e.userSubscriptions)
+	wg.Add(1)
 	go func(subscriptions map[string]*asyncSessionSubscriberNats) {
+		defer wg.Done()
 		for _, sub := range subscriptions {
 			sub.close()
 		}
@@ -280,6 +284,7 @@ func (e *asyncEventsNats) Close() {
 	e.roomSubscriptions = make(map[string]*asyncRoomSubscriberNats)
 	e.userSubscriptions = make(map[string]*asyncUserSubscriberNats)
 	e.sessionSubscriptions = make(map[string]*asyncSessionSubscriberNats)
+	wg.Wait()
 	e.client.Close()
 }
 

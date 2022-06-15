@@ -24,7 +24,7 @@ package signaling
 import "sync"
 
 type AsyncBackendRoomEventListener interface {
-	ProcessBackendRoomRequest(request *BackendServerRoomRequest)
+	ProcessBackendRoomRequest(message *AsyncMessage)
 }
 
 type AsyncRoomEventListener interface {
@@ -75,7 +75,7 @@ type asyncBackendRoomSubscriber struct {
 	listeners map[AsyncBackendRoomEventListener]bool
 }
 
-func (s *asyncBackendRoomSubscriber) processBackendRoomRequest(message *BackendServerRoomRequest) {
+func (s *asyncBackendRoomSubscriber) processBackendRoomRequest(message *AsyncMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

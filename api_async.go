@@ -34,5 +34,13 @@ type AsyncMessage struct {
 
 	Permissions []Permission `json:"permissions,omitempty"`
 
+	AsyncRoom *AsyncRoomMessage `json:"asyncroom,omitempty"`
+
 	Id string `json:"id"`
+}
+
+type AsyncRoomMessage struct {
+	Type string `json:"type"`
+
+	SessionId string `json:"sessionid,omitempty"`
 }

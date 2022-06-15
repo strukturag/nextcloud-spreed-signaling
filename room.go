@@ -202,7 +202,18 @@ func (r *Room) Close() []Session {
 	return result
 }
 
-func (r *Room) ProcessBackendRoomRequest(message *BackendServerRoomRequest) {
+func (r *Room) ProcessBackendRoomRequest(message *AsyncMessage) {
+	switch message.Type {
+	case "room":
+		r.processBackendRoomRequestRoom(message.Room)
+	case "asyncroom":
+		r.processBackendRoomRequestAsyncRoom(message.AsyncRoom)
+	default:
+		log.Printf("Unsupported backend room request with type %s in %s: %+v", message.Type, r.id, message)
+	}
+}
+
+func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) {
 	received := message.ReceivedTime
 	if last, found := r.lastRoomRequests[message.Type]; found && last > received {
 		if msg, err := json.Marshal(message); err == nil {
@@ -232,7 +243,16 @@ func (r *Room) ProcessBackendRoomRequest(message *BackendServerRoomRequest) {
 	}
 }
 
-func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Session {
+func (r *Room) processBackendRoomRequestAsyncRoom(message *AsyncRoomMessage) {
+	switch message.Type {
+	case "sessionjoined":
+		r.notifySessionJoined(message.SessionId)
+	default:
+		log.Printf("Unsupported async room request with type %s in %s: %+v", message.Type, r.Id(), message)
+	}
+}
+
+func (r *Room) AddSession(session Session, sessionData *json.RawMessage) {
 	var roomSessionData *RoomSessionData
 	if sessionData != nil && len(*sessionData) > 0 {
 		roomSessionData = &RoomSessionData{}
@@ -245,13 +265,6 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 	sid := session.PublicId()
 	r.mu.Lock()
 	_, found := r.sessions[sid]
-	// Return list of sessions already in the room.
-	result := make([]Session, 0, len(r.sessions))
-	for _, s := range r.sessions {
-		if s != session {
-			result = append(result, s)
-		}
-	}
 	r.sessions[sid] = session
 	if !found {
 		r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": session.ClientType()}).Inc()
@@ -287,7 +300,116 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 			r.transientData.AddListener(clientSession)
 		}
 	}
-	return result
+
+	// Trigger notifications that the session joined.
+	if err := r.events.PublishBackendRoomMessage(r.id, r.backend, &AsyncMessage{
+		Type: "asyncroom",
+		AsyncRoom: &AsyncRoomMessage{
+			Type:      "sessionjoined",
+			SessionId: sid,
+		},
+	}); err != nil {
+		log.Printf("Error publishing joined event for session %s: %s", sid, err)
+	}
+}
+
+func (r *Room) getOtherSessions(ignoreSessionId string) (Session, []Session) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	sessions := make([]Session, 0, len(r.sessions))
+	for _, s := range r.sessions {
+		if s.PublicId() == ignoreSessionId {
+			continue
+		}
+
+		sessions = append(sessions, s)
+	}
+
+	return r.sessions[ignoreSessionId], sessions
+}
+
+func (r *Room) notifySessionJoined(sessionId string) {
+	session, sessions := r.getOtherSessions(sessionId)
+	if len(sessions) == 0 {
+		return
+	}
+
+	if session != nil && session.ClientType() != HelloClientTypeClient {
+		session = nil
+	}
+
+	events := make([]*EventServerMessageSessionEntry, 0, len(sessions))
+	for _, s := range sessions {
+		entry := &EventServerMessageSessionEntry{
+			SessionId: s.PublicId(),
+			UserId:    s.UserId(),
+			User:      s.UserData(),
+		}
+		if s, ok := s.(*ClientSession); ok {
+			entry.RoomSessionId = s.RoomSessionId()
+		}
+		events = append(events, entry)
+	}
+
+	msg := &ServerMessage{
+		Type: "event",
+		Event: &EventServerMessage{
+			Target: "room",
+			Type:   "join",
+			Join:   events,
+		},
+	}
+
+	if session != nil {
+		// No need to send through asynchronous events, the session is connected locally.
+		session.(*ClientSession).SendMessage(msg)
+	} else {
+		if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+			Type:    "message",
+			Message: msg,
+		}); err != nil {
+			log.Printf("Error publishing joined events to session %s: %s", sessionId, err)
+		}
+	}
+
+	// Notify about initial flags of virtual sessions.
+	for _, s := range sessions {
+		vsess, ok := s.(*VirtualSession)
+		if !ok {
+			continue
+		}
+
+		flags := vsess.Flags()
+		if flags == 0 {
+			continue
+		}
+
+		msg := &ServerMessage{
+			Type: "event",
+			Event: &EventServerMessage{
+				Target: "participants",
+				Type:   "flags",
+				Flags: &RoomFlagsServerMessage{
+					RoomId:    r.id,
+					SessionId: vsess.PublicId(),
+					Flags:     vsess.Flags(),
+				},
+			},
+		}
+
+		if session != nil {
+			// No need to send through asynchronous events, the session is connected locally.
+			session.(*ClientSession).SendMessage(msg)
+		} else {
+			if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+				Type:    "message",
+				Message: msg,
+			}); err != nil {
+				log.Printf("Error publishing initial flags to session %s: %s", sessionId, err)
+			}
+		}
+	}
 }
 
 func (r *Room) HasSession(session Session) bool {

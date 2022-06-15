@@ -1199,65 +1199,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 		session.SetPermissions(*room.Room.Permissions)
 	}
 	h.sendRoom(session, message, r)
-	h.notifyUserJoinedRoom(r, session, room.Room.Session)
-}
-
-func (h *Hub) notifyUserJoinedRoom(room *Room, session *ClientSession, sessionData *json.RawMessage) {
-	// Register session with the room
-	if sessions := room.AddSession(session, sessionData); len(sessions) > 0 {
-		events := make([]*EventServerMessageSessionEntry, 0, len(sessions))
-		for _, s := range sessions {
-			entry := &EventServerMessageSessionEntry{
-				SessionId: s.PublicId(),
-				UserId:    s.UserId(),
-				User:      s.UserData(),
-			}
-			if s, ok := s.(*ClientSession); ok {
-				entry.RoomSessionId = s.RoomSessionId()
-			}
-			events = append(events, entry)
-		}
-		msg := &ServerMessage{
-			Type: "event",
-			Event: &EventServerMessage{
-				Target: "room",
-				Type:   "join",
-				Join:   events,
-			},
-		}
-
-		// No need to send through asynchronous events, the session is connected locally.
-		session.SendMessage(msg)
-
-		// Notify about initial flags of virtual sessions.
-		for _, s := range sessions {
-			vsess, ok := s.(*VirtualSession)
-			if !ok {
-				continue
-			}
-
-			flags := vsess.Flags()
-			if flags == 0 {
-				continue
-			}
-
-			msg := &ServerMessage{
-				Type: "event",
-				Event: &EventServerMessage{
-					Target: "participants",
-					Type:   "flags",
-					Flags: &RoomFlagsServerMessage{
-						RoomId:    room.Id(),
-						SessionId: vsess.PublicId(),
-						Flags:     vsess.Flags(),
-					},
-				},
-			}
-
-			// No need to send through asynchronous events, the session is connected locally.
-			session.SendMessage(msg)
-		}
-	}
+	r.AddSession(session, room.Room.Session)
 }
 
 func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
