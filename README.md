@@ -8,7 +8,7 @@
 This repository contains the standalone signaling server which can be used for
 Nextcloud Talk (https://apps.nextcloud.com/apps/spreed).
 
-See https://nextcloud-talk.readthedocs.io/en/latest/standalone-signaling-api-v1/ for further
+See https://nextcloud-spreed-signaling.readthedocs.io/en/latest/ for further
 information on the API of the signaling server.
 
 
