@@ -234,3 +234,11 @@ connectionsperhost = 8
 #clientkey = /path/to/etcd-client.key
 #clientcert = /path/to/etcd-client.crt
 #cacert = /path/to/etcd-ca.crt
+
+[grpc]
+# IP and port to listen on for GRPC requests.
+# Comment line to disable the listener.
+#listen = 0.0.0.0:9090
+
+# Comma-separated list of GRPC targets to connect to for clustering mode.
+#targets = 192.168.0.1:9090, 192.168.0.1:9091

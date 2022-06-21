@@ -111,7 +111,7 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := NewHub(config, events, r, "no-version")
+	h, err := NewHub(config, events, nil, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}

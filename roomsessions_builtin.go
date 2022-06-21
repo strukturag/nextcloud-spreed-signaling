@@ -22,19 +22,27 @@
 package signaling
 
 import (
+	"context"
+	"errors"
+	"log"
 	"sync"
+	"sync/atomic"
 )
 
 type BuiltinRoomSessions struct {
 	sessionIdToRoomSession map[string]string
 	roomSessionToSessionid map[string]string
 	mu                     sync.RWMutex
+
+	clients *GrpcClients
 }
 
-func NewBuiltinRoomSessions() (RoomSessions, error) {
+func NewBuiltinRoomSessions(clients *GrpcClients) (RoomSessions, error) {
 	return &BuiltinRoomSessions{
 		sessionIdToRoomSession: make(map[string]string),
 		roomSessionToSessionid: make(map[string]string),
+
+		clients: clients,
 	}, nil
 }
 
@@ -77,4 +85,54 @@ func (r *BuiltinRoomSessions) GetSessionId(roomSessionId string) (string, error)
 	}
 
 	return sid, nil
+}
+
+func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId string) (string, error) {
+	sid, err := r.GetSessionId(roomSessionId)
+	if err == nil {
+		return sid, nil
+	}
+
+	if r.clients == nil {
+		return "", ErrNoSuchRoomSession
+	}
+
+	clients := r.clients.GetClients()
+	if len(clients) == 0 {
+		return "", ErrNoSuchRoomSession
+	}
+
+	lookupctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	var result atomic.Value
+	for _, client := range clients {
+		wg.Add(1)
+		go func(client *GrpcClient) {
+			defer wg.Done()
+
+			sid, err := client.LookupSessionId(lookupctx, roomSessionId)
+			if errors.Is(err, context.Canceled) {
+				return
+			} else if err != nil {
+				log.Printf("Received error while checking for room session id %s on %s: %s", roomSessionId, client.Target(), err)
+				return
+			} else if sid == "" {
+				log.Printf("Received empty session id for room session id %s from %s", roomSessionId, client.Target())
+				return
+			}
+
+			cancel() // Cancel pending RPC calls.
+			result.Store(sid)
+		}(client)
+	}
+	wg.Wait()
+
+	value := result.Load()
+	if value == nil {
+		return "", ErrNoSuchRoomSession
+	}
+
+	return value.(string), nil
 }

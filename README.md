@@ -19,6 +19,7 @@ The following tools are required for building the signaling server.
 - git
 - go >= 1.17
 - make
+- protobuf-compiler >= 3
 
 All other dependencies are fetched automatically while building.
 

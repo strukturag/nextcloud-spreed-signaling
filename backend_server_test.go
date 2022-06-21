@@ -88,7 +88,7 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
 	events := getAsyncEventsForTest(t)
-	hub, err := NewHub(config, events, r, "no-version")
+	hub, err := NewHub(config, events, nil, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}

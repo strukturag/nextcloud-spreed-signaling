@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2019 struktur AG
+ * Copyright (C) 2022 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,21 +19,23 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+syntax = "proto3";
 
-import (
-	"context"
-	"fmt"
-)
+option go_package = "github.com/strukturag/nextcloud-spreed-signaling;signaling";
 
-var (
-	ErrNoSuchRoomSession = fmt.Errorf("unknown room session id")
-)
+package signaling;
 
-type RoomSessions interface {
-	SetRoomSession(session Session, roomSessionId string) error
-	DeleteRoomSession(session Session)
+service RpcMcu {
+  rpc GetPublisherId(GetPublisherIdRequest) returns (GetPublisherIdReply) {}
+}
 
-	GetSessionId(roomSessionId string) (string, error)
-	LookupSessionId(ctx context.Context, roomSessionId string) (string, error)
+message GetPublisherIdRequest {
+  string sessionId = 1;
+  string streamType = 2;
+}
+
+message GetPublisherIdReply {
+  string publisherId = 1;
+  string proxyUrl = 2;
+  string ip = 3;
 }

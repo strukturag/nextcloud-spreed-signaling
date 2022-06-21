@@ -56,6 +56,14 @@ $(GOPATHBIN)/easyjson:
 	$(GO) get -u -d github.com/mailru/easyjson/...
 	$(GO) install github.com/mailru/easyjson/...
 
+$(GOPATHBIN)/protoc-gen-go:
+	$(GO) get -u -d google.golang.org/protobuf/cmd/protoc-gen-go
+	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go
+
+$(GOPATHBIN)/protoc-gen-go-grpc:
+	$(GO) get -u -d google.golang.org/grpc/cmd/protoc-gen-go-grpc
+	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc
+
 continentmap.go:
 	$(CURDIR)/scripts/get_continent_map.py $@
 
@@ -70,7 +78,7 @@ check-continentmap:
 get:
 	$(GO) get $(PACKAGE)
 
-fmt: hook
+fmt: hook | common_proto
 	$(GOFMT) -s -w *.go client proxy server
 
 vet: common
@@ -83,22 +91,35 @@ cover: vet common
 	rm -f cover.out && \
 	$(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
+	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -func=cover.out
 
 coverhtml: vet common
 	rm -f cover.out && \
 	$(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
+	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -html=cover.out -o coverage.html
 
-%_easyjson.go: %.go $(GOPATHBIN)/easyjson
+%_easyjson.go: %.go $(GOPATHBIN)/easyjson | common_proto
 	PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
 
-common: \
+%.pb.go: %.proto $(GOPATHBIN)/protoc-gen-go $(GOPATHBIN)/protoc-gen-go-grpc
+	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		$*.proto
+
+common: common_easyjson common_proto
+
+common_easyjson: \
 	api_async_easyjson.go \
 	api_backend_easyjson.go \
 	api_proxy_easyjson.go \
 	api_signaling_easyjson.go
+
+common_proto: \
+	grpc_mcu.pb.go \
+	grpc_sessions.pb.go
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
@@ -115,6 +136,7 @@ proxy: common $(BINDIR)
 clean:
 	rm -f *_easyjson.go
 	rm -f easyjson-bootstrap*.go
+	rm -f *.pb.go
 
 build: server proxy
 

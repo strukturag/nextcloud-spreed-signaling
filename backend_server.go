@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -324,6 +325,8 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 	}
 
 	timeout := time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	var wg sync.WaitGroup
 	for _, sessionid := range sessionids {
 		if sessionid == sessionIdNotInMeeting {
@@ -334,7 +337,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 		wg.Add(1)
 		go func(sessionid string) {
 			defer wg.Done()
-			if sid, err := b.lookupByRoomSessionId(sessionid, nil, timeout); err != nil {
+			if sid, err := b.lookupByRoomSessionId(ctx, sessionid, nil); err != nil {
 				log.Printf("Could not lookup by room session %s: %s", sessionid, err)
 			} else if sid != "" {
 				if err := b.events.PublishSessionMessage(sid, backend, msg); err != nil {
@@ -377,7 +380,7 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified
 	}
 }
 
-func (b *BackendServer) lookupByRoomSessionId(roomSessionId string, cache *ConcurrentStringStringMap, timeout time.Duration) (string, error) {
+func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId string, cache *ConcurrentStringStringMap) (string, error) {
 	if roomSessionId == sessionIdNotInMeeting {
 		log.Printf("Trying to lookup empty room session id: %s", roomSessionId)
 		return "", nil
@@ -389,7 +392,7 @@ func (b *BackendServer) lookupByRoomSessionId(roomSessionId string, cache *Concu
 		}
 	}
 
-	sid, err := b.roomSessions.GetSessionId(roomSessionId)
+	sid, err := b.roomSessions.LookupSessionId(ctx, roomSessionId)
 	if err == ErrNoSuchRoomSession {
 		return "", nil
 	} else if err != nil {
@@ -402,7 +405,7 @@ func (b *BackendServer) lookupByRoomSessionId(roomSessionId string, cache *Concu
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(cache *ConcurrentStringStringMap, users []map[string]interface{}, timeout time.Duration) []map[string]interface{} {
+func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentStringStringMap, users []map[string]interface{}) []map[string]interface{} {
 	if len(users) == 0 {
 		return users
 	}
@@ -430,7 +433,7 @@ func (b *BackendServer) fixupUserSessions(cache *ConcurrentStringStringMap, user
 		wg.Add(1)
 		go func(roomSessionId string, u map[string]interface{}) {
 			defer wg.Done()
-			if sessionId, err := b.lookupByRoomSessionId(roomSessionId, cache, timeout); err != nil {
+			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
 				log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
 				delete(u, "sessionId")
 			} else if sessionId != "" {
@@ -456,11 +459,13 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request 
 	if !request.InCall.All {
 		timeout := time.Second
 
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
 		var cache ConcurrentStringStringMap
 		// Convert (Nextcloud) session ids to signaling session ids.
-		request.InCall.Users = b.fixupUserSessions(&cache, request.InCall.Users, timeout)
+		request.InCall.Users = b.fixupUserSessions(ctx, &cache, request.InCall.Users)
 		// Entries in "Changed" are most likely already fetched through the "Users" list.
-		request.InCall.Changed = b.fixupUserSessions(&cache, request.InCall.Changed, timeout)
+		request.InCall.Changed = b.fixupUserSessions(ctx, &cache, request.InCall.Changed)
 
 		if len(request.InCall.Users) == 0 && len(request.InCall.Changed) == 0 {
 			return nil
@@ -478,9 +483,11 @@ func (b *BackendServer) sendRoomParticipantsUpdate(roomid string, backend *Backe
 	timeout := time.Second
 
 	// Convert (Nextcloud) session ids to signaling session ids.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	var cache ConcurrentStringStringMap
-	request.Participants.Users = b.fixupUserSessions(&cache, request.Participants.Users, timeout)
-	request.Participants.Changed = b.fixupUserSessions(&cache, request.Participants.Changed, timeout)
+	request.Participants.Users = b.fixupUserSessions(ctx, &cache, request.Participants.Users)
+	request.Participants.Changed = b.fixupUserSessions(ctx, &cache, request.Participants.Changed)
 
 	if len(request.Participants.Users) == 0 && len(request.Participants.Changed) == 0 {
 		return nil

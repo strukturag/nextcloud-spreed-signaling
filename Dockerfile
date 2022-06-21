@@ -3,6 +3,7 @@ FROM golang:1.18 AS builder
 WORKDIR /workdir
 
 COPY . .
+RUN apt -y update && apt -y install protobuf-compiler
 RUN make build
 
 FROM alpine:3.15

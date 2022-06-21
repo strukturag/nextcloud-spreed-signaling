@@ -164,8 +164,14 @@ func main() {
 		}
 	}()
 
+	rpcClients, err := signaling.NewGrpcClients(config)
+	if err != nil {
+		log.Fatalf("Could not create RPC clients: %s", err)
+	}
+	defer rpcClients.Close()
+
 	r := mux.NewRouter()
-	hub, err := signaling.NewHub(config, events, r, version)
+	hub, err := signaling.NewHub(config, events, rpcClients, r, version)
 	if err != nil {
 		log.Fatal("Could not create hub: ", err)
 	}
@@ -192,7 +198,7 @@ func main() {
 				signaling.UnregisterProxyMcuStats()
 				signaling.RegisterJanusMcuStats()
 			case signaling.McuTypeProxy:
-				mcu, err = signaling.NewMcuProxy(config, etcdClient)
+				mcu, err = signaling.NewMcuProxy(config, etcdClient, rpcClients)
 				signaling.UnregisterJanusMcuStats()
 				signaling.RegisterProxyMcuStats()
 			default:

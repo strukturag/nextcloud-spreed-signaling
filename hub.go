@@ -28,6 +28,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -148,9 +149,12 @@ type Hub struct {
 	geoip          *GeoLookup
 	geoipOverrides map[*net.IPNet]string
 	geoipUpdating  int32
+
+	rpcServer  *GrpcServer
+	rpcClients *GrpcClients
 }
 
-func NewHub(config *goconf.ConfigFile, events AsyncEvents, r *mux.Router, version string) (*Hub, error) {
+func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcClients *GrpcClients, r *mux.Router, version string) (*Hub, error) {
 	hashKey, _ := config.GetString("sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
@@ -210,7 +214,12 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, r *mux.Router, versio
 		decodeCaches = append(decodeCaches, NewLruCache(decodeCacheSize))
 	}
 
-	roomSessions, err := NewBuiltinRoomSessions()
+	rpcServer, err := NewGrpcServer(config)
+	if err != nil {
+		return nil, err
+	}
+
+	roomSessions, err := NewBuiltinRoomSessions(rpcClients)
 	if err != nil {
 		return nil, err
 	}
@@ -338,8 +347,12 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, r *mux.Router, versio
 
 		geoip:          geoip,
 		geoipOverrides: geoipOverrides,
+
+		rpcServer:  rpcServer,
+		rpcClients: rpcClients,
 	}
 	backend.hub = hub
+	rpcServer.hub = hub
 	hub.upgrader.CheckOrigin = hub.checkOrigin
 	r.HandleFunc("/spreed", func(w http.ResponseWriter, r *http.Request) {
 		hub.serveWs(w, r)
@@ -437,6 +450,12 @@ func (h *Hub) Run() {
 	go h.updateGeoDatabase()
 	h.roomPing.Start()
 	defer h.roomPing.Stop()
+	go func() {
+		if err := h.rpcServer.Run(); err != nil {
+			log.Fatalf("Could not start RPC server: %s", err)
+		}
+	}()
+	defer h.rpcServer.Close()
 
 	housekeeping := time.NewTicker(housekeepingInterval)
 	geoipUpdater := time.NewTicker(24 * time.Hour)
@@ -480,6 +499,7 @@ func (h *Hub) Reload(config *goconf.ConfigFile) {
 		h.mcu.Reload(config)
 	}
 	h.backend.Reload(config)
+	h.rpcClients.Reload(config)
 }
 
 func reverseSessionId(s string) (string, error) {
@@ -575,6 +595,10 @@ func (h *Hub) GetSessionByPublicId(sessionId string) Session {
 	h.mu.Lock()
 	session := h.sessions[data.Sid]
 	h.mu.Unlock()
+	if session != nil && session.PublicId() != sessionId {
+		// Session was created on different server.
+		return nil
+	}
 	return session
 }
 
@@ -1726,7 +1750,41 @@ func sendMcuProcessingFailed(session *ClientSession, message *ClientMessage) {
 	session.SendMessage(response)
 }
 
-func (h *Hub) isInSameCall(senderSession *ClientSession, recipientSessionId string) bool {
+func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSession, senderRoom *Room, recipientSessionId string) bool {
+	clients := h.rpcClients.GetClients()
+	if len(clients) == 0 {
+		return false
+	}
+
+	var result int32
+	var wg sync.WaitGroup
+	rpcCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	for _, client := range clients {
+		wg.Add(1)
+		go func(client *GrpcClient) {
+			defer wg.Done()
+
+			inCall, err := client.IsSessionInCall(rpcCtx, recipientSessionId, senderRoom)
+			if errors.Is(err, context.Canceled) {
+				return
+			} else if err != nil {
+				log.Printf("Error checking session %s in call on %s: %s", recipientSessionId, client.Target(), err)
+				return
+			} else if !inCall {
+				return
+			}
+
+			cancel()
+			atomic.StoreInt32(&result, 1)
+		}(client)
+	}
+	wg.Wait()
+
+	return atomic.LoadInt32(&result) != 0
+}
+
+func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, recipientSessionId string) bool {
 	if senderSession.ClientType() == HelloClientTypeInternal {
 		// Internal clients may subscribe all streams.
 		return true
@@ -1741,7 +1799,7 @@ func (h *Hub) isInSameCall(senderSession *ClientSession, recipientSessionId stri
 	recipientSession := h.GetSessionByPublicId(recipientSessionId)
 	if recipientSession == nil {
 		// Recipient session does not exist.
-		return false
+		return h.isInSameCallRemote(ctx, senderSession, senderRoom, recipientSessionId)
 	}
 
 	recipientRoom := recipientSession.GetRoom()
@@ -1770,7 +1828,7 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 
 		// A user is only allowed to subscribe a stream if she is in the same room
 		// as the other user and both have their "inCall" flag set.
-		if !h.allowSubscribeAnyStream && !h.isInSameCall(senderSession, message.Recipient.SessionId) {
+		if !h.allowSubscribeAnyStream && !h.isInSameCall(ctx, senderSession, message.Recipient.SessionId) {
 			log.Printf("Session %s is not in the same call as session %s, not requesting offer", session.PublicId(), message.Recipient.SessionId)
 			sendNotAllowed(senderSession, client_message, "Not allowed to request offer.")
 			return

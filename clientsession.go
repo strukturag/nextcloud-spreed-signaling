@@ -75,6 +75,9 @@ type ClientSession struct {
 	room          unsafe.Pointer
 	roomSessionId string
 
+	publisherWaitersId uint64
+	publisherWaiters   map[uint64]chan bool
+
 	publishers  map[string]McuPublisher
 	subscribers map[string]McuSubscriber
 
@@ -803,6 +806,26 @@ func (s *ClientSession) checkOfferTypeLocked(streamType string, data *MessageCli
 	return 0, nil
 }
 
+func (s *ClientSession) wakeupPublisherWaiters() {
+	for _, ch := range s.publisherWaiters {
+		ch <- true
+	}
+}
+
+func (s *ClientSession) addPublisherWaiter(ch chan bool) uint64 {
+	if s.publisherWaiters == nil {
+		s.publisherWaiters = make(map[uint64]chan bool)
+	}
+	id := s.publisherWaitersId + 1
+	s.publisherWaitersId = id
+	s.publisherWaiters[id] = ch
+	return id
+}
+
+func (s *ClientSession) removePublisherWaiter(id uint64) {
+	delete(s.publisherWaiters, id)
+}
+
 func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, streamType string, data *MessageClientMessageData) (McuPublisher, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -851,6 +874,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 			s.publishers[streamType] = publisher
 		}
 		log.Printf("Publishing %s as %s for session %s", streamType, publisher.Id(), s.PublicId())
+		s.wakeupPublisherWaiters()
 	} else {
 		publisher.SetMedia(mediaTypes)
 	}
@@ -858,11 +882,44 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 	return publisher, nil
 }
 
+func (s *ClientSession) getPublisherLocked(streamType string) McuPublisher {
+	return s.publishers[streamType]
+}
+
 func (s *ClientSession) GetPublisher(streamType string) McuPublisher {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.publishers[streamType]
+	return s.getPublisherLocked(streamType)
+}
+
+func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType string) McuPublisher {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	publisher := s.getPublisherLocked(streamType)
+	if publisher != nil {
+		return publisher
+	}
+
+	ch := make(chan bool, 1)
+	id := s.addPublisherWaiter(ch)
+	defer s.removePublisherWaiter(id)
+
+	for {
+		s.mu.Unlock()
+		select {
+		case <-ch:
+			s.mu.Lock()
+			publisher := s.getPublisherLocked(streamType)
+			if publisher != nil {
+				return publisher
+			}
+		case <-ctx.Done():
+			s.mu.Lock()
+			return nil
+		}
+	}
 }
 
 func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id string, streamType string) (McuSubscriber, error) {

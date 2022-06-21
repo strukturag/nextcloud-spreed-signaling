@@ -26,7 +26,7 @@ import (
 )
 
 func TestBuiltinRoomSessions(t *testing.T) {
-	sessions, err := NewBuiltinRoomSessions()
+	sessions, err := NewBuiltinRoomSessions(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
