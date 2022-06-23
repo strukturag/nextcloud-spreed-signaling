@@ -240,5 +240,14 @@ connectionsperhost = 8
 # Comment line to disable the listener.
 #listen = 0.0.0.0:9090
 
+# Certificate / private key to use for the GRPC server.
+# Omit to use unencrypted connections.
+#certificate = /path/to/grpc-server.crt
+#key = /path/to/grpc-server.key
+
+# CA certificate that is allowed to issue certificates of GRPC servers.
+# Omit to expect unencrypted connections.
+#ca = /path/to/grpc-ca.crt
+
 # Comma-separated list of GRPC targets to connect to for clustering mode.
 #targets = 192.168.0.1:9090, 192.168.0.1:9091

@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -31,6 +32,7 @@ import (
 	"github.com/dlintw/goconf"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	status "google.golang.org/grpc/status"
 )
@@ -52,8 +54,8 @@ type GrpcClient struct {
 	impl *grpcClientImpl
 }
 
-func NewGrpcClient(target string) (*GrpcClient, error) {
-	conn, err := grpc.Dial(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func NewGrpcClient(target string, opts ...grpc.DialOption) (*GrpcClient, error) {
+	conn, err := grpc.Dial(target, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +147,19 @@ func (c *GrpcClients) load(config *goconf.ConfigFile) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	targets, _ := config.GetString("grpc", "targets")
+	var opts []grpc.DialOption
+	caFile, _ := config.GetString("grpc", "ca")
+	if caFile != "" {
+		creds, err := credentials.NewClientTLSFromFile(caFile, "")
+		if err != nil {
+			return fmt.Errorf("invalid GRPC CA in %s: %w", caFile, err)
+		}
+
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	} else {
+		log.Printf("WARNING: No GRPC CA configured, expecting unencrypted connections")
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
 
 	clientsMap := make(map[string]*GrpcClient)
 	var clients []*GrpcClient
@@ -155,6 +169,7 @@ func (c *GrpcClients) load(config *goconf.ConfigFile) error {
 		clientsMap[target] = client
 	}
 
+	targets, _ := config.GetString("grpc", "targets")
 	for _, target := range strings.Split(targets, ",") {
 		target = strings.TrimSpace(target)
 		if target == "" {
@@ -167,7 +182,7 @@ func (c *GrpcClients) load(config *goconf.ConfigFile) error {
 			continue
 		}
 
-		client, err := NewGrpcClient(target)
+		client, err := NewGrpcClient(target, opts...)
 		if err != nil {
 			for target, client := range clientsMap {
 				if closeerr := client.Close(); closeerr != nil {
