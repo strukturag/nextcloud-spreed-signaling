@@ -45,3 +45,6 @@ The following metrics are available:
 | `signaling_mcu_no_backend_available_total`        | Counter   | 0.4.0     | Total number of publishing requests where no backend was available        | `type`                            |
 | `signaling_room_sessions`                         | Gauge     | 0.4.0     | The current number of sessions in a room                                  | `backend`, `room`, `clienttype`   |
 | `signaling_server_messages_total`                 | Counter   | 0.4.0     | The total number of signaling messages                                    | `type`                            |
+| `signaling_grpc_clients`                          | Gauge     | 1.0.0     | The current number of GRPC clients                                        |                                   |
+| `signaling_grpc_client_calls_total`               | Counter   | 1.0.0     | The total number of GRPC client calls                                     | `method`                          |
+| `signaling_grpc_server_calls_total`               | Counter   | 1.0.0     | The total number of GRPC server calls                                     | `method`                          |

@@ -35,6 +35,10 @@ import (
 	status "google.golang.org/grpc/status"
 )
 
+func init() {
+	RegisterGrpcServerStats()
+}
+
 type GrpcServer struct {
 	UnimplementedRpcMcuServer
 	UnimplementedRpcSessionsServer
@@ -92,6 +96,7 @@ func (s *GrpcServer) Close() {
 }
 
 func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSessionIdRequest) (*LookupSessionIdReply, error) {
+	statsGrpcServerCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Lookup session id for room session id %s", request.RoomSessionId)
 	sid, err := s.hub.roomSessions.GetSessionId(request.RoomSessionId)
@@ -107,6 +112,7 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 }
 
 func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCallRequest) (*IsSessionInCallReply, error) {
+	statsGrpcServerCalls.WithLabelValues("IsSessionInCall").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Check if session %s is in call %s on %s", request.SessionId, request.RoomId, request.BackendUrl)
 	session := s.hub.GetSessionByPublicId(request.SessionId)
@@ -127,6 +133,7 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 }
 
 func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherIdRequest) (*GetPublisherIdReply, error) {
+	statsGrpcServerCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Get %s publisher id for session %s", request.StreamType, request.SessionId)
 	session := s.hub.GetSessionByPublicId(request.SessionId)
