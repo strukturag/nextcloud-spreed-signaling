@@ -33,10 +33,6 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt"
 
-	"go.etcd.io/etcd/client/pkg/v3/srv"
-	"go.etcd.io/etcd/client/pkg/v3/transport"
-	clientv3 "go.etcd.io/etcd/client/v3"
-
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
@@ -50,14 +46,24 @@ type tokenCacheEntry struct {
 }
 
 type tokensEtcd struct {
-	client atomic.Value
+	client *signaling.EtcdClient
 
 	tokenFormats atomic.Value
 	tokenCache   *signaling.LruCache
 }
 
 func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
+	client, err := signaling.NewEtcdClient(config, "tokens")
+	if err != nil {
+		return nil, err
+	}
+
+	if !client.IsConfigured() {
+		return nil, fmt.Errorf("No etcd endpoints configured")
+	}
+
 	result := &tokensEtcd{
+		client:     client,
 		tokenCache: signaling.NewLruCache(tokenCacheSize),
 	}
 	if err := result.load(config, false); err != nil {
@@ -65,15 +71,6 @@ func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
 	}
 
 	return result, nil
-}
-
-func (t *tokensEtcd) getClient() *clientv3.Client {
-	c := t.client.Load()
-	if c == nil {
-		return nil
-	}
-
-	return c.(*clientv3.Client)
 }
 
 func (t *tokensEtcd) getKeys(id string) []string {
@@ -89,7 +86,7 @@ func (t *tokensEtcd) getByKey(id string, key string) (*ProxyToken, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	resp, err := t.getClient().Get(ctx, key)
+	resp, err := t.client.Get(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -139,82 +136,7 @@ func (t *tokensEtcd) Get(id string) (*ProxyToken, error) {
 }
 
 func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
-	var endpoints []string
-	if endpointsString, _ := config.GetString("tokens", "endpoints"); endpointsString != "" {
-		for _, ep := range strings.Split(endpointsString, ",") {
-			ep := strings.TrimSpace(ep)
-			if ep != "" {
-				endpoints = append(endpoints, ep)
-			}
-		}
-	} else if discoverySrv, _ := config.GetString("tokens", "discoverysrv"); discoverySrv != "" {
-		discoveryService, _ := config.GetString("tokens", "discoveryservice")
-		clients, err := srv.GetClient("etcd-client", discoverySrv, discoveryService)
-		if err != nil {
-			if !ignoreErrors {
-				return fmt.Errorf("Could not discover endpoints for %s: %s", discoverySrv, err)
-			}
-		} else {
-			endpoints = clients.Endpoints
-		}
-	}
-
-	if len(endpoints) == 0 {
-		if !ignoreErrors {
-			return fmt.Errorf("No token endpoints configured")
-		}
-
-		log.Printf("No token endpoints configured, not changing client")
-	} else {
-		cfg := clientv3.Config{
-			Endpoints: endpoints,
-
-			// set timeout per request to fail fast when the target endpoint is unavailable
-			DialTimeout: time.Second,
-		}
-
-		clientKey, _ := config.GetString("tokens", "clientkey")
-		clientCert, _ := config.GetString("tokens", "clientcert")
-		caCert, _ := config.GetString("tokens", "cacert")
-		if clientKey != "" && clientCert != "" && caCert != "" {
-			tlsInfo := transport.TLSInfo{
-				CertFile:      clientCert,
-				KeyFile:       clientKey,
-				TrustedCAFile: caCert,
-			}
-			tlsConfig, err := tlsInfo.ClientConfig()
-			if err != nil {
-				if !ignoreErrors {
-					return fmt.Errorf("Could not setup TLS configuration: %s", err)
-				}
-
-				log.Printf("Could not setup TLS configuration, will be disabled (%s)", err)
-			} else {
-				cfg.TLS = tlsConfig
-			}
-		}
-
-		c, err := clientv3.New(cfg)
-		if err != nil {
-			if !ignoreErrors {
-				return err
-			}
-
-			log.Printf("Could not create new client from token endpoints %+v: %s", endpoints, err)
-		} else {
-			prev := t.getClient()
-			if prev != nil {
-				prev.Close()
-			}
-			t.client.Store(c)
-			log.Printf("Using token endpoints %+v", endpoints)
-		}
-	}
-
 	tokenFormat, _ := config.GetString("tokens", "keyformat")
-	if tokenFormat == "" {
-		tokenFormat = "/%s"
-	}
 
 	formats := strings.Split(tokenFormat, ",")
 	var tokenFormats []string
@@ -223,6 +145,9 @@ func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 		if f != "" {
 			tokenFormats = append(tokenFormats, f)
 		}
+	}
+	if len(tokenFormats) == 0 {
+		tokenFormats = []string{"/%s"}
 	}
 
 	t.tokenFormats.Store(tokenFormats)
@@ -237,7 +162,7 @@ func (t *tokensEtcd) Reload(config *goconf.ConfigFile) {
 }
 
 func (t *tokensEtcd) Close() {
-	if client := t.getClient(); client != nil {
-		client.Close()
+	if err := t.client.Close(); err != nil {
+		log.Printf("Error while closing etcd client: %s", err)
 	}
 }

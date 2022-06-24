@@ -43,8 +43,6 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/websocket"
 
-	"go.etcd.io/etcd/client/pkg/v3/srv"
-	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -1051,10 +1049,11 @@ type mcuProxy struct {
 	tokenId  string
 	tokenKey *rsa.PrivateKey
 
-	etcdMu   sync.Mutex
-	client   atomic.Value
-	keyInfos map[string]*ProxyInformationEtcd
-	urlToKey map[string]string
+	etcdMu     sync.Mutex
+	etcdClient *EtcdClient
+	keyPrefix  string
+	keyInfos   map[string]*ProxyInformationEtcd
+	urlToKey   map[string]string
 
 	dialer         *websocket.Dialer
 	connections    []*mcuProxyConnection
@@ -1078,7 +1077,7 @@ type mcuProxy struct {
 	continentsMap atomic.Value
 }
 
-func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
+func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient) (Mcu, error) {
 	urlType, _ := config.GetString("mcu", "urltype")
 	if urlType == "" {
 		urlType = proxyUrlTypeStatic
@@ -1122,6 +1121,8 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 		tokenId:  tokenId,
 		tokenKey: tokenKey,
 
+		etcdClient: etcdClient,
+
 		dialer: &websocket.Dialer{
 			Proxy:            http.ProxyFromEnvironment,
 			HandshakeTimeout: proxyTimeout,
@@ -1161,11 +1162,16 @@ func NewMcuProxy(config *goconf.ConfigFile) (Mcu, error) {
 			return nil, fmt.Errorf("No MCU proxy connections configured")
 		}
 	case proxyUrlTypeEtcd:
+		if !etcdClient.IsConfigured() {
+			return nil, fmt.Errorf("No etcd endpoints configured")
+		}
+
 		mcu.keyInfos = make(map[string]*ProxyInformationEtcd)
 		mcu.urlToKey = make(map[string]string)
 		if err := mcu.configureEtcd(config, false); err != nil {
 			return nil, err
 		}
+		mcu.etcdClient.AddListener(mcu)
 	default:
 		return nil, fmt.Errorf("Unsupported proxy URL type %s", urlType)
 	}
@@ -1211,15 +1217,6 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 	return nil
 }
 
-func (m *mcuProxy) getEtcdClient() *clientv3.Client {
-	c := m.client.Load()
-	if c == nil {
-		return nil
-	}
-
-	return c.(*clientv3.Client)
-}
-
 func (m *mcuProxy) Start() error {
 	m.connectionsMu.RLock()
 	defer m.connectionsMu.RUnlock()
@@ -1241,6 +1238,7 @@ func (m *mcuProxy) Start() error {
 }
 
 func (m *mcuProxy) Stop() {
+	m.etcdClient.RemoveListener(m)
 	m.connectionsMu.RLock()
 	defer m.connectionsMu.RUnlock()
 
@@ -1469,151 +1467,51 @@ func (m *mcuProxy) configureEtcd(config *goconf.ConfigFile, ignoreErrors bool) e
 		keyPrefix = "/%s"
 	}
 
-	var endpoints []string
-	if endpointsString, _ := config.GetString("mcu", "endpoints"); endpointsString != "" {
-		for _, ep := range strings.Split(endpointsString, ",") {
-			ep := strings.TrimSpace(ep)
-			if ep != "" {
-				endpoints = append(endpoints, ep)
-			}
-		}
-	} else if discoverySrv, _ := config.GetString("mcu", "discoverysrv"); discoverySrv != "" {
-		discoveryService, _ := config.GetString("mcu", "discoveryservice")
-		clients, err := srv.GetClient("etcd-client", discoverySrv, discoveryService)
-		if err != nil {
-			if !ignoreErrors {
-				return fmt.Errorf("Could not discover endpoints for %s: %s", discoverySrv, err)
-			}
-		} else {
-			endpoints = clients.Endpoints
-		}
-	}
-
-	if len(endpoints) == 0 {
-		if !ignoreErrors {
-			return fmt.Errorf("No proxy URL endpoints configured")
-		}
-
-		log.Printf("No proxy URL endpoints configured, not changing client")
-	} else {
-		cfg := clientv3.Config{
-			Endpoints: endpoints,
-
-			// set timeout per request to fail fast when the target endpoint is unavailable
-			DialTimeout: time.Second,
-		}
-
-		clientKey, _ := config.GetString("mcu", "clientkey")
-		clientCert, _ := config.GetString("mcu", "clientcert")
-		caCert, _ := config.GetString("mcu", "cacert")
-		if clientKey != "" && clientCert != "" && caCert != "" {
-			tlsInfo := transport.TLSInfo{
-				CertFile:      clientCert,
-				KeyFile:       clientKey,
-				TrustedCAFile: caCert,
-			}
-			tlsConfig, err := tlsInfo.ClientConfig()
-			if err != nil {
-				if !ignoreErrors {
-					return fmt.Errorf("Could not setup TLS configuration: %s", err)
-				}
-
-				log.Printf("Could not setup TLS configuration, will be disabled (%s)", err)
-			} else {
-				cfg.TLS = tlsConfig
-			}
-		}
-
-		c, err := clientv3.New(cfg)
-		if err != nil {
-			if !ignoreErrors {
-				return err
-			}
-
-			log.Printf("Could not create new client from proxy URL endpoints %+v: %s", endpoints, err)
-		} else {
-			prev := m.getEtcdClient()
-			if prev != nil {
-				prev.Close()
-			}
-			m.client.Store(c)
-			log.Printf("Using proxy URL endpoints %+v", endpoints)
-
-			go func(client *clientv3.Client) {
-				log.Printf("Wait for leader and start watching on %s", keyPrefix)
-				ch := client.Watch(clientv3.WithRequireLeader(context.Background()), keyPrefix, clientv3.WithPrefix())
-				log.Printf("Watch created for %s", keyPrefix)
-				m.processWatches(ch)
-			}(c)
-
-			go func() {
-				m.waitForConnection()
-
-				waitDelay := initialWaitDelay
-				for {
-					response, err := m.getProxyUrls(keyPrefix)
-					if err != nil {
-						if err == context.DeadlineExceeded {
-							log.Printf("Timeout getting initial list of proxy URLs, retry in %s", waitDelay)
-						} else {
-							log.Printf("Could not get initial list of proxy URLs, retry in %s: %s", waitDelay, err)
-						}
-
-						time.Sleep(waitDelay)
-						waitDelay = waitDelay * 2
-						if waitDelay > maxWaitDelay {
-							waitDelay = maxWaitDelay
-						}
-						continue
-					}
-
-					for _, ev := range response.Kvs {
-						m.addEtcdProxy(string(ev.Key), ev.Value)
-					}
-					return
-				}
-			}()
-		}
-	}
-
+	m.keyPrefix = keyPrefix
 	return nil
 }
 
-func (m *mcuProxy) getProxyUrls(keyPrefix string) (*clientv3.GetResponse, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	return m.getEtcdClient().Get(ctx, keyPrefix, clientv3.WithPrefix())
-}
-
-func (m *mcuProxy) waitForConnection() {
-	waitDelay := initialWaitDelay
-	for {
-		if err := m.syncClient(); err != nil {
-			if err == context.DeadlineExceeded {
-				log.Printf("Timeout waiting for etcd client to connect to the cluster, retry in %s", waitDelay)
-			} else {
-				log.Printf("Could not sync etcd client with the cluster, retry in %s: %s", waitDelay, err)
-			}
-
-			time.Sleep(waitDelay)
-			waitDelay = waitDelay * 2
-			if waitDelay > maxWaitDelay {
-				waitDelay = maxWaitDelay
-			}
-			continue
+func (m *mcuProxy) EtcdClientCreated(client *EtcdClient) {
+	go func() {
+		if err := client.Watch(context.Background(), m.keyPrefix, m, clientv3.WithPrefix()); err != nil {
+			log.Printf("Error processing watch for %s: %s", m.keyPrefix, err)
 		}
+	}()
 
-		log.Printf("Client using endpoints %+v", m.getEtcdClient().Endpoints())
-		return
-	}
+	go func() {
+		client.WaitForConnection()
+
+		waitDelay := initialWaitDelay
+		for {
+			response, err := m.getProxyUrls(client, m.keyPrefix)
+			if err != nil {
+				if err == context.DeadlineExceeded {
+					log.Printf("Timeout getting initial list of proxy URLs, retry in %s", waitDelay)
+				} else {
+					log.Printf("Could not get initial list of proxy URLs, retry in %s: %s", waitDelay, err)
+				}
+
+				time.Sleep(waitDelay)
+				waitDelay = waitDelay * 2
+				if waitDelay > maxWaitDelay {
+					waitDelay = maxWaitDelay
+				}
+				continue
+			}
+
+			for _, ev := range response.Kvs {
+				m.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
+			}
+			return
+		}
+	}()
 }
 
-func (m *mcuProxy) syncClient() error {
+func (m *mcuProxy) getProxyUrls(client *EtcdClient, keyPrefix string) (*clientv3.GetResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	return m.getEtcdClient().Sync(ctx)
+	return client.Get(ctx, keyPrefix, clientv3.WithPrefix())
 }
 
 func (m *mcuProxy) Reload(config *goconf.ConfigFile) {
@@ -1631,22 +1529,7 @@ func (m *mcuProxy) Reload(config *goconf.ConfigFile) {
 	}
 }
 
-func (m *mcuProxy) processWatches(ch clientv3.WatchChan) {
-	for response := range ch {
-		for _, ev := range response.Events {
-			switch ev.Type {
-			case clientv3.EventTypePut:
-				m.addEtcdProxy(string(ev.Kv.Key), ev.Kv.Value)
-			case clientv3.EventTypeDelete:
-				m.removeEtcdProxy(string(ev.Kv.Key))
-			default:
-				log.Printf("Unsupported event %s %q -> %q", ev.Type, ev.Kv.Key, ev.Kv.Value)
-			}
-		}
-	}
-}
-
-func (m *mcuProxy) addEtcdProxy(key string, data []byte) {
+func (m *mcuProxy) EtcdKeyUpdated(client *EtcdClient, key string, data []byte) {
 	var info ProxyInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
 		log.Printf("Could not decode proxy information %s: %s", string(data), err)
@@ -1700,7 +1583,7 @@ func (m *mcuProxy) addEtcdProxy(key string, data []byte) {
 	}
 }
 
-func (m *mcuProxy) removeEtcdProxy(key string) {
+func (m *mcuProxy) EtcdKeyDeleted(client *EtcdClient, key string) {
 	m.etcdMu.Lock()
 	defer m.etcdMu.Unlock()
 

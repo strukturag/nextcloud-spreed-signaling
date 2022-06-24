@@ -153,6 +153,16 @@ func main() {
 		log.Fatal("Could not create NATS client: ", err)
 	}
 
+	etcdClient, err := signaling.NewEtcdClient(config, "mcu")
+	if err != nil {
+		log.Fatalf("Could not create etcd client: %s", err)
+	}
+	defer func() {
+		if err := etcdClient.Close(); err != nil {
+			log.Printf("Error while closing etcd client: %s", err)
+		}
+	}()
+
 	r := mux.NewRouter()
 	hub, err := signaling.NewHub(config, nats, r, version)
 	if err != nil {
@@ -181,7 +191,7 @@ func main() {
 				signaling.UnregisterProxyMcuStats()
 				signaling.RegisterJanusMcuStats()
 			case signaling.McuTypeProxy:
-				mcu, err = signaling.NewMcuProxy(config)
+				mcu, err = signaling.NewMcuProxy(config, etcdClient)
 				signaling.UnregisterJanusMcuStats()
 				signaling.RegisterProxyMcuStats()
 			default:

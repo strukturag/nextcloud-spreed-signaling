@@ -105,7 +105,7 @@ func newTokensEtcdForTesting(t *testing.T) (*tokensEtcd, *embed.Etcd) {
 	etcd := newEtcdForTesting(t)
 
 	cfg := goconf.NewConfigFile()
-	cfg.AddOption("tokens", "endpoints", etcd.Config().LCUrls[0].String())
+	cfg.AddOption("etcd", "endpoints", etcd.Config().LCUrls[0].String())
 	cfg.AddOption("tokens", "keyformat", "/%s, /testing/%s/key")
 
 	tokens, err := NewProxyTokensEtcd(cfg)
