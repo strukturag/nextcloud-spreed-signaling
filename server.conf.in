@@ -165,21 +165,6 @@ connectionsperhost = 8
 # or deleted as necessary.
 #dnsdiscovery = true
 
-# For url type "etcd": Comma-separated list of static etcd endpoints to
-# connect to.
-#endpoints = 127.0.0.1:2379,127.0.0.1:22379,127.0.0.1:32379
-
-# For url type "etcd": Options to perform endpoint discovery through DNS SRV.
-# Only used if no endpoints are configured manually.
-#discoverysrv = example.com
-#discoveryservice = foo
-
-# For url type "etcd": Path to private key, client certificate and CA
-# certificate if TLS authentication should be used.
-#clientkey = /path/to/etcd-client.key
-#clientcert = /path/to/etcd-client.crt
-#cacert = /path/to/etcd-ca.crt
-
 # For url type "etcd": Key prefix of MCU proxy entries. All keys below will be
 # watched and assumed to contain a JSON document. The entry "address" from this
 # document will be used as proxy URL, other contents in the document will be
@@ -234,3 +219,18 @@ connectionsperhost = 8
 # Comma-separated list of IP addresses that are allowed to access the stats
 # endpoint. Leave empty (or commented) to only allow access from "127.0.0.1".
 #allowed_ips =
+
+[etcd]
+# Comma-separated list of static etcd endpoints to connect to.
+#endpoints = 127.0.0.1:2379,127.0.0.1:22379,127.0.0.1:32379
+
+# Options to perform endpoint discovery through DNS SRV.
+# Only used if no endpoints are configured manually.
+#discoverysrv = example.com
+#discoveryservice = foo
+
+# Path to private key, client certificate and CA certificate if TLS
+# authentication should be used.
+#clientkey = /path/to/etcd-client.key
+#clientcert = /path/to/etcd-client.crt
+#cacert = /path/to/etcd-ca.crt

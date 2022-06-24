@@ -26,21 +26,6 @@ tokentype = static
 #server1 = pubkey1.pem
 #server2 = pubkey2.pem
 
-# For token type "etcd": Comma-separated list of static etcd endpoints to
-# connect to.
-#endpoints = 127.0.0.1:2379,127.0.0.1:22379,127.0.0.1:32379
-
-# For token type "etcd": Options to perform endpoint discovery through DNS SRV.
-# Only used if no endpoints are configured manually.
-#discoverysrv = example.com
-#discoveryservice = foo
-
-# For token type "etcd": Path to private key, client certificate and CA
-# certificate if TLS authentication should be used.
-#clientkey = /path/to/etcd-client.key
-#clientcert = /path/to/etcd-client.crt
-#cacert = /path/to/etcd-ca.crt
-
 # For token type "etcd": Format of key name to retrieve the public key from,
 # "%s" will be replaced with the token id. Multiple possible formats can be
 # comma-separated.
@@ -65,3 +50,18 @@ url = ws://localhost:8188/
 # Comma-separated list of IP addresses that are allowed to access the stats
 # endpoint. Leave empty (or commented) to only allow access from "127.0.0.1".
 #allowed_ips =
+
+[etcd]
+# Comma-separated list of static etcd endpoints to connect to.
+#endpoints = 127.0.0.1:2379,127.0.0.1:22379,127.0.0.1:32379
+
+# Options to perform endpoint discovery through DNS SRV.
+# Only used if no endpoints are configured manually.
+#discoverysrv = example.com
+#discoveryservice = foo
+
+# Path to private key, client certificate and CA certificate if TLS
+# authentication should be used.
+#clientkey = /path/to/etcd-client.key
+#clientcert = /path/to/etcd-client.crt
+#cacert = /path/to/etcd-ca.crt
