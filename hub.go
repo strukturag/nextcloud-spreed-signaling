@@ -592,9 +592,9 @@ func (h *Hub) GetSessionByPublicId(sessionId string) Session {
 		return nil
 	}
 
-	h.mu.Lock()
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	session := h.sessions[data.Sid]
-	h.mu.Unlock()
 	if session != nil && session.PublicId() != sessionId {
 		// Session was created on different server.
 		return nil
@@ -1284,7 +1284,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 			recipientSessionId = msg.Recipient.SessionId
 			h.mu.RLock()
 			sess, found := h.sessions[data.Sid]
-			if found {
+			if found && sess.PublicId() == msg.Recipient.SessionId {
 				if sess, ok := sess.(*ClientSession); ok {
 					recipient = sess
 				}
@@ -1441,7 +1441,7 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 		return
 	}
 
-	var recipient *Client
+	var recipient *ClientSession
 	var subject string
 	var serverRecipient *MessageClientMessageRecipient
 	var recipientSessionId string
@@ -1458,16 +1458,19 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 			subject = "session." + msg.Recipient.SessionId
 			recipientSessionId = msg.Recipient.SessionId
 			h.mu.RLock()
-			recipient = h.clients[data.Sid]
-			if recipient == nil {
+			sess, found := h.sessions[data.Sid]
+			if found && sess.PublicId() == msg.Recipient.SessionId {
+				if sess, ok := sess.(*ClientSession); ok {
+					recipient = sess
+				}
+
 				// Send to client connection for virtual sessions.
-				sess := h.sessions[data.Sid]
-				if sess != nil && sess.ClientType() == HelloClientTypeVirtual {
+				if sess.ClientType() == HelloClientTypeVirtual {
 					virtualSession := sess.(*VirtualSession)
 					clientSession := virtualSession.Session()
 					subject = "session." + clientSession.PublicId()
 					recipientSessionId = clientSession.PublicId()
-					recipient = clientSession.GetClient()
+					recipient = clientSession
 					// The client should see his session id as recipient.
 					serverRecipient = &MessageClientMessageRecipient{
 						Type:      "session",
