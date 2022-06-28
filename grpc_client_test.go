@@ -34,6 +34,21 @@ const (
 	GrpcSelfTargetForTesting = "testing.grpc.target"
 )
 
+func NewGrpcClientsForTest(t *testing.T, addr string) *GrpcClients {
+	config := goconf.NewConfigFile()
+	config.AddOption("grpc", "targets", addr)
+
+	client, err := NewGrpcClients(config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		client.Close()
+	})
+
+	return client
+}
+
 func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) *GrpcClients {
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", etcd.Config().LCUrls[0].String())

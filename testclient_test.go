@@ -124,14 +124,14 @@ func checkMessageType(message *ServerMessage, expectedType string) error {
 	return nil
 }
 
-func checkMessageSender(hub *Hub, message *MessageServerMessage, senderType string, hello *HelloServerMessage) error {
-	if message.Sender.Type != senderType {
-		return fmt.Errorf("Expected sender type %s, got %s", senderType, message.Sender.SessionId)
-	} else if message.Sender.SessionId != hello.SessionId {
+func checkMessageSender(hub *Hub, sender *MessageServerMessageSender, senderType string, hello *HelloServerMessage) error {
+	if sender.Type != senderType {
+		return fmt.Errorf("Expected sender type %s, got %s", senderType, sender.SessionId)
+	} else if sender.SessionId != hello.SessionId {
 		return fmt.Errorf("Expected session id %+v, got %+v",
-			getPubliceSessionIdData(hub, hello.SessionId), getPubliceSessionIdData(hub, message.Sender.SessionId))
-	} else if message.Sender.UserId != hello.UserId {
-		return fmt.Errorf("Expected user id %s, got %s", hello.UserId, message.Sender.UserId)
+			getPubliceSessionIdData(hub, hello.SessionId), getPubliceSessionIdData(hub, sender.SessionId))
+	} else if sender.UserId != hello.UserId {
+		return fmt.Errorf("Expected user id %s, got %s", hello.UserId, sender.UserId)
 	}
 
 	return nil
@@ -143,7 +143,7 @@ func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient
 		return err
 	} else if err := checkMessageType(message, "message"); err != nil {
 		return err
-	} else if err := checkMessageSender(client.hub, message.Message, senderType, hello); err != nil {
+	} else if err := checkMessageSender(client.hub, message.Message.Sender, senderType, hello); err != nil {
 		return err
 	} else {
 		if err := json.Unmarshal(*message.Message.Data, payload); err != nil {
@@ -158,6 +158,29 @@ func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient
 
 func checkReceiveClientMessage(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
 	return checkReceiveClientMessageWithSender(ctx, client, senderType, hello, payload, nil)
+}
+
+func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error {
+	message, err := client.RunUntilMessage(ctx)
+	if err := checkUnexpectedClose(err); err != nil {
+		return err
+	} else if err := checkMessageType(message, "control"); err != nil {
+		return err
+	} else if err := checkMessageSender(client.hub, message.Control.Sender, senderType, hello); err != nil {
+		return err
+	} else {
+		if err := json.Unmarshal(*message.Control.Data, payload); err != nil {
+			return err
+		}
+	}
+	if sender != nil {
+		*sender = message.Message.Sender
+	}
+	return nil
+}
+
+func checkReceiveClientControl(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
+	return checkReceiveClientControlWithSender(ctx, client, senderType, hello, payload, nil)
 }
 
 func checkReceiveClientEvent(ctx context.Context, client *TestClient, eventType string, msg **EventServerMessage) error {
@@ -409,6 +432,25 @@ func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data i
 		Message: &MessageClientMessage{
 			Recipient: recipient,
 			Data:      (*json.RawMessage)(&payload),
+		},
+	}
+	return c.WriteJSON(message)
+}
+
+func (c *TestClient) SendControl(recipient MessageClientMessageRecipient, data interface{}) error {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+
+	message := &ClientMessage{
+		Id:   "abcd",
+		Type: "control",
+		Control: &ControlClientMessage{
+			MessageClientMessage: MessageClientMessage{
+				Recipient: recipient,
+				Data:      (*json.RawMessage)(&payload),
+			},
 		},
 	}
 	return c.WriteJSON(message)

@@ -47,6 +47,13 @@ const (
 	testTimeout = 10 * time.Second
 )
 
+var (
+	clusteredTests = []string{
+		"local",
+		"clustered",
+	}
+)
+
 // Only used for testing.
 func (h *Hub) getRoom(id string) *Room {
 	h.ru.RLock()
@@ -59,6 +66,10 @@ func (h *Hub) getRoom(id string) *Room {
 	}
 
 	return nil
+}
+
+func isLocalTest(t *testing.T) bool {
+	return strings.HasSuffix(t.Name(), "/local")
 }
 
 func getTestConfig(server *httptest.Server) (*goconf.ConfigFile, error) {
@@ -144,6 +155,106 @@ func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, AsyncEvents, *mux
 	registerBackendHandlerUrl(t, r, "/one")
 	registerBackendHandlerUrl(t, r, "/two")
 	return h, events, r, server
+}
+
+func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, *Hub, *httptest.Server, *httptest.Server) {
+	r1 := mux.NewRouter()
+	registerBackendHandler(t, r1)
+
+	server1 := httptest.NewServer(r1)
+	t.Cleanup(func() {
+		server1.Close()
+	})
+
+	r2 := mux.NewRouter()
+	registerBackendHandler(t, r2)
+
+	server2 := httptest.NewServer(r2)
+	t.Cleanup(func() {
+		server2.Close()
+	})
+
+	nats := startLocalNatsServer(t)
+	grpcServer1, addr1 := NewGrpcServerForTest(t)
+	grpcServer2, addr2 := NewGrpcServerForTest(t)
+
+	events1, err := NewAsyncEvents(nats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		events1.Close()
+	})
+	config1, err := getConfigFunc(server1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client1 := NewGrpcClientsForTest(t, addr2)
+	h1, err := NewHub(config1, events1, client1, r1, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b1, err := NewBackendServer(config1, h1, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events2, err := NewAsyncEvents(nats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		events2.Close()
+	})
+	config2, err := getConfigFunc(server2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client2 := NewGrpcClientsForTest(t, addr1)
+	h2, err := NewHub(config2, events2, client2, r2, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, err := NewBackendServer(config2, h2, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b1.Start(r1); err != nil {
+		t.Fatal(err)
+	}
+	if err := b2.Start(r2); err != nil {
+		t.Fatal(err)
+	}
+
+	grpcServer1.hub = h1
+	grpcServer2.hub = h2
+
+	go func() {
+		if err := grpcServer1.Run(); err != nil {
+			t.Errorf("Could not start RPC server on %s: %s", addr1, err)
+		}
+	}()
+	go func() {
+		if err := grpcServer2.Run(); err != nil {
+			t.Errorf("Could not start RPC server on %s: %s", addr2, err)
+		}
+	}()
+
+	go h1.Run()
+	go h2.Run()
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+
+		WaitForHub(ctx, t, h1)
+		WaitForHub(ctx, t, h2)
+	})
+
+	return h1, h2, server1, server2
+}
+
+func CreateClusteredHubsForTest(t *testing.T) (*Hub, *Hub, *httptest.Server, *httptest.Server) {
+	return CreateClusteredHubsForTestWithConfig(t, getTestConfig)
 }
 
 func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
@@ -1338,6 +1449,152 @@ func TestClientHelloInternal(t *testing.T) {
 }
 
 func TestClientMessageToSessionId(t *testing.T) {
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
+
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if hello1.Hello.SessionId == hello2.Hello.SessionId {
+				t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
+			}
+
+			recipient1 := MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello1.Hello.SessionId,
+			}
+			recipient2 := MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello2.Hello.SessionId,
+			}
+
+			data1 := "from-1-to-2"
+			client1.SendMessage(recipient2, data1) // nolint
+			data2 := "from-2-to-1"
+			client2.SendMessage(recipient1, data2) // nolint
+
+			var payload string
+			if err := checkReceiveClientMessage(ctx, client1, "session", hello2.Hello, &payload); err != nil {
+				t.Error(err)
+			} else if payload != data2 {
+				t.Errorf("Expected payload %s, got %s", data2, payload)
+			}
+			if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload); err != nil {
+				t.Error(err)
+			} else if payload != data1 {
+				t.Errorf("Expected payload %s, got %s", data1, payload)
+			}
+		})
+	}
+}
+
+func TestClientControlToSessionId(t *testing.T) {
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
+
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if hello1.Hello.SessionId == hello2.Hello.SessionId {
+				t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
+			}
+
+			recipient1 := MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello1.Hello.SessionId,
+			}
+			recipient2 := MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello2.Hello.SessionId,
+			}
+
+			data1 := "from-1-to-2"
+			client1.SendControl(recipient2, data1) // nolint
+			data2 := "from-2-to-1"
+			client2.SendControl(recipient1, data2) // nolint
+
+			var payload string
+			if err := checkReceiveClientControl(ctx, client1, "session", hello2.Hello, &payload); err != nil {
+				t.Error(err)
+			} else if payload != data2 {
+				t.Errorf("Expected payload %s, got %s", data2, payload)
+			}
+			if err := checkReceiveClientControl(ctx, client2, "session", hello1.Hello, &payload); err != nil {
+				t.Error(err)
+			} else if payload != data1 {
+				t.Errorf("Expected payload %s, got %s", data1, payload)
+			}
+		})
+	}
+}
+
+func TestClientControlMissingPermissions(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -1367,6 +1624,27 @@ func TestClientMessageToSessionId(t *testing.T) {
 		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
 	}
 
+	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+	if session1 == nil {
+		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
+	}
+	session2 := hub.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+	if session2 == nil {
+		t.Fatalf("Session %s does not exist", hello2.Hello.SessionId)
+	}
+
+	// Client 1 may not send control messages (will be ignored).
+	session1.SetPermissions([]Permission{
+		PERMISSION_MAY_PUBLISH_AUDIO,
+		PERMISSION_MAY_PUBLISH_VIDEO,
+	})
+	// Client 2 may send control messages.
+	session2.SetPermissions([]Permission{
+		PERMISSION_MAY_PUBLISH_AUDIO,
+		PERMISSION_MAY_PUBLISH_VIDEO,
+		PERMISSION_MAY_CONTROL,
+	})
+
 	recipient1 := MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
@@ -1377,20 +1655,26 @@ func TestClientMessageToSessionId(t *testing.T) {
 	}
 
 	data1 := "from-1-to-2"
-	client1.SendMessage(recipient2, data1) // nolint
+	client1.SendControl(recipient2, data1) // nolint
 	data2 := "from-2-to-1"
-	client2.SendMessage(recipient1, data2) // nolint
+	client2.SendControl(recipient1, data2) // nolint
 
 	var payload string
-	if err := checkReceiveClientMessage(ctx, client1, "session", hello2.Hello, &payload); err != nil {
+	if err := checkReceiveClientControl(ctx, client1, "session", hello2.Hello, &payload); err != nil {
 		t.Error(err)
 	} else if payload != data2 {
 		t.Errorf("Expected payload %s, got %s", data2, payload)
 	}
-	if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data1 {
-		t.Errorf("Expected payload %s, got %s", data1, payload)
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel2()
+
+	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err != nil {
+		if err != ErrNoMessageReceived {
+			t.Error(err)
+		}
+	} else {
+		t.Errorf("Expected no payload, got %+v", payload)
 	}
 }
 
@@ -1448,6 +1732,66 @@ func TestClientMessageToUserId(t *testing.T) {
 	}
 
 	if err := checkReceiveClientMessage(ctx, client2, "user", hello1.Hello, &payload); err != nil {
+		t.Error(err)
+	} else if payload != data1 {
+		t.Errorf("Expected payload %s, got %s", data1, payload)
+	}
+}
+
+func TestClientControlToUserId(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+		t.Fatal(err)
+	}
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hello2, err := client2.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if hello1.Hello.SessionId == hello2.Hello.SessionId {
+		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
+	} else if hello1.Hello.UserId == hello2.Hello.UserId {
+		t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
+	}
+
+	recipient1 := MessageClientMessageRecipient{
+		Type:   "user",
+		UserId: hello1.Hello.UserId,
+	}
+	recipient2 := MessageClientMessageRecipient{
+		Type:   "user",
+		UserId: hello2.Hello.UserId,
+	}
+
+	data1 := "from-1-to-2"
+	client1.SendControl(recipient2, data1) // nolint
+	data2 := "from-2-to-1"
+	client2.SendControl(recipient1, data2) // nolint
+
+	var payload string
+	if err := checkReceiveClientControl(ctx, client1, "user", hello2.Hello, &payload); err != nil {
+		t.Error(err)
+	} else if payload != data2 {
+		t.Errorf("Expected payload %s, got %s", data2, payload)
+	}
+
+	if err := checkReceiveClientControl(ctx, client2, "user", hello1.Hello, &payload); err != nil {
 		t.Error(err)
 	} else if payload != data1 {
 		t.Errorf("Expected payload %s, got %s", data1, payload)
@@ -1577,76 +1921,182 @@ func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, 
 }
 
 func TestClientMessageToRoom(t *testing.T) {
-	hub, _, _, server := CreateHubForTest(t)
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
 
-	client1 := NewTestClient(t, server, hub)
-	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if hello1.Hello.SessionId == hello2.Hello.SessionId {
+				t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
+			} else if hello1.Hello.UserId == hello2.Hello.UserId {
+				t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
+			}
+
+			// Join room by id.
+			roomId := "test-room"
+			if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			// Give message processing some time.
+			time.Sleep(10 * time.Millisecond)
+
+			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+			recipient := MessageClientMessageRecipient{
+				Type: "room",
+			}
+
+			data1 := "from-1-to-2"
+			client1.SendMessage(recipient, data1) // nolint
+			data2 := "from-2-to-1"
+			client2.SendMessage(recipient, data2) // nolint
+
+			var payload string
+			if err := checkReceiveClientMessage(ctx, client1, "room", hello2.Hello, &payload); err != nil {
+				t.Error(err)
+			} else if payload != data2 {
+				t.Errorf("Expected payload %s, got %s", data2, payload)
+			}
+
+			if err := checkReceiveClientMessage(ctx, client2, "room", hello1.Hello, &payload); err != nil {
+				t.Error(err)
+			} else if payload != data1 {
+				t.Errorf("Expected payload %s, got %s", data1, payload)
+			}
+		})
 	}
-	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+}
 
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
-	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestClientControlToRoom(t *testing.T) {
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
 
-	if hello1.Hello.SessionId == hello2.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	} else if hello1.Hello.UserId == hello2.Hello.UserId {
-		t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
-	}
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
 
-	// Join room by id.
-	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
 
-	// Give message processing some time.
-	time.Sleep(10 * time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
 
-	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	recipient := MessageClientMessageRecipient{
-		Type: "room",
-	}
+			if hello1.Hello.SessionId == hello2.Hello.SessionId {
+				t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
+			} else if hello1.Hello.UserId == hello2.Hello.UserId {
+				t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
+			}
 
-	data1 := "from-1-to-2"
-	client1.SendMessage(recipient, data1) // nolint
-	data2 := "from-2-to-1"
-	client2.SendMessage(recipient, data2) // nolint
+			// Join room by id.
+			roomId := "test-room"
+			if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
 
-	var payload string
-	if err := checkReceiveClientMessage(ctx, client1, "room", hello2.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data2 {
-		t.Errorf("Expected payload %s, got %s", data2, payload)
-	}
+			// Give message processing some time.
+			time.Sleep(10 * time.Millisecond)
 
-	if err := checkReceiveClientMessage(ctx, client2, "room", hello1.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data1 {
-		t.Errorf("Expected payload %s, got %s", data1, payload)
+			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+			recipient := MessageClientMessageRecipient{
+				Type: "room",
+			}
+
+			data1 := "from-1-to-2"
+			client1.SendControl(recipient, data1) // nolint
+			data2 := "from-2-to-1"
+			client2.SendControl(recipient, data2) // nolint
+
+			var payload string
+			if err := checkReceiveClientControl(ctx, client1, "room", hello2.Hello, &payload); err != nil {
+				t.Error(err)
+			} else if payload != data2 {
+				t.Errorf("Expected payload %s, got %s", data2, payload)
+			}
+
+			if err := checkReceiveClientControl(ctx, client2, "room", hello1.Hello, &payload); err != nil {
+				t.Error(err)
+			} else if payload != data1 {
+				t.Errorf("Expected payload %s, got %s", data1, payload)
+			}
+		})
 	}
 }
 
@@ -2913,187 +3363,206 @@ loop:
 }
 
 func TestClientRequestOfferNotInRoom(t *testing.T) {
-	hub, _, _, server := CreateHubForTest(t)
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
 
-	mcu, err := NewTestMCU()
-	if err != nil {
-		t.Fatal(err)
-	} else if err := mcu.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer mcu.Stop()
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
 
-	hub.SetMcu(mcu)
+			mcu, err := NewTestMCU()
+			if err != nil {
+				t.Fatal(err)
+			} else if err := mcu.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer mcu.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
+			hub1.SetMcu(mcu)
+			hub2.SetMcu(mcu)
 
-	client1 := NewTestClient(t, server, hub)
-	defer client1.CloseWithBye()
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
 
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
 
-	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
 
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
 
-	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
 
-	// Join room by id.
-	roomId := "test-room"
-	if room, err := client1.JoinRoomWithRoomSession(ctx, roomId, "roomsession1"); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	// We will receive a "joined" event.
-	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
+			// Join room by id.
+			roomId := "test-room"
+			if room, err := client1.JoinRoomWithRoomSession(ctx, roomId, "roomsession1"); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
 
-	// Client 2 may not request an offer (he is not in the room yet).
-	if err := client2.SendMessage(MessageClientMessageRecipient{
-		Type:      "session",
-		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
-		Type:     "requestoffer",
-		Sid:      "12345",
-		RoomType: "screen",
-	}); err != nil {
-		t.Fatal(err)
-	}
+			// We will receive a "joined" event.
+			if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
+				t.Error(err)
+			}
 
-	if msg, err := client2.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageError(msg, "not_allowed"); err != nil {
-			t.Fatal(err)
-		}
-	}
+			// Client 2 may not request an offer (he is not in the room yet).
+			if err := client2.SendMessage(MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello1.Hello.SessionId,
+			}, MessageClientMessageData{
+				Type:     "requestoffer",
+				Sid:      "12345",
+				RoomType: "screen",
+			}); err != nil {
+				t.Fatal(err)
+			}
 
-	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+			if msg, err := client2.RunUntilMessage(ctx); err != nil {
+				t.Fatal(err)
+			} else {
+				if err := checkMessageError(msg, "not_allowed"); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	// We will receive a "joined" event.
-	if err := client1.RunUntilJoined(ctx, hello2.Hello); err != nil {
-		t.Error(err)
-	}
-	if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-		t.Error(err)
-	}
+			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
 
-	// Client 2 may not request an offer (he is not in the call yet).
-	if err := client2.SendMessage(MessageClientMessageRecipient{
-		Type:      "session",
-		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
-		Type:     "requestoffer",
-		Sid:      "12345",
-		RoomType: "screen",
-	}); err != nil {
-		t.Fatal(err)
-	}
+			// We will receive a "joined" event.
+			if err := client1.RunUntilJoined(ctx, hello2.Hello); err != nil {
+				t.Error(err)
+			}
+			if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
+				t.Error(err)
+			}
 
-	if msg, err := client2.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageError(msg, "not_allowed"); err != nil {
-			t.Fatal(err)
-		}
-	}
+			// Client 2 may not request an offer (he is not in the call yet).
+			if err := client2.SendMessage(MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello1.Hello.SessionId,
+			}, MessageClientMessageData{
+				Type:     "requestoffer",
+				Sid:      "12345",
+				RoomType: "screen",
+			}); err != nil {
+				t.Fatal(err)
+			}
 
-	// Simulate request from the backend that somebody joined the call.
-	users1 := []map[string]interface{}{
-		{
-			"sessionId": hello2.Hello.SessionId,
-			"inCall":    1,
-		},
-	}
-	room := hub.getRoom(roomId)
-	if room == nil {
-		t.Fatalf("Could not find room %s", roomId)
-	}
-	room.PublishUsersInCallChanged(users1, users1)
-	if err := checkReceiveClientEvent(ctx, client1, "update", nil); err != nil {
-		t.Error(err)
-	}
-	if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
-		t.Error(err)
-	}
+			if msg, err := client2.RunUntilMessage(ctx); err != nil {
+				t.Fatal(err)
+			} else {
+				if err := checkMessageError(msg, "not_allowed"); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	// Client 2 may not request an offer (recipient is not in the call yet).
-	if err := client2.SendMessage(MessageClientMessageRecipient{
-		Type:      "session",
-		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
-		Type:     "requestoffer",
-		Sid:      "12345",
-		RoomType: "screen",
-	}); err != nil {
-		t.Fatal(err)
-	}
+			// Simulate request from the backend that somebody joined the call.
+			users1 := []map[string]interface{}{
+				{
+					"sessionId": hello2.Hello.SessionId,
+					"inCall":    1,
+				},
+			}
+			room2 := hub2.getRoom(roomId)
+			if room2 == nil {
+				t.Fatalf("Could not find room %s", roomId)
+			}
+			room2.PublishUsersInCallChanged(users1, users1)
+			if err := checkReceiveClientEvent(ctx, client1, "update", nil); err != nil {
+				t.Error(err)
+			}
+			if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
+				t.Error(err)
+			}
 
-	if msg, err := client2.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageError(msg, "not_allowed"); err != nil {
-			t.Fatal(err)
-		}
-	}
+			// Client 2 may not request an offer (recipient is not in the call yet).
+			if err := client2.SendMessage(MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello1.Hello.SessionId,
+			}, MessageClientMessageData{
+				Type:     "requestoffer",
+				Sid:      "12345",
+				RoomType: "screen",
+			}); err != nil {
+				t.Fatal(err)
+			}
 
-	// Simulate request from the backend that somebody joined the call.
-	users2 := []map[string]interface{}{
-		{
-			"sessionId": hello1.Hello.SessionId,
-			"inCall":    1,
-		},
-	}
-	room.PublishUsersInCallChanged(users2, users2)
-	if err := checkReceiveClientEvent(ctx, client1, "update", nil); err != nil {
-		t.Error(err)
-	}
-	if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
-		t.Error(err)
-	}
+			if msg, err := client2.RunUntilMessage(ctx); err != nil {
+				t.Fatal(err)
+			} else {
+				if err := checkMessageError(msg, "not_allowed"); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	// Client 2 may request an offer now (both are in the same room and call).
-	if err := client2.SendMessage(MessageClientMessageRecipient{
-		Type:      "session",
-		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
-		Type:     "requestoffer",
-		Sid:      "12345",
-		RoomType: "screen",
-	}); err != nil {
-		t.Fatal(err)
-	}
+			// Simulate request from the backend that somebody joined the call.
+			users2 := []map[string]interface{}{
+				{
+					"sessionId": hello1.Hello.SessionId,
+					"inCall":    1,
+				},
+			}
+			room1 := hub1.getRoom(roomId)
+			if room1 == nil {
+				t.Fatalf("Could not find room %s", roomId)
+			}
+			room1.PublishUsersInCallChanged(users2, users2)
+			if err := checkReceiveClientEvent(ctx, client1, "update", nil); err != nil {
+				t.Error(err)
+			}
+			if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
+				t.Error(err)
+			}
 
-	if msg, err := client2.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		// We check for "client_not_found" as the testing MCU doesn't support publishing/subscribing.
-		if err := checkMessageError(msg, "client_not_found"); err != nil {
-			t.Fatal(err)
-		}
-	}
+			// Client 2 may request an offer now (both are in the same room and call).
+			if err := client2.SendMessage(MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello1.Hello.SessionId,
+			}, MessageClientMessageData{
+				Type:     "requestoffer",
+				Sid:      "12345",
+				RoomType: "screen",
+			}); err != nil {
+				t.Fatal(err)
+			}
 
+			if msg, err := client2.RunUntilMessage(ctx); err != nil {
+				t.Fatal(err)
+			} else {
+				// We check for "client_not_found" as the testing MCU doesn't support publishing/subscribing.
+				if err := checkMessageError(msg, "client_not_found"); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
 }
 
 func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
@@ -3273,5 +3742,117 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 		}
 	} else {
 		t.Errorf("Expected no payload, got %+v", payload)
+	}
+}
+
+func TestClientSendOffer(t *testing.T) {
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
+
+			mcu, err := NewTestMCU()
+			if err != nil {
+				t.Fatal(err)
+			} else if err := mcu.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer mcu.Stop()
+
+			hub1.SetMcu(mcu)
+			hub2.SetMcu(mcu)
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
+
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Join room by id.
+			roomId := "test-room"
+			if room, err := client1.JoinRoomWithRoomSession(ctx, roomId, "roomsession1"); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			// Give message processing some time.
+			time.Sleep(10 * time.Millisecond)
+
+			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+			if err := client1.SendMessage(MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello1.Hello.SessionId,
+			}, MessageClientMessageData{
+				Type:     "offer",
+				Sid:      "12345",
+				RoomType: "video",
+				Payload: map[string]interface{}{
+					"sdp": MockSdpOfferAudioAndVideo,
+				},
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := client1.SendMessage(MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello2.Hello.SessionId,
+			}, MessageClientMessageData{
+				Type:     "sendoffer",
+				RoomType: "video",
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			if msg, err := client1.RunUntilMessage(ctx); err != nil {
+				t.Fatal(err)
+			} else {
+				if err := checkMessageError(msg, "client_not_found"); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
 	}
 }
