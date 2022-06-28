@@ -1017,6 +1017,68 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			s.LeaveRoom(false)
 			defer s.closeAndWait(false)
 		}
+	case "sendoffer":
+		// Process asynchronously to not block other messages received.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), s.hub.mcuTimeout)
+			defer cancel()
+
+			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, message.SendOffer.Data.RoomType)
+			if err != nil {
+				log.Printf("Could not create MCU subscriber for session %s to process sendoffer in %s: %s", message.SendOffer.SessionId, s.PublicId(), err)
+				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
+					Type: "message",
+					Message: &ServerMessage{
+						Id:    message.SendOffer.MessageId,
+						Type:  "error",
+						Error: NewError("client_not_found", "No MCU client found to send message to."),
+					},
+				}); err != nil {
+					log.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
+				}
+				return
+			} else if mc == nil {
+				log.Printf("No MCU subscriber found for session %s to process sendoffer in %s", message.SendOffer.SessionId, s.PublicId())
+				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
+					Type: "message",
+					Message: &ServerMessage{
+						Id:    message.SendOffer.MessageId,
+						Type:  "error",
+						Error: NewError("client_not_found", "No MCU client found to send message to."),
+					},
+				}); err != nil {
+					log.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
+				}
+				return
+			}
+
+			mc.SendMessage(context.TODO(), nil, message.SendOffer.Data, func(err error, response map[string]interface{}) {
+				if err != nil {
+					log.Printf("Could not send MCU message %+v for session %s to %s: %s", message.SendOffer.Data, message.SendOffer.SessionId, s.PublicId(), err)
+					if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
+						Type: "message",
+						Message: &ServerMessage{
+							Id:    message.SendOffer.MessageId,
+							Type:  "error",
+							Error: NewError("processing_failed", "Processing of the message failed, please check server logs."),
+						},
+					}); err != nil {
+						log.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
+					}
+					return
+				} else if response == nil {
+					// No response received
+					return
+				}
+
+				s.hub.sendMcuMessageResponse(s, mc, &MessageClientMessage{
+					Recipient: MessageClientMessageRecipient{
+						SessionId: message.SendOffer.SessionId,
+					},
+				}, message.SendOffer.Data, response)
+			})
+		}()
+		return
 	}
 
 	serverMessage := s.filterAsyncMessage(message)

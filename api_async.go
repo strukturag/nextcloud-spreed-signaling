@@ -36,6 +36,8 @@ type AsyncMessage struct {
 
 	AsyncRoom *AsyncRoomMessage `json:"asyncroom,omitempty"`
 
+	SendOffer *SendOfferMessage `json:"sendoffer,omitempty"`
+
 	Id string `json:"id"`
 }
 
@@ -43,4 +45,10 @@ type AsyncRoomMessage struct {
 	Type string `json:"type"`
 
 	SessionId string `json:"sessionid,omitempty"`
+}
+
+type SendOfferMessage struct {
+	MessageId string                    `json:"messageid,omitempty"`
+	SessionId string                    `json:"sessionid"`
+	Data      *MessageClientMessageData `json:"data"`
 }
