@@ -114,6 +114,7 @@ common: common_easyjson common_proto
 common_easyjson: \
 	api_async_easyjson.go \
 	api_backend_easyjson.go \
+	api_grpc_easyjson.go \
 	api_proxy_easyjson.go \
 	api_signaling_easyjson.go
 

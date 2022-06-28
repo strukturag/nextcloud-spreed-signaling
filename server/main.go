@@ -164,7 +164,7 @@ func main() {
 		}
 	}()
 
-	rpcClients, err := signaling.NewGrpcClients(config)
+	rpcClients, err := signaling.NewGrpcClients(config, etcdClient)
 	if err != nil {
 		log.Fatalf("Could not create RPC clients: %s", err)
 	}

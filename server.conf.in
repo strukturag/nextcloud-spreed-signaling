@@ -249,5 +249,28 @@ connectionsperhost = 8
 # Omit to expect unencrypted connections.
 #ca = /path/to/grpc-ca.crt
 
-# Comma-separated list of GRPC targets to connect to for clustering mode.
-#targets = 192.168.0.1:9090, 192.168.0.1:9091
+# Type of GRPC target configuration.
+# Defaults to "static".
+#
+# Possible values:
+# - static: A comma-separated list of targets is given in the "targets" option.
+# - etcd: Target URLs are retrieved from an etcd cluster.
+#targettype = static
+
+# For target type "static": Comma-separated list of GRPC targets to connect to
+# for clustering mode.
+#targets = 192.168.0.1:9090, 192.168.0.2:9090
+
+# For target type "etcd": Key prefix of GRPC target entries. All keys below will
+# be watched and assumed to contain a JSON document. The entry "address" from
+# this document will be used as target URL, other contents in the document will
+# be ignored.
+#
+# Example:
+# "/signaling/cluster/grpc/one" -> {"address": "192.168.0.1:9090"}
+# "/signaling/cluster/grpc/two" -> {"address": "192.168.0.2:9090"}
+#targetprefix = /signaling/cluster/grpc
+
+# For target type "etcd": Address of this signaling server instance. Will be
+# ignored when retrieved from the etcd cluster to avoid loopback connections.
+#targetself = 192.168.0.1:9090

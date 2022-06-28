@@ -23,18 +23,29 @@ package signaling
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/dlintw/goconf"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	status "google.golang.org/grpc/status"
+)
+
+const (
+	GrpcTargetTypeStatic = "static"
+	GrpcTargetTypeEtcd   = "etcd"
+
+	DefaultGrpcTargetType = GrpcTargetTypeStatic
 )
 
 func init() {
@@ -140,10 +151,25 @@ type GrpcClients struct {
 
 	clientsMap map[string]*GrpcClient
 	clients    []*GrpcClient
+
+	etcdClient        *EtcdClient
+	targetPrefix      string
+	targetSelf        string
+	targetInformation map[string]*GrpcTargetInformationEtcd
+	dialOptions       atomic.Value // []grpc.DialOption
+
+	initializedCtx       context.Context
+	initializedFunc      context.CancelFunc
+	wakeupChanForTesting chan bool
 }
 
-func NewGrpcClients(config *goconf.ConfigFile) (*GrpcClients, error) {
-	result := &GrpcClients{}
+func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcClients, error) {
+	initializedCtx, initializedFunc := context.WithCancel(context.Background())
+	result := &GrpcClients{
+		etcdClient:      etcdClient,
+		initializedCtx:  initializedCtx,
+		initializedFunc: initializedFunc,
+	}
 	if err := result.load(config); err != nil {
 		return nil, err
 	}
@@ -151,9 +177,6 @@ func NewGrpcClients(config *goconf.ConfigFile) (*GrpcClients, error) {
 }
 
 func (c *GrpcClients) load(config *goconf.ConfigFile) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	var opts []grpc.DialOption
 	caFile, _ := config.GetString("grpc", "ca")
 	if caFile != "" {
@@ -167,6 +190,25 @@ func (c *GrpcClients) load(config *goconf.ConfigFile) error {
 		log.Printf("WARNING: No GRPC CA configured, expecting unencrypted connections")
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
+
+	targetType, _ := config.GetString("grpc", "targettype")
+	if targetType == "" {
+		targetType = DefaultGrpcTargetType
+	}
+
+	switch targetType {
+	case GrpcTargetTypeStatic:
+		return c.loadTargetsStatic(config, opts...)
+	case GrpcTargetTypeEtcd:
+		return c.loadTargetsEtcd(config, opts...)
+	default:
+		return fmt.Errorf("unknown GRPC target type: %s", targetType)
+	}
+}
+
+func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, opts ...grpc.DialOption) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	clientsMap := make(map[string]*GrpcClient)
 	var clients []*GrpcClient
@@ -216,8 +258,183 @@ func (c *GrpcClients) load(config *goconf.ConfigFile) error {
 
 	c.clients = clients
 	c.clientsMap = clientsMap
+	c.initializedFunc()
 	statsGrpcClients.Set(float64(len(clients)))
 	return nil
+}
+
+func (c *GrpcClients) loadTargetsEtcd(config *goconf.ConfigFile, opts ...grpc.DialOption) error {
+	if !c.etcdClient.IsConfigured() {
+		return fmt.Errorf("No etcd endpoints configured")
+	}
+
+	targetPrefix, _ := config.GetString("grpc", "targetprefix")
+	if targetPrefix == "" {
+		return fmt.Errorf("No GRPC target prefix configured")
+	}
+	c.targetPrefix = targetPrefix
+	if c.targetInformation == nil {
+		c.targetInformation = make(map[string]*GrpcTargetInformationEtcd)
+	}
+
+	targetSelf, _ := config.GetString("grpc", "targetself")
+	c.targetSelf = targetSelf
+
+	if opts == nil {
+		opts = make([]grpc.DialOption, 0)
+	}
+	c.dialOptions.Store(opts)
+
+	c.etcdClient.AddListener(c)
+	return nil
+}
+
+func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
+	go func() {
+		if err := client.Watch(context.Background(), c.targetPrefix, c, clientv3.WithPrefix()); err != nil {
+			log.Printf("Error processing watch for %s: %s", c.targetPrefix, err)
+		}
+	}()
+
+	go func() {
+		client.WaitForConnection()
+
+		waitDelay := initialWaitDelay
+		for {
+			response, err := c.getGrpcTargets(client, c.targetPrefix)
+			if err != nil {
+				if err == context.DeadlineExceeded {
+					log.Printf("Timeout getting initial list of GRPC targets, retry in %s", waitDelay)
+				} else {
+					log.Printf("Could not get initial list of GRPC targets, retry in %s: %s", waitDelay, err)
+				}
+
+				time.Sleep(waitDelay)
+				waitDelay = waitDelay * 2
+				if waitDelay > maxWaitDelay {
+					waitDelay = maxWaitDelay
+				}
+				continue
+			}
+
+			for _, ev := range response.Kvs {
+				c.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
+			}
+			c.initializedFunc()
+			return
+		}
+	}()
+}
+
+func (c *GrpcClients) getGrpcTargets(client *EtcdClient, targetPrefix string) (*clientv3.GetResponse, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	return client.Get(ctx, targetPrefix, clientv3.WithPrefix())
+}
+
+func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte) {
+	var info GrpcTargetInformationEtcd
+	if err := json.Unmarshal(data, &info); err != nil {
+		log.Printf("Could not decode GRPC target %s=%s: %s", key, string(data), err)
+		return
+	}
+	if err := info.CheckValid(); err != nil {
+		log.Printf("Received invalid GRPC target %s=%s: %s", key, string(data), err)
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	prev, found := c.targetInformation[key]
+	if found && prev.Address != info.Address {
+		// Address of endpoint has changed, remove old one.
+		c.removeEtcdClientLocked(key)
+	}
+
+	if c.targetSelf != "" && info.Address == c.targetSelf {
+		log.Printf("GRPC target %s is this server, ignoring %s", info.Address, key)
+		c.wakeupForTesting()
+		return
+	}
+
+	if _, found := c.clientsMap[info.Address]; found {
+		log.Printf("GRPC target %s already exists, ignoring %s", info.Address, key)
+		return
+	}
+
+	opts := c.dialOptions.Load().([]grpc.DialOption)
+	cl, err := NewGrpcClient(info.Address, opts...)
+	if err != nil {
+		log.Printf("Could not create GRPC client for target %s: %s", info.Address, err)
+		return
+	}
+
+	log.Printf("Adding %s as GRPC target", info.Address)
+
+	if c.clientsMap == nil {
+		c.clientsMap = make(map[string]*GrpcClient)
+	}
+	c.clientsMap[info.Address] = cl
+	c.clients = append(c.clients, cl)
+	c.targetInformation[key] = &info
+	statsGrpcClients.Inc()
+	c.wakeupForTesting()
+}
+
+func (c *GrpcClients) EtcdKeyDeleted(client *EtcdClient, key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.removeEtcdClientLocked(key)
+}
+
+func (c *GrpcClients) removeEtcdClientLocked(key string) {
+	info, found := c.targetInformation[key]
+	if !found {
+		log.Printf("No connection found for %s, ignoring", key)
+		c.wakeupForTesting()
+		return
+	}
+
+	delete(c.targetInformation, key)
+	client, found := c.clientsMap[info.Address]
+	if !found {
+		return
+	}
+
+	log.Printf("Removing connection to %s (from %s)", info.Address, key)
+	if err := client.Close(); err != nil {
+		log.Printf("Error closing client to %s: %s", client.Target(), err)
+	}
+	delete(c.clientsMap, info.Address)
+	c.clients = make([]*GrpcClient, 0, len(c.clientsMap))
+	for _, client := range c.clientsMap {
+		c.clients = append(c.clients, client)
+	}
+	statsGrpcClients.Dec()
+	c.wakeupForTesting()
+}
+
+func (c *GrpcClients) WaitForInitialized(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.initializedCtx.Done():
+		return nil
+	}
+}
+
+func (c *GrpcClients) wakeupForTesting() {
+	if c.wakeupChanForTesting == nil {
+		return
+	}
+
+	select {
+	case c.wakeupChanForTesting <- true:
+	default:
+	}
 }
 
 func (c *GrpcClients) Reload(config *goconf.ConfigFile) {
@@ -238,6 +455,10 @@ func (c *GrpcClients) Close() {
 
 	c.clients = nil
 	c.clientsMap = nil
+
+	if c.etcdClient != nil {
+		c.etcdClient.RemoveListener(c)
+	}
 }
 
 func (c *GrpcClients) GetClients() []*GrpcClient {
