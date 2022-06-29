@@ -23,6 +23,8 @@ package signaling
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -33,6 +35,7 @@ import (
 func NewGrpcClientsForTest(t *testing.T, addr string) *GrpcClients {
 	config := goconf.NewConfigFile()
 	config.AddOption("grpc", "targets", addr)
+	config.AddOption("grpc", "dnsdiscovery", "true")
 
 	client, err := NewGrpcClients(config, nil)
 	if err != nil {
@@ -194,5 +197,63 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 		t.Errorf("Expected one client, got %+v", clients)
 	} else if clients[0].Target() != addr1 {
 		t.Errorf("Expected target %s, got %s", addr1, clients[0].Target())
+	}
+}
+
+func Test_GrpcClients_DnsDiscovery(t *testing.T) {
+	var ipsResult []net.IP
+	lookupGrpcIp = func(host string) ([]net.IP, error) {
+		if host == "testgrpc" {
+			return ipsResult, nil
+		}
+
+		return nil, fmt.Errorf("unknown host")
+	}
+	target := "testgrpc:12345"
+	ip1 := net.ParseIP("192.168.0.1")
+	ip2 := net.ParseIP("192.168.0.2")
+	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
+	targetWithIp2 := fmt.Sprintf("%s (%s)", target, ip2)
+	ipsResult = []net.IP{ip1}
+	client := NewGrpcClientsForTest(t, target)
+	ch := make(chan bool, 1)
+	client.wakeupChanForTesting = ch
+
+	if clients := client.GetClients(); len(clients) != 1 {
+		t.Errorf("Expected one client, got %+v", clients)
+	} else if clients[0].Target() != targetWithIp1 {
+		t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
+	} else if !clients[0].ip.Equal(ip1) {
+		t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
+	}
+
+	ipsResult = []net.IP{ip1, ip2}
+	drainWakeupChannel(ch)
+	client.updateGrpcIPs()
+	<-ch
+
+	if clients := client.GetClients(); len(clients) != 2 {
+		t.Errorf("Expected two client, got %+v", clients)
+	} else if clients[0].Target() != targetWithIp1 {
+		t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
+	} else if !clients[0].ip.Equal(ip1) {
+		t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
+	} else if clients[1].Target() != targetWithIp2 {
+		t.Errorf("Expected target %s, got %s", targetWithIp2, clients[1].Target())
+	} else if !clients[1].ip.Equal(ip2) {
+		t.Errorf("Expected IP %s, got %s", ip2, clients[1].ip)
+	}
+
+	ipsResult = []net.IP{ip2}
+	drainWakeupChannel(ch)
+	client.updateGrpcIPs()
+	<-ch
+
+	if clients := client.GetClients(); len(clients) != 1 {
+		t.Errorf("Expected one client, got %+v", clients)
+	} else if clients[0].Target() != targetWithIp2 {
+		t.Errorf("Expected target %s, got %s", targetWithIp2, clients[0].Target())
+	} else if !clients[0].ip.Equal(ip2) {
+		t.Errorf("Expected IP %s, got %s", ip2, clients[0].ip)
 	}
 }

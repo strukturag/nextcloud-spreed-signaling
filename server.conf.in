@@ -261,6 +261,13 @@ connectionsperhost = 8
 # for clustering mode.
 #targets = 192.168.0.1:9090, 192.168.0.2:9090
 
+# For target type "static": Enable DNS discovery on hostnames of GRPC target.
+# If a hostname resolves to multiple IP addresses, a connection is established
+# to each of them.
+# Changes to the DNS are monitored regularly and GRPC clients are created or
+# deleted as necessary.
+#dnsdiscovery = true
+
 # For target type "etcd": Key prefix of GRPC target entries. All keys below will
 # be watched and assumed to contain a JSON document. The entry "address" from
 # this document will be used as target URL, other contents in the document will
