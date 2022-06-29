@@ -119,6 +119,7 @@ common_easyjson: \
 	api_signaling_easyjson.go
 
 common_proto: \
+	grpc_internal.pb.go \
 	grpc_mcu.pb.go \
 	grpc_sessions.pb.go
 

@@ -53,12 +53,14 @@ func init() {
 }
 
 type grpcClientImpl struct {
+	RpcInternalClient
 	RpcMcuClient
 	RpcSessionsClient
 }
 
 func newGrpcClientImpl(conn grpc.ClientConnInterface) *grpcClientImpl {
 	return &grpcClientImpl{
+		RpcInternalClient: NewRpcInternalClient(conn),
 		RpcMcuClient:      NewRpcMcuClient(conn),
 		RpcSessionsClient: NewRpcSessionsClient(conn),
 	}
@@ -88,6 +90,16 @@ func (c *GrpcClient) Target() string {
 
 func (c *GrpcClient) Close() error {
 	return c.conn.Close()
+}
+
+func (c *GrpcClient) GetServerId(ctx context.Context) (string, error) {
+	statsGrpcClientCalls.WithLabelValues("GetServerId").Inc()
+	response, err := c.impl.GetServerId(ctx, &GetServerIdRequest{}, grpc.WaitForReady(true))
+	if err != nil {
+		return "", err
+	}
+
+	return response.GetServerId(), nil
 }
 
 func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId string) (string, error) {
@@ -154,7 +166,6 @@ type GrpcClients struct {
 
 	etcdClient        *EtcdClient
 	targetPrefix      string
-	targetSelf        string
 	targetInformation map[string]*GrpcTargetInformationEtcd
 	dialOptions       atomic.Value // []grpc.DialOption
 
@@ -241,6 +252,19 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, opts ...grpc.
 			return err
 		}
 
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		if id, err := client.GetServerId(ctx); err != nil {
+			log.Printf("Error checking server id of %s: %s", client.Target(), err)
+		} else if id == GrpcServerId {
+			log.Printf("GRPC target %s is this server, ignoring", client.Target())
+			if err := client.Close(); err != nil {
+				log.Printf("Error closing client to %s: %s", client.Target(), err)
+			}
+			continue
+		}
+
 		log.Printf("Adding %s as GRPC target", target)
 		clientsMap[target] = client
 		clients = append(clients, client)
@@ -276,9 +300,6 @@ func (c *GrpcClients) loadTargetsEtcd(config *goconf.ConfigFile, opts ...grpc.Di
 	if c.targetInformation == nil {
 		c.targetInformation = make(map[string]*GrpcTargetInformationEtcd)
 	}
-
-	targetSelf, _ := config.GetString("grpc", "targetself")
-	c.targetSelf = targetSelf
 
 	if opts == nil {
 		opts = make([]grpc.DialOption, 0)
@@ -353,12 +374,6 @@ func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte
 		c.removeEtcdClientLocked(key)
 	}
 
-	if c.targetSelf != "" && info.Address == c.targetSelf {
-		log.Printf("GRPC target %s is this server, ignoring %s", info.Address, key)
-		c.wakeupForTesting()
-		return
-	}
-
 	if _, found := c.clientsMap[info.Address]; found {
 		log.Printf("GRPC target %s already exists, ignoring %s", info.Address, key)
 		return
@@ -368,6 +383,20 @@ func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte
 	cl, err := NewGrpcClient(info.Address, opts...)
 	if err != nil {
 		log.Printf("Could not create GRPC client for target %s: %s", info.Address, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	if id, err := cl.GetServerId(ctx); err != nil {
+		log.Printf("Error checking server id of %s: %s", cl.Target(), err)
+	} else if id == GrpcServerId {
+		log.Printf("GRPC target %s is this server, ignoring %s", cl.Target(), key)
+		if err := cl.Close(); err != nil {
+			log.Printf("Error closing client to %s: %s", cl.Target(), err)
+		}
+		c.wakeupForTesting()
 		return
 	}
 

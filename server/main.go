@@ -164,6 +164,17 @@ func main() {
 		}
 	}()
 
+	rpcServer, err := signaling.NewGrpcServer(config)
+	if err != nil {
+		log.Fatalf("Could not create RPC server: %s", err)
+	}
+	go func() {
+		if err := rpcServer.Run(); err != nil {
+			log.Fatalf("Could not start RPC server: %s", err)
+		}
+	}()
+	defer rpcServer.Close()
+
 	rpcClients, err := signaling.NewGrpcClients(config, etcdClient)
 	if err != nil {
 		log.Fatalf("Could not create RPC clients: %s", err)
@@ -171,7 +182,7 @@ func main() {
 	defer rpcClients.Close()
 
 	r := mux.NewRouter()
-	hub, err := signaling.NewHub(config, events, rpcClients, r, version)
+	hub, err := signaling.NewHub(config, events, rpcServer, rpcClients, r, version)
 	if err != nil {
 		log.Fatal("Could not create hub: ", err)
 	}

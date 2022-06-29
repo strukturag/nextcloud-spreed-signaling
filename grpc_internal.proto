@@ -19,46 +19,19 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+syntax = "proto3";
 
-import (
-	"net"
-	"strconv"
-	"testing"
+option go_package = "github.com/strukturag/nextcloud-spreed-signaling;signaling";
 
-	"github.com/dlintw/goconf"
-)
+package signaling;
 
-func NewGrpcServerForTest(t *testing.T) (server *GrpcServer, addr string) {
-	config := goconf.NewConfigFile()
-	for port := 50000; port < 50100; port++ {
-		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-		config.AddOption("grpc", "listen", addr)
-		var err error
-		server, err = NewGrpcServer(config)
-		if isErrorAddressAlreadyInUse(err) {
-			continue
-		} else if err != nil {
-			t.Fatal(err)
-		}
-		break
-	}
+service RpcInternal {
+  rpc GetServerId(GetServerIdRequest) returns (GetServerIdReply) {}
+}
 
-	if server == nil {
-		t.Fatal("could not find free port")
-	}
+message GetServerIdRequest {
+}
 
-	// Don't match with own server id by default.
-	server.serverId = "dont-match"
-
-	go func() {
-		if err := server.Run(); err != nil {
-			t.Errorf("could not start GRPC server: %s", err)
-		}
-	}()
-
-	t.Cleanup(func() {
-		server.Close()
-	})
-	return server, addr
+message GetServerIdReply {
+  string serverId = 1;
 }

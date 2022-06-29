@@ -154,7 +154,7 @@ type Hub struct {
 	rpcClients *GrpcClients
 }
 
-func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcClients *GrpcClients, r *mux.Router, version string) (*Hub, error) {
+func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, r *mux.Router, version string) (*Hub, error) {
 	hashKey, _ := config.GetString("sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
@@ -212,11 +212,6 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcClients *GrpcClien
 	decodeCaches := make([]*LruCache, 0, numDecodeCaches)
 	for i := 0; i < numDecodeCaches; i++ {
 		decodeCaches = append(decodeCaches, NewLruCache(decodeCacheSize))
-	}
-
-	rpcServer, err := NewGrpcServer(config)
-	if err != nil {
-		return nil, err
 	}
 
 	roomSessions, err := NewBuiltinRoomSessions(rpcClients)
@@ -352,7 +347,9 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcClients *GrpcClien
 		rpcClients: rpcClients,
 	}
 	backend.hub = hub
-	rpcServer.hub = hub
+	if rpcServer != nil {
+		rpcServer.hub = hub
+	}
 	hub.upgrader.CheckOrigin = hub.checkOrigin
 	r.HandleFunc("/spreed", func(w http.ResponseWriter, r *http.Request) {
 		hub.serveWs(w, r)
@@ -450,12 +447,6 @@ func (h *Hub) Run() {
 	go h.updateGeoDatabase()
 	h.roomPing.Start()
 	defer h.roomPing.Stop()
-	go func() {
-		if err := h.rpcServer.Run(); err != nil {
-			log.Fatalf("Could not start RPC server: %s", err)
-		}
-	}()
-	defer h.rpcServer.Close()
 
 	housekeeping := time.NewTicker(housekeepingInterval)
 	geoipUpdater := time.NewTicker(24 * time.Hour)

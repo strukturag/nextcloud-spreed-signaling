@@ -88,7 +88,7 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
 	events := getAsyncEventsForTest(t)
-	hub, err := NewHub(config, events, nil, r, "no-version")
+	hub, err := NewHub(config, events, nil, nil, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		events1.Close()
 	})
 	client1 := NewGrpcClientsForTest(t, addr2)
-	hub1, err := NewHub(config1, events1, client1, r1, "no-version")
+	hub1, err := NewHub(config1, events1, grpcServer1, client1, r1, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		events2.Close()
 	})
 	client2 := NewGrpcClientsForTest(t, addr1)
-	hub2, err := NewHub(config2, events2, client2, r2, "no-version")
+	hub2, err := NewHub(config2, events2, grpcServer2, client2, r2, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,20 +210,6 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	if err := b2.Start(r2); err != nil {
 		t.Fatal(err)
 	}
-
-	grpcServer1.hub = hub1
-	grpcServer2.hub = hub2
-
-	go func() {
-		if err := grpcServer1.Run(); err != nil {
-			t.Errorf("Could not start RPC server on %s: %s", addr1, err)
-		}
-	}()
-	go func() {
-		if err := grpcServer2.Run(); err != nil {
-			t.Errorf("Could not start RPC server on %s: %s", addr2, err)
-		}
-	}()
 
 	go hub1.Run()
 	go hub2.Run()

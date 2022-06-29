@@ -122,7 +122,7 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := NewHub(config, events, nil, r, "no-version")
+	h, err := NewHub(config, events, nil, nil, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		t.Fatal(err)
 	}
 	client1 := NewGrpcClientsForTest(t, addr2)
-	h1, err := NewHub(config1, events1, client1, r1, "no-version")
+	h1, err := NewHub(config1, events1, grpcServer1, client1, r1, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		t.Fatal(err)
 	}
 	client2 := NewGrpcClientsForTest(t, addr1)
-	h2, err := NewHub(config2, events2, client2, r2, "no-version")
+	h2, err := NewHub(config2, events2, grpcServer2, client2, r2, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,20 +224,6 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	if err := b2.Start(r2); err != nil {
 		t.Fatal(err)
 	}
-
-	grpcServer1.hub = h1
-	grpcServer2.hub = h2
-
-	go func() {
-		if err := grpcServer1.Run(); err != nil {
-			t.Errorf("Could not start RPC server on %s: %s", addr1, err)
-		}
-	}()
-	go func() {
-		if err := grpcServer2.Run(); err != nil {
-			t.Errorf("Could not start RPC server on %s: %s", addr2, err)
-		}
-	}()
 
 	go h1.Run()
 	go h2.Run()

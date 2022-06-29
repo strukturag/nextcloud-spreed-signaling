@@ -23,10 +23,13 @@ package signaling
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"net"
+	"os"
 
 	"github.com/dlintw/goconf"
 	"google.golang.org/grpc"
@@ -35,16 +38,30 @@ import (
 	status "google.golang.org/grpc/status"
 )
 
+var (
+	GrpcServerId string
+)
+
 func init() {
 	RegisterGrpcServerStats()
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = newRandomString(8)
+	}
+	md := sha256.New()
+	md.Write([]byte(fmt.Sprintf("%s-%s-%d", newRandomString(32), hostname, os.Getpid())))
+	GrpcServerId = hex.EncodeToString(md.Sum(nil))
 }
 
 type GrpcServer struct {
+	UnimplementedRpcInternalServer
 	UnimplementedRpcMcuServer
 	UnimplementedRpcSessionsServer
 
 	conn     *grpc.Server
 	listener net.Listener
+	serverId string // can be overwritten from tests
 
 	hub *Hub
 }
@@ -77,7 +94,9 @@ func NewGrpcServer(config *goconf.ConfigFile) (*GrpcServer, error) {
 	result := &GrpcServer{
 		conn:     conn,
 		listener: listener,
+		serverId: GrpcServerId,
 	}
+	RegisterRpcInternalServer(conn, result)
 	RegisterRpcSessionsServer(conn, result)
 	RegisterRpcMcuServer(conn, result)
 	return result, nil
@@ -159,4 +178,11 @@ func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherId
 	}
 
 	return nil, status.Error(codes.NotFound, "no such publisher")
+}
+
+func (s *GrpcServer) GetServerId(ctx context.Context, request *GetServerIdRequest) (*GetServerIdReply, error) {
+	statsGrpcServerCalls.WithLabelValues("GetServerId").Inc()
+	return &GetServerIdReply{
+		ServerId: s.serverId,
+	}, nil
 }

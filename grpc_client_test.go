@@ -30,10 +30,6 @@ import (
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
-const (
-	GrpcSelfTargetForTesting = "testing.grpc.target"
-)
-
 func NewGrpcClientsForTest(t *testing.T, addr string) *GrpcClients {
 	config := goconf.NewConfigFile()
 	config.AddOption("grpc", "targets", addr)
@@ -55,7 +51,6 @@ func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) *GrpcClients 
 
 	config.AddOption("grpc", "targettype", "etcd")
 	config.AddOption("grpc", "targetprefix", "/grpctargets")
-	config.AddOption("grpc", "targetself", GrpcSelfTargetForTesting)
 
 	etcdClient, err := NewEtcdClient(config, "")
 	if err != nil {
@@ -89,11 +84,12 @@ func drainWakeupChannel(ch chan bool) {
 }
 
 func Test_GrpcClients_EtcdInitial(t *testing.T) {
+	_, addr1 := NewGrpcServerForTest(t)
+	_, addr2 := NewGrpcServerForTest(t)
+
 	etcd := NewEtcdForTest(t)
 
-	_, addr1 := NewGrpcServerForTest(t)
 	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	_, addr2 := NewGrpcServerForTest(t)
 	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	client := NewGrpcClientsWithEtcdForTest(t, etcd)
@@ -181,7 +177,9 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	}
 
 	drainWakeupChannel(ch)
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+GrpcSelfTargetForTesting+"\"}"))
+	server2, addr2 := NewGrpcServerForTest(t)
+	server2.serverId = GrpcServerId
+	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 	<-ch
 	if clients := client.GetClients(); len(clients) != 1 {
 		t.Errorf("Expected one client, got %+v", clients)
