@@ -157,6 +157,20 @@ proxy process gracefully after all clients have been disconnected. No new
 publishers will be accepted in this case.
 
 
+### Clustering
+
+The signaling server supports a clustering mode where multiple running servers
+can be interconnected to form a single "virtual" server. This can be used to
+increase the capacity of the signaling server or provide a failover setup.
+
+For that a central NATS server / cluster must be used by all instances. Each
+instance must running a GRPC server (enable `listening` in section `grpc` and
+optionally setup certificate, private key and CA). The list of other GRPC
+targets must be configured as `targets` in section `grpc` or can be retrieved
+from an etcd cluster. See `server.conf.in` in section `grpc` for configuration
+details.
+
+
 ## Setup of frontend webserver
 
 Usually the standalone signaling server is running behind a webserver that does
