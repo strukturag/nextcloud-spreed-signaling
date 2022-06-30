@@ -182,7 +182,7 @@ func main() {
 	defer rpcClients.Close()
 
 	r := mux.NewRouter()
-	hub, err := signaling.NewHub(config, events, rpcServer, rpcClients, r, version)
+	hub, err := signaling.NewHub(config, events, rpcServer, rpcClients, etcdClient, r, version)
 	if err != nil {
 		log.Fatal("Could not create hub: ", err)
 	}

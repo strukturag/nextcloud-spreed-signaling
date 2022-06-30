@@ -50,12 +50,37 @@ blockkey = -encryption-key-
 internalsecret = the-shared-secret-for-internal-clients
 
 [backend]
+# Type of backend configuration.
+# Defaults to "static".
+#
+# Possible values:
+# - static: A comma-separated list of backends is given in the "backends" option.
+# - etcd: Backends are retrieved from an etcd cluster.
+#backendtype = static
+
+# For backend type "static":
 # Comma-separated list of backend ids from which clients are allowed to connect
 # from. Each backend will have isolated rooms, i.e. clients connecting to room
 # "abc12345" on backend 1 will be in a different room than clients connected to
 # a room with the same name on backend 2. Also sessions connected from different
 # backends will not be able to communicate with each other.
 #backends = backend-id, another-backend
+
+# For backend type "etcd":
+# Key prefix of backend entries. All keys below will be watched and assumed to
+# contain a JSON document with the following entries:
+# - "url": Url of the Nextcloud instance.
+# - "secret": Shared secret for requests from and to the backend servers.
+#
+# Additional optional entries:
+# - "maxstreambitrate": Maximum bitrate per publishing stream (in bits per second).
+# - "maxscreenbitrate": Maximum bitrate per screensharing stream (in bits per second).
+# - "sessionlimit": Number of sessions that are allowed to connect.
+#
+# Example:
+# "/signaling/backend/one" -> {"url": "https://nextcloud.domain1.invalid", ...}
+# "/signaling/backend/two" -> {"url": "https://domain2.invalid/nextcloud", ...}
+#backendprefix = /signaling/backend
 
 # Allow any hostname as backend endpoint. This is extremely insecure and should
 # only be used while running the benchmark client against the server.
@@ -77,6 +102,7 @@ connectionsperhost = 8
 # certificates.
 #skipverify = false
 
+# For backendtype "static":
 # Backend configurations as defined in the "[backend]" section above. The
 # section names must match the ids used in "backends" above.
 #[backend-id]

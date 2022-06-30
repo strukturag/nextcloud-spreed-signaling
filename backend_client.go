@@ -50,8 +50,8 @@ type BackendClient struct {
 	capabilities *Capabilities
 }
 
-func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string) (*BackendClient, error) {
-	backends, err := NewBackendConfiguration(config)
+func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient *EtcdClient) (*BackendClient, error) {
+	backends, err := NewBackendConfiguration(config, etcdClient)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +78,10 @@ func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost in
 		pool:         pool,
 		capabilities: capabilities,
 	}, nil
+}
+
+func (b *BackendClient) Close() {
+	b.backends.Close()
 }
 
 func (b *BackendClient) Reload(config *goconf.ConfigFile) {

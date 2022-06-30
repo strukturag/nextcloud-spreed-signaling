@@ -154,7 +154,7 @@ type Hub struct {
 	rpcClients *GrpcClients
 }
 
-func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, r *mux.Router, version string) (*Hub, error) {
+func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
 	hashKey, _ := config.GetString("sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
@@ -185,7 +185,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
 	}
 
-	backend, err := NewBackendClient(config, maxConcurrentRequestsPerHost, version)
+	backend, err := NewBackendClient(config, maxConcurrentRequestsPerHost, version, etcdClient)
 	if err != nil {
 		return nil, err
 	}
@@ -447,6 +447,7 @@ func (h *Hub) Run() {
 	go h.updateGeoDatabase()
 	h.roomPing.Start()
 	defer h.roomPing.Stop()
+	defer h.backend.Close()
 
 	housekeeping := time.NewTicker(housekeepingInterval)
 	geoipUpdater := time.NewTicker(24 * time.Hour)

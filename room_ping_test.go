@@ -44,7 +44,7 @@ func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
 		t.Fatal(err)
 	}
 
-	backend, err := NewBackendClient(config, 1, "0.0")
+	backend, err := NewBackendClient(config, 1, "0.0", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

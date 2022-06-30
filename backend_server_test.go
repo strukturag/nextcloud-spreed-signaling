@@ -88,7 +88,7 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
 	events := getAsyncEventsForTest(t)
-	hub, err := NewHub(config, events, nil, nil, r, "no-version")
+	hub, err := NewHub(config, events, nil, nil, nil, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		events1.Close()
 	})
 	client1 := NewGrpcClientsForTest(t, addr2)
-	hub1, err := NewHub(config1, events1, grpcServer1, client1, r1, "no-version")
+	hub1, err := NewHub(config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		events2.Close()
 	})
 	client2 := NewGrpcClientsForTest(t, addr1)
-	hub2, err := NewHub(config2, events2, grpcServer2, client2, r2, "no-version")
+	hub2, err := NewHub(config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}

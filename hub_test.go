@@ -122,7 +122,7 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := NewHub(config, events, nil, nil, r, "no-version")
+	h, err := NewHub(config, events, nil, nil, nil, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		t.Fatal(err)
 	}
 	client1 := NewGrpcClientsForTest(t, addr2)
-	h1, err := NewHub(config1, events1, grpcServer1, client1, r1, "no-version")
+	h1, err := NewHub(config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		t.Fatal(err)
 	}
 	client2 := NewGrpcClientsForTest(t, addr1)
-	h2, err := NewHub(config2, events2, grpcServer2, client2, r2, "no-version")
+	h2, err := NewHub(config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
