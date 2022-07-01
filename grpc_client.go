@@ -431,6 +431,8 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 			ips, err = lookupGrpcIp(host)
 			if err != nil {
 				log.Printf("Could not lookup %s: %s", host, err)
+				// Make sure updating continues even if initial lookup failed.
+				clientsMap[target] = nil
 				continue
 			}
 		} else {

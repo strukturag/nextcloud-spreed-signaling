@@ -258,3 +258,47 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 		t.Errorf("Expected IP %s, got %s", ip2, clients[0].ip)
 	}
 }
+
+func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
+	var ipsResult []net.IP
+	lookupGrpcIp = func(host string) ([]net.IP, error) {
+		if host == "testgrpc" && len(ipsResult) > 0 {
+			return ipsResult, nil
+		}
+
+		return nil, &net.DNSError{
+			Err:        "no such host",
+			Name:       host,
+			IsNotFound: true,
+		}
+	}
+	target := "testgrpc:12345"
+	ip1 := net.ParseIP("192.168.0.1")
+	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
+	client := NewGrpcClientsForTest(t, target)
+	ch := make(chan bool, 1)
+	client.wakeupChanForTesting = ch
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := client.WaitForInitialized(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if clients := client.GetClients(); len(clients) != 0 {
+		t.Errorf("Expected no client, got %+v", clients)
+	}
+
+	ipsResult = []net.IP{ip1}
+	drainWakeupChannel(ch)
+	client.updateGrpcIPs()
+	<-ch
+
+	if clients := client.GetClients(); len(clients) != 1 {
+		t.Errorf("Expected one client, got %+v", clients)
+	} else if clients[0].Target() != targetWithIp1 {
+		t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
+	} else if !clients[0].ip.Equal(ip1) {
+		t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
+	}
+}
