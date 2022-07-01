@@ -36,8 +36,6 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
 	status "google.golang.org/grpc/status"
 )
@@ -282,23 +280,12 @@ func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcCli
 }
 
 func (c *GrpcClients) load(config *goconf.ConfigFile, fromReload bool) error {
-	var opts []grpc.DialOption
-	caFile, _ := config.GetString("grpc", "ca")
-	if caFile != "" {
-		creds, err := credentials.NewClientTLSFromFile(caFile, "")
-		if err != nil {
-			return fmt.Errorf("invalid GRPC CA in %s: %w", caFile, err)
-		}
-
-		opts = append(opts, grpc.WithTransportCredentials(creds))
-	} else {
-		log.Printf("WARNING: No GRPC CA configured, expecting unencrypted connections")
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	creds, err := NewReloadableCredentials(config, false)
+	if err != nil {
+		return err
 	}
 
-	if opts == nil {
-		opts = make([]grpc.DialOption, 0)
-	}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
 	c.dialOptions.Store(opts)
 
 	targetType, _ := config.GetString("grpc", "targettype")
@@ -306,7 +293,6 @@ func (c *GrpcClients) load(config *goconf.ConfigFile, fromReload bool) error {
 		targetType = DefaultGrpcTargetType
 	}
 
-	var err error
 	switch targetType {
 	case GrpcTargetTypeStatic:
 		err = c.loadTargetsStatic(config, fromReload, opts...)

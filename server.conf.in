@@ -268,12 +268,21 @@ connectionsperhost = 8
 
 # Certificate / private key to use for the GRPC server.
 # Omit to use unencrypted connections.
-#certificate = /path/to/grpc-server.crt
-#key = /path/to/grpc-server.key
+#servercertificate = /path/to/grpc-server.crt
+#serverkey = /path/to/grpc-server.key
 
 # CA certificate that is allowed to issue certificates of GRPC servers.
 # Omit to expect unencrypted connections.
-#ca = /path/to/grpc-ca.crt
+#serverca = /path/to/grpc-ca.crt
+
+# Certificate / private key to use for the GRPC client.
+# Omit if clients don't need to authenticate on the server.
+#clientcertificate = /path/to/grpc-client.crt
+#clientkey = /path/to/grpc-client.key
+
+# CA certificate that is allowed to issue certificates of GRPC clients.
+# Omit to allow any clients to connect.
+#clientca = /path/to/grpc-ca.crt
 
 # Type of GRPC target configuration.
 # Defaults to "static".

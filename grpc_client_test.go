@@ -23,8 +23,12 @@ package signaling
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"net"
+	"os"
+	"path"
 	"testing"
 	"time"
 
@@ -32,12 +36,8 @@ import (
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
-func NewGrpcClientsForTest(t *testing.T, addr string) *GrpcClients {
-	config := goconf.NewConfigFile()
-	config.AddOption("grpc", "targets", addr)
-	config.AddOption("grpc", "dnsdiscovery", "true")
-
-	client, err := NewGrpcClients(config, nil)
+func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient) *GrpcClients {
+	client, err := NewGrpcClients(config, etcdClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +46,14 @@ func NewGrpcClientsForTest(t *testing.T, addr string) *GrpcClients {
 	})
 
 	return client
+}
+
+func NewGrpcClientsForTest(t *testing.T, addr string) *GrpcClients {
+	config := goconf.NewConfigFile()
+	config.AddOption("grpc", "targets", addr)
+	config.AddOption("grpc", "dnsdiscovery", "true")
+
+	return NewGrpcClientsForTestWithConfig(t, config, nil)
 }
 
 func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) *GrpcClients {
@@ -65,15 +73,7 @@ func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) *GrpcClients 
 		}
 	})
 
-	client, err := NewGrpcClients(config, etcdClient)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		client.Close()
-	})
-
-	return client
+	return NewGrpcClientsForTestWithConfig(t, config, etcdClient)
 }
 
 func drainWakeupChannel(ch chan bool) {
@@ -300,5 +300,59 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 		t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
 	} else if !clients[0].ip.Equal(ip1) {
 		t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
+	}
+}
+
+func Test_GrpcClients_Encryption(t *testing.T) {
+	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serverCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Server cert", serverKey)
+	clientCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Testing client", clientKey)
+
+	dir := t.TempDir()
+	serverPrivkeyFile := path.Join(dir, "server-privkey.pem")
+	serverPubkeyFile := path.Join(dir, "server-pubkey.pem")
+	serverCertFile := path.Join(dir, "server-cert.pem")
+	WritePrivateKey(serverKey, serverPrivkeyFile)          // nolint
+	WritePublicKey(&serverKey.PublicKey, serverPubkeyFile) // nolint
+	os.WriteFile(serverCertFile, serverCert, 0755)         // nolint
+	clientPrivkeyFile := path.Join(dir, "client-privkey.pem")
+	clientPubkeyFile := path.Join(dir, "client-pubkey.pem")
+	clientCertFile := path.Join(dir, "client-cert.pem")
+	WritePrivateKey(clientKey, clientPrivkeyFile)          // nolint
+	WritePublicKey(&clientKey.PublicKey, clientPubkeyFile) // nolint
+	os.WriteFile(clientCertFile, clientCert, 0755)         // nolint
+
+	serverConfig := goconf.NewConfigFile()
+	serverConfig.AddOption("grpc", "servercertificate", serverCertFile)
+	serverConfig.AddOption("grpc", "serverkey", serverPrivkeyFile)
+	serverConfig.AddOption("grpc", "clientca", clientCertFile)
+	_, addr := NewGrpcServerForTestWithConfig(t, serverConfig)
+
+	clientConfig := goconf.NewConfigFile()
+	clientConfig.AddOption("grpc", "targets", addr)
+	clientConfig.AddOption("grpc", "clientcertificate", clientCertFile)
+	clientConfig.AddOption("grpc", "clientkey", clientPrivkeyFile)
+	clientConfig.AddOption("grpc", "serverca", serverCertFile)
+	clients := NewGrpcClientsForTestWithConfig(t, clientConfig, nil)
+
+	ctx, cancel1 := context.WithTimeout(context.Background(), time.Second)
+	defer cancel1()
+
+	if err := clients.WaitForInitialized(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, client := range clients.GetClients() {
+		if _, err := client.GetServerId(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

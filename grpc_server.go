@@ -34,7 +34,6 @@ import (
 	"github.com/dlintw/goconf"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	status "google.golang.org/grpc/status"
 )
 
@@ -76,21 +75,12 @@ func NewGrpcServer(config *goconf.ConfigFile) (*GrpcServer, error) {
 		}
 	}
 
-	var opts []grpc.ServerOption
-	certificateFile, _ := config.GetString("grpc", "certificate")
-	keyFile, _ := config.GetString("grpc", "key")
-	if certificateFile != "" && keyFile != "" {
-		creds, err := credentials.NewServerTLSFromFile(certificateFile, keyFile)
-		if err != nil {
-			return nil, fmt.Errorf("invalid GRPC server certificate / key in %s / %s: %w", certificateFile, keyFile, err)
-		}
-
-		opts = append(opts, grpc.Creds(creds))
-	} else {
-		log.Printf("WARNING: No GRPC server certificate and/or key configured, running unencrypted")
+	creds, err := NewReloadableCredentials(config, true)
+	if err != nil {
+		return nil, err
 	}
 
-	conn := grpc.NewServer(opts...)
+	conn := grpc.NewServer(grpc.Creds(creds))
 	result := &GrpcServer{
 		conn:     conn,
 		listener: listener,
