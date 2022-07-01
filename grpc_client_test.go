@@ -184,6 +184,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	server2.serverId = GrpcServerId
 	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 	<-ch
+	client.selfCheckWaitGroup.Wait()
 	if clients := client.GetClients(); len(clients) != 1 {
 		t.Errorf("Expected one client, got %+v", clients)
 	} else if clients[0].Target() != addr1 {
