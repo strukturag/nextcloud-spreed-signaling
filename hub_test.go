@@ -420,15 +420,16 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if strings.Contains(t.Name(), "MultiRoom") {
 			signaling[ConfigKeySessionPingLimit] = 2
 		}
+		spreedCapa, _ := json.Marshal(map[string]interface{}{
+			"features": features,
+			"config":   config,
+		})
 		response := &CapabilitiesResponse{
 			Version: CapabilitiesVersion{
 				Major: 20,
 			},
-			Capabilities: map[string]map[string]interface{}{
-				"spreed": {
-					"features": features,
-					"config":   config,
-				},
+			Capabilities: map[string]*json.RawMessage{
+				"spreed": (*json.RawMessage)(&spreedCapa),
 			},
 		}
 

@@ -69,15 +69,18 @@ func NewCapabilitiesForTest(t *testing.T) (*url.URL, *Capabilities) {
 		config := map[string]interface{}{
 			"signaling": signaling,
 		}
+		spreedCapa, _ := json.Marshal(map[string]interface{}{
+			"features": features,
+			"config":   config,
+		})
+		emptyArray := []byte("[]")
 		response := &CapabilitiesResponse{
 			Version: CapabilitiesVersion{
 				Major: 20,
 			},
-			Capabilities: map[string]map[string]interface{}{
-				"spreed": {
-					"features": features,
-					"config":   config,
-				},
+			Capabilities: map[string]*json.RawMessage{
+				"anotherApp": (*json.RawMessage)(&emptyArray),
+				"spreed":     (*json.RawMessage)(&spreedCapa),
 			},
 		}
 
