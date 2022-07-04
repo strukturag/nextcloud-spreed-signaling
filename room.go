@@ -692,11 +692,13 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	var notify []*ClientSession
 	if inCall&FlagInCall != 0 {
 		// All connected sessions join the call.
 		var joined []string
 		for _, session := range r.sessions {
-			if _, ok := session.(*ClientSession); !ok {
+			clientSession, ok := session.(*ClientSession)
+			if !ok {
 				continue
 			}
 
@@ -708,6 +710,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 				r.inCallSessions[session] = true
 				joined = append(joined, session.PublicId())
 			}
+			notify = append(notify, clientSession)
 		}
 
 		if len(joined) == 0 {
@@ -728,6 +731,15 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 				session.LeaveCall()
 			}
 		}()
+
+		for _, session := range r.sessions {
+			clientSession, ok := session.(*ClientSession)
+			if !ok {
+				continue
+			}
+
+			notify = append(notify, clientSession)
+		}
 
 		for session := range r.inCallSessions {
 			if clientSession, ok := session.(*ClientSession); ok {
@@ -755,8 +767,11 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 			},
 		},
 	}
-	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+
+	for _, session := range notify {
+		if !session.SendMessage(message) {
+			log.Printf("Could not send incall message from room %s to %s", r.Id(), session.PublicId())
+		}
 	}
 }
 
