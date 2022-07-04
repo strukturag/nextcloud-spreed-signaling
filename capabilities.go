@@ -78,8 +78,8 @@ type CapabilitiesVersion struct {
 }
 
 type CapabilitiesResponse struct {
-	Version      CapabilitiesVersion               `json:"version"`
-	Capabilities map[string]map[string]interface{} `json:"capabilities"`
+	Version      CapabilitiesVersion         `json:"version"`
+	Capabilities map[string]*json.RawMessage `json:"capabilities"`
 }
 
 func (c *Capabilities) getCapabilities(key string) (map[string]interface{}, bool) {
@@ -174,9 +174,15 @@ func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (map[st
 		return nil, err
 	}
 
-	capa, found := response.Capabilities[AppNameSpreed]
-	if !found {
+	capaObj, found := response.Capabilities[AppNameSpreed]
+	if !found || capaObj == nil {
 		log.Printf("No capabilities received for app spreed from %s: %+v", capUrl.String(), response)
+		return nil, nil
+	}
+
+	var capa map[string]interface{}
+	if err := json.Unmarshal(*capaObj, &capa); err != nil {
+		log.Printf("Unsupported capabilities received for app spreed from %s: %+v", capUrl.String(), response)
 		return nil, nil
 	}
 
