@@ -22,12 +22,16 @@
 package signaling
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -1030,6 +1034,24 @@ func (h *Hub) processHelloV2(client *Client, message *ClientMessage) (*Backend, 
 			}
 		case *jwt.SigningMethodEd25519:
 			loadKeyFunc = func(data []byte) (interface{}, error) {
+				if !bytes.HasPrefix(data, []byte("-----BEGIN ")) {
+					// Nextcloud sends the Ed25519 key as base64-encoded public key data.
+					decoded, err := base64.StdEncoding.DecodeString(string(data))
+					if err != nil {
+						return nil, err
+					}
+
+					key := ed25519.PublicKey(decoded)
+					data, err = x509.MarshalPKIXPublicKey(key)
+					if err != nil {
+						return nil, err
+					}
+
+					data = pem.EncodeToMemory(&pem.Block{
+						Type:  "PUBLIC KEY",
+						Bytes: data,
+					})
+				}
 				return jwt.ParseEdPublicKeyFromPEM(data)
 			}
 		default:

@@ -68,6 +68,7 @@ var (
 		"RSA",
 		"ECDSA",
 		"Ed25519",
+		"Ed25519_Nextcloud",
 	}
 )
 
@@ -715,7 +716,13 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 				Type:  pemType,
 				Bytes: public,
 			})
-			signaling[ConfigKeyHelloV2TokenKey] = string(public)
+			if strings.Contains(t.Name(), "Ed25519_Nextcloud") {
+				// Simulate Nextcloud which returns the Ed25519 key as base64-encoded data.
+				encoded := base64.StdEncoding.EncodeToString(key.(ed25519.PublicKey))
+				signaling[ConfigKeyHelloV2TokenKey] = encoded
+			} else {
+				signaling[ConfigKeyHelloV2TokenKey] = string(public)
+			}
 		}
 		spreedCapa, _ := json.Marshal(map[string]interface{}{
 			"features": features,
