@@ -106,8 +106,9 @@ type Hub struct {
 	nats         NatsClient
 	upgrader     websocket.Upgrader
 	cookie       *securecookie.SecureCookie
-	info         *HelloServerMessageServer
-	infoInternal *HelloServerMessageServer
+	info         *WelcomeServerMessage
+	infoInternal *WelcomeServerMessage
+	welcome      atomic.Value // *ServerMessage
 
 	stopped         int32
 	stopChan        chan bool
@@ -297,15 +298,9 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 			ReadBufferSize:  websocketReadBufferSize,
 			WriteBufferSize: websocketWriteBufferSize,
 		},
-		cookie: securecookie.New([]byte(hashKey), blockBytes).MaxAge(0),
-		info: &HelloServerMessageServer{
-			Version:  version,
-			Features: DefaultFeatures,
-		},
-		infoInternal: &HelloServerMessageServer{
-			Version:  version,
-			Features: DefaultFeaturesInternal,
-		},
+		cookie:       securecookie.New([]byte(hashKey), blockBytes).MaxAge(0),
+		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
+		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
 
 		stopChan: make(chan bool),
 
@@ -339,6 +334,10 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 		geoip:          geoip,
 		geoipOverrides: geoipOverrides,
 	}
+	hub.setWelcomeMessage(&ServerMessage{
+		Type:    "welcome",
+		Welcome: NewWelcomeServerMessage(version, DefaultWelcomeFeatures...),
+	})
 	backend.hub = hub
 	hub.upgrader.CheckOrigin = hub.checkOrigin
 	r.HandleFunc("/spreed", func(w http.ResponseWriter, r *http.Request) {
@@ -348,49 +347,31 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 	return hub, nil
 }
 
-func addFeature(msg *HelloServerMessageServer, feature string) {
-	var newFeatures []string
-	added := false
-	for _, f := range msg.Features {
-		newFeatures = append(newFeatures, f)
-		if f == feature {
-			added = true
-		}
-	}
-	if !added {
-		newFeatures = append(newFeatures, feature)
-	}
-	msg.Features = newFeatures
+func (h *Hub) setWelcomeMessage(msg *ServerMessage) {
+	h.welcome.Store(msg)
 }
 
-func removeFeature(msg *HelloServerMessageServer, feature string) {
-	var newFeatures []string
-	for _, f := range msg.Features {
-		if f != feature {
-			newFeatures = append(newFeatures, f)
-		}
-	}
-	msg.Features = newFeatures
+func (h *Hub) getWelcomeMessage() *ServerMessage {
+	return h.welcome.Load().(*ServerMessage)
 }
 
 func (h *Hub) SetMcu(mcu Mcu) {
 	h.mcu = mcu
+	// Create copy of message so it can be updated concurrently.
+	welcome := *h.getWelcomeMessage()
 	if mcu == nil {
-		removeFeature(h.info, ServerFeatureMcu)
-		removeFeature(h.info, ServerFeatureSimulcast)
-		removeFeature(h.info, ServerFeatureUpdateSdp)
-		removeFeature(h.infoInternal, ServerFeatureMcu)
-		removeFeature(h.infoInternal, ServerFeatureSimulcast)
-		removeFeature(h.infoInternal, ServerFeatureUpdateSdp)
+		h.info.RemoveFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		h.infoInternal.RemoveFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+
+		welcome.Welcome.RemoveFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
 	} else {
 		log.Printf("Using a timeout of %s for MCU requests", h.mcuTimeout)
-		addFeature(h.info, ServerFeatureMcu)
-		addFeature(h.info, ServerFeatureSimulcast)
-		addFeature(h.info, ServerFeatureUpdateSdp)
-		addFeature(h.infoInternal, ServerFeatureMcu)
-		addFeature(h.infoInternal, ServerFeatureSimulcast)
-		addFeature(h.infoInternal, ServerFeatureUpdateSdp)
+		h.info.AddFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		h.infoInternal.AddFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+
+		welcome.Welcome.AddFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
 	}
+	h.setWelcomeMessage(&welcome)
 }
 
 func (h *Hub) checkOrigin(r *http.Request) bool {
@@ -398,7 +379,7 @@ func (h *Hub) checkOrigin(r *http.Request) bool {
 	return true
 }
 
-func (h *Hub) GetServerInfo(session Session) *HelloServerMessageServer {
+func (h *Hub) GetServerInfo(session Session) *WelcomeServerMessage {
 	if session.ClientType() == HelloClientTypeInternal {
 		return h.infoInternal
 	}
@@ -685,6 +666,11 @@ func (h *Hub) startExpectHello(client *Client) {
 
 func (h *Hub) processNewClient(client *Client) {
 	h.startExpectHello(client)
+	h.sendWelcome(client)
+}
+
+func (h *Hub) sendWelcome(client *Client) {
+	client.SendMessage(h.getWelcomeMessage())
 }
 
 func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {

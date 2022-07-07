@@ -156,8 +156,8 @@ func (m *HelloProxyClientMessage) CheckValid() error {
 type HelloProxyServerMessage struct {
 	Version string `json:"version"`
 
-	SessionId string                    `json:"sessionid"`
-	Server    *HelloServerMessageServer `json:"server,omitempty"`
+	SessionId string                `json:"sessionid"`
+	Server    *WelcomeServerMessage `json:"server,omitempty"`
 }
 
 // Type "bye"

@@ -473,6 +473,29 @@ func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {
 	return &wg
 }
 
+func TestInitialWelcome(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewTestClientContext(ctx, t, server, hub)
+	defer client.CloseWithBye()
+
+	msg, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if msg.Type != "welcome" {
+		t.Errorf("Expected \"welcome\" message, got %+v", msg)
+	} else if msg.Welcome.Version == "" {
+		t.Errorf("Expected welcome version, got %+v", msg)
+	} else if len(msg.Welcome.Features) == 0 {
+		t.Errorf("Expected welcome features, got %+v", msg)
+	}
+}
+
 func TestExpectClientHello(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 

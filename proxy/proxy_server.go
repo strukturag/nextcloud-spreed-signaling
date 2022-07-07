@@ -591,7 +591,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			Hello: &signaling.HelloProxyServerMessage{
 				Version:   signaling.HelloVersion,
 				SessionId: session.PublicId(),
-				Server: &signaling.HelloServerMessageServer{
+				Server: &signaling.WelcomeServerMessage{
 					Version: s.version,
 					Country: s.country,
 				},

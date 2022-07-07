@@ -190,9 +190,9 @@ type TestClient struct {
 	publicId string
 }
 
-func NewTestClient(t *testing.T, server *httptest.Server, hub *Hub) *TestClient {
+func NewTestClientContext(ctx context.Context, t *testing.T, server *httptest.Server, hub *Hub) *TestClient {
 	// Reference "hub" to prevent compiler error.
-	conn, _, err := websocket.DefaultDialer.Dial(getWebsocketUrl(server.URL), nil)
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, getWebsocketUrl(server.URL), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,6 +226,22 @@ func NewTestClient(t *testing.T, server *httptest.Server, hub *Hub) *TestClient 
 		messageChan:   messageChan,
 		readErrorChan: readErrorChan,
 	}
+}
+
+func NewTestClient(t *testing.T, server *httptest.Server, hub *Hub) *TestClient {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	client := NewTestClientContext(ctx, t, server, hub)
+	msg, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if msg.Type != "welcome" {
+		t.Errorf("Expected welcome message, got %+v", msg)
+	}
+	return client
 }
 
 func (c *TestClient) CloseWithBye() {

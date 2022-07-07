@@ -24,6 +24,8 @@ package signaling
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -345,4 +347,43 @@ func TestIsChatRefresh(t *testing.T) {
 	if msg.IsChatRefresh() {
 		t.Error("message should not be detected as chat refresh")
 	}
+}
+
+func assertEqualStrings(t *testing.T, expected, result []string) {
+	t.Helper()
+
+	if expected == nil {
+		expected = make([]string, 0)
+	} else {
+		sort.Strings(expected)
+	}
+	if result == nil {
+		result = make([]string, 0)
+	} else {
+		sort.Strings(result)
+	}
+
+	if !reflect.DeepEqual(expected, result) {
+		t.Errorf("Expected %+v, got %+v", expected, result)
+	}
+}
+
+func Test_Welcome_AddRemoveFeature(t *testing.T) {
+	var msg WelcomeServerMessage
+	assertEqualStrings(t, []string{}, msg.Features)
+
+	msg.AddFeature("one", "two", "one")
+	assertEqualStrings(t, []string{"one", "two"}, msg.Features)
+	if !sort.StringsAreSorted(msg.Features) {
+		t.Errorf("features should be sorted, got %+v", msg.Features)
+	}
+
+	msg.AddFeature("three")
+	assertEqualStrings(t, []string{"one", "two", "three"}, msg.Features)
+	if !sort.StringsAreSorted(msg.Features) {
+		t.Errorf("features should be sorted, got %+v", msg.Features)
+	}
+
+	msg.RemoveFeature("three", "one")
+	assertEqualStrings(t, []string{"two"}, msg.Features)
 }
