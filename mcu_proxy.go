@@ -951,8 +951,8 @@ func (c *mcuProxyConnection) sendHello() error {
 		msg.Hello.ResumeId = c.sessionId
 	} else {
 		claims := &TokenClaims{
-			jwt.StandardClaims{
-				IssuedAt: time.Now().Unix(),
+			jwt.RegisteredClaims{
+				IssuedAt: jwt.NewNumericDate(time.Now()),
 				Issuer:   c.proxy.tokenId,
 			},
 		}

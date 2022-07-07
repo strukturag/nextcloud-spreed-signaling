@@ -890,7 +890,7 @@ func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*Pro
 	}
 
 	minIssuedAt := time.Now().Add(-maxTokenAge)
-	if issuedAt := time.Unix(claims.IssuedAt, 0); issuedAt.Before(minIssuedAt) {
+	if issuedAt := claims.IssuedAt; issuedAt != nil && issuedAt.Before(minIssuedAt) {
 		statsTokenErrorsTotal.WithLabelValues("expired").Inc()
 		return nil, TokenExpired
 	}

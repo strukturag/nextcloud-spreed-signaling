@@ -127,7 +127,7 @@ func (r *ProxyServerMessage) CloseAfterSend(session Session) bool {
 // Type "hello"
 
 type TokenClaims struct {
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 type HelloProxyClientMessage struct {

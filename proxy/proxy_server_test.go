@@ -96,8 +96,8 @@ func TestTokenInFuture(t *testing.T) {
 	server, key := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
-		StandardClaims: jwt.StandardClaims{
-			IssuedAt: time.Now().Add(time.Hour).Unix(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			Issuer:   TokenIdForTest,
 		},
 	}
