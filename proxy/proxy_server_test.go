@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
@@ -96,8 +96,8 @@ func TestTokenInFuture(t *testing.T) {
 	server, key := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
-		StandardClaims: jwt.StandardClaims{
-			IssuedAt: time.Now().Add(time.Hour).Unix(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			Issuer:   TokenIdForTest,
 		},
 	}

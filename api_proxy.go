@@ -25,7 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 type ProxyClientMessage struct {
@@ -127,7 +127,7 @@ func (r *ProxyServerMessage) CloseAfterSend(session Session) bool {
 // Type "hello"
 
 type TokenClaims struct {
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 type HelloProxyClientMessage struct {

@@ -41,7 +41,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/websocket"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -951,8 +951,8 @@ func (c *mcuProxyConnection) sendHello() error {
 		msg.Hello.ResumeId = c.sessionId
 	} else {
 		claims := &TokenClaims{
-			jwt.StandardClaims{
-				IssuedAt: time.Now().Unix(),
+			jwt.RegisteredClaims{
+				IssuedAt: jwt.NewNumericDate(time.Now()),
 				Issuer:   c.proxy.tokenId,
 			},
 		}
