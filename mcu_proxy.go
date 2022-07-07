@@ -41,7 +41,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/websocket"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
