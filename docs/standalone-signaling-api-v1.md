@@ -111,6 +111,23 @@ must contain two additional HTTP headers:
 - Calculated checksum: `3c4a69ff328299803ac2879614b707c807b4758cf19450755c60656cac46e3bc`
 
 
+## Welcome message
+
+When a client connects, the server will immediately send a `welcome` message to
+notify the client about supported features. This is available if the server
+supports the `welcome` feature id.
+
+Message format (Server -> Client):
+
+    {
+      "type": "welcome",
+      "welcome": {
+        "features": ["optional", "list, "of", "feature", "ids"],
+        ...additional information about the server...
+      }
+    }
+
+
 ## Establish connection
 
 This must be the first request by a newly connected client and is used to
@@ -149,6 +166,10 @@ Message format (Server -> Client):
         }
       }
     }
+
+Please note that the `server` entry is deprecated and will be removed in a
+future version. Clients should use the data from the
+[`welcome` message](#welcome-message) instead.
 
 
 ### Backend validation

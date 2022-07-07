@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 )
 
@@ -141,6 +142,8 @@ type ServerMessage struct {
 
 	Error *Error `json:"error,omitempty"`
 
+	Welcome *WelcomeServerMessage `json:"welcome,omitempty"`
+
 	Hello *HelloServerMessage `json:"hello,omitempty"`
 
 	Bye *ByeServerMessage `json:"bye,omitempty"`
@@ -231,6 +234,54 @@ func NewErrorDetail(code string, message string, details interface{}) *Error {
 
 func (e *Error) Error() string {
 	return e.Message
+}
+
+type WelcomeServerMessage struct {
+	Version  string   `json:"version"`
+	Features []string `json:"features,omitempty"`
+	Country  string   `json:"country,omitempty"`
+}
+
+func NewWelcomeServerMessage(version string, feature ...string) *WelcomeServerMessage {
+	message := &WelcomeServerMessage{
+		Version:  version,
+		Features: feature,
+	}
+	if len(feature) > 0 {
+		sort.Strings(message.Features)
+	}
+	return message
+}
+
+func (m *WelcomeServerMessage) AddFeature(feature ...string) {
+	newFeatures := make([]string, len(m.Features))
+	copy(newFeatures, m.Features)
+	for _, feat := range feature {
+		found := false
+		for _, f := range newFeatures {
+			if f == feat {
+				found = true
+				break
+			}
+		}
+		if !found {
+			newFeatures = append(newFeatures, feat)
+		}
+	}
+	sort.Strings(newFeatures)
+	m.Features = newFeatures
+}
+
+func (m *WelcomeServerMessage) RemoveFeature(feature ...string) {
+	newFeatures := make([]string, len(m.Features))
+	copy(newFeatures, m.Features)
+	for _, feat := range feature {
+		idx := sort.SearchStrings(newFeatures, feat)
+		if idx < len(newFeatures) && newFeatures[idx] == feat {
+			newFeatures = append(newFeatures[:idx], newFeatures[idx+1:]...)
+		}
+	}
+	m.Features = newFeatures
 }
 
 const (
@@ -345,6 +396,7 @@ const (
 	ServerFeatureAudioVideoPermissions = "audio-video-permissions"
 	ServerFeatureTransientData         = "transient-data"
 	ServerFeatureInCallAll             = "incall-all"
+	ServerFeatureWelcome               = "welcome"
 
 	// Features for internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -355,27 +407,32 @@ var (
 		ServerFeatureAudioVideoPermissions,
 		ServerFeatureTransientData,
 		ServerFeatureInCallAll,
+		ServerFeatureWelcome,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
 		ServerFeatureTransientData,
 		ServerFeatureInCallAll,
+		ServerFeatureWelcome,
+	}
+	DefaultWelcomeFeatures = []string{
+		ServerFeatureAudioVideoPermissions,
+		ServerFeatureInternalVirtualSessions,
+		ServerFeatureTransientData,
+		ServerFeatureInCallAll,
+		ServerFeatureWelcome,
 	}
 )
-
-type HelloServerMessageServer struct {
-	Version  string   `json:"version"`
-	Features []string `json:"features,omitempty"`
-	Country  string   `json:"country,omitempty"`
-}
 
 type HelloServerMessage struct {
 	Version string `json:"version"`
 
-	SessionId string                    `json:"sessionid"`
-	ResumeId  string                    `json:"resumeid"`
-	UserId    string                    `json:"userid"`
-	Server    *HelloServerMessageServer `json:"server,omitempty"`
+	SessionId string `json:"sessionid"`
+	ResumeId  string `json:"resumeid"`
+	UserId    string `json:"userid"`
+
+	// TODO: Remove once all clients have switched to the "welcome" message.
+	Server *WelcomeServerMessage `json:"server,omitempty"`
 }
 
 // Type "bye"
