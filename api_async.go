@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2019 struktur AG
+ * Copyright (C) 2022 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -21,19 +21,34 @@
  */
 package signaling
 
-import (
-	"context"
-	"fmt"
-)
+import "time"
 
-var (
-	ErrNoSuchRoomSession = fmt.Errorf("unknown room session id")
-)
+type AsyncMessage struct {
+	SendTime time.Time `json:"sendtime"`
 
-type RoomSessions interface {
-	SetRoomSession(session Session, roomSessionId string) error
-	DeleteRoomSession(session Session)
+	Type string `json:"type"`
 
-	GetSessionId(roomSessionId string) (string, error)
-	LookupSessionId(ctx context.Context, roomSessionId string) (string, error)
+	Message *ServerMessage `json:"message,omitempty"`
+
+	Room *BackendServerRoomRequest `json:"room,omitempty"`
+
+	Permissions []Permission `json:"permissions,omitempty"`
+
+	AsyncRoom *AsyncRoomMessage `json:"asyncroom,omitempty"`
+
+	SendOffer *SendOfferMessage `json:"sendoffer,omitempty"`
+
+	Id string `json:"id"`
+}
+
+type AsyncRoomMessage struct {
+	Type string `json:"type"`
+
+	SessionId string `json:"sessionid,omitempty"`
+}
+
+type SendOfferMessage struct {
+	MessageId string                    `json:"messageid,omitempty"`
+	SessionId string                    `json:"sessionid"`
+	Data      *MessageClientMessageData `json:"data"`
 }

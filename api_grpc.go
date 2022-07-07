@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2019 struktur AG
+ * Copyright (C) 2022 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -22,18 +22,20 @@
 package signaling
 
 import (
-	"context"
 	"fmt"
 )
 
-var (
-	ErrNoSuchRoomSession = fmt.Errorf("unknown room session id")
-)
+// Information on a GRPC target in the etcd cluster.
 
-type RoomSessions interface {
-	SetRoomSession(session Session, roomSessionId string) error
-	DeleteRoomSession(session Session)
+type GrpcTargetInformationEtcd struct {
+	Address string `json:"address"`
+}
 
-	GetSessionId(roomSessionId string) (string, error)
-	LookupSessionId(ctx context.Context, roomSessionId string) (string, error)
+func (p *GrpcTargetInformationEtcd) CheckValid() error {
+	if l := len(p.Address); l == 0 {
+		return fmt.Errorf("address missing")
+	} else if p.Address[l-1] == '/' {
+		p.Address = p.Address[:l-1]
+	}
+	return nil
 }

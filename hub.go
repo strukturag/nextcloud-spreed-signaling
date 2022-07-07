@@ -28,6 +28,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -103,7 +104,7 @@ type Hub struct {
 	// 64-bit members that are accessed atomically must be 64-bit aligned.
 	sid uint64
 
-	nats         NatsClient
+	events       AsyncEvents
 	upgrader     websocket.Upgrader
 	cookie       *securecookie.SecureCookie
 	info         *WelcomeServerMessage
@@ -149,9 +150,12 @@ type Hub struct {
 	geoip          *GeoLookup
 	geoipOverrides map[*net.IPNet]string
 	geoipUpdating  int32
+
+	rpcServer  *GrpcServer
+	rpcClients *GrpcClients
 }
 
-func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version string) (*Hub, error) {
+func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
 	hashKey, _ := config.GetString("sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
@@ -182,7 +186,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
 	}
 
-	backend, err := NewBackendClient(config, maxConcurrentRequestsPerHost, version)
+	backend, err := NewBackendClient(config, maxConcurrentRequestsPerHost, version, etcdClient)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +215,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 		decodeCaches = append(decodeCaches, NewLruCache(decodeCacheSize))
 	}
 
-	roomSessions, err := NewBuiltinRoomSessions()
+	roomSessions, err := NewBuiltinRoomSessions(rpcClients)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +297,7 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 	}
 
 	hub := &Hub{
-		nats: nats,
+		events: events,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  websocketReadBufferSize,
 			WriteBufferSize: websocketWriteBufferSize,
@@ -333,12 +337,18 @@ func NewHub(config *goconf.ConfigFile, nats NatsClient, r *mux.Router, version s
 
 		geoip:          geoip,
 		geoipOverrides: geoipOverrides,
+
+		rpcServer:  rpcServer,
+		rpcClients: rpcClients,
 	}
 	hub.setWelcomeMessage(&ServerMessage{
 		Type:    "welcome",
 		Welcome: NewWelcomeServerMessage(version, DefaultWelcomeFeatures...),
 	})
 	backend.hub = hub
+	if rpcServer != nil {
+		rpcServer.hub = hub
+	}
 	hub.upgrader.CheckOrigin = hub.checkOrigin
 	r.HandleFunc("/spreed", func(w http.ResponseWriter, r *http.Request) {
 		hub.serveWs(w, r)
@@ -418,6 +428,7 @@ func (h *Hub) Run() {
 	go h.updateGeoDatabase()
 	h.roomPing.Start()
 	defer h.roomPing.Stop()
+	defer h.backend.Close()
 
 	housekeeping := time.NewTicker(housekeepingInterval)
 	geoipUpdater := time.NewTicker(24 * time.Hour)
@@ -461,6 +472,7 @@ func (h *Hub) Reload(config *goconf.ConfigFile) {
 		h.mcu.Reload(config)
 	}
 	h.backend.Reload(config)
+	h.rpcClients.Reload(config)
 }
 
 func reverseSessionId(s string) (string, error) {
@@ -553,9 +565,13 @@ func (h *Hub) GetSessionByPublicId(sessionId string) Session {
 		return nil
 	}
 
-	h.mu.Lock()
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	session := h.sessions[data.Sid]
-	h.mu.Unlock()
+	if session != nil && session.PublicId() != sessionId {
+		// Session was created on different server.
+		return nil
+	}
 	return session
 }
 
@@ -985,7 +1001,7 @@ func (h *Hub) processHelloInternal(client *Client, message *ClientMessage) {
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) disconnectByRoomSessionId(roomSessionId string) {
+func (h *Hub) disconnectByRoomSessionId(roomSessionId string, backend *Backend) {
 	sessionId, err := h.roomSessions.GetSessionId(roomSessionId)
 	if err == ErrNoSuchRoomSession {
 		return
@@ -997,13 +1013,16 @@ func (h *Hub) disconnectByRoomSessionId(roomSessionId string) {
 	session := h.GetSessionByPublicId(sessionId)
 	if session == nil {
 		// Session is located on a different server.
-		msg := &ServerMessage{
-			Type: "bye",
-			Bye: &ByeServerMessage{
-				Reason: "room_session_reconnected",
+		msg := &AsyncMessage{
+			Type: "message",
+			Message: &ServerMessage{
+				Type: "bye",
+				Bye: &ByeServerMessage{
+					Reason: "room_session_reconnected",
+				},
 			},
 		}
-		if err := h.nats.PublishMessage("session."+sessionId, msg); err != nil {
+		if err := h.events.PublishSessionMessage(sessionId, backend, msg); err != nil {
 			log.Printf("Could not send reconnect bye to session %s: %s", sessionId, err)
 		}
 		return
@@ -1097,7 +1116,7 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		if message.Room.SessionId != "" {
 			// There can only be one connection per Nextcloud Talk session,
 			// disconnect any other connections without sending a "leave" event.
-			h.disconnectByRoomSessionId(message.Room.SessionId)
+			h.disconnectByRoomSessionId(message.Room.SessionId, session.Backend())
 		}
 	}
 
@@ -1125,7 +1144,7 @@ func (h *Hub) removeRoom(room *Room) {
 
 func (h *Hub) createRoom(id string, properties *json.RawMessage, backend *Backend) (*Room, error) {
 	// Note the write lock must be held.
-	room, err := NewRoom(id, properties, h, h.nats, backend)
+	room, err := NewRoom(id, properties, h, h.events, backend)
 	if err != nil {
 		return nil, err
 	}
@@ -1149,7 +1168,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 
 	roomId := room.Room.RoomId
 	internalRoomId := getRoomIdForBackend(roomId, session.Backend())
-	if err := session.SubscribeRoomNats(h.nats, roomId, message.Room.SessionId); err != nil {
+	if err := session.SubscribeRoomEvents(roomId, message.Room.SessionId); err != nil {
 		session.SendMessage(message.NewWrappedErrorServerMessage(err))
 		// The client (implicitly) left the room due to an error.
 		h.sendRoom(session, nil, nil)
@@ -1164,7 +1183,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 			h.ru.Unlock()
 			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			// The client (implicitly) left the room due to an error.
-			session.UnsubscribeRoomNats()
+			session.UnsubscribeRoomEvents()
 			h.sendRoom(session, nil, nil)
 			return
 		}
@@ -1182,65 +1201,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 		session.SetPermissions(*room.Room.Permissions)
 	}
 	h.sendRoom(session, message, r)
-	h.notifyUserJoinedRoom(r, session, room.Room.Session)
-}
-
-func (h *Hub) notifyUserJoinedRoom(room *Room, session *ClientSession, sessionData *json.RawMessage) {
-	// Register session with the room
-	if sessions := room.AddSession(session, sessionData); len(sessions) > 0 {
-		events := make([]*EventServerMessageSessionEntry, 0, len(sessions))
-		for _, s := range sessions {
-			entry := &EventServerMessageSessionEntry{
-				SessionId: s.PublicId(),
-				UserId:    s.UserId(),
-				User:      s.UserData(),
-			}
-			if s, ok := s.(*ClientSession); ok {
-				entry.RoomSessionId = s.RoomSessionId()
-			}
-			events = append(events, entry)
-		}
-		msg := &ServerMessage{
-			Type: "event",
-			Event: &EventServerMessage{
-				Target: "room",
-				Type:   "join",
-				Join:   events,
-			},
-		}
-
-		// No need to send through NATS, the session is connected locally.
-		session.SendMessage(msg)
-
-		// Notify about initial flags of virtual sessions.
-		for _, s := range sessions {
-			vsess, ok := s.(*VirtualSession)
-			if !ok {
-				continue
-			}
-
-			flags := vsess.Flags()
-			if flags == 0 {
-				continue
-			}
-
-			msg := &ServerMessage{
-				Type: "event",
-				Event: &EventServerMessage{
-					Target: "participants",
-					Type:   "flags",
-					Flags: &RoomFlagsServerMessage{
-						RoomId:    room.Id(),
-						SessionId: vsess.PublicId(),
-						Flags:     vsess.Flags(),
-					},
-				},
-			}
-
-			// No need to send through NATS, the session is connected locally.
-			session.SendMessage(msg)
-		}
-	}
+	r.AddSession(session, room.Room.Session)
 }
 
 func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
@@ -1255,39 +1216,43 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 	var subject string
 	var clientData *MessageClientMessageData
 	var serverRecipient *MessageClientMessageRecipient
+	var recipientSessionId string
+	var room *Room
 	switch msg.Recipient.Type {
 	case RecipientTypeSession:
-		data := h.decodeSessionId(msg.Recipient.SessionId, publicSessionName)
-		if data != nil {
-			if data.BackendId != session.Backend().Id() {
+		if h.mcu != nil {
+			// Maybe this is a message to be processed by the MCU.
+			var data MessageClientMessageData
+			if err := json.Unmarshal(*msg.Data, &data); err == nil {
+				clientData = &data
+
+				switch clientData.Type {
+				case "requestoffer":
+					// Process asynchronously to avoid blocking regular
+					// message processing for this client.
+					go h.processMcuMessage(session, message, msg, clientData)
+					return
+				case "offer":
+					fallthrough
+				case "answer":
+					fallthrough
+				case "endOfCandidates":
+					fallthrough
+				case "selectStream":
+					fallthrough
+				case "candidate":
+					h.processMcuMessage(session, message, msg, clientData)
+					return
+				}
+			}
+		}
+
+		sess := h.GetSessionByPublicId(msg.Recipient.SessionId)
+		if sess != nil {
+			// Recipient is also connected to this instance.
+			if sess.Backend().Id() != session.Backend().Id() {
 				// Clients are only allowed to send to sessions from the same backend.
 				return
-			}
-
-			if h.mcu != nil {
-				// Maybe this is a message to be processed by the MCU.
-				var data MessageClientMessageData
-				if err := json.Unmarshal(*msg.Data, &data); err == nil {
-					clientData = &data
-					switch data.Type {
-					case "requestoffer":
-						// Process asynchronously to avoid blocking regular
-						// message processing for this client.
-						go h.processMcuMessage(session, session, message, msg, &data)
-						return
-					case "offer":
-						fallthrough
-					case "answer":
-						fallthrough
-					case "endOfCandidates":
-						fallthrough
-					case "selectStream":
-						fallthrough
-					case "candidate":
-						h.processMcuMessage(session, session, message, msg, &data)
-						return
-					}
-				}
 			}
 
 			if msg.Recipient.SessionId == session.PublicId() {
@@ -1296,27 +1261,27 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 			}
 
 			subject = "session." + msg.Recipient.SessionId
-			h.mu.RLock()
-			sess, found := h.sessions[data.Sid]
-			if found {
-				if sess, ok := sess.(*ClientSession); ok {
-					recipient = sess
-				}
+			recipientSessionId = msg.Recipient.SessionId
+			if sess, ok := sess.(*ClientSession); ok {
+				recipient = sess
+			}
 
-				// Send to client connection for virtual sessions.
-				if sess.ClientType() == HelloClientTypeVirtual {
-					virtualSession := sess.(*VirtualSession)
-					clientSession := virtualSession.Session()
-					subject = "session." + clientSession.PublicId()
-					recipient = clientSession
-					// The client should see his session id as recipient.
-					serverRecipient = &MessageClientMessageRecipient{
-						Type:      "session",
-						SessionId: virtualSession.SessionId(),
-					}
+			// Send to client connection for virtual sessions.
+			if sess.ClientType() == HelloClientTypeVirtual {
+				virtualSession := sess.(*VirtualSession)
+				clientSession := virtualSession.Session()
+				subject = "session." + clientSession.PublicId()
+				recipientSessionId = clientSession.PublicId()
+				recipient = clientSession
+				// The client should see his session id as recipient.
+				serverRecipient = &MessageClientMessageRecipient{
+					Type:      "session",
+					SessionId: virtualSession.SessionId(),
 				}
 			}
-			h.mu.RUnlock()
+		} else {
+			subject = "session." + msg.Recipient.SessionId
+			recipientSessionId = msg.Recipient.SessionId
 		}
 	case RecipientTypeUser:
 		if msg.Recipient.UserId != "" {
@@ -1331,7 +1296,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 		}
 	case RecipientTypeRoom:
 		if session != nil {
-			if room := session.GetRoom(); room != nil {
+			if room = session.GetRoom(); room != nil {
 				subject = GetSubjectForRoomId(room.Id(), room.Backend())
 
 				if h.mcu != nil {
@@ -1384,7 +1349,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 		},
 	}
 	if recipient != nil {
-		// The recipient is connected to this instance, no need to go through NATS.
+		// The recipient is connected to this instance, no need to go through asynchronous events.
 		if clientData != nil && clientData.Type == "sendoffer" {
 			if err := session.IsAllowedToSend(clientData); err != nil {
 				log.Printf("Session %s is not allowed to send offer for %s, ignoring (%s)", session.PublicId(), clientData.RoomType, err)
@@ -1392,21 +1357,83 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				return
 			}
 
-			msg.Recipient.SessionId = session.PublicId()
 			// It may take some time for the publisher (which is the current
 			// client) to start his stream, so we must not block the active
 			// goroutine.
-			go h.processMcuMessage(session, recipient, message, msg, clientData)
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
+				defer cancel()
+
+				mc, err := recipient.GetOrCreateSubscriber(ctx, h.mcu, session.PublicId(), clientData.RoomType)
+				if err != nil {
+					log.Printf("Could not create MCU subscriber for session %s to send %+v to %s: %s", session.PublicId(), clientData, recipient.PublicId(), err)
+					sendMcuClientNotFound(session, message)
+					return
+				} else if mc == nil {
+					log.Printf("No MCU subscriber found for session %s to send %+v to %s", session.PublicId(), clientData, recipient.PublicId())
+					sendMcuClientNotFound(session, message)
+					return
+				}
+
+				mc.SendMessage(context.TODO(), msg, clientData, func(err error, response map[string]interface{}) {
+					if err != nil {
+						log.Printf("Could not send MCU message %+v for session %s to %s: %s", clientData, session.PublicId(), recipient.PublicId(), err)
+						sendMcuProcessingFailed(session, message)
+						return
+					} else if response == nil {
+						// No response received
+						return
+					}
+
+					// The response (i.e. the "offer") must be sent to the recipient but
+					// should be coming from the sender.
+					msg.Recipient.SessionId = session.PublicId()
+					h.sendMcuMessageResponse(recipient, mc, msg, clientData, response)
+				})
+			}()
 			return
 		}
+
 		recipient.SendMessage(response)
 	} else {
 		if clientData != nil && clientData.Type == "sendoffer" {
-			// TODO(jojo): Implement this.
-			log.Printf("Sending offers to remote clients is not supported yet (client %s)", session.PublicId())
+			if err := session.IsAllowedToSend(clientData); err != nil {
+				log.Printf("Session %s is not allowed to send offer for %s, ignoring (%s)", session.PublicId(), clientData.RoomType, err)
+				sendNotAllowed(session, message, "Not allowed to send offer")
+				return
+			}
+
+			async := &AsyncMessage{
+				Type: "sendoffer",
+				SendOffer: &SendOfferMessage{
+					MessageId: message.Id,
+					SessionId: session.PublicId(),
+					Data:      clientData,
+				},
+			}
+			if err := h.events.PublishSessionMessage(recipientSessionId, session.Backend(), async); err != nil {
+				log.Printf("Error publishing message to remote session: %s", err)
+			}
 			return
 		}
-		if err := h.nats.PublishMessage(subject, response); err != nil {
+
+		async := &AsyncMessage{
+			Type:    "message",
+			Message: response,
+		}
+		var err error
+		switch msg.Recipient.Type {
+		case RecipientTypeSession:
+			err = h.events.PublishSessionMessage(recipientSessionId, session.Backend(), async)
+		case RecipientTypeUser:
+			err = h.events.PublishUserMessage(msg.Recipient.UserId, session.Backend(), async)
+		case RecipientTypeRoom:
+			err = h.events.PublishRoomMessage(room.Id(), session.Backend(), async)
+		default:
+			err = fmt.Errorf("unsupported recipient type: %s", msg.Recipient.Type)
+		}
+
+		if err != nil {
 			log.Printf("Error publishing message to remote session: %s", err)
 		}
 	}
@@ -1437,9 +1464,11 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 		return
 	}
 
-	var recipient *Client
+	var recipient *ClientSession
 	var subject string
 	var serverRecipient *MessageClientMessageRecipient
+	var recipientSessionId string
+	var room *Room
 	switch msg.Recipient.Type {
 	case RecipientTypeSession:
 		data := h.decodeSessionId(msg.Recipient.SessionId, publicSessionName)
@@ -1450,16 +1479,21 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 			}
 
 			subject = "session." + msg.Recipient.SessionId
+			recipientSessionId = msg.Recipient.SessionId
 			h.mu.RLock()
-			recipient = h.clients[data.Sid]
-			if recipient == nil {
+			sess, found := h.sessions[data.Sid]
+			if found && sess.PublicId() == msg.Recipient.SessionId {
+				if sess, ok := sess.(*ClientSession); ok {
+					recipient = sess
+				}
+
 				// Send to client connection for virtual sessions.
-				sess := h.sessions[data.Sid]
-				if sess != nil && sess.ClientType() == HelloClientTypeVirtual {
+				if sess.ClientType() == HelloClientTypeVirtual {
 					virtualSession := sess.(*VirtualSession)
 					clientSession := virtualSession.Session()
 					subject = "session." + clientSession.PublicId()
-					recipient = clientSession.GetClient()
+					recipientSessionId = clientSession.PublicId()
+					recipient = clientSession
 					// The client should see his session id as recipient.
 					serverRecipient = &MessageClientMessageRecipient{
 						Type:      "session",
@@ -1482,7 +1516,7 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 		}
 	case RecipientTypeRoom:
 		if session != nil {
-			if room := session.GetRoom(); room != nil {
+			if room = session.GetRoom(); room != nil {
 				subject = GetSubjectForRoomId(room.Id(), room.Backend())
 			}
 		}
@@ -1507,7 +1541,22 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 	if recipient != nil {
 		recipient.SendMessage(response)
 	} else {
-		if err := h.nats.PublishMessage(subject, response); err != nil {
+		async := &AsyncMessage{
+			Type:    "message",
+			Message: response,
+		}
+		var err error
+		switch msg.Recipient.Type {
+		case RecipientTypeSession:
+			err = h.events.PublishSessionMessage(recipientSessionId, session.Backend(), async)
+		case RecipientTypeUser:
+			err = h.events.PublishUserMessage(msg.Recipient.UserId, session.Backend(), async)
+		case RecipientTypeRoom:
+			err = h.events.PublishRoomMessage(room.Id(), room.Backend(), async)
+		default:
+			err = fmt.Errorf("unsupported recipient type: %s", msg.Recipient.Type)
+		}
+		if err != nil {
 			log.Printf("Error publishing message to remote session: %s", err)
 		}
 	}
@@ -1727,7 +1776,41 @@ func sendMcuProcessingFailed(session *ClientSession, message *ClientMessage) {
 	session.SendMessage(response)
 }
 
-func (h *Hub) isInSameCall(senderSession *ClientSession, recipientSessionId string) bool {
+func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSession, senderRoom *Room, recipientSessionId string) bool {
+	clients := h.rpcClients.GetClients()
+	if len(clients) == 0 {
+		return false
+	}
+
+	var result int32
+	var wg sync.WaitGroup
+	rpcCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	for _, client := range clients {
+		wg.Add(1)
+		go func(client *GrpcClient) {
+			defer wg.Done()
+
+			inCall, err := client.IsSessionInCall(rpcCtx, recipientSessionId, senderRoom)
+			if errors.Is(err, context.Canceled) {
+				return
+			} else if err != nil {
+				log.Printf("Error checking session %s in call on %s: %s", recipientSessionId, client.Target(), err)
+				return
+			} else if !inCall {
+				return
+			}
+
+			cancel()
+			atomic.StoreInt32(&result, 1)
+		}(client)
+	}
+	wg.Wait()
+
+	return atomic.LoadInt32(&result) != 0
+}
+
+func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, recipientSessionId string) bool {
 	if senderSession.ClientType() == HelloClientTypeInternal {
 		// Internal clients may subscribe all streams.
 		return true
@@ -1742,7 +1825,7 @@ func (h *Hub) isInSameCall(senderSession *ClientSession, recipientSessionId stri
 	recipientSession := h.GetSessionByPublicId(recipientSessionId)
 	if recipientSession == nil {
 		// Recipient session does not exist.
-		return false
+		return h.isInSameCallRemote(ctx, senderSession, senderRoom, recipientSessionId)
 	}
 
 	recipientRoom := recipientSession.GetRoom()
@@ -1755,7 +1838,7 @@ func (h *Hub) isInSameCall(senderSession *ClientSession, recipientSessionId stri
 	return true
 }
 
-func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSession, client_message *ClientMessage, message *MessageClientMessage, data *MessageClientMessageData) {
+func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMessage, message *MessageClientMessage, data *MessageClientMessageData) {
 	ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
 	defer cancel()
 
@@ -1771,29 +1854,28 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 
 		// A user is only allowed to subscribe a stream if she is in the same room
 		// as the other user and both have their "inCall" flag set.
-		if !h.allowSubscribeAnyStream && !h.isInSameCall(senderSession, message.Recipient.SessionId) {
+		if !h.allowSubscribeAnyStream && !h.isInSameCall(ctx, session, message.Recipient.SessionId) {
 			log.Printf("Session %s is not in the same call as session %s, not requesting offer", session.PublicId(), message.Recipient.SessionId)
-			sendNotAllowed(senderSession, client_message, "Not allowed to request offer.")
+			sendNotAllowed(session, client_message, "Not allowed to request offer.")
 			return
 		}
 
 		clientType = "subscriber"
 		mc, err = session.GetOrCreateSubscriber(ctx, h.mcu, message.Recipient.SessionId, data.RoomType)
 	case "sendoffer":
-		// Permissions have already been checked in "processMessageMsg".
-		clientType = "subscriber"
-		mc, err = session.GetOrCreateSubscriber(ctx, h.mcu, message.Recipient.SessionId, data.RoomType)
+		// Will be sent directly.
+		return
 	case "offer":
 		clientType = "publisher"
 		mc, err = session.GetOrCreatePublisher(ctx, h.mcu, data.RoomType, data)
 		if err, ok := err.(*PermissionError); ok {
 			log.Printf("Session %s is not allowed to offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
-			sendNotAllowed(senderSession, client_message, "Not allowed to publish.")
+			sendNotAllowed(session, client_message, "Not allowed to publish.")
 			return
 		}
 		if err, ok := err.(*SdpError); ok {
 			log.Printf("Session %s sent unsupported offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
-			sendNotAllowed(senderSession, client_message, "Not allowed to publish.")
+			sendNotAllowed(session, client_message, "Not allowed to publish.")
 			return
 		}
 	case "selectStream":
@@ -1808,7 +1890,7 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 		if session.PublicId() == message.Recipient.SessionId {
 			if err := session.IsAllowedToSend(data); err != nil {
 				log.Printf("Session %s is not allowed to send candidate for %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
-				sendNotAllowed(senderSession, client_message, "Not allowed to send candidate.")
+				sendNotAllowed(session, client_message, "Not allowed to send candidate.")
 				return
 			}
 
@@ -1821,18 +1903,18 @@ func (h *Hub) processMcuMessage(senderSession *ClientSession, session *ClientSes
 	}
 	if err != nil {
 		log.Printf("Could not create MCU %s for session %s to send %+v to %s: %s", clientType, session.PublicId(), data, message.Recipient.SessionId, err)
-		sendMcuClientNotFound(senderSession, client_message)
+		sendMcuClientNotFound(session, client_message)
 		return
 	} else if mc == nil {
 		log.Printf("No MCU %s found for session %s to send %+v to %s", clientType, session.PublicId(), data, message.Recipient.SessionId)
-		sendMcuClientNotFound(senderSession, client_message)
+		sendMcuClientNotFound(session, client_message)
 		return
 	}
 
 	mc.SendMessage(context.TODO(), message, data, func(err error, response map[string]interface{}) {
 		if err != nil {
 			log.Printf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
-			sendMcuProcessingFailed(senderSession, client_message)
+			sendMcuProcessingFailed(session, client_message)
 			return
 		} else if response == nil {
 			// No response received

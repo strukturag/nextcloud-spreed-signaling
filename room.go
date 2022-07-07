@@ -32,7 +32,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -56,7 +55,7 @@ func init() {
 type Room struct {
 	id      string
 	hub     *Hub
-	nats    NatsClient
+	events  AsyncEvents
 	backend *Backend
 
 	properties *json.RawMessage
@@ -72,32 +71,13 @@ type Room struct {
 
 	statsRoomSessionsCurrent *prometheus.GaugeVec
 
-	natsReceiver        chan *nats.Msg
-	backendSubscription NatsSubscription
-
 	// Users currently in the room
 	users []map[string]interface{}
 
-	// Timestamps of last NATS backend requests for the different types.
-	lastNatsRoomRequests map[string]int64
+	// Timestamps of last backend requests for the different types.
+	lastRoomRequests map[string]int64
 
 	transientData *TransientData
-}
-
-func GetSubjectForRoomId(roomId string, backend *Backend) string {
-	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("room", roomId)
-	}
-
-	return GetEncodedSubject("room", roomId+"|"+backend.Id())
-}
-
-func GetSubjectForBackendRoomId(roomId string, backend *Backend) string {
-	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("backend.room", roomId)
-	}
-
-	return GetEncodedSubject("backend.room", roomId+"|"+backend.Id())
 }
 
 func getRoomIdForBackend(id string, backend *Backend) string {
@@ -108,18 +88,11 @@ func getRoomIdForBackend(id string, backend *Backend) string {
 	return backend.Id() + "|" + id
 }
 
-func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient, backend *Backend) (*Room, error) {
-	natsReceiver := make(chan *nats.Msg, 64)
-	backendSubscription, err := n.Subscribe(GetSubjectForBackendRoomId(roomId, backend), natsReceiver)
-	if err != nil {
-		close(natsReceiver)
-		return nil, err
-	}
-
+func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, events AsyncEvents, backend *Backend) (*Room, error) {
 	room := &Room{
 		id:      roomId,
 		hub:     hub,
-		nats:    n,
+		events:  events,
 		backend: backend,
 
 		properties: properties,
@@ -138,13 +111,15 @@ func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, n NatsClient,
 			"room":    roomId,
 		}),
 
-		natsReceiver:        natsReceiver,
-		backendSubscription: backendSubscription,
-
-		lastNatsRoomRequests: make(map[string]int64),
+		lastRoomRequests: make(map[string]int64),
 
 		transientData: NewTransientData(),
 	}
+
+	if err := events.RegisterBackendRoomListener(roomId, backend, room); err != nil {
+		return nil, err
+	}
+
 	go room.run()
 
 	return room, nil
@@ -193,10 +168,6 @@ loop:
 		select {
 		case <-r.closeChan:
 			break loop
-		case msg := <-r.natsReceiver:
-			if msg != nil {
-				r.processNatsMessage(msg)
-			}
 		case <-ticker.C:
 			r.publishActiveSessions()
 		}
@@ -211,16 +182,7 @@ func (r *Room) doClose() {
 }
 
 func (r *Room) unsubscribeBackend() {
-	if r.backendSubscription == nil {
-		return
-	}
-
-	go func(subscription NatsSubscription) {
-		if err := subscription.Unsubscribe(); err != nil {
-			log.Printf("Error closing backend subscription for room %s: %s", r.Id(), err)
-		}
-	}(r.backendSubscription)
-	r.backendSubscription = nil
+	r.events.UnregisterBackendRoomListener(r.id, r.backend, r)
 }
 
 func (r *Room) Close() []Session {
@@ -240,33 +202,29 @@ func (r *Room) Close() []Session {
 	return result
 }
 
-func (r *Room) processNatsMessage(message *nats.Msg) {
-	var msg NatsMessage
-	if err := r.nats.Decode(message, &msg); err != nil {
-		log.Printf("Could not decode nats message %+v, %s", message, err)
-		return
-	}
-
-	switch msg.Type {
+func (r *Room) ProcessBackendRoomRequest(message *AsyncMessage) {
+	switch message.Type {
 	case "room":
-		r.processBackendRoomRequest(msg.Room)
+		r.processBackendRoomRequestRoom(message.Room)
+	case "asyncroom":
+		r.processBackendRoomRequestAsyncRoom(message.AsyncRoom)
 	default:
-		log.Printf("Unsupported NATS room request with type %s: %+v", msg.Type, msg)
+		log.Printf("Unsupported backend room request with type %s in %s: %+v", message.Type, r.id, message)
 	}
 }
 
-func (r *Room) processBackendRoomRequest(message *BackendServerRoomRequest) {
+func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) {
 	received := message.ReceivedTime
-	if last, found := r.lastNatsRoomRequests[message.Type]; found && last > received {
+	if last, found := r.lastRoomRequests[message.Type]; found && last > received {
 		if msg, err := json.Marshal(message); err == nil {
-			log.Printf("Ignore old NATS backend room request for %s: %s", r.Id(), string(msg))
+			log.Printf("Ignore old backend room request for %s: %s", r.Id(), string(msg))
 		} else {
-			log.Printf("Ignore old NATS backend room request for %s: %+v", r.Id(), message)
+			log.Printf("Ignore old backend room request for %s: %+v", r.Id(), message)
 		}
 		return
 	}
 
-	r.lastNatsRoomRequests[message.Type] = received
+	r.lastRoomRequests[message.Type] = received
 	message.room = r
 	switch message.Type {
 	case "update":
@@ -281,11 +239,20 @@ func (r *Room) processBackendRoomRequest(message *BackendServerRoomRequest) {
 	case "message":
 		r.publishRoomMessage(message.Message)
 	default:
-		log.Printf("Unsupported NATS backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
+		log.Printf("Unsupported backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
 }
 
-func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Session {
+func (r *Room) processBackendRoomRequestAsyncRoom(message *AsyncRoomMessage) {
+	switch message.Type {
+	case "sessionjoined":
+		r.notifySessionJoined(message.SessionId)
+	default:
+		log.Printf("Unsupported async room request with type %s in %s: %+v", message.Type, r.Id(), message)
+	}
+}
+
+func (r *Room) AddSession(session Session, sessionData *json.RawMessage) {
 	var roomSessionData *RoomSessionData
 	if sessionData != nil && len(*sessionData) > 0 {
 		roomSessionData = &RoomSessionData{}
@@ -298,13 +265,6 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 	sid := session.PublicId()
 	r.mu.Lock()
 	_, found := r.sessions[sid]
-	// Return list of sessions already in the room.
-	result := make([]Session, 0, len(r.sessions))
-	for _, s := range r.sessions {
-		if s != session {
-			result = append(result, s)
-		}
-	}
 	r.sessions[sid] = session
 	if !found {
 		r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": session.ClientType()}).Inc()
@@ -340,7 +300,116 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) []Sessi
 			r.transientData.AddListener(clientSession)
 		}
 	}
-	return result
+
+	// Trigger notifications that the session joined.
+	if err := r.events.PublishBackendRoomMessage(r.id, r.backend, &AsyncMessage{
+		Type: "asyncroom",
+		AsyncRoom: &AsyncRoomMessage{
+			Type:      "sessionjoined",
+			SessionId: sid,
+		},
+	}); err != nil {
+		log.Printf("Error publishing joined event for session %s: %s", sid, err)
+	}
+}
+
+func (r *Room) getOtherSessions(ignoreSessionId string) (Session, []Session) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	sessions := make([]Session, 0, len(r.sessions))
+	for _, s := range r.sessions {
+		if s.PublicId() == ignoreSessionId {
+			continue
+		}
+
+		sessions = append(sessions, s)
+	}
+
+	return r.sessions[ignoreSessionId], sessions
+}
+
+func (r *Room) notifySessionJoined(sessionId string) {
+	session, sessions := r.getOtherSessions(sessionId)
+	if len(sessions) == 0 {
+		return
+	}
+
+	if session != nil && session.ClientType() != HelloClientTypeClient {
+		session = nil
+	}
+
+	events := make([]*EventServerMessageSessionEntry, 0, len(sessions))
+	for _, s := range sessions {
+		entry := &EventServerMessageSessionEntry{
+			SessionId: s.PublicId(),
+			UserId:    s.UserId(),
+			User:      s.UserData(),
+		}
+		if s, ok := s.(*ClientSession); ok {
+			entry.RoomSessionId = s.RoomSessionId()
+		}
+		events = append(events, entry)
+	}
+
+	msg := &ServerMessage{
+		Type: "event",
+		Event: &EventServerMessage{
+			Target: "room",
+			Type:   "join",
+			Join:   events,
+		},
+	}
+
+	if session != nil {
+		// No need to send through asynchronous events, the session is connected locally.
+		session.(*ClientSession).SendMessage(msg)
+	} else {
+		if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+			Type:    "message",
+			Message: msg,
+		}); err != nil {
+			log.Printf("Error publishing joined events to session %s: %s", sessionId, err)
+		}
+	}
+
+	// Notify about initial flags of virtual sessions.
+	for _, s := range sessions {
+		vsess, ok := s.(*VirtualSession)
+		if !ok {
+			continue
+		}
+
+		flags := vsess.Flags()
+		if flags == 0 {
+			continue
+		}
+
+		msg := &ServerMessage{
+			Type: "event",
+			Event: &EventServerMessage{
+				Target: "participants",
+				Type:   "flags",
+				Flags: &RoomFlagsServerMessage{
+					RoomId:    r.id,
+					SessionId: vsess.PublicId(),
+					Flags:     vsess.Flags(),
+				},
+			},
+		}
+
+		if session != nil {
+			// No need to send through asynchronous events, the session is connected locally.
+			session.(*ClientSession).SendMessage(msg)
+		} else {
+			if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+				Type:    "message",
+				Message: msg,
+			}); err != nil {
+				log.Printf("Error publishing initial flags to session %s: %s", sessionId, err)
+			}
+		}
+	}
 }
 
 func (r *Room) HasSession(session Session) bool {
@@ -394,7 +463,10 @@ func (r *Room) RemoveSession(session Session) bool {
 }
 
 func (r *Room) publish(message *ServerMessage) error {
-	return r.nats.PublishMessage(GetSubjectForRoomId(r.id, r.backend), message)
+	return r.events.PublishRoomMessage(r.id, r.backend, &AsyncMessage{
+		Type:    "message",
+		Message: message,
+	})
 }
 
 func (r *Room) UpdateProperties(properties *json.RawMessage) {
@@ -620,11 +692,13 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	var notify []*ClientSession
 	if inCall&FlagInCall != 0 {
 		// All connected sessions join the call.
 		var joined []string
 		for _, session := range r.sessions {
-			if _, ok := session.(*ClientSession); !ok {
+			clientSession, ok := session.(*ClientSession)
+			if !ok {
 				continue
 			}
 
@@ -636,6 +710,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 				r.inCallSessions[session] = true
 				joined = append(joined, session.PublicId())
 			}
+			notify = append(notify, clientSession)
 		}
 
 		if len(joined) == 0 {
@@ -656,6 +731,15 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 				session.LeaveCall()
 			}
 		}()
+
+		for _, session := range r.sessions {
+			clientSession, ok := session.(*ClientSession)
+			if !ok {
+				continue
+			}
+
+			notify = append(notify, clientSession)
+		}
 
 		for session := range r.inCallSessions {
 			if clientSession, ok := session.(*ClientSession); ok {
@@ -683,8 +767,11 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 			},
 		},
 	}
-	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+
+	for _, session := range notify {
+		if !session.SendMessage(message) {
+			log.Printf("Could not send incall message from room %s to %s", r.Id(), session.PublicId())
+		}
 	}
 }
 

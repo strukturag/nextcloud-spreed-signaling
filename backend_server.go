@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -53,7 +54,7 @@ const (
 
 type BackendServer struct {
 	hub          *Hub
-	nats         NatsClient
+	events       AsyncEvents
 	roomSessions RoomSessions
 
 	version        string
@@ -123,7 +124,7 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 
 	return &BackendServer{
 		hub:          hub,
-		nats:         hub.nats,
+		events:       hub.events,
 		roomSessions: hub.roomSessions,
 		version:      version,
 
@@ -279,45 +280,53 @@ func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Reque
 }
 
 func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids []string, properties *json.RawMessage) {
-	msg := &ServerMessage{
-		Type: "event",
-		Event: &EventServerMessage{
-			Target: "roomlist",
-			Type:   "invite",
-			Invite: &RoomEventServerMessage{
-				RoomId:     roomid,
-				Properties: properties,
+	msg := &AsyncMessage{
+		Type: "message",
+		Message: &ServerMessage{
+			Type: "event",
+			Event: &EventServerMessage{
+				Target: "roomlist",
+				Type:   "invite",
+				Invite: &RoomEventServerMessage{
+					RoomId:     roomid,
+					Properties: properties,
+				},
 			},
 		},
 	}
 	for _, userid := range userids {
-		if err := b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg); err != nil {
+		if err := b.events.PublishUserMessage(userid, backend, msg); err != nil {
 			log.Printf("Could not publish room invite for user %s in backend %s: %s", userid, backend.Id(), err)
 		}
 	}
 }
 
 func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reason string, userids []string, sessionids []string) {
-	msg := &ServerMessage{
-		Type: "event",
-		Event: &EventServerMessage{
-			Target: "roomlist",
-			Type:   "disinvite",
-			Disinvite: &RoomDisinviteEventServerMessage{
-				RoomEventServerMessage: RoomEventServerMessage{
-					RoomId: roomid,
+	msg := &AsyncMessage{
+		Type: "message",
+		Message: &ServerMessage{
+			Type: "event",
+			Event: &EventServerMessage{
+				Target: "roomlist",
+				Type:   "disinvite",
+				Disinvite: &RoomDisinviteEventServerMessage{
+					RoomEventServerMessage: RoomEventServerMessage{
+						RoomId: roomid,
+					},
+					Reason: reason,
 				},
-				Reason: reason,
 			},
 		},
 	}
 	for _, userid := range userids {
-		if err := b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg); err != nil {
+		if err := b.events.PublishUserMessage(userid, backend, msg); err != nil {
 			log.Printf("Could not publish room disinvite for user %s in backend %s: %s", userid, backend.Id(), err)
 		}
 	}
 
 	timeout := time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	var wg sync.WaitGroup
 	for _, sessionid := range sessionids {
 		if sessionid == sessionIdNotInMeeting {
@@ -328,10 +337,10 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 		wg.Add(1)
 		go func(sessionid string) {
 			defer wg.Done()
-			if sid, err := b.lookupByRoomSessionId(sessionid, nil, timeout); err != nil {
+			if sid, err := b.lookupByRoomSessionId(ctx, sessionid, nil); err != nil {
 				log.Printf("Could not lookup by room session %s: %s", sessionid, err)
 			} else if sid != "" {
-				if err := b.nats.PublishMessage("session."+sid, msg); err != nil {
+				if err := b.events.PublishSessionMessage(sid, backend, msg); err != nil {
 					log.Printf("Could not publish room disinvite for session %s: %s", sid, err)
 				}
 			}
@@ -341,14 +350,17 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 }
 
 func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified_userids []string, all_userids []string, properties *json.RawMessage) {
-	msg := &ServerMessage{
-		Type: "event",
-		Event: &EventServerMessage{
-			Target: "roomlist",
-			Type:   "update",
-			Update: &RoomEventServerMessage{
-				RoomId:     roomid,
-				Properties: properties,
+	msg := &AsyncMessage{
+		Type: "message",
+		Message: &ServerMessage{
+			Type: "event",
+			Event: &EventServerMessage{
+				Target: "roomlist",
+				Type:   "update",
+				Update: &RoomEventServerMessage{
+					RoomId:     roomid,
+					Properties: properties,
+				},
 			},
 		},
 	}
@@ -362,13 +374,13 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified
 			continue
 		}
 
-		if err := b.nats.PublishMessage(GetSubjectForUserId(userid, backend), msg); err != nil {
+		if err := b.events.PublishUserMessage(userid, backend, msg); err != nil {
 			log.Printf("Could not publish room update for user %s in backend %s: %s", userid, backend.Id(), err)
 		}
 	}
 }
 
-func (b *BackendServer) lookupByRoomSessionId(roomSessionId string, cache *ConcurrentStringStringMap, timeout time.Duration) (string, error) {
+func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId string, cache *ConcurrentStringStringMap) (string, error) {
 	if roomSessionId == sessionIdNotInMeeting {
 		log.Printf("Trying to lookup empty room session id: %s", roomSessionId)
 		return "", nil
@@ -380,7 +392,7 @@ func (b *BackendServer) lookupByRoomSessionId(roomSessionId string, cache *Concu
 		}
 	}
 
-	sid, err := b.roomSessions.GetSessionId(roomSessionId)
+	sid, err := b.roomSessions.LookupSessionId(ctx, roomSessionId)
 	if err == ErrNoSuchRoomSession {
 		return "", nil
 	} else if err != nil {
@@ -393,7 +405,7 @@ func (b *BackendServer) lookupByRoomSessionId(roomSessionId string, cache *Concu
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(cache *ConcurrentStringStringMap, users []map[string]interface{}, timeout time.Duration) []map[string]interface{} {
+func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentStringStringMap, users []map[string]interface{}) []map[string]interface{} {
 	if len(users) == 0 {
 		return users
 	}
@@ -421,7 +433,7 @@ func (b *BackendServer) fixupUserSessions(cache *ConcurrentStringStringMap, user
 		wg.Add(1)
 		go func(roomSessionId string, u map[string]interface{}) {
 			defer wg.Done()
-			if sessionId, err := b.lookupByRoomSessionId(roomSessionId, cache, timeout); err != nil {
+			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
 				log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
 				delete(u, "sessionId")
 			} else if sessionId != "" {
@@ -447,27 +459,35 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request 
 	if !request.InCall.All {
 		timeout := time.Second
 
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
 		var cache ConcurrentStringStringMap
 		// Convert (Nextcloud) session ids to signaling session ids.
-		request.InCall.Users = b.fixupUserSessions(&cache, request.InCall.Users, timeout)
+		request.InCall.Users = b.fixupUserSessions(ctx, &cache, request.InCall.Users)
 		// Entries in "Changed" are most likely already fetched through the "Users" list.
-		request.InCall.Changed = b.fixupUserSessions(&cache, request.InCall.Changed, timeout)
+		request.InCall.Changed = b.fixupUserSessions(ctx, &cache, request.InCall.Changed)
 
 		if len(request.InCall.Users) == 0 && len(request.InCall.Changed) == 0 {
 			return nil
 		}
 	}
 
-	return b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), request)
+	message := &AsyncMessage{
+		Type: "room",
+		Room: request,
+	}
+	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
 func (b *BackendServer) sendRoomParticipantsUpdate(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
 	timeout := time.Second
 
 	// Convert (Nextcloud) session ids to signaling session ids.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	var cache ConcurrentStringStringMap
-	request.Participants.Users = b.fixupUserSessions(&cache, request.Participants.Users, timeout)
-	request.Participants.Changed = b.fixupUserSessions(&cache, request.Participants.Changed, timeout)
+	request.Participants.Users = b.fixupUserSessions(ctx, &cache, request.Participants.Users)
+	request.Participants.Changed = b.fixupUserSessions(ctx, &cache, request.Participants.Changed)
 
 	if len(request.Participants.Users) == 0 && len(request.Participants.Changed) == 0 {
 		return nil
@@ -500,22 +520,30 @@ loop:
 
 		go func(sessionId string, permissions []Permission) {
 			defer wg.Done()
-			message := &NatsMessage{
+			message := &AsyncMessage{
 				Type:        "permissions",
 				Permissions: permissions,
 			}
-			if err := b.nats.Publish("session."+sessionId, message); err != nil {
+			if err := b.events.PublishSessionMessage(sessionId, backend, message); err != nil {
 				log.Printf("Could not send permissions update (%+v) to session %s: %s", permissions, sessionId, err)
 			}
 		}(sessionId, permissions)
 	}
 	wg.Wait()
 
-	return b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), request)
+	message := &AsyncMessage{
+		Type: "room",
+		Room: request,
+	}
+	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
 func (b *BackendServer) sendRoomMessage(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
-	return b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), request)
+	message := &AsyncMessage{
+		Type: "room",
+		Room: request,
+	}
+	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
 func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body []byte) {
@@ -580,10 +608,18 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 		b.sendRoomDisinvite(roomid, backend, DisinviteReasonDisinvited, request.Disinvite.UserIds, request.Disinvite.SessionIds)
 		b.sendRoomUpdate(roomid, backend, request.Disinvite.UserIds, request.Disinvite.AllUserIds, request.Disinvite.Properties)
 	case "update":
-		err = b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), &request)
+		message := &AsyncMessage{
+			Type: "room",
+			Room: &request,
+		}
+		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
 		b.sendRoomUpdate(roomid, backend, nil, request.Update.UserIds, request.Update.Properties)
 	case "delete":
-		err = b.nats.PublishBackendServerRoomRequest(GetSubjectForBackendRoomId(roomid, backend), &request)
+		message := &AsyncMessage{
+			Type: "room",
+			Room: &request,
+		}
+		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
 		b.sendRoomDisinvite(roomid, backend, DisinviteReasonDeleted, request.Delete.UserIds, nil)
 	case "incall":
 		err = b.sendRoomIncall(roomid, backend, &request)

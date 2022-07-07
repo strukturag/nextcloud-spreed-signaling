@@ -145,7 +145,7 @@ func TestRoom_Update(t *testing.T) {
 	}
 
 	// The client receives a roomlist update and a changed room event. The
-	// ordering is not defined because messages are sent by asynchronous NATS
+	// ordering is not defined because messages are sent by asynchronous event
 	// handlers.
 	message1, err := client.RunUntilMessage(ctx)
 	if err != nil {
@@ -178,7 +178,7 @@ func TestRoom_Update(t *testing.T) {
 		}
 	}
 
-	// Allow up to 100 milliseconds for NATS processing.
+	// Allow up to 100 milliseconds for asynchronous event processing.
 	ctx2, cancel2 := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel2()
 
@@ -280,7 +280,7 @@ func TestRoom_Delete(t *testing.T) {
 	}
 
 	// The client is no longer invited to the room and leaves it. The ordering
-	// of messages is not defined as they get published through NATS and handled
+	// of messages is not defined as they get published through events and handled
 	// by asynchronous channels.
 	message1, err := client.RunUntilMessage(ctx)
 	if err != nil {
@@ -318,7 +318,7 @@ func TestRoom_Delete(t *testing.T) {
 		}
 	}
 
-	// Allow up to 100 milliseconds for NATS processing.
+	// Allow up to 100 milliseconds for asynchronous event processing.
 	ctx2, cancel2 := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel2()
 

@@ -50,12 +50,37 @@ blockkey = -encryption-key-
 internalsecret = the-shared-secret-for-internal-clients
 
 [backend]
+# Type of backend configuration.
+# Defaults to "static".
+#
+# Possible values:
+# - static: A comma-separated list of backends is given in the "backends" option.
+# - etcd: Backends are retrieved from an etcd cluster.
+#backendtype = static
+
+# For backend type "static":
 # Comma-separated list of backend ids from which clients are allowed to connect
 # from. Each backend will have isolated rooms, i.e. clients connecting to room
 # "abc12345" on backend 1 will be in a different room than clients connected to
 # a room with the same name on backend 2. Also sessions connected from different
 # backends will not be able to communicate with each other.
 #backends = backend-id, another-backend
+
+# For backend type "etcd":
+# Key prefix of backend entries. All keys below will be watched and assumed to
+# contain a JSON document with the following entries:
+# - "url": Url of the Nextcloud instance.
+# - "secret": Shared secret for requests from and to the backend servers.
+#
+# Additional optional entries:
+# - "maxstreambitrate": Maximum bitrate per publishing stream (in bits per second).
+# - "maxscreenbitrate": Maximum bitrate per screensharing stream (in bits per second).
+# - "sessionlimit": Number of sessions that are allowed to connect.
+#
+# Example:
+# "/signaling/backend/one" -> {"url": "https://nextcloud.domain1.invalid", ...}
+# "/signaling/backend/two" -> {"url": "https://domain2.invalid/nextcloud", ...}
+#backendprefix = /signaling/backend
 
 # Allow any hostname as backend endpoint. This is extremely insecure and should
 # only be used while running the benchmark client against the server.
@@ -77,6 +102,7 @@ connectionsperhost = 8
 # certificates.
 #skipverify = false
 
+# For backendtype "static":
 # Backend configurations as defined in the "[backend]" section above. The
 # section names must match the ids used in "backends" above.
 #[backend-id]
@@ -109,7 +135,7 @@ connectionsperhost = 8
 
 [nats]
 # Url of NATS backend to use. This can also be a list of URLs to connect to
-# multiple backends. For local development, this can be set to ":loopback:"
+# multiple backends. For local development, this can be set to "nats://loopback"
 # to process NATS messages internally instead of sending them through an
 # external NATS backend.
 #url = nats://localhost:4222
@@ -234,3 +260,55 @@ connectionsperhost = 8
 #clientkey = /path/to/etcd-client.key
 #clientcert = /path/to/etcd-client.crt
 #cacert = /path/to/etcd-ca.crt
+
+[grpc]
+# IP and port to listen on for GRPC requests.
+# Comment line to disable the listener.
+#listen = 0.0.0.0:9090
+
+# Certificate / private key to use for the GRPC server.
+# Omit to use unencrypted connections.
+#servercertificate = /path/to/grpc-server.crt
+#serverkey = /path/to/grpc-server.key
+
+# CA certificate that is allowed to issue certificates of GRPC servers.
+# Omit to expect unencrypted connections.
+#serverca = /path/to/grpc-ca.crt
+
+# Certificate / private key to use for the GRPC client.
+# Omit if clients don't need to authenticate on the server.
+#clientcertificate = /path/to/grpc-client.crt
+#clientkey = /path/to/grpc-client.key
+
+# CA certificate that is allowed to issue certificates of GRPC clients.
+# Omit to allow any clients to connect.
+#clientca = /path/to/grpc-ca.crt
+
+# Type of GRPC target configuration.
+# Defaults to "static".
+#
+# Possible values:
+# - static: A comma-separated list of targets is given in the "targets" option.
+# - etcd: Target URLs are retrieved from an etcd cluster.
+#targettype = static
+
+# For target type "static": Comma-separated list of GRPC targets to connect to
+# for clustering mode.
+#targets = 192.168.0.1:9090, 192.168.0.2:9090
+
+# For target type "static": Enable DNS discovery on hostnames of GRPC target.
+# If a hostname resolves to multiple IP addresses, a connection is established
+# to each of them.
+# Changes to the DNS are monitored regularly and GRPC clients are created or
+# deleted as necessary.
+#dnsdiscovery = true
+
+# For target type "etcd": Key prefix of GRPC target entries. All keys below will
+# be watched and assumed to contain a JSON document. The entry "address" from
+# this document will be used as target URL, other contents in the document will
+# be ignored.
+#
+# Example:
+# "/signaling/cluster/grpc/one" -> {"address": "192.168.0.1:9090"}
+# "/signaling/cluster/grpc/two" -> {"address": "192.168.0.2:9090"}
+#targetprefix = /signaling/cluster/grpc

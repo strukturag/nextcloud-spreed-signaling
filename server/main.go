@@ -148,10 +148,11 @@ func main() {
 		natsUrl = nats.DefaultURL
 	}
 
-	nats, err := signaling.NewNatsClient(natsUrl)
+	events, err := signaling.NewAsyncEvents(natsUrl)
 	if err != nil {
-		log.Fatal("Could not create NATS client: ", err)
+		log.Fatal("Could not create async events client: ", err)
 	}
+	defer events.Close()
 
 	etcdClient, err := signaling.NewEtcdClient(config, "mcu")
 	if err != nil {
@@ -163,8 +164,25 @@ func main() {
 		}
 	}()
 
+	rpcServer, err := signaling.NewGrpcServer(config)
+	if err != nil {
+		log.Fatalf("Could not create RPC server: %s", err)
+	}
+	go func() {
+		if err := rpcServer.Run(); err != nil {
+			log.Fatalf("Could not start RPC server: %s", err)
+		}
+	}()
+	defer rpcServer.Close()
+
+	rpcClients, err := signaling.NewGrpcClients(config, etcdClient)
+	if err != nil {
+		log.Fatalf("Could not create RPC clients: %s", err)
+	}
+	defer rpcClients.Close()
+
 	r := mux.NewRouter()
-	hub, err := signaling.NewHub(config, nats, r, version)
+	hub, err := signaling.NewHub(config, events, rpcServer, rpcClients, etcdClient, r, version)
 	if err != nil {
 		log.Fatal("Could not create hub: ", err)
 	}
@@ -191,7 +209,7 @@ func main() {
 				signaling.UnregisterProxyMcuStats()
 				signaling.RegisterJanusMcuStats()
 			case signaling.McuTypeProxy:
-				mcu, err = signaling.NewMcuProxy(config, etcdClient)
+				mcu, err = signaling.NewMcuProxy(config, etcdClient, rpcClients)
 				signaling.UnregisterJanusMcuStats()
 				signaling.RegisterProxyMcuStats()
 			default:

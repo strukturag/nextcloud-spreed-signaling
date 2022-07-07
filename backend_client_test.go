@@ -95,7 +95,7 @@ func TestPostOnRedirect(t *testing.T) {
 	if u.Scheme == "http" {
 		config.AddOption("backend", "allowhttp", "true")
 	}
-	client, err := NewBackendClient(config, 1, "0.0")
+	client, err := NewBackendClient(config, 1, "0.0", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 	if u.Scheme == "http" {
 		config.AddOption("backend", "allowhttp", "true")
 	}
-	client, err := NewBackendClient(config, 1, "0.0")
+	client, err := NewBackendClient(config, 1, "0.0", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 	if u.Scheme == "http" {
 		config.AddOption("backend", "allowhttp", "true")
 	}
-	client, err := NewBackendClient(config, 1, "0.0")
+	client, err := NewBackendClient(config, 1, "0.0", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -35,21 +35,9 @@ import (
 const (
 	initialConnectInterval = time.Second
 	maxConnectInterval     = 8 * time.Second
+
+	NatsLoopbackUrl = "nats://loopback"
 )
-
-type NatsMessage struct {
-	SendTime time.Time `json:"sendtime"`
-
-	Type string `json:"type"`
-
-	Message *ServerMessage `json:"message,omitempty"`
-
-	Room *BackendServerRoomRequest `json:"room,omitempty"`
-
-	Permissions []Permission `json:"permissions,omitempty"`
-
-	Id string `json:"id"`
-}
 
 type NatsSubscription interface {
 	Unsubscribe() error
@@ -59,11 +47,7 @@ type NatsClient interface {
 	Close()
 
 	Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error)
-
 	Publish(subject string, message interface{}) error
-	PublishNats(subject string, message *NatsMessage) error
-	PublishMessage(subject string, message *ServerMessage) error
-	PublishBackendServerRoomRequest(subject string, message *BackendServerRoomRequest) error
 
 	Decode(msg *nats.Msg, v interface{}) error
 }
@@ -82,7 +66,11 @@ type natsClient struct {
 
 func NewNatsClient(url string) (NatsClient, error) {
 	if url == ":loopback:" {
-		log.Println("No NATS url configured, using internal loopback client")
+		log.Printf("WARNING: events url %s is deprecated, please use %s instead", url, NatsLoopbackUrl)
+		url = NatsLoopbackUrl
+	}
+	if url == NatsLoopbackUrl {
+		log.Println("Using internal NATS loopback client")
 		return NewLoopbackNatsClient()
 	}
 
@@ -146,28 +134,6 @@ func (c *natsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsSubscript
 
 func (c *natsClient) Publish(subject string, message interface{}) error {
 	return c.conn.Publish(subject, message)
-}
-
-func (c *natsClient) PublishNats(subject string, message *NatsMessage) error {
-	return c.Publish(subject, message)
-}
-
-func (c *natsClient) PublishMessage(subject string, message *ServerMessage) error {
-	msg := &NatsMessage{
-		SendTime: time.Now(),
-		Type:     "message",
-		Message:  message,
-	}
-	return c.PublishNats(subject, msg)
-}
-
-func (c *natsClient) PublishBackendServerRoomRequest(subject string, message *BackendServerRoomRequest) error {
-	msg := &NatsMessage{
-		SendTime: time.Now(),
-		Type:     "room",
-		Room:     message,
-	}
-	return c.PublishNats(subject, msg)
 }
 
 func (c *natsClient) Decode(msg *nats.Msg, v interface{}) error {

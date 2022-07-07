@@ -3,6 +3,7 @@ vendor/
 
 *_easyjson.go
 *.pem
+*.pb.go
 *.prof
 *.socket
 *.tar.gz

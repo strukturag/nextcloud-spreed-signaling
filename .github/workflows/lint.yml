@@ -45,6 +45,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt -y update && sudo apt -y install protobuf-compiler
           make common
 
       - name: lint

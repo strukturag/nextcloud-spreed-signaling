@@ -42,7 +42,6 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/nats-io/nats.go"
 )
 
 var (
@@ -52,11 +51,11 @@ var (
 	turnServers       = strings.Split(turnServersString, ",")
 )
 
-func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	return CreateBackendServerForTestFromConfig(t, nil)
 }
 
-func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	config := goconf.NewConfigFile()
 	config.AddOption("turn", "apikey", turnApiKey)
 	config.AddOption("turn", "secret", turnSecret)
@@ -64,11 +63,14 @@ func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *Back
 	return CreateBackendServerForTestFromConfig(t, config)
 }
 
-func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, NatsClient, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
 	server := httptest.NewServer(r)
+	t.Cleanup(func() {
+		server.Close()
+	})
 	if config == nil {
 		config = goconf.NewConfigFile()
 	}
@@ -85,11 +87,8 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
-	nats, err := NewLoopbackNatsClient()
-	if err != nil {
-		t.Fatal(err)
-	}
-	hub, err := NewHub(config, nats, r, "no-version")
+	events := getAsyncEventsForTest(t)
+	hub, err := NewHub(config, events, nil, nil, nil, r, "no-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,12 +107,122 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 		defer cancel()
 
 		WaitForHub(ctx, t, hub)
-		(nats).(*LoopbackNatsClient).waitForSubscriptionsEmpty(ctx, t)
-		nats.Close()
-		server.Close()
 	})
 
-	return config, b, nats, hub, r, server
+	return config, b, events, hub, r, server
+}
+
+func CreateBackendServerWithClusteringForTest(t *testing.T) (*BackendServer, *BackendServer, *Hub, *Hub, *httptest.Server, *httptest.Server) {
+	return CreateBackendServerWithClusteringForTestFromConfig(t, nil, nil)
+}
+
+func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *goconf.ConfigFile, config2 *goconf.ConfigFile) (*BackendServer, *BackendServer, *Hub, *Hub, *httptest.Server, *httptest.Server) {
+	r1 := mux.NewRouter()
+	registerBackendHandler(t, r1)
+
+	server1 := httptest.NewServer(r1)
+	t.Cleanup(func() {
+		server1.Close()
+	})
+
+	r2 := mux.NewRouter()
+	registerBackendHandler(t, r2)
+
+	server2 := httptest.NewServer(r2)
+	t.Cleanup(func() {
+		server2.Close()
+	})
+
+	nats := startLocalNatsServer(t)
+	grpcServer1, addr1 := NewGrpcServerForTest(t)
+	grpcServer2, addr2 := NewGrpcServerForTest(t)
+
+	if config1 == nil {
+		config1 = goconf.NewConfigFile()
+	}
+	u1, err := url.Parse(server1.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config1.AddOption("backend", "allowed", u1.Host)
+	if u1.Scheme == "http" {
+		config1.AddOption("backend", "allowhttp", "true")
+	}
+	config1.AddOption("backend", "secret", string(testBackendSecret))
+	config1.AddOption("sessions", "hashkey", "12345678901234567890123456789012")
+	config1.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
+	config1.AddOption("clients", "internalsecret", string(testInternalSecret))
+	config1.AddOption("geoip", "url", "none")
+
+	events1, err := NewAsyncEvents(nats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		events1.Close()
+	})
+	client1 := NewGrpcClientsForTest(t, addr2)
+	hub1, err := NewHub(config1, events1, grpcServer1, client1, nil, r1, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if config2 == nil {
+		config2 = goconf.NewConfigFile()
+	}
+	u2, err := url.Parse(server2.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config2.AddOption("backend", "allowed", u2.Host)
+	if u2.Scheme == "http" {
+		config2.AddOption("backend", "allowhttp", "true")
+	}
+	config2.AddOption("backend", "secret", string(testBackendSecret))
+	config2.AddOption("sessions", "hashkey", "12345678901234567890123456789012")
+	config2.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
+	config2.AddOption("clients", "internalsecret", string(testInternalSecret))
+	config2.AddOption("geoip", "url", "none")
+	events2, err := NewAsyncEvents(nats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		events2.Close()
+	})
+	client2 := NewGrpcClientsForTest(t, addr1)
+	hub2, err := NewHub(config2, events2, grpcServer2, client2, nil, r2, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b1, err := NewBackendServer(config1, hub1, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b1.Start(r1); err != nil {
+		t.Fatal(err)
+	}
+	b2, err := NewBackendServer(config2, hub2, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b2.Start(r2); err != nil {
+		t.Fatal(err)
+	}
+
+	go hub1.Run()
+	go hub2.Run()
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+
+		WaitForHub(ctx, t, hub1)
+		WaitForHub(ctx, t, hub2)
+	})
+
+	return b1, b2, hub1, hub2, server1, server2
 }
 
 func performBackendRequest(url string, body []byte) (*http.Response, error) {
@@ -131,23 +240,16 @@ func performBackendRequest(url string, body []byte) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func expectRoomlistEvent(n NatsClient, ch chan *nats.Msg, subject string, msgType string) (*EventServerMessage, error) {
+func expectRoomlistEvent(ch chan *AsyncMessage, msgType string) (*EventServerMessage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	select {
 	case message := <-ch:
-		if message.Subject != subject {
-			return nil, fmt.Errorf("Expected subject %s, got %s", subject, message.Subject)
-		}
-		var natsMsg NatsMessage
-		if err := n.Decode(message, &natsMsg); err != nil {
-			return nil, err
-		}
-		if natsMsg.Type != "message" || natsMsg.Message == nil {
-			return nil, fmt.Errorf("Expected message type message, got %+v", natsMsg)
+		if message.Type != "message" || message.Message == nil {
+			return nil, fmt.Errorf("Expected message type message, got %+v", message)
 		}
 
-		msg := natsMsg.Message
+		msg := message.Message
 		if msg.Type != "event" || msg.Event == nil {
 			return nil, fmt.Errorf("Expected message type event, got %+v", msg)
 		}
@@ -309,7 +411,23 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 }
 
 func TestBackendServer_RoomInvite(t *testing.T) {
-	_, _, n, hub, _, server := CreateBackendServerForTest(t)
+	for _, backend := range eventBackendsForTest {
+		t.Run(backend, func(t *testing.T) {
+			RunTestBackendServer_RoomInvite(t)
+		})
+	}
+}
+
+type channelEventListener struct {
+	ch chan *AsyncMessage
+}
+
+func (l *channelEventListener) ProcessAsyncUserMessage(message *AsyncMessage) {
+	l.ch <- message
+}
+
+func RunTestBackendServer_RoomInvite(t *testing.T) {
+	_, _, events, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -320,17 +438,14 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 	backend := hub.backend.GetBackend(u)
 
-	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(userid, backend)
-	sub, err := n.Subscribe(subject, natsChan)
-	if err != nil {
+	eventsChan := make(chan *AsyncMessage, 1)
+	listener := &channelEventListener{
+		ch: eventsChan,
+	}
+	if err := events.RegisterUserListener(userid, backend, listener); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer events.UnregisterUserListener(userid, backend, listener)
 
 	msg := &BackendServerRoomRequest{
 		Type: "invite",
@@ -363,7 +478,7 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
 	}
 
-	event, err := expectRoomlistEvent(n, natsChan, subject, "invite")
+	event, err := expectRoomlistEvent(eventsChan, "invite")
 	if err != nil {
 		t.Error(err)
 	} else if event.Invite == nil {
@@ -376,7 +491,15 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 }
 
 func TestBackendServer_RoomDisinvite(t *testing.T) {
-	_, _, n, hub, _, server := CreateBackendServerForTest(t)
+	for _, backend := range eventBackendsForTest {
+		t.Run(backend, func(t *testing.T) {
+			RunTestBackendServer_RoomDisinvite(t)
+		})
+	}
+}
+
+func RunTestBackendServer_RoomDisinvite(t *testing.T) {
+	_, _, events, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -414,17 +537,14 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(testDefaultUserId, backend)
-	sub, err := n.Subscribe(subject, natsChan)
-	if err != nil {
+	eventsChan := make(chan *AsyncMessage, 1)
+	listener := &channelEventListener{
+		ch: eventsChan,
+	}
+	if err := events.RegisterUserListener(testDefaultUserId, backend, listener); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer events.UnregisterUserListener(testDefaultUserId, backend, listener)
 
 	msg := &BackendServerRoomRequest{
 		Type: "disinvite",
@@ -457,7 +577,7 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
 	}
 
-	event, err := expectRoomlistEvent(n, natsChan, subject, "disinvite")
+	event, err := expectRoomlistEvent(eventsChan, "disinvite")
 	if err != nil {
 		t.Error(err)
 	} else if event.Disinvite == nil {
@@ -606,11 +726,18 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	} else if message.RoomId != roomId2 {
 		t.Errorf("Expected message for room %s, got %s", roomId2, message.RoomId)
 	}
-
 }
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
-	_, _, n, hub, _, server := CreateBackendServerForTest(t)
+	for _, backend := range eventBackendsForTest {
+		t.Run(backend, func(t *testing.T) {
+			RunTestBackendServer_RoomUpdate(t)
+		})
+	}
+}
+
+func RunTestBackendServer_RoomUpdate(t *testing.T) {
+	_, _, events, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -632,17 +759,14 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 	userid := "test-userid"
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(userid, backend)
-	sub, err := n.Subscribe(subject, natsChan)
-	if err != nil {
+	eventsChan := make(chan *AsyncMessage, 1)
+	listener := &channelEventListener{
+		ch: eventsChan,
+	}
+	if err := events.RegisterUserListener(userid, backend, listener); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer events.UnregisterUserListener(userid, backend, listener)
 
 	msg := &BackendServerRoomRequest{
 		Type: "update",
@@ -671,7 +795,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
 	}
 
-	event, err := expectRoomlistEvent(n, natsChan, subject, "update")
+	event, err := expectRoomlistEvent(eventsChan, "update")
 	if err != nil {
 		t.Error(err)
 	} else if event.Update == nil {
@@ -682,7 +806,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 		t.Errorf("Room properties don't match: expected %s, got %s", string(roomProperties), string(*event.Update.Properties))
 	}
 
-	// TODO: Use event to wait for NATS messages.
+	// TODO: Use event to wait for asynchronous messages.
 	time.Sleep(10 * time.Millisecond)
 
 	room = hub.getRoom(roomId)
@@ -695,7 +819,15 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 }
 
 func TestBackendServer_RoomDelete(t *testing.T) {
-	_, _, n, hub, _, server := CreateBackendServerForTest(t)
+	for _, backend := range eventBackendsForTest {
+		t.Run(backend, func(t *testing.T) {
+			RunTestBackendServer_RoomDelete(t)
+		})
+	}
+}
+
+func RunTestBackendServer_RoomDelete(t *testing.T) {
+	_, _, events, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	if err != nil {
@@ -713,18 +845,14 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 	}
 
 	userid := "test-userid"
-
-	natsChan := make(chan *nats.Msg, 1)
-	subject := GetSubjectForUserId(userid, backend)
-	sub, err := n.Subscribe(subject, natsChan)
-	if err != nil {
+	eventsChan := make(chan *AsyncMessage, 1)
+	listener := &channelEventListener{
+		ch: eventsChan,
+	}
+	if err := events.RegisterUserListener(userid, backend, listener); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer events.UnregisterUserListener(userid, backend, listener)
 
 	msg := &BackendServerRoomRequest{
 		Type: "delete",
@@ -753,7 +881,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 	}
 
 	// A deleted room is signalled as a "disinvite" event.
-	event, err := expectRoomlistEvent(n, natsChan, subject, "disinvite")
+	event, err := expectRoomlistEvent(eventsChan, "disinvite")
 	if err != nil {
 		t.Error(err)
 	} else if event.Disinvite == nil {
@@ -766,7 +894,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 		t.Errorf("Reason should be deleted, got %s", event.Disinvite.Reason)
 	}
 
-	// TODO: Use event to wait for NATS messages.
+	// TODO: Use event to wait for asynchronous messages.
 	time.Sleep(10 * time.Millisecond)
 
 	room := hub.getRoom(roomId)
@@ -776,117 +904,134 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
-	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
 
-	client1 := NewTestClient(t, server, hub)
-	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+			if isLocalTest(t) {
+				_, _, _, hub1, _, server1 = CreateBackendServerForTest(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
+				hub2 = hub1
+				server2 = server1
+			} else {
+				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
+			}
 
-	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
 
-	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId)
-	if session1 == nil {
-		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
-	}
-	session2 := hub.GetSessionByPublicId(hello2.Hello.SessionId)
-	if session2 == nil {
-		t.Fatalf("Session %s does not exist", hello2.Hello.SessionId)
-	}
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
 
-	// Sessions have all permissions initially (fallback for old-style sessions).
-	assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_MEDIA)
-	assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_SCREEN)
-	assertSessionHasPermission(t, session2, PERMISSION_MAY_PUBLISH_MEDIA)
-	assertSessionHasPermission(t, session2, PERMISSION_MAY_PUBLISH_SCREEN)
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	// Join room by id.
-	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
-	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+			session1 := hub1.GetSessionByPublicId(hello1.Hello.SessionId)
+			if session1 == nil {
+				t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
+			}
+			session2 := hub2.GetSessionByPublicId(hello2.Hello.SessionId)
+			if session2 == nil {
+				t.Fatalf("Session %s does not exist", hello2.Hello.SessionId)
+			}
 
-	// Ignore "join" events.
-	if err := client1.DrainMessages(ctx); err != nil {
-		t.Error(err)
-	}
-	if err := client2.DrainMessages(ctx); err != nil {
-		t.Error(err)
-	}
+			// Sessions have all permissions initially (fallback for old-style sessions).
+			assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_MEDIA)
+			assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_SCREEN)
+			assertSessionHasPermission(t, session2, PERMISSION_MAY_PUBLISH_MEDIA)
+			assertSessionHasPermission(t, session2, PERMISSION_MAY_PUBLISH_SCREEN)
 
-	msg := &BackendServerRoomRequest{
-		Type: "participants",
-		Participants: &BackendRoomParticipantsRequest{
-			Changed: []map[string]interface{}{
-				{
-					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
-					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
+			// Join room by id.
+			roomId := "test-room"
+			if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			// Ignore "join" events.
+			if err := client1.DrainMessages(ctx); err != nil {
+				t.Error(err)
+			}
+			if err := client2.DrainMessages(ctx); err != nil {
+				t.Error(err)
+			}
+
+			msg := &BackendServerRoomRequest{
+				Type: "participants",
+				Participants: &BackendRoomParticipantsRequest{
+					Changed: []map[string]interface{}{
+						{
+							"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+							"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
+						},
+						{
+							"sessionId":   roomId + "-" + hello2.Hello.SessionId,
+							"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
+						},
+					},
+					Users: []map[string]interface{}{
+						{
+							"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+							"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
+						},
+						{
+							"sessionId":   roomId + "-" + hello2.Hello.SessionId,
+							"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
+						},
+					},
 				},
-				{
-					"sessionId":   roomId + "-" + hello2.Hello.SessionId,
-					"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
-				},
-			},
-			Users: []map[string]interface{}{
-				{
-					"sessionId":   roomId + "-" + hello1.Hello.SessionId,
-					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
-				},
-				{
-					"sessionId":   roomId + "-" + hello2.Hello.SessionId,
-					"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
-				},
-			},
-		},
-	}
+			}
 
-	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if res.StatusCode != 200 {
-		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
-	}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The request could be sent to any of the backend servers.
+			res, err := performBackendRequest(server1.URL+"/api/v1/room/"+roomId, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Error(err)
+			}
+			if res.StatusCode != 200 {
+				t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
+			}
 
-	// TODO: Use event to wait for NATS messages.
-	time.Sleep(10 * time.Millisecond)
+			// TODO: Use event to wait for asynchronous messages.
+			time.Sleep(10 * time.Millisecond)
 
-	assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_MEDIA)
-	assertSessionHasNotPermission(t, session1, PERMISSION_MAY_PUBLISH_SCREEN)
-	assertSessionHasNotPermission(t, session2, PERMISSION_MAY_PUBLISH_MEDIA)
-	assertSessionHasPermission(t, session2, PERMISSION_MAY_PUBLISH_SCREEN)
+			assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_MEDIA)
+			assertSessionHasNotPermission(t, session1, PERMISSION_MAY_PUBLISH_SCREEN)
+			assertSessionHasNotPermission(t, session2, PERMISSION_MAY_PUBLISH_MEDIA)
+			assertSessionHasPermission(t, session2, PERMISSION_MAY_PUBLISH_SCREEN)
+		})
+	}
 }
 
 func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
@@ -967,7 +1112,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
 	}
 
-	// TODO: Use event to wait for NATS messages.
+	// TODO: Use event to wait for asynchronous messages.
 	time.Sleep(10 * time.Millisecond)
 
 	assertSessionHasNotPermission(t, session, PERMISSION_MAY_PUBLISH_MEDIA)
@@ -1184,6 +1329,256 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 		} else if len(in_call_2.Users) != 2 {
 			t.Errorf("Wrong number of users received: %d, expected 2", len(in_call_2.Users))
 		}
+	}
+}
+
+func TestBackendServer_InCallAll(t *testing.T) {
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+
+			if isLocalTest(t) {
+				_, _, _, hub1, _, server1 = CreateBackendServerForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
+			}
+
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			session1 := hub1.GetSessionByPublicId(hello1.Hello.SessionId)
+			if session1 == nil {
+				t.Fatalf("Could not find session %s", hello1.Hello.SessionId)
+			}
+			session2 := hub2.GetSessionByPublicId(hello2.Hello.SessionId)
+			if session2 == nil {
+				t.Fatalf("Could not find session %s", hello2.Hello.SessionId)
+			}
+
+			// Join room by id.
+			roomId := "test-room"
+			if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			// Give message processing some time.
+			time.Sleep(10 * time.Millisecond)
+
+			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+			room1 := hub1.getRoom(roomId)
+			if room1 == nil {
+				t.Fatalf("Could not find room %s in hub1", roomId)
+			}
+			room2 := hub2.getRoom(roomId)
+			if room2 == nil {
+				t.Fatalf("Could not find room %s in hub2", roomId)
+			}
+
+			if room1.IsSessionInCall(session1) {
+				t.Errorf("Session %s should not be in room %s", session1.PublicId(), room1.Id())
+			}
+			if room2.IsSessionInCall(session2) {
+				t.Errorf("Session %s should not be in room %s", session2.PublicId(), room2.Id())
+			}
+
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				msg := &BackendServerRoomRequest{
+					Type: "incall",
+					InCall: &BackendRoomInCallRequest{
+						InCall: json.RawMessage("7"),
+						All:    true,
+					},
+				}
+
+				data, err := json.Marshal(msg)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				res, err := performBackendRequest(server1.URL+"/api/v1/room/"+roomId, data)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer res.Body.Close()
+				body, err := io.ReadAll(res.Body)
+				if err != nil {
+					t.Error(err)
+				}
+				if res.StatusCode != 200 {
+					t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
+				}
+			}()
+
+			wg.Wait()
+			if t.Failed() {
+				return
+			}
+
+			if msg1_a, err := client1.RunUntilMessage(ctx); err != nil {
+				t.Error(err)
+			} else if in_call_1, err := checkMessageParticipantsInCall(msg1_a); err != nil {
+				t.Error(err)
+			} else if !in_call_1.All {
+				t.Errorf("All flag not set in message %+v", in_call_1)
+			} else if !bytes.Equal(*in_call_1.InCall, []byte("7")) {
+				t.Errorf("Expected inCall flag 7, got %s", string(*in_call_1.InCall))
+			}
+
+			if msg2_a, err := client2.RunUntilMessage(ctx); err != nil {
+				t.Error(err)
+			} else if in_call_1, err := checkMessageParticipantsInCall(msg2_a); err != nil {
+				t.Error(err)
+			} else if !in_call_1.All {
+				t.Errorf("All flag not set in message %+v", in_call_1)
+			} else if !bytes.Equal(*in_call_1.InCall, []byte("7")) {
+				t.Errorf("Expected inCall flag 7, got %s", string(*in_call_1.InCall))
+			}
+
+			if !room1.IsSessionInCall(session1) {
+				t.Errorf("Session %s should be in room %s", session1.PublicId(), room1.Id())
+			}
+			if !room2.IsSessionInCall(session2) {
+				t.Errorf("Session %s should be in room %s", session2.PublicId(), room2.Id())
+			}
+
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel2()
+
+			if message, err := client1.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				t.Error(err)
+			} else if message != nil {
+				t.Errorf("Expected no message, got %+v", message)
+			}
+
+			ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel3()
+
+			if message, err := client2.RunUntilMessage(ctx3); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				t.Error(err)
+			} else if message != nil {
+				t.Errorf("Expected no message, got %+v", message)
+			}
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				msg := &BackendServerRoomRequest{
+					Type: "incall",
+					InCall: &BackendRoomInCallRequest{
+						InCall: json.RawMessage("0"),
+						All:    true,
+					},
+				}
+
+				data, err := json.Marshal(msg)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				res, err := performBackendRequest(server1.URL+"/api/v1/room/"+roomId, data)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer res.Body.Close()
+				body, err := io.ReadAll(res.Body)
+				if err != nil {
+					t.Error(err)
+				}
+				if res.StatusCode != 200 {
+					t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
+				}
+			}()
+
+			wg.Wait()
+			if t.Failed() {
+				return
+			}
+
+			if msg1_a, err := client1.RunUntilMessage(ctx); err != nil {
+				t.Error(err)
+			} else if in_call_1, err := checkMessageParticipantsInCall(msg1_a); err != nil {
+				t.Error(err)
+			} else if !in_call_1.All {
+				t.Errorf("All flag not set in message %+v", in_call_1)
+			} else if !bytes.Equal(*in_call_1.InCall, []byte("0")) {
+				t.Errorf("Expected inCall flag 0, got %s", string(*in_call_1.InCall))
+			}
+
+			if msg2_a, err := client2.RunUntilMessage(ctx); err != nil {
+				t.Error(err)
+			} else if in_call_1, err := checkMessageParticipantsInCall(msg2_a); err != nil {
+				t.Error(err)
+			} else if !in_call_1.All {
+				t.Errorf("All flag not set in message %+v", in_call_1)
+			} else if !bytes.Equal(*in_call_1.InCall, []byte("0")) {
+				t.Errorf("Expected inCall flag 0, got %s", string(*in_call_1.InCall))
+			}
+
+			if room1.IsSessionInCall(session1) {
+				t.Errorf("Session %s should not be in room %s", session1.PublicId(), room1.Id())
+			}
+			if room2.IsSessionInCall(session2) {
+				t.Errorf("Session %s should not be in room %s", session2.PublicId(), room2.Id())
+			}
+
+			ctx4, cancel4 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel4()
+
+			if message, err := client1.RunUntilMessage(ctx4); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				t.Error(err)
+			} else if message != nil {
+				t.Errorf("Expected no message, got %+v", message)
+			}
+
+			ctx5, cancel5 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel5()
+
+			if message, err := client2.RunUntilMessage(ctx5); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				t.Error(err)
+			} else if message != nil {
+				t.Errorf("Expected no message, got %+v", message)
+			}
+		})
 	}
 }
 

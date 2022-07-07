@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2019 struktur AG
+ * Copyright (C) 2022 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -22,18 +22,15 @@
 package signaling
 
 import (
-	"context"
-	"fmt"
+	"testing"
+	"time"
 )
 
-var (
-	ErrNoSuchRoomSession = fmt.Errorf("unknown room session id")
-)
+func UpdateCertificateCheckIntervalForTest(t *testing.T, interval time.Duration) {
+	old := CertificateCheckInterval
+	t.Cleanup(func() {
+		CertificateCheckInterval = old
+	})
 
-type RoomSessions interface {
-	SetRoomSession(session Session, roomSessionId string) error
-	DeleteRoomSession(session Session)
-
-	GetSessionId(roomSessionId string) (string, error)
-	LookupSessionId(ctx context.Context, roomSessionId string) (string, error)
+	CertificateCheckInterval = interval
 }

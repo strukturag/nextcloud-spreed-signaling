@@ -265,7 +265,7 @@ func TestVirtualSession(t *testing.T) {
 		t.Fatal(err)
 	} else if err := checkMessageType(msg2, "message"); err != nil {
 		t.Fatal(err)
-	} else if err := checkMessageSender(hub, msg2.Message, "session", hello.Hello); err != nil {
+	} else if err := checkMessageSender(hub, msg2.Message.Sender, "session", hello.Hello); err != nil {
 		t.Error(err)
 	}
 

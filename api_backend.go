@@ -28,7 +28,10 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 const (
@@ -320,4 +323,40 @@ type TurnCredentials struct {
 	Password string   `json:"password"`
 	TTL      int64    `json:"ttl"`
 	URIs     []string `json:"uris"`
+}
+
+// Information on a backend in the etcd cluster.
+
+type BackendInformationEtcd struct {
+	parsedUrl *url.URL
+
+	Url    string `json:"url"`
+	Secret string `json:"secret"`
+
+	MaxStreamBitrate int `json:"maxstreambitrate,omitempty"`
+	MaxScreenBitrate int `json:"maxscreenbitrate,omitempty"`
+
+	SessionLimit uint64 `json:"sessionlimit,omitempty"`
+}
+
+func (p *BackendInformationEtcd) CheckValid() error {
+	if p.Url == "" {
+		return fmt.Errorf("url missing")
+	}
+	if p.Secret == "" {
+		return fmt.Errorf("secret missing")
+	}
+
+	parsedUrl, err := url.Parse(p.Url)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+
+	if strings.Contains(parsedUrl.Host, ":") && hasStandardPort(parsedUrl) {
+		parsedUrl.Host = parsedUrl.Hostname()
+		p.Url = parsedUrl.String()
+	}
+
+	p.parsedUrl = parsedUrl
+	return nil
 }

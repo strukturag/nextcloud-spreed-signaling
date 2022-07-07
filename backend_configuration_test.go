@@ -23,8 +23,10 @@ package signaling
 
 import (
 	"bytes"
+	"context"
 	"net/url"
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/dlintw/goconf"
@@ -104,7 +106,7 @@ func TestIsUrlAllowed_Compat(t *testing.T) {
 	config.AddOption("backend", "allowed", "domain.invalid")
 	config.AddOption("backend", "allowhttp", "true")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config)
+	cfg, err := NewBackendConfiguration(config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +127,7 @@ func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", "domain.invalid")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config)
+	cfg, err := NewBackendConfiguration(config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +172,7 @@ func TestIsUrlAllowed(t *testing.T) {
 	config.AddOption("baz", "secret", string(testBackendSecret)+"-baz")
 	config.AddOption("lala", "url", "https://otherdomain.invalid/")
 	config.AddOption("lala", "secret", string(testBackendSecret)+"-lala")
-	cfg, err := NewBackendConfiguration(config)
+	cfg, err := NewBackendConfiguration(config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +189,7 @@ func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", "")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config)
+	cfg, err := NewBackendConfiguration(config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +209,7 @@ func TestIsUrlAllowed_AllowAll(t *testing.T) {
 	config.AddOption("backend", "allowall", "true")
 	config.AddOption("backend", "allowed", "")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config)
+	cfg, err := NewBackendConfiguration(config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +249,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	o_cfg, err := NewBackendConfiguration(original_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +262,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(new_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +284,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	o_cfg, err := NewBackendConfiguration(original_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +298,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 	new_config.AddOption("backend1", "sessionlimit", "10")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(new_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +324,7 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	o_cfg, err := NewBackendConfiguration(original_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +337,7 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend3")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(new_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +360,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	original_config.AddOption("backend", "allowall", "false")
 	original_config.AddOption("backend1", "url", "http://domain1.invalid")
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	o_cfg, err := NewBackendConfiguration(original_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +374,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
 	new_config.AddOption("backend2", "sessionlimit", "10")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(new_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +402,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	o_cfg, err := NewBackendConfiguration(original_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +413,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 	new_config.AddOption("backend", "allowall", "false")
 	new_config.AddOption("backend1", "url", "http://domain1.invalid")
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(new_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +439,7 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain1.invalid/bar/")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config)
+	o_cfg, err := NewBackendConfiguration(original_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +450,7 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	new_config.AddOption("backend", "allowall", "false")
 	new_config.AddOption("backend1", "url", "http://domain1.invalid/foo/")
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	n_cfg, err := NewBackendConfiguration(new_config)
+	n_cfg, err := NewBackendConfiguration(new_config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,5 +464,157 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	checkStatsValue(t, statsBackendsCurrent, current+2)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
 		t.Error("BackendConfiguration should be equal after Reload")
+	}
+}
+
+func sortBackends(backends []*Backend) []*Backend {
+	result := make([]*Backend, len(backends))
+	copy(result, backends)
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Id() < result[j].Id()
+	})
+	return result
+}
+
+func mustParse(s string) *url.URL {
+	p, err := url.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
+func TestBackendConfiguration_Etcd(t *testing.T) {
+	etcd, client := NewEtcdClientForTest(t)
+
+	url1 := "https://domain1.invalid/foo"
+	initialSecret1 := string(testBackendSecret) + "-backend1-initial"
+	secret1 := string(testBackendSecret) + "-backend1"
+
+	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"url\":\""+url1+"\",\"secret\":\""+initialSecret1+"\"}"))
+
+	config := goconf.NewConfigFile()
+	config.AddOption("backend", "backendtype", "etcd")
+	config.AddOption("backend", "backendprefix", "/backends")
+
+	cfg, err := NewBackendConfiguration(config, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cfg.Close()
+
+	storage := cfg.storage.(*backendStorageEtcd)
+	ch := make(chan bool, 1)
+	storage.SetWakeupForTesting(ch)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	if err := storage.WaitForInitialized(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if backends := sortBackends(cfg.GetBackends()); len(backends) != 1 {
+		t.Errorf("Expected one backend, got %+v", backends)
+	} else if backends[0].url != url1 {
+		t.Errorf("Expected backend url %s, got %s", url1, backends[0].url)
+	} else if string(backends[0].secret) != initialSecret1 {
+		t.Errorf("Expected backend secret %s, got %s", initialSecret1, string(backends[0].secret))
+	} else if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
+		t.Errorf("Expected backend %+v, got %+v", backends[0], backend)
+	}
+
+	drainWakeupChannel(ch)
+	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"url\":\""+url1+"\",\"secret\":\""+secret1+"\"}"))
+	<-ch
+	if backends := sortBackends(cfg.GetBackends()); len(backends) != 1 {
+		t.Errorf("Expected one backend, got %+v", backends)
+	} else if backends[0].url != url1 {
+		t.Errorf("Expected backend url %s, got %s", url1, backends[0].url)
+	} else if string(backends[0].secret) != secret1 {
+		t.Errorf("Expected backend secret %s, got %s", secret1, string(backends[0].secret))
+	} else if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
+		t.Errorf("Expected backend %+v, got %+v", backends[0], backend)
+	}
+
+	url2 := "https://domain1.invalid/bar"
+	secret2 := string(testBackendSecret) + "-backend2"
+
+	drainWakeupChannel(ch)
+	SetEtcdValue(etcd, "/backends/2_two", []byte("{\"url\":\""+url2+"\",\"secret\":\""+secret2+"\"}"))
+	<-ch
+	if backends := sortBackends(cfg.GetBackends()); len(backends) != 2 {
+		t.Errorf("Expected two backends, got %+v", backends)
+	} else if backends[0].url != url1 {
+		t.Errorf("Expected backend url %s, got %s", url1, backends[0].url)
+	} else if string(backends[0].secret) != secret1 {
+		t.Errorf("Expected backend secret %s, got %s", secret1, string(backends[0].secret))
+	} else if backends[1].url != url2 {
+		t.Errorf("Expected backend url %s, got %s", url2, backends[1].url)
+	} else if string(backends[1].secret) != secret2 {
+		t.Errorf("Expected backend secret %s, got %s", secret2, string(backends[1].secret))
+	} else if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
+		t.Errorf("Expected backend %+v, got %+v", backends[0], backend)
+	} else if backend := cfg.GetBackend(mustParse(url2)); backend != backends[1] {
+		t.Errorf("Expected backend %+v, got %+v", backends[1], backend)
+	}
+
+	url3 := "https://domain2.invalid/foo"
+	secret3 := string(testBackendSecret) + "-backend3"
+
+	drainWakeupChannel(ch)
+	SetEtcdValue(etcd, "/backends/3_three", []byte("{\"url\":\""+url3+"\",\"secret\":\""+secret3+"\"}"))
+	<-ch
+	if backends := sortBackends(cfg.GetBackends()); len(backends) != 3 {
+		t.Errorf("Expected three backends, got %+v", backends)
+	} else if backends[0].url != url1 {
+		t.Errorf("Expected backend url %s, got %s", url1, backends[0].url)
+	} else if string(backends[0].secret) != secret1 {
+		t.Errorf("Expected backend secret %s, got %s", secret1, string(backends[0].secret))
+	} else if backends[1].url != url2 {
+		t.Errorf("Expected backend url %s, got %s", url2, backends[1].url)
+	} else if string(backends[1].secret) != secret2 {
+		t.Errorf("Expected backend secret %s, got %s", secret2, string(backends[1].secret))
+	} else if backends[2].url != url3 {
+		t.Errorf("Expected backend url %s, got %s", url3, backends[2].url)
+	} else if string(backends[2].secret) != secret3 {
+		t.Errorf("Expected backend secret %s, got %s", secret3, string(backends[2].secret))
+	} else if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
+		t.Errorf("Expected backend %+v, got %+v", backends[0], backend)
+	} else if backend := cfg.GetBackend(mustParse(url2)); backend != backends[1] {
+		t.Errorf("Expected backend %+v, got %+v", backends[1], backend)
+	} else if backend := cfg.GetBackend(mustParse(url3)); backend != backends[2] {
+		t.Errorf("Expected backend %+v, got %+v", backends[2], backend)
+	}
+
+	drainWakeupChannel(ch)
+	DeleteEtcdValue(etcd, "/backends/1_one")
+	<-ch
+	if backends := sortBackends(cfg.GetBackends()); len(backends) != 2 {
+		t.Errorf("Expected two backends, got %+v", backends)
+	} else if backends[0].url != url2 {
+		t.Errorf("Expected backend url %s, got %s", url2, backends[0].url)
+	} else if string(backends[0].secret) != secret2 {
+		t.Errorf("Expected backend secret %s, got %s", secret2, string(backends[0].secret))
+	} else if backends[1].url != url3 {
+		t.Errorf("Expected backend url %s, got %s", url3, backends[1].url)
+	} else if string(backends[1].secret) != secret3 {
+		t.Errorf("Expected backend secret %s, got %s", secret3, string(backends[1].secret))
+	}
+
+	drainWakeupChannel(ch)
+	DeleteEtcdValue(etcd, "/backends/2_two")
+	<-ch
+	if backends := sortBackends(cfg.GetBackends()); len(backends) != 1 {
+		t.Errorf("Expected one backend, got %+v", backends)
+	} else if backends[0].url != url3 {
+		t.Errorf("Expected backend url %s, got %s", url3, backends[0].url)
+	} else if string(backends[0].secret) != secret3 {
+		t.Errorf("Expected backend secret %s, got %s", secret3, string(backends[0].secret))
+	}
+
+	if _, found := storage.backends["domain1.invalid"]; found {
+		t.Errorf("Should have removed host information for %s", "domain1.invalid")
 	}
 }

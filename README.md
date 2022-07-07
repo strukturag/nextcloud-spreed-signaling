@@ -19,6 +19,7 @@ The following tools are required for building the signaling server.
 - git
 - go >= 1.17
 - make
+- protobuf-compiler >= 3
 
 All other dependencies are fetched automatically while building.
 
@@ -154,6 +155,20 @@ When the proxy process receives a `SIGHUP` signal, the list of allowed token
 ids / public keys is reloaded. A `SIGUSR1` signal can be used to shutdown a
 proxy process gracefully after all clients have been disconnected. No new
 publishers will be accepted in this case.
+
+
+### Clustering
+
+The signaling server supports a clustering mode where multiple running servers
+can be interconnected to form a single "virtual" server. This can be used to
+increase the capacity of the signaling server or provide a failover setup.
+
+For that a central NATS server / cluster must be used by all instances. Each
+instance must running a GRPC server (enable `listening` in section `grpc` and
+optionally setup certificate, private key and CA). The list of other GRPC
+targets must be configured as `targets` in section `grpc` or can be retrieved
+from an etcd cluster. See `server.conf.in` in section `grpc` for configuration
+details.
 
 
 ## Setup of frontend webserver

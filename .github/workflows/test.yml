@@ -50,6 +50,10 @@ jobs:
         path: ${{ steps.go-cache-paths.outputs.go-mod }}
         key: ${{ runner.os }}-${{ steps.go-cache-paths.outputs.go-version }}-mod-${{ hashFiles('**/go.mod', '**/go.sum') }}
 
+    - name: Install dependencies
+      run: |
+        sudo apt -y update && sudo apt -y install protobuf-compiler
+
     - name: Build applications
       run: |
         echo "Building with $(nproc) threads"

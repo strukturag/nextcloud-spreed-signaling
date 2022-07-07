@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2019 struktur AG
+ * Copyright (C) 2022 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -22,14 +22,43 @@
 package signaling
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
-func TestBuiltinRoomSessions(t *testing.T) {
-	sessions, err := NewBuiltinRoomSessions(nil)
+func TestBackoff_Exponential(t *testing.T) {
+	backoff, err := NewExponentialBackoff(100*time.Millisecond, 500*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	testRoomSessions(t, sessions)
+	waitTimes := []time.Duration{
+		100 * time.Millisecond,
+		200 * time.Millisecond,
+		400 * time.Millisecond,
+		500 * time.Millisecond,
+		500 * time.Millisecond,
+	}
+
+	for _, wait := range waitTimes {
+		if backoff.NextWait() != wait {
+			t.Errorf("Wait time should be %s, got %s", wait, backoff.NextWait())
+		}
+
+		a := time.Now()
+		backoff.Wait(context.Background())
+		b := time.Now()
+		if b.Sub(a) < wait {
+			t.Errorf("Should have waited %s, got %s", wait, b.Sub(a))
+		}
+	}
+
+	backoff.Reset()
+	a := time.Now()
+	backoff.Wait(context.Background())
+	b := time.Now()
+	if b.Sub(a) < 100*time.Millisecond {
+		t.Errorf("Should have waited %s, got %s", 100*time.Millisecond, b.Sub(a))
+	}
 }
