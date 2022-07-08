@@ -63,11 +63,11 @@ jobs:
 
     - name: Run tests
       run: |
-        make test || make test
+        make test
 
     - name: Generate coverage report
       run: |
-        make cover || make cover
+        make cover
         echo "GOROOT=$(go env GOROOT)" >> $GITHUB_ENV
 
     - name: Convert coverage to lcov
