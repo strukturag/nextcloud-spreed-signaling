@@ -387,7 +387,8 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 			RoomId:  request.Room.RoomId,
 		},
 	}
-	if request.Room.RoomId == "test-room-with-sessiondata" {
+	switch request.Room.RoomId {
+	case "test-room-with-sessiondata":
 		data := map[string]string{
 			"userid": "userid-from-sessiondata",
 		}
@@ -396,6 +397,9 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 			t.Fatalf("Could not marshal %+v: %s", data, err)
 		}
 		response.Room.Session = (*json.RawMessage)(&tmp)
+	case "test-room-initial-permissions":
+		permissions := []Permission{PERMISSION_MAY_PUBLISH_AUDIO}
+		response.Room.Permissions = &permissions
 	}
 	return response
 }
@@ -2417,7 +2421,7 @@ func TestJoinMultiple(t *testing.T) {
 	}
 }
 
-func TestJoinMultipleDisplaynamesPermission(t *testing.T) {
+func TestJoinDisplaynamesPermission(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -2496,6 +2500,49 @@ func TestJoinMultipleDisplaynamesPermission(t *testing.T) {
 		} else if events[0].User == nil {
 			t.Errorf("Expected userdata for first event, got nothing")
 		}
+	}
+}
+
+func TestInitialRoomPermissions(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(testDefaultUserId + "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	hello, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room-initial-permissions"
+	if room, err := client.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
+		t.Error(err)
+	}
+
+	session := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	if session == nil {
+		t.Fatalf("Session %s does not exist", hello.Hello.SessionId)
+	}
+
+	if !session.HasPermission(PERMISSION_MAY_PUBLISH_AUDIO) {
+		t.Errorf("Session %s should have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_AUDIO, session.permissions)
+	}
+	if session.HasPermission(PERMISSION_MAY_PUBLISH_VIDEO) {
+		t.Errorf("Session %s should not have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_VIDEO, session.permissions)
 	}
 }
 
