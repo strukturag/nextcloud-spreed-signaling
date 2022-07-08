@@ -36,13 +36,19 @@ import (
 type reloadableCredentials struct {
 	config *tls.Config
 
-	pool *CertPoolReloader
+	loader *CertificateReloader
+	pool   *CertPoolReloader
 }
 
 func (c *reloadableCredentials) ClientHandshake(ctx context.Context, authority string, rawConn net.Conn) (net.Conn, credentials.AuthInfo, error) {
 	// use local cfg to avoid clobbering ServerName if using multiple endpoints
 	cfg := c.config.Clone()
-	cfg.RootCAs = c.pool.GetCertPool()
+	if c.loader != nil {
+		cfg.GetClientCertificate = c.loader.GetClientCertificate
+	}
+	if c.pool != nil {
+		cfg.RootCAs = c.pool.GetCertPool()
+	}
 	if cfg.ServerName == "" {
 		serverName, _, err := net.SplitHostPort(authority)
 		if err != nil {
@@ -78,7 +84,12 @@ func (c *reloadableCredentials) ClientHandshake(ctx context.Context, authority s
 
 func (c *reloadableCredentials) ServerHandshake(rawConn net.Conn) (net.Conn, credentials.AuthInfo, error) {
 	cfg := c.config.Clone()
-	cfg.ClientCAs = c.pool.GetCertPool()
+	if c.loader != nil {
+		cfg.GetCertificate = c.loader.GetCertificate
+	}
+	if c.pool != nil {
+		cfg.ClientCAs = c.pool.GetCertPool()
+	}
 
 	conn := tls.Server(rawConn, cfg)
 	if err := conn.Handshake(); err != nil {
@@ -130,21 +141,18 @@ func NewReloadableCredentials(config *goconf.ConfigFile, server bool) (credentia
 	cfg := &tls.Config{
 		NextProtos: []string{"h2"},
 	}
+	var loader *CertificateReloader
+	var err error
 	if certificateFile != "" && keyFile != "" {
-		loader, err := NewCertificateReloader(certificateFile, keyFile)
+		loader, err = NewCertificateReloader(certificateFile, keyFile)
 		if err != nil {
 			return nil, fmt.Errorf("invalid GRPC %s certificate / key in %s / %s: %w", prefix, certificateFile, keyFile, err)
 		}
-
-		if server {
-			cfg.GetCertificate = loader.GetCertificate
-		} else {
-			cfg.GetClientCertificate = loader.GetClientCertificate
-		}
 	}
 
+	var pool *CertPoolReloader
 	if caFile != "" {
-		pool, err := NewCertPoolReloader(caFile)
+		pool, err = NewCertPoolReloader(caFile)
 		if err != nil {
 			return nil, err
 		}
@@ -152,14 +160,9 @@ func NewReloadableCredentials(config *goconf.ConfigFile, server bool) (credentia
 		if server {
 			cfg.ClientAuth = tls.RequireAndVerifyClientCert
 		}
-		creds := &reloadableCredentials{
-			config: cfg,
-			pool:   pool,
-		}
-		return creds, nil
 	}
 
-	if cfg.GetCertificate == nil {
+	if loader == nil && pool == nil {
 		if server {
 			log.Printf("WARNING: No GRPC server certificate and/or key configured, running unencrypted")
 		} else {
@@ -168,5 +171,10 @@ func NewReloadableCredentials(config *goconf.ConfigFile, server bool) (credentia
 		return insecure.NewCredentials(), nil
 	}
 
-	return credentials.NewTLS(cfg), nil
+	creds := &reloadableCredentials{
+		config: cfg,
+		loader: loader,
+		pool:   pool,
+	}
+	return creds, nil
 }

@@ -1173,7 +1173,16 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 			switch message.Event.Type {
 			case "join":
 				if s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
-					message.Event.Join = filterDisplayNames(message.Event.Join)
+					// Create unique copy of message for only this client.
+					message = &ServerMessage{
+						Id:   message.Id,
+						Type: message.Type,
+						Event: &EventServerMessage{
+							Type:   message.Event.Type,
+							Target: message.Event.Target,
+							Join:   filterDisplayNames(message.Event.Join),
+						},
+					}
 				}
 			case "message":
 				if message.Event.Message == nil || message.Event.Message.Data == nil || len(*message.Event.Message.Data) == 0 || !s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
@@ -1189,7 +1198,19 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 					if displayName, found := (*data.Chat.Comment)["actorDisplayName"]; found && displayName != "" {
 						(*data.Chat.Comment)["actorDisplayName"] = ""
 						if encoded, err := json.Marshal(data); err == nil {
-							message.Event.Message.Data = (*json.RawMessage)(&encoded)
+							// Create unique copy of message for only this client.
+							message = &ServerMessage{
+								Id:   message.Id,
+								Type: message.Type,
+								Event: &EventServerMessage{
+									Type:   message.Event.Type,
+									Target: message.Event.Target,
+									Message: &RoomEventMessage{
+										RoomId: message.Event.Message.RoomId,
+										Data:   (*json.RawMessage)(&encoded),
+									},
+								},
+							}
 						}
 					}
 				}

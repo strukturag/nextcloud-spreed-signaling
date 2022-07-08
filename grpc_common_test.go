@@ -27,6 +27,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io/fs"
 	"math/big"
 	"net"
 	"os"
@@ -85,4 +86,33 @@ func WritePublicKey(key *rsa.PublicKey, filename string) error {
 	})
 
 	return os.WriteFile(filename, data, 0755)
+}
+
+func replaceFile(t *testing.T, filename string, data []byte, perm fs.FileMode) {
+	t.Helper()
+	oldStat, err := os.Stat(filename)
+	if err != nil {
+		t.Fatalf("can't stat old file %s: %s", filename, err)
+		return
+	}
+
+	for {
+		if err := os.WriteFile(filename, data, perm); err != nil {
+			t.Fatalf("can't write file %s: %s", filename, err)
+			return
+		}
+
+		newStat, err := os.Stat(filename)
+		if err != nil {
+			t.Fatalf("can't stat new file %s: %s", filename, err)
+			return
+		}
+
+		// We need different modification times.
+		if !newStat.ModTime().Equal(oldStat.ModTime()) {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
 }
