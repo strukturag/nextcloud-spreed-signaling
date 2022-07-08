@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -42,6 +43,7 @@ type backendStorageEtcd struct {
 
 	initializedCtx       context.Context
 	initializedFunc      context.CancelFunc
+	initializedWg        sync.WaitGroup
 	wakeupChanForTesting chan bool
 }
 
@@ -100,6 +102,7 @@ func (s *backendStorageEtcd) wakeupForTesting() {
 }
 
 func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
+	s.initializedWg.Add(1)
 	go func() {
 		if err := client.Watch(context.Background(), s.keyPrefix, s, clientv3.WithPrefix()); err != nil {
 			log.Printf("Error processing watch for %s: %s", s.keyPrefix, err)
@@ -130,10 +133,15 @@ func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
 			for _, ev := range response.Kvs {
 				s.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
 			}
+			s.initializedWg.Wait()
 			s.initializedFunc()
 			return
 		}
 	}()
+}
+
+func (s *backendStorageEtcd) EtcdWatchCreated(client *EtcdClient, key string) {
+	s.initializedWg.Done()
 }
 
 func (s *backendStorageEtcd) getBackends(client *EtcdClient, keyPrefix string) (*clientv3.GetResponse, error) {

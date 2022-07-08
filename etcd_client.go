@@ -41,6 +41,7 @@ type EtcdClientListener interface {
 }
 
 type EtcdClientWatcher interface {
+	EtcdWatchCreated(client *EtcdClient, key string)
 	EtcdKeyUpdated(client *EtcdClient, key string, value []byte)
 	EtcdKeyDeleted(client *EtcdClient, key string)
 }
@@ -242,6 +243,7 @@ func (c *EtcdClient) Watch(ctx context.Context, key string, watcher EtcdClientWa
 	log.Printf("Wait for leader and start watching on %s", key)
 	ch := c.getEtcdClient().Watch(clientv3.WithRequireLeader(ctx), key, opts...)
 	log.Printf("Watch created for %s", key)
+	watcher.EtcdWatchCreated(c, key)
 	for response := range ch {
 		if err := response.Err(); err != nil {
 			return err

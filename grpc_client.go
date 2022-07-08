@@ -259,6 +259,7 @@ type GrpcClients struct {
 
 	initializedCtx       context.Context
 	initializedFunc      context.CancelFunc
+	initializedWg        sync.WaitGroup
 	wakeupChanForTesting chan bool
 	selfCheckWaitGroup   sync.WaitGroup
 }
@@ -584,6 +585,7 @@ func (c *GrpcClients) loadTargetsEtcd(config *goconf.ConfigFile, fromReload bool
 }
 
 func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
+	c.initializedWg.Add(1)
 	go func() {
 		if err := client.Watch(context.Background(), c.targetPrefix, c, clientv3.WithPrefix()); err != nil {
 			log.Printf("Error processing watch for %s: %s", c.targetPrefix, err)
@@ -610,10 +612,15 @@ func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
 			for _, ev := range response.Kvs {
 				c.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
 			}
+			c.initializedWg.Wait()
 			c.initializedFunc()
 			return
 		}
 	}()
+}
+
+func (c *GrpcClients) EtcdWatchCreated(client *EtcdClient, key string) {
+	c.initializedWg.Done()
 }
 
 func (c *GrpcClients) getGrpcTargets(client *EtcdClient, targetPrefix string) (*clientv3.GetResponse, error) {
