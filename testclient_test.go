@@ -315,6 +315,7 @@ func (c *TestClient) WaitForClientRemoved(ctx context.Context) error {
 		c.hub.mu.Unlock()
 		select {
 		case <-ctx.Done():
+			c.hub.mu.Lock()
 			return ctx.Err()
 		default:
 			time.Sleep(time.Millisecond)
@@ -341,6 +342,7 @@ func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId string
 		c.hub.mu.Unlock()
 		select {
 		case <-ctx.Done():
+			c.hub.mu.Lock()
 			return ctx.Err()
 		default:
 			time.Sleep(time.Millisecond)

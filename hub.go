@@ -141,8 +141,8 @@ type Hub struct {
 	allowSubscribeAnyStream bool
 
 	expiredSessions    map[Session]bool
+	anonymousSessions  map[*ClientSession]time.Time
 	expectHelloClients map[*Client]time.Time
-	anonymousClients   map[*Client]time.Time
 
 	backendTimeout time.Duration
 	backend        *BackendClient
@@ -329,7 +329,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		allowSubscribeAnyStream: allowSubscribeAnyStream,
 
 		expiredSessions:    make(map[Session]bool),
-		anonymousClients:   make(map[*Client]time.Time),
+		anonymousSessions:  make(map[*ClientSession]time.Time),
 		expectHelloClients: make(map[*Client]time.Time),
 
 		backendTimeout: backendTimeout,
@@ -588,35 +588,35 @@ func (h *Hub) checkExpiredSessions(now time.Time) {
 	}
 }
 
-func (h *Hub) checkExpireClients(now time.Time, clients map[*Client]time.Time, reason string) {
-	for client, timeout := range clients {
+func (h *Hub) checkAnonymousSessions(now time.Time) {
+	for session, timeout := range h.anonymousSessions {
 		if now.After(timeout) {
 			// This will close the client connection.
 			h.mu.Unlock()
-			client.SendByeResponseWithReason(nil, reason)
-			if reason == "room_join_timeout" {
-				session := client.GetSession()
-				if session != nil {
-					session.Close()
-				}
+			if client := session.GetClient(); client != nil {
+				client.SendByeResponseWithReason(nil, "room_join_timeout")
 			}
+			session.Close()
 			h.mu.Lock()
 		}
 	}
 }
 
-func (h *Hub) checkAnonymousClients(now time.Time) {
-	h.checkExpireClients(now, h.anonymousClients, "room_join_timeout")
-}
-
 func (h *Hub) checkInitialHello(now time.Time) {
-	h.checkExpireClients(now, h.expectHelloClients, "hello_timeout")
+	for client, timeout := range h.expectHelloClients {
+		if now.After(timeout) {
+			// This will close the client connection.
+			h.mu.Unlock()
+			client.SendByeResponseWithReason(nil, "hello_timeout")
+			h.mu.Lock()
+		}
+	}
 }
 
 func (h *Hub) performHousekeeping(now time.Time) {
 	h.mu.Lock()
 	h.checkExpiredSessions(now)
-	h.checkAnonymousClients(now)
+	h.checkAnonymousSessions(now)
 	h.checkInitialHello(now)
 	h.mu.Unlock()
 }
@@ -636,30 +636,30 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 		}
 	}
 	delete(h.expiredSessions, session)
+	if session, ok := session.(*ClientSession); ok {
+		delete(h.anonymousSessions, session)
+	}
 	h.mu.Unlock()
 	return
 }
 
-func (h *Hub) startWaitAnonymousClientRoom(client *Client) {
+func (h *Hub) startWaitAnonymousSessionRoom(session *ClientSession) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.startWaitAnonymousClientRoomLocked(client)
+	h.startWaitAnonymousSessionRoomLocked(session)
 }
 
-func (h *Hub) startWaitAnonymousClientRoomLocked(client *Client) {
-	if !client.IsConnected() {
-		return
-	}
-	if session := client.GetSession(); session != nil && session.ClientType() == HelloClientTypeInternal {
+func (h *Hub) startWaitAnonymousSessionRoomLocked(session *ClientSession) {
+	if session.ClientType() == HelloClientTypeInternal {
 		// Internal clients don't need to join a room.
 		return
 	}
 
-	// Anonymous clients must join a public room within a given time,
+	// Anonymous sessions must join a public room within a given time,
 	// otherwise they get disconnected to avoid blocking resources forever.
 	now := time.Now()
-	h.anonymousClients[client] = now.Add(anonmyousJoinRoomTimeout)
+	h.anonymousSessions[session] = now.Add(anonmyousJoinRoomTimeout)
 }
 
 func (h *Hub) startExpectHello(client *Client) {
@@ -768,7 +768,7 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 	h.clients[sessionIdData.Sid] = client
 	delete(h.expectHelloClients, client)
 	if userId == "" && auth.Type != HelloClientTypeInternal {
-		h.startWaitAnonymousClientRoomLocked(client)
+		h.startWaitAnonymousSessionRoomLocked(session)
 	}
 	h.mu.Unlock()
 
@@ -787,7 +787,6 @@ func (h *Hub) processUnregister(client *Client) *ClientSession {
 	session := client.GetSession()
 
 	h.mu.Lock()
-	delete(h.anonymousClients, client)
 	delete(h.expectHelloClients, client)
 	if session != nil {
 		delete(h.clients, session.Data().Sid)
@@ -1001,8 +1000,8 @@ func (h *Hub) processHelloInternal(client *Client, message *ClientMessage) {
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) disconnectByRoomSessionId(roomSessionId string, backend *Backend) {
-	sessionId, err := h.roomSessions.GetSessionId(roomSessionId)
+func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId string, backend *Backend) {
+	sessionId, err := h.roomSessions.LookupSessionId(ctx, roomSessionId)
 	if err == ErrNoSuchRoomSession {
 		return
 	} else if err != nil {
@@ -1071,9 +1070,9 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		if session.LeaveRoom(true) != nil {
 			// User was in a room before, so need to notify about leaving it.
 			h.sendRoom(session, message, nil)
-		}
-		if session.UserId() == "" && session.ClientType() != HelloClientTypeInternal {
-			h.startWaitAnonymousClientRoom(client)
+			if session.UserId() == "" && session.ClientType() != HelloClientTypeInternal {
+				h.startWaitAnonymousSessionRoom(session)
+			}
 		}
 		return
 	}
@@ -1116,7 +1115,10 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		if message.Room.SessionId != "" {
 			// There can only be one connection per Nextcloud Talk session,
 			// disconnect any other connections without sending a "leave" event.
-			h.disconnectByRoomSessionId(message.Room.SessionId, session.Backend())
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+
+			h.disconnectByRoomSessionId(ctx, message.Room.SessionId, session.Backend())
 		}
 	}
 
@@ -1170,7 +1172,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	internalRoomId := getRoomIdForBackend(roomId, session.Backend())
 	if err := session.SubscribeRoomEvents(roomId, message.Room.SessionId); err != nil {
 		session.SendMessage(message.NewWrappedErrorServerMessage(err))
-		// The client (implicitly) left the room due to an error.
+		// The session (implicitly) left the room due to an error.
 		h.sendRoom(session, nil, nil)
 		return
 	}
@@ -1182,7 +1184,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 		if r, err = h.createRoom(roomId, room.Room.Properties, session.Backend()); err != nil {
 			h.ru.Unlock()
 			session.SendMessage(message.NewWrappedErrorServerMessage(err))
-			// The client (implicitly) left the room due to an error.
+			// The session (implicitly) left the room due to an error.
 			session.UnsubscribeRoomEvents()
 			h.sendRoom(session, nil, nil)
 			return
@@ -1191,10 +1193,8 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	h.ru.Unlock()
 
 	h.mu.Lock()
-	if client := session.GetClient(); client != nil {
-		// The client now joined a room, don't expire him if he is anonymous.
-		delete(h.anonymousClients, client)
-	}
+	// The session now joined a room, don't expire if it is anonymous.
+	delete(h.anonymousSessions, session)
 	h.mu.Unlock()
 	session.SetRoom(r)
 	if room.Room.Permissions != nil {

@@ -452,6 +452,8 @@ func (r *Room) RemoveSession(session Session) bool {
 		return true
 	}
 
+	// Still need to publish an event so sessions on other servers get notified.
+	r.PublishSessionLeft(session)
 	r.hub.removeRoom(r)
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeClient})
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeInternal})
