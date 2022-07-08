@@ -1243,6 +1243,29 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				case "candidate":
 					h.processMcuMessage(session, message, msg, clientData)
 					return
+				case "unshareScreen":
+					if msg.Recipient.SessionId == session.PublicId() {
+						// User is stopping to share his screen. Firefox doesn't properly clean
+						// up the peer connections in all cases, so make sure to stop publishing
+						// in the MCU.
+						go func(c *Client) {
+							time.Sleep(cleanupScreenPublisherDelay)
+							session := c.GetSession()
+							if session == nil {
+								return
+							}
+
+							publisher := session.GetPublisher(streamTypeScreen)
+							if publisher == nil {
+								return
+							}
+
+							log.Printf("Closing screen publisher for %s", session.PublicId())
+							ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
+							defer cancel()
+							publisher.Close(ctx)
+						}(client)
+					}
 				}
 			}
 		}
@@ -1311,29 +1334,6 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 	if subject == "" {
 		log.Printf("Unknown recipient in message %+v from %s", msg, session.PublicId())
 		return
-	}
-
-	if clientData != nil && clientData.Type == "unshareScreen" {
-		// User is stopping to share his screen. Firefox doesn't properly clean
-		// up the peer connections in all cases, so make sure to stop publishing
-		// in the MCU.
-		go func(c *Client) {
-			time.Sleep(cleanupScreenPublisherDelay)
-			session := c.GetSession()
-			if session == nil {
-				return
-			}
-
-			publisher := session.GetPublisher(streamTypeScreen)
-			if publisher == nil {
-				return
-			}
-
-			log.Printf("Closing screen publisher for %s", session.PublicId())
-			ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
-			defer cancel()
-			publisher.Close(ctx)
-		}(client)
 	}
 
 	response := &ServerMessage{

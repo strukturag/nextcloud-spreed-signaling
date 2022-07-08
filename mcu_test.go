@@ -37,13 +37,15 @@ const (
 )
 
 type TestMCU struct {
-	mu         sync.Mutex
-	publishers map[string]*TestMCUPublisher
+	mu          sync.Mutex
+	publishers  map[string]*TestMCUPublisher
+	subscribers map[string]*TestMCUSubscriber
 }
 
 func NewTestMCU() (*TestMCU, error) {
 	return &TestMCU{
-		publishers: make(map[string]*TestMCUPublisher),
+		publishers:  make(map[string]*TestMCUPublisher),
+		subscribers: make(map[string]*TestMCUSubscriber),
 	}, nil
 }
 
@@ -116,7 +118,24 @@ func (m *TestMCU) GetPublisher(id string) *TestMCUPublisher {
 }
 
 func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType string) (McuSubscriber, error) {
-	return nil, fmt.Errorf("Not implemented")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	pub := m.publishers[publisher]
+	if pub == nil {
+		return nil, fmt.Errorf("Waiting for publisher not implemented yet")
+	}
+
+	id := newRandomString(8)
+	sub := &TestMCUSubscriber{
+		TestMCUClient: TestMCUClient{
+			id:         id,
+			streamType: streamType,
+		},
+
+		publisher: pub,
+	}
+	return sub, nil
 }
 
 type TestMCUClient struct {
@@ -140,8 +159,9 @@ func (c *TestMCUClient) StreamType() string {
 }
 
 func (c *TestMCUClient) Close(ctx context.Context) {
-	log.Printf("Close MCU client %s", c.id)
-	atomic.StoreInt32(&c.closed, 1)
+	if atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
+		log.Printf("Close MCU client %s", c.id)
+	}
 }
 
 func (c *TestMCUClient) isClosed() bool {
@@ -153,6 +173,8 @@ type TestMCUPublisher struct {
 
 	mediaTypes MediaType
 	bitrate    int
+
+	sdp string
 }
 
 func (p *TestMCUPublisher) HasMedia(mt MediaType) bool {
@@ -174,6 +196,7 @@ func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClie
 		case "offer":
 			sdp := data.Payload["sdp"]
 			if sdp, ok := sdp.(string); ok {
+				p.sdp = sdp
 				if sdp == MockSdpOfferAudioOnly {
 					callback(nil, map[string]interface{}{
 						"type": "answer",
@@ -189,6 +212,43 @@ func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClie
 				}
 			}
 			callback(fmt.Errorf("Offer payload %+v is not implemented", data.Payload), nil)
+		default:
+			callback(fmt.Errorf("Message type %s is not implemented", data.Type), nil)
+		}
+	}()
+}
+
+type TestMCUSubscriber struct {
+	TestMCUClient
+
+	publisher *TestMCUPublisher
+}
+
+func (s *TestMCUSubscriber) Publisher() string {
+	return s.publisher.id
+}
+
+func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+	go func() {
+		if s.isClosed() {
+			callback(fmt.Errorf("Already closed"), nil)
+			return
+		}
+
+		switch data.Type {
+		case "requestoffer":
+			fallthrough
+		case "sendoffer":
+			sdp := s.publisher.sdp
+			if sdp == "" {
+				callback(fmt.Errorf("Publisher not sending (no SDP)"), nil)
+				return
+			}
+
+			callback(nil, map[string]interface{}{
+				"type": "offer",
+				"sdp":  sdp,
+			})
 		default:
 			callback(fmt.Errorf("Message type %s is not implemented", data.Type), nil)
 		}
