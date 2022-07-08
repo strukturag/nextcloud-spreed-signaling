@@ -126,7 +126,7 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 
 	org2 := "Updated certificate"
 	cert2 := GenerateSelfSignedCertificateForTesting(t, 1024, org2, key)
-	os.WriteFile(certFile, cert2, 0755) // nolint
+	replaceFile(t, certFile, cert2, 0755)
 
 	cp2 := x509.NewCertPool()
 	if !cp2.AppendCertsFromPEM(cert2) {
@@ -215,7 +215,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 
 	org2 := "Updated client"
 	clientCert2 := GenerateSelfSignedCertificateForTesting(t, 1024, org2, clientKey)
-	os.WriteFile(caFile, clientCert2, 0755) // nolint
+	replaceFile(t, caFile, clientCert2, 0755)
 
 	pair2, err := tls.X509KeyPair(clientCert2, pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
