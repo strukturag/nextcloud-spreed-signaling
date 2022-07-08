@@ -1001,8 +1001,8 @@ func (h *Hub) processHelloInternal(client *Client, message *ClientMessage) {
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) disconnectByRoomSessionId(roomSessionId string, backend *Backend) {
-	sessionId, err := h.roomSessions.GetSessionId(roomSessionId)
+func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId string, backend *Backend) {
+	sessionId, err := h.roomSessions.LookupSessionId(ctx, roomSessionId)
 	if err == ErrNoSuchRoomSession {
 		return
 	} else if err != nil {
@@ -1116,7 +1116,10 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		if message.Room.SessionId != "" {
 			// There can only be one connection per Nextcloud Talk session,
 			// disconnect any other connections without sending a "leave" event.
-			h.disconnectByRoomSessionId(message.Room.SessionId, session.Backend())
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+
+			h.disconnectByRoomSessionId(ctx, message.Room.SessionId, session.Backend())
 		}
 	}
 
