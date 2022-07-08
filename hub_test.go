@@ -2201,6 +2201,92 @@ func TestExpectAnonymousJoinRoom(t *testing.T) {
 	}
 }
 
+func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(authAnonymousUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Error(err)
+	} else {
+		if hello.Hello.UserId != "" {
+			t.Errorf("Expected an anonymous user, got %+v", hello.Hello)
+		}
+		if hello.Hello.SessionId == "" {
+			t.Errorf("Expected session id, got %+v", hello.Hello)
+		}
+		if hello.Hello.ResumeId == "" {
+			t.Errorf("Expected resume id, got %+v", hello.Hello)
+		}
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	// We will receive a "joined" event.
+	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
+		t.Error(err)
+	}
+
+	// Perform housekeeping in the future, this will keep the connection as the
+	// session joined a room.
+	performHousekeeping(hub, time.Now().Add(anonmyousJoinRoomTimeout+time.Second))
+
+	// No message about the closing is sent to the new connection.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel2()
+
+	if message, err := client.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+		t.Error(err)
+	} else if message != nil {
+		t.Errorf("Expected no message, got %+v", message)
+	}
+
+	// Leave room
+	if room, err := client.JoinRoom(ctx, ""); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != "" {
+		t.Fatalf("Expected room %s, got %s", "", room.Room.RoomId)
+	}
+
+	// Perform housekeeping in the future, this will cause the connection to
+	// be terminated because the anonymous client didn't join a room.
+	performHousekeeping(hub, time.Now().Add(anonmyousJoinRoomTimeout+time.Second))
+
+	message, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if err := checkMessageType(message, "bye"); err != nil {
+		t.Error(err)
+	} else if message.Bye.Reason != "room_join_timeout" {
+		t.Errorf("Expected \"room_join_timeout\" reason, got %+v", message.Bye)
+	}
+
+	// Both the client and the session get removed from the hub.
+	if err := client.WaitForClientRemoved(ctx); err != nil {
+		t.Error(err)
+	}
+	if err := client.WaitForSessionRemoved(ctx, hello.Hello.SessionId); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestJoinRoomChange(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
