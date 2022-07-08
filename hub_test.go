@@ -3148,6 +3148,24 @@ func TestClientSendOfferPermissions(t *testing.T) {
 		}
 	}
 
+	if err := client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "12345",
+		RoomType: "screen",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
+		t.Fatal(err)
+	}
+
 	// Client 1 may send an offer.
 	if err := client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
@@ -3160,25 +3178,19 @@ func TestClientSendOfferPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The test MCU doesn't support clients yet, so an error will be returned
-	// to the client trying to send the offer.
-	if msg, err := client1.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageError(msg, "client_not_found"); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	// The sender won't get a reply...
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel2()
 
-	if msg, err := client2.RunUntilMessage(ctx2); err != nil {
-		if err != context.DeadlineExceeded {
-			t.Fatal(err)
-		}
-	} else {
-		t.Errorf("Expected no payload, got %+v", msg)
+	if message, err := client1.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+		t.Error(err)
+	} else if message != nil {
+		t.Errorf("Expected no message, got %+v", message)
+	}
+
+	// ...but the other peer will get an offer.
+	if err := client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -3321,7 +3333,6 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	// Client is allowed to send audio and video.
 	session1.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO})
 
-	// Client may send an offer (audio and video).
 	if err := client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
@@ -3600,6 +3611,24 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 				t.Error(err)
 			}
 
+			if err := client1.SendMessage(MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello1.Hello.SessionId,
+			}, MessageClientMessageData{
+				Type:     "offer",
+				Sid:      "54321",
+				RoomType: "screen",
+				Payload: map[string]interface{}{
+					"sdp": MockSdpOfferAudioAndVideo,
+				},
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
+				t.Fatal(err)
+			}
+
 			// Client 2 may not request an offer (he is not in the room yet).
 			if err := client2.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
@@ -3724,13 +3753,8 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
+			if err := client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo); err != nil {
 				t.Fatal(err)
-			} else {
-				// We check for "client_not_found" as the testing MCU doesn't support publishing/subscribing.
-				if err := checkMessageError(msg, "client_not_found"); err != nil {
-					t.Fatal(err)
-				}
 			}
 		})
 	}
@@ -4017,13 +4041,114 @@ func TestClientSendOffer(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if msg, err := client1.RunUntilMessage(ctx); err != nil {
+			// The sender won't get a reply...
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel2()
+
+			if message, err := client1.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				t.Error(err)
+			} else if message != nil {
+				t.Errorf("Expected no message, got %+v", message)
+			}
+
+			// ...but the other peer will get an offer.
+			if err := client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo); err != nil {
 				t.Fatal(err)
-			} else {
-				if err := checkMessageError(msg, "client_not_found"); err != nil {
-					t.Fatal(err)
-				}
 			}
 		})
+	}
+}
+
+func TestClientUnshareScreen(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	mcu, err := NewTestMCU()
+	if err != nil {
+		t.Fatal(err)
+	} else if err := mcu.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer mcu.Stop()
+
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	hello1, err := client1.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
+		t.Error(err)
+	}
+
+	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+	if session1 == nil {
+		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
+	}
+
+	if err := client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "screen",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioOnly,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioOnly); err != nil {
+		t.Fatal(err)
+	}
+
+	publisher := mcu.GetPublisher(hello1.Hello.SessionId)
+	if publisher == nil {
+		t.Fatalf("No publisher for %s found", hello1.Hello.SessionId)
+	} else if publisher.isClosed() {
+		t.Fatalf("Publisher %s should not be closed", hello1.Hello.SessionId)
+	}
+
+	old := cleanupScreenPublisherDelay
+	cleanupScreenPublisherDelay = time.Millisecond
+	defer func() {
+		cleanupScreenPublisherDelay = old
+	}()
+
+	if err := client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "unshareScreen",
+		Sid:      "54321",
+		RoomType: "screen",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	if !publisher.isClosed() {
+		t.Fatalf("Publisher %s should be closed", hello1.Hello.SessionId)
 	}
 }
