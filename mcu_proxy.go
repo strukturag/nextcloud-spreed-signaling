@@ -1561,6 +1561,9 @@ func (m *mcuProxy) EtcdClientCreated(client *EtcdClient) {
 	}()
 }
 
+func (m *mcuProxy) EtcdWatchCreated(client *EtcdClient, key string) {
+}
+
 func (m *mcuProxy) getProxyUrls(client *EtcdClient, keyPrefix string) (*clientv3.GetResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
