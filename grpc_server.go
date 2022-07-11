@@ -115,6 +115,19 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 		return nil, err
 	}
 
+	if sid != "" && request.DisconnectReason != "" {
+		if session := s.hub.GetSessionByPublicId(sid); session != nil {
+			log.Printf("Closing session %s because same room session %s connected", session.PublicId(), request.RoomSessionId)
+			session.LeaveRoom(false)
+			switch sess := session.(type) {
+			case *ClientSession:
+				if client := sess.GetClient(); client != nil {
+					client.SendByeResponseWithReason(nil, "room_session_reconnected")
+				}
+			}
+			session.Close()
+		}
+	}
 	return &LookupSessionIdReply{
 		SessionId: sid,
 	}, nil

@@ -32,6 +32,8 @@ service RpcSessions {
 
 message LookupSessionIdRequest {
   string roomSessionId = 1;
+  // Optional: set if the session should be disconnected with a given reason.
+  string disconnectReason = 2;
 }
 
 message LookupSessionIdReply {

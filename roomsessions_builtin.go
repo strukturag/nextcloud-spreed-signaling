@@ -87,7 +87,7 @@ func (r *BuiltinRoomSessions) GetSessionId(roomSessionId string) (string, error)
 	return sid, nil
 }
 
-func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId string) (string, error) {
+func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId string, disconnectReason string) (string, error) {
 	sid, err := r.GetSessionId(roomSessionId)
 	if err == nil {
 		return sid, nil
@@ -112,7 +112,7 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 		go func(client *GrpcClient) {
 			defer wg.Done()
 
-			sid, err := client.LookupSessionId(lookupctx, roomSessionId)
+			sid, err := client.LookupSessionId(lookupctx, roomSessionId, disconnectReason)
 			if errors.Is(err, context.Canceled) {
 				return
 			} else if err != nil {

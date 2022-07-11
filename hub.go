@@ -1001,7 +1001,7 @@ func (h *Hub) processHelloInternal(client *Client, message *ClientMessage) {
 }
 
 func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId string, backend *Backend) {
-	sessionId, err := h.roomSessions.LookupSessionId(ctx, roomSessionId)
+	sessionId, err := h.roomSessions.LookupSessionId(ctx, roomSessionId, "room_session_reconnected")
 	if err == ErrNoSuchRoomSession {
 		return
 	} else if err != nil {
@@ -1011,7 +1011,8 @@ func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId strin
 
 	session := h.GetSessionByPublicId(sessionId)
 	if session == nil {
-		// Session is located on a different server.
+		// Session is located on a different server. Should already have been closed
+		// but send "bye" again as additional safeguard.
 		msg := &AsyncMessage{
 			Type: "message",
 			Message: &ServerMessage{

@@ -392,7 +392,7 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 		}
 	}
 
-	sid, err := b.roomSessions.LookupSessionId(ctx, roomSessionId)
+	sid, err := b.roomSessions.LookupSessionId(ctx, roomSessionId, "")
 	if err == ErrNoSuchRoomSession {
 		return "", nil
 	} else if err != nil {
