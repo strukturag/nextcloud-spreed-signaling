@@ -186,12 +186,13 @@ func (c *GrpcClient) GetServerId(ctx context.Context) (string, error) {
 	return response.GetServerId(), nil
 }
 
-func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId string) (string, error) {
+func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId string, disconnectReason string) (string, error) {
 	statsGrpcClientCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Lookup room session %s on %s", roomSessionId, c.Target())
 	response, err := c.impl.LookupSessionId(ctx, &LookupSessionIdRequest{
-		RoomSessionId: roomSessionId,
+		RoomSessionId:    roomSessionId,
+		DisconnectReason: disconnectReason,
 	}, grpc.WaitForReady(true))
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return "", ErrNoSuchRoomSession

@@ -3016,42 +3016,24 @@ func RunTestClientTakeoverRoomSession(t *testing.T) {
 		t.Error(err)
 	}
 
-	if isLocalTest(t) {
-		// No message about the closing is sent to the new connection.
-		ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel2()
+	// No message about the closing is sent to the new connection.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel2()
 
-		if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-			t.Error(err)
-		} else if message != nil {
-			t.Errorf("Expected no message, got %+v", message)
-		}
+	if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+		t.Error(err)
+	} else if message != nil {
+		t.Errorf("Expected no message, got %+v", message)
+	}
 
-		// The permanently connected client will receive a "left" event from the
-		// overridden session and a "joined" for the new session. In that order as
-		// both were on the same server.
-		if err := client3.RunUntilLeft(ctx, hello1.Hello); err != nil {
-			t.Error(err)
-		}
-		if err := client3.RunUntilJoined(ctx, hello2.Hello); err != nil {
-			t.Error(err)
-		}
-	} else {
-		// In the clustered case, the new connection will receive a "leave" event
-		// due to the asynchronous events.
-		if err := client2.RunUntilLeft(ctx, hello1.Hello); err != nil {
-			t.Error(err)
-		}
-
-		// The permanently connected client will first a "joined" event from the new
-		// session (on the same server) and a "left" from the session on the remote
-		// server (asynchronously).
-		if err := client3.RunUntilJoined(ctx, hello2.Hello); err != nil {
-			t.Error(err)
-		}
-		if err := client3.RunUntilLeft(ctx, hello1.Hello); err != nil {
-			t.Error(err)
-		}
+	// The permanently connected client will receive a "left" event from the
+	// overridden session and a "joined" for the new session. In that order as
+	// both were on the same server.
+	if err := client3.RunUntilLeft(ctx, hello1.Hello); err != nil {
+		t.Error(err)
+	}
+	if err := client3.RunUntilJoined(ctx, hello2.Hello); err != nil {
+		t.Error(err)
 	}
 }
 

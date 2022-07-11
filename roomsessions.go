@@ -35,5 +35,5 @@ type RoomSessions interface {
 	DeleteRoomSession(session Session)
 
 	GetSessionId(roomSessionId string) (string, error)
-	LookupSessionId(ctx context.Context, roomSessionId string) (string, error)
+	LookupSessionId(ctx context.Context, roomSessionId string, disconnectReason string) (string, error)
 }
