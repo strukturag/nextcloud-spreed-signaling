@@ -452,8 +452,6 @@ func (r *Room) RemoveSession(session Session) bool {
 		return true
 	}
 
-	// Still need to publish an event so sessions on other servers get notified.
-	r.PublishSessionLeft(session)
 	r.hub.removeRoom(r)
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeClient})
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeInternal})
@@ -461,6 +459,8 @@ func (r *Room) RemoveSession(session Session) bool {
 	r.unsubscribeBackend()
 	r.doClose()
 	r.mu.Unlock()
+	// Still need to publish an event so sessions on other servers get notified.
+	r.PublishSessionLeft(session)
 	return false
 }
 
@@ -564,6 +564,7 @@ func (r *Room) PublishSessionLeft(session Session) {
 func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]interface{} {
 	now := time.Now().Unix()
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, user := range users {
 		sessionid, found := user["sessionId"]
 		if !found || sessionid == "" {
@@ -592,7 +593,6 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 			"virtual":   true,
 		})
 	}
-	r.mu.Unlock()
 	return users
 }
 
