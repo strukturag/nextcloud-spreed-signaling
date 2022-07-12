@@ -80,44 +80,36 @@ func checkUnexpectedClose(err error) error {
 	return nil
 }
 
-func toJsonString(o interface{}) string {
-	if s, err := json.Marshal(o); err != nil {
-		panic(err)
-	} else {
-		return string(s)
-	}
-}
-
 func checkMessageType(message *ServerMessage, expectedType string) error {
 	if message == nil {
 		return ErrNoMessageReceived
 	}
 
 	if message.Type != expectedType {
-		return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+		return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 	}
 	switch message.Type {
 	case "hello":
 		if message.Hello == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		}
 	case "message":
 		if message.Message == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		} else if message.Message.Data == nil || len(*message.Message.Data) == 0 {
 			return fmt.Errorf("Received message without data")
 		}
 	case "room":
 		if message.Room == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		}
 	case "event":
 		if message.Event == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		}
 	case "transient":
 		if message.TransientData == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		}
 	}
 
