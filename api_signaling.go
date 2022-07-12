@@ -661,6 +661,14 @@ type RoomEventServerMessage struct {
 	All bool `json:"all,omitempty"`
 }
 
+func (m *RoomEventServerMessage) String() string {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", m, err)
+	}
+	return string(data)
+}
+
 const (
 	DisinviteReasonDisinvited = "disinvited"
 	DisinviteReasonDeleted    = "deleted"
@@ -712,6 +720,14 @@ type EventServerMessage struct {
 
 	// Used for target "message"
 	Message *RoomEventMessage `json:"message,omitempty"`
+}
+
+func (m *EventServerMessage) String() string {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", m, err)
+	}
+	return string(data)
 }
 
 type EventServerMessageSessionEntry struct {
