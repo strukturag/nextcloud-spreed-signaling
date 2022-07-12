@@ -174,7 +174,7 @@ func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient
 		}
 	}
 	if sender != nil {
-		*sender = message.Message.Sender
+		*sender = message.Control.Sender
 	}
 	return nil
 }
