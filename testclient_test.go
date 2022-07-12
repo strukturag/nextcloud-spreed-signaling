@@ -137,7 +137,7 @@ func checkMessageSender(hub *Hub, sender *MessageServerMessageSender, senderType
 	return nil
 }
 
-func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error {
+func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
 	message, err := client.RunUntilMessage(ctx)
 	if err := checkUnexpectedClose(err); err != nil {
 		return err
@@ -153,14 +153,21 @@ func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient
 	if sender != nil {
 		*sender = message.Message.Sender
 	}
+	if recipient != nil {
+		*recipient = message.Message.Recipient
+	}
 	return nil
 }
 
-func checkReceiveClientMessage(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
-	return checkReceiveClientMessageWithSender(ctx, client, senderType, hello, payload, nil)
+func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error {
+	return checkReceiveClientMessageWithSenderAndRecipient(ctx, client, senderType, hello, payload, sender, nil)
 }
 
-func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error {
+func checkReceiveClientMessage(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
+	return checkReceiveClientMessageWithSenderAndRecipient(ctx, client, senderType, hello, payload, nil, nil)
+}
+
+func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
 	message, err := client.RunUntilMessage(ctx)
 	if err := checkUnexpectedClose(err); err != nil {
 		return err
@@ -176,11 +183,18 @@ func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient
 	if sender != nil {
 		*sender = message.Control.Sender
 	}
+	if recipient != nil {
+		*recipient = message.Control.Recipient
+	}
 	return nil
 }
 
+func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error { // nolint
+	return checkReceiveClientControlWithSenderAndRecipient(ctx, client, senderType, hello, payload, sender, nil)
+}
+
 func checkReceiveClientControl(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
-	return checkReceiveClientControlWithSender(ctx, client, senderType, hello, payload, nil)
+	return checkReceiveClientControlWithSenderAndRecipient(ctx, client, senderType, hello, payload, nil, nil)
 }
 
 func checkReceiveClientEvent(ctx context.Context, client *TestClient, eventType string, msg **EventServerMessage) error {
