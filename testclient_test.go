@@ -672,10 +672,9 @@ func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*Hell
 		if err := checkMessageType(message, "event"); err != nil {
 			ignored = append(ignored, message)
 			continue
-		} else if message.Event.Target != "room" {
-			return nil, nil, fmt.Errorf("Expected event target room, got %+v", message.Event)
-		} else if message.Event.Type != "join" {
-			return nil, nil, fmt.Errorf("Expected event type join, got %+v", message.Event)
+		} else if message.Event.Target != "room" || message.Event.Type != "join" {
+			ignored = append(ignored, message)
+			continue
 		}
 
 		for len(message.Event.Join) > 0 {
