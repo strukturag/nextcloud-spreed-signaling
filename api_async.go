@@ -44,7 +44,8 @@ type AsyncMessage struct {
 type AsyncRoomMessage struct {
 	Type string `json:"type"`
 
-	SessionId string `json:"sessionid,omitempty"`
+	SessionId  string `json:"sessionid,omitempty"`
+	ClientType string `json:"clienttype,omitempty"`
 }
 
 type SendOfferMessage struct {

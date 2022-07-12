@@ -247,6 +247,9 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *AsyncRoomMessage) {
 	switch message.Type {
 	case "sessionjoined":
 		r.notifySessionJoined(message.SessionId)
+		if message.ClientType == HelloClientTypeInternal {
+			r.publishUsersChangedWithInternal()
+		}
 	default:
 		log.Printf("Unsupported async room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
@@ -305,8 +308,9 @@ func (r *Room) AddSession(session Session, sessionData *json.RawMessage) {
 	if err := r.events.PublishBackendRoomMessage(r.id, r.backend, &AsyncMessage{
 		Type: "asyncroom",
 		AsyncRoom: &AsyncRoomMessage{
-			Type:      "sessionjoined",
-			SessionId: sid,
+			Type:       "sessionjoined",
+			SessionId:  sid,
+			ClientType: session.ClientType(),
 		},
 	}); err != nil {
 		log.Printf("Error publishing joined event for session %s: %s", sid, err)
@@ -529,10 +533,6 @@ func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionDat
 	}
 	if err := r.publish(message); err != nil {
 		log.Printf("Could not publish session joined message in room %s: %s", r.Id(), err)
-	}
-
-	if session.ClientType() == HelloClientTypeInternal {
-		r.publishUsersChangedWithInternal()
 	}
 }
 
@@ -840,6 +840,10 @@ func (r *Room) NotifySessionChanged(session Session) {
 
 func (r *Room) publishUsersChangedWithInternal() {
 	message := r.getParticipantsUpdateMessage(r.users)
+	if len(message.Event.Update.Users) == 0 {
+		return
+	}
+
 	if err := r.publish(message); err != nil {
 		log.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
 	}
