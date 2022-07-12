@@ -1306,6 +1306,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 		} else {
 			subject = "session." + msg.Recipient.SessionId
 			recipientSessionId = msg.Recipient.SessionId
+			serverRecipient = &msg.Recipient
 		}
 	case RecipientTypeUser:
 		if msg.Recipient.UserId != "" {
@@ -1501,8 +1502,12 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 						SessionId: virtualSession.SessionId(),
 					}
 				}
+			} else {
+				serverRecipient = &msg.Recipient
 			}
 			h.mu.RUnlock()
+		} else {
+			serverRecipient = &msg.Recipient
 		}
 	case RecipientTypeUser:
 		if msg.Recipient.UserId != "" {
@@ -1600,6 +1605,14 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 
 		virtualSessionId := GetVirtualSessionId(session, msg.SessionId)
 
+		sess, err := NewVirtualSession(session, privateSessionId, publicSessionId, sessionIdData, msg)
+		if err != nil {
+			log.Printf("Could not create virtual session %s: %s", virtualSessionId, err)
+			reply := message.NewErrorServerMessage(NewError("add_failed", "Could not create virtual session."))
+			session.SendMessage(reply)
+			return
+		}
+
 		if msg.Options != nil {
 			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, publicSessionId)
 			request.Room.ActorId = msg.Options.ActorId
@@ -1608,6 +1621,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 
 			var response BackendClientResponse
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
+				sess.Close()
 				log.Printf("Could not join virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
 				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not join virtual session."))
 				session.SendMessage(reply)
@@ -1615,6 +1629,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			}
 
 			if response.Type == "error" {
+				sess.Close()
 				log.Printf("Could not join virtual session %s at backend %s: %+v", virtualSessionId, session.BackendUrl(), response.Error)
 				reply := message.NewErrorServerMessage(NewError("add_failed", response.Error.Error()))
 				session.SendMessage(reply)
@@ -1624,6 +1639,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			request := NewBackendClientSessionRequest(room.Id(), "add", publicSessionId, msg)
 			var response BackendClientSessionResponse
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
+				sess.Close()
 				log.Printf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
 				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not add virtual session."))
 				session.SendMessage(reply)
@@ -1631,7 +1647,6 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			}
 		}
 
-		sess := NewVirtualSession(session, privateSessionId, publicSessionId, sessionIdData, msg)
 		h.mu.Lock()
 		h.sessions[sessionIdData.Sid] = sess
 		h.virtualSessions[virtualSessionId] = sessionIdData.Sid

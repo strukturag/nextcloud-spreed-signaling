@@ -1316,3 +1316,14 @@ func (s *ClientSession) RemoveVirtualSession(session *VirtualSession) {
 	delete(s.virtualSessions, session)
 	s.mu.Unlock()
 }
+
+func (s *ClientSession) GetVirtualSessions() []*VirtualSession {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result := make([]*VirtualSession, 0, len(s.virtualSessions))
+	for session := range s.virtualSessions {
+		result = append(result, session)
+	}
+	return result
+}

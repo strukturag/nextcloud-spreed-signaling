@@ -56,8 +56,8 @@ func GetVirtualSessionId(session *ClientSession, sessionId string) string {
 	return session.PublicId() + "|" + sessionId
 }
 
-func NewVirtualSession(session *ClientSession, privateId string, publicId string, data *SessionIdData, msg *AddSessionInternalClientMessage) *VirtualSession {
-	return &VirtualSession{
+func NewVirtualSession(session *ClientSession, privateId string, publicId string, data *SessionIdData, msg *AddSessionInternalClientMessage) (*VirtualSession, error) {
+	result := &VirtualSession{
 		hub:       session.hub,
 		session:   session,
 		privateId: privateId,
@@ -70,6 +70,12 @@ func NewVirtualSession(session *ClientSession, privateId string, publicId string
 		flags:     msg.Flags,
 		options:   msg.Options,
 	}
+
+	if err := session.events.RegisterSessionListener(publicId, session.Backend(), result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (s *VirtualSession) PrivateId() string {
@@ -142,6 +148,7 @@ func (s *VirtualSession) CloseWithFeedback(session *ClientSession, message *Clie
 	if removed && room != nil {
 		go s.notifyBackendRemoved(room, session, message)
 	}
+	s.session.events.UnregisterSessionListener(s.PublicId(), s.session.Backend(), s)
 }
 
 func (s *VirtualSession) notifyBackendRemoved(room *Room, session *ClientSession, message *ClientMessage) {
@@ -177,7 +184,10 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session *ClientSession
 			return
 		}
 	} else {
-		request := NewBackendClientSessionRequest(room.Id(), "remove", s.PublicId(), nil)
+		request := NewBackendClientSessionRequest(room.Id(), "remove", s.PublicId(), &AddSessionInternalClientMessage{
+			UserId: s.userId,
+			User:   s.userData,
+		})
 		var response BackendClientSessionResponse
 		err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response)
 		if err != nil {
@@ -251,4 +261,37 @@ func (s *VirtualSession) Flags() uint32 {
 
 func (s *VirtualSession) Options() *AddSessionOptions {
 	return s.options
+}
+
+func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
+	if message.Type == "message" && message.Message != nil {
+		switch message.Message.Type {
+		case "message":
+			if message.Message.Message != nil &&
+				message.Message.Message.Recipient != nil &&
+				message.Message.Message.Recipient.Type == "session" &&
+				message.Message.Message.Recipient.SessionId == s.PublicId() {
+				// The client should see his session id as recipient.
+				message.Message.Message.Recipient = &MessageClientMessageRecipient{
+					Type:      "session",
+					SessionId: s.SessionId(),
+					UserId:    s.UserId(),
+				}
+				s.session.ProcessAsyncSessionMessage(message)
+			}
+		case "control":
+			if message.Message.Control != nil &&
+				message.Message.Control.Recipient != nil &&
+				message.Message.Control.Recipient.Type == "session" &&
+				message.Message.Control.Recipient.SessionId == s.PublicId() {
+				// The client should see his session id as recipient.
+				message.Message.Control.Recipient = &MessageClientMessageRecipient{
+					Type:      "session",
+					SessionId: s.SessionId(),
+					UserId:    s.UserId(),
+				}
+				s.session.ProcessAsyncSessionMessage(message)
+			}
+		}
+	}
 }

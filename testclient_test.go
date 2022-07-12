@@ -80,44 +80,36 @@ func checkUnexpectedClose(err error) error {
 	return nil
 }
 
-func toJsonString(o interface{}) string {
-	if s, err := json.Marshal(o); err != nil {
-		panic(err)
-	} else {
-		return string(s)
-	}
-}
-
 func checkMessageType(message *ServerMessage, expectedType string) error {
 	if message == nil {
 		return ErrNoMessageReceived
 	}
 
 	if message.Type != expectedType {
-		return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+		return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 	}
 	switch message.Type {
 	case "hello":
 		if message.Hello == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		}
 	case "message":
 		if message.Message == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		} else if message.Message.Data == nil || len(*message.Message.Data) == 0 {
 			return fmt.Errorf("Received message without data")
 		}
 	case "room":
 		if message.Room == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		}
 	case "event":
 		if message.Event == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		}
 	case "transient":
 		if message.TransientData == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v (%s)", expectedType, message, toJsonString(message))
+			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
 		}
 	}
 
@@ -137,7 +129,7 @@ func checkMessageSender(hub *Hub, sender *MessageServerMessageSender, senderType
 	return nil
 }
 
-func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error {
+func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
 	message, err := client.RunUntilMessage(ctx)
 	if err := checkUnexpectedClose(err); err != nil {
 		return err
@@ -153,14 +145,21 @@ func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient
 	if sender != nil {
 		*sender = message.Message.Sender
 	}
+	if recipient != nil {
+		*recipient = message.Message.Recipient
+	}
 	return nil
 }
 
-func checkReceiveClientMessage(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
-	return checkReceiveClientMessageWithSender(ctx, client, senderType, hello, payload, nil)
+func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error {
+	return checkReceiveClientMessageWithSenderAndRecipient(ctx, client, senderType, hello, payload, sender, nil)
 }
 
-func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error {
+func checkReceiveClientMessage(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
+	return checkReceiveClientMessageWithSenderAndRecipient(ctx, client, senderType, hello, payload, nil, nil)
+}
+
+func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
 	message, err := client.RunUntilMessage(ctx)
 	if err := checkUnexpectedClose(err); err != nil {
 		return err
@@ -174,13 +173,20 @@ func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient
 		}
 	}
 	if sender != nil {
-		*sender = message.Message.Sender
+		*sender = message.Control.Sender
+	}
+	if recipient != nil {
+		*recipient = message.Control.Recipient
 	}
 	return nil
 }
 
+func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error { // nolint
+	return checkReceiveClientControlWithSenderAndRecipient(ctx, client, senderType, hello, payload, sender, nil)
+}
+
 func checkReceiveClientControl(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
-	return checkReceiveClientControlWithSender(ctx, client, senderType, hello, payload, nil)
+	return checkReceiveClientControlWithSenderAndRecipient(ctx, client, senderType, hello, payload, nil, nil)
 }
 
 func checkReceiveClientEvent(ctx context.Context, client *TestClient, eventType string, msg **EventServerMessage) error {
@@ -474,6 +480,42 @@ func (c *TestClient) SendControl(recipient MessageClientMessageRecipient, data i
 	return c.WriteJSON(message)
 }
 
+func (c *TestClient) SendInternalAddSession(msg *AddSessionInternalClientMessage) error {
+	message := &ClientMessage{
+		Id:   "abcd",
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type:       "addsession",
+			AddSession: msg,
+		},
+	}
+	return c.WriteJSON(message)
+}
+
+func (c *TestClient) SendInternalUpdateSession(msg *UpdateSessionInternalClientMessage) error {
+	message := &ClientMessage{
+		Id:   "abcd",
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type:          "updatesession",
+			UpdateSession: msg,
+		},
+	}
+	return c.WriteJSON(message)
+}
+
+func (c *TestClient) SendInternalRemoveSession(msg *RemoveSessionInternalClientMessage) error {
+	message := &ClientMessage{
+		Id:   "abcd",
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type:          "removesession",
+			RemoveSession: msg,
+		},
+	}
+	return c.WriteJSON(message)
+}
+
 func (c *TestClient) SetTransientData(key string, value interface{}) error {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -672,10 +714,9 @@ func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*Hell
 		if err := checkMessageType(message, "event"); err != nil {
 			ignored = append(ignored, message)
 			continue
-		} else if message.Event.Target != "room" {
-			return nil, nil, fmt.Errorf("Expected event target room, got %+v", message.Event)
-		} else if message.Event.Type != "join" {
-			return nil, nil, fmt.Errorf("Expected event type join, got %+v", message.Event)
+		} else if message.Event.Target != "room" || message.Event.Type != "join" {
+			ignored = append(ignored, message)
+			continue
 		}
 
 		for len(message.Event.Join) > 0 {
