@@ -177,7 +177,10 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session *ClientSession
 			return
 		}
 	} else {
-		request := NewBackendClientSessionRequest(room.Id(), "remove", s.PublicId(), nil)
+		request := NewBackendClientSessionRequest(room.Id(), "remove", s.PublicId(), &AddSessionInternalClientMessage{
+			UserId: s.userId,
+			User:   s.userData,
+		})
 		var response BackendClientSessionResponse
 		err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response)
 		if err != nil {
