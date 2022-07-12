@@ -474,6 +474,42 @@ func (c *TestClient) SendControl(recipient MessageClientMessageRecipient, data i
 	return c.WriteJSON(message)
 }
 
+func (c *TestClient) SendInternalAddSession(msg *AddSessionInternalClientMessage) error {
+	message := &ClientMessage{
+		Id:   "abcd",
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type:       "addsession",
+			AddSession: msg,
+		},
+	}
+	return c.WriteJSON(message)
+}
+
+func (c *TestClient) SendInternalUpdateSession(msg *UpdateSessionInternalClientMessage) error {
+	message := &ClientMessage{
+		Id:   "abcd",
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type:          "updatesession",
+			UpdateSession: msg,
+		},
+	}
+	return c.WriteJSON(message)
+}
+
+func (c *TestClient) SendInternalRemoveSession(msg *RemoveSessionInternalClientMessage) error {
+	message := &ClientMessage{
+		Id:   "abcd",
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type:          "removesession",
+			RemoveSession: msg,
+		},
+	}
+	return c.WriteJSON(message)
+}
+
 func (c *TestClient) SetTransientData(key string, value interface{}) error {
 	payload, err := json.Marshal(value)
 	if err != nil {
