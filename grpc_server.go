@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os"
 
 	"github.com/dlintw/goconf"
@@ -54,6 +55,7 @@ func init() {
 }
 
 type GrpcServer struct {
+	UnimplementedRpcBackendServer
 	UnimplementedRpcInternalServer
 	UnimplementedRpcMcuServer
 	UnimplementedRpcSessionsServer
@@ -86,6 +88,7 @@ func NewGrpcServer(config *goconf.ConfigFile) (*GrpcServer, error) {
 		listener: listener,
 		serverId: GrpcServerId,
 	}
+	RegisterRpcBackendServer(conn, result)
 	RegisterRpcInternalServer(conn, result)
 	RegisterRpcSessionsServer(conn, result)
 	RegisterRpcMcuServer(conn, result)
@@ -187,5 +190,23 @@ func (s *GrpcServer) GetServerId(ctx context.Context, request *GetServerIdReques
 	statsGrpcServerCalls.WithLabelValues("GetServerId").Inc()
 	return &GetServerIdReply{
 		ServerId: s.serverId,
+	}, nil
+}
+
+func (s *GrpcServer) GetSessionCount(ctx context.Context, request *GetSessionCountRequest) (*GetSessionCountReply, error) {
+	statsGrpcServerCalls.WithLabelValues("SessionCount").Inc()
+
+	u, err := url.Parse(request.Url)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid url")
+	}
+
+	backend := s.hub.backend.GetBackend(u)
+	if backend == nil {
+		return nil, status.Error(codes.NotFound, "no such backend")
+	}
+
+	return &GetSessionCountReply{
+		Count: uint32(backend.Len()),
 	}, nil
 }

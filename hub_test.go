@@ -158,7 +158,7 @@ func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, AsyncEvents, *mux
 	return h, events, r, server
 }
 
-func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, *Hub, *httptest.Server, *httptest.Server) {
+func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, *Hub, *mux.Router, *mux.Router, *httptest.Server, *httptest.Server) {
 	r1 := mux.NewRouter()
 	registerBackendHandler(t, r1)
 
@@ -237,11 +237,12 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		WaitForHub(ctx, t, h2)
 	})
 
-	return h1, h2, server1, server2
+	return h1, h2, r1, r2, server1, server2
 }
 
 func CreateClusteredHubsForTest(t *testing.T) (*Hub, *Hub, *httptest.Server, *httptest.Server) {
-	return CreateClusteredHubsForTestWithConfig(t, getTestConfig)
+	h1, h2, _, _, server1, server2 := CreateClusteredHubsForTestWithConfig(t, getTestConfig)
+	return h1, h2, server1, server2
 }
 
 func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
@@ -750,115 +751,164 @@ func TestClientHelloAllowAll(t *testing.T) {
 }
 
 func TestClientHelloSessionLimit(t *testing.T) {
-	hub, _, router, server := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
-		config, err := getTestConfig(server)
-		if err != nil {
-			return nil, err
-		}
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
 
-		config.RemoveOption("backend", "allowed")
-		config.RemoveOption("backend", "secret")
-		config.AddOption("backend", "backends", "backend1, backend2")
+			if isLocalTest(t) {
+				var router1 *mux.Router
+				hub1, _, router1, server1 = CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+					config, err := getTestConfig(server)
+					if err != nil {
+						return nil, err
+					}
 
-		config.AddOption("backend1", "url", server.URL+"/one")
-		config.AddOption("backend1", "secret", string(testBackendSecret))
-		config.AddOption("backend1", "sessionlimit", "1")
+					config.RemoveOption("backend", "allowed")
+					config.RemoveOption("backend", "secret")
+					config.AddOption("backend", "backends", "backend1, backend2")
 
-		config.AddOption("backend2", "url", server.URL+"/two")
-		config.AddOption("backend2", "secret", string(testBackendSecret))
-		return config, nil
-	})
+					config.AddOption("backend1", "url", server.URL+"/one")
+					config.AddOption("backend1", "secret", string(testBackendSecret))
+					config.AddOption("backend1", "sessionlimit", "1")
 
-	registerBackendHandlerUrl(t, router, "/one")
-	registerBackendHandlerUrl(t, router, "/two")
+					config.AddOption("backend2", "url", server.URL+"/two")
+					config.AddOption("backend2", "secret", string(testBackendSecret))
+					return config, nil
+				})
 
-	client := NewTestClient(t, server, hub)
-	defer client.CloseWithBye()
+				registerBackendHandlerUrl(t, router1, "/one")
+				registerBackendHandlerUrl(t, router1, "/two")
 
-	params1 := TestBackendClientAuthParams{
-		UserId: testDefaultUserId,
-	}
-	if err := client.SendHelloParams(server.URL+"/one", "client", params1); err != nil {
-		t.Fatal(err)
-	}
+				hub2 = hub1
+				server2 = server1
+			} else {
+				var router1 *mux.Router
+				var router2 *mux.Router
+				hub1, hub2, router1, router2, server1, server2 = CreateClusteredHubsForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+					// Make sure all backends use the same server
+					if server1 == nil {
+						server1 = server
+					} else {
+						server = server1
+					}
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
+					config, err := getTestConfig(server)
+					if err != nil {
+						return nil, err
+					}
 
-	if hello, err := client.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-	}
+					config.RemoveOption("backend", "allowed")
+					config.RemoveOption("backend", "secret")
+					config.AddOption("backend", "backends", "backend1, backend2")
 
-	// The second client can't connect as it would exceed the session limit.
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
+					config.AddOption("backend1", "url", server.URL+"/one")
+					config.AddOption("backend1", "secret", string(testBackendSecret))
+					config.AddOption("backend1", "sessionlimit", "1")
 
-	params2 := TestBackendClientAuthParams{
-		UserId: testDefaultUserId + "2",
-	}
-	if err := client2.SendHelloParams(server.URL+"/one", "client", params2); err != nil {
-		t.Fatal(err)
-	}
+					config.AddOption("backend2", "url", server.URL+"/two")
+					config.AddOption("backend2", "secret", string(testBackendSecret))
+					return config, nil
+				})
 
-	msg, err := client2.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "error" || msg.Error == nil {
-			t.Errorf("Expected error message, got %+v", msg)
-		} else if msg.Error.Code != "session_limit_exceeded" {
-			t.Errorf("Expected error \"session_limit_exceeded\", got %+v", msg.Error.Code)
-		}
-	}
+				registerBackendHandlerUrl(t, router1, "/one")
+				registerBackendHandlerUrl(t, router1, "/two")
 
-	// The client can connect to a different backend.
-	if err := client2.SendHelloParams(server.URL+"/two", "client", params2); err != nil {
-		t.Fatal(err)
-	}
+				registerBackendHandlerUrl(t, router2, "/one")
+				registerBackendHandlerUrl(t, router2, "/two")
+			}
 
-	if hello, err := client2.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId+"2" {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"2", hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-	}
+			client := NewTestClient(t, server1, hub1)
+			defer client.CloseWithBye()
 
-	// If the first client disconnects (and releases the session), a new one can connect.
-	client.CloseWithBye()
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+			params1 := TestBackendClientAuthParams{
+				UserId: testDefaultUserId,
+			}
+			if err := client.SendHelloParams(server1.URL+"/one", "client", params1); err != nil {
+				t.Fatal(err)
+			}
 
-	client3 := NewTestClient(t, server, hub)
-	defer client3.CloseWithBye()
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
 
-	params3 := TestBackendClientAuthParams{
-		UserId: testDefaultUserId + "3",
-	}
-	if err := client3.SendHelloParams(server.URL+"/one", "client", params3); err != nil {
-		t.Fatal(err)
-	}
+			if hello, err := client.RunUntilHello(ctx); err != nil {
+				t.Error(err)
+			} else {
+				if hello.Hello.UserId != testDefaultUserId {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
+				}
+				if hello.Hello.SessionId == "" {
+					t.Errorf("Expected session id, got %+v", hello.Hello)
+				}
+			}
 
-	if hello, err := client3.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId+"3" {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"3", hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
+			// The second client can't connect as it would exceed the session limit.
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+
+			params2 := TestBackendClientAuthParams{
+				UserId: testDefaultUserId + "2",
+			}
+			if err := client2.SendHelloParams(server1.URL+"/one", "client", params2); err != nil {
+				t.Fatal(err)
+			}
+
+			msg, err := client2.RunUntilMessage(ctx)
+			if err != nil {
+				t.Error(err)
+			} else {
+				if msg.Type != "error" || msg.Error == nil {
+					t.Errorf("Expected error message, got %+v", msg)
+				} else if msg.Error.Code != "session_limit_exceeded" {
+					t.Errorf("Expected error \"session_limit_exceeded\", got %+v", msg.Error.Code)
+				}
+			}
+
+			// The client can connect to a different backend.
+			if err := client2.SendHelloParams(server1.URL+"/two", "client", params2); err != nil {
+				t.Fatal(err)
+			}
+
+			if hello, err := client2.RunUntilHello(ctx); err != nil {
+				t.Error(err)
+			} else {
+				if hello.Hello.UserId != testDefaultUserId+"2" {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"2", hello.Hello)
+				}
+				if hello.Hello.SessionId == "" {
+					t.Errorf("Expected session id, got %+v", hello.Hello)
+				}
+			}
+
+			// If the first client disconnects (and releases the session), a new one can connect.
+			client.CloseWithBye()
+			if err := client.WaitForClientRemoved(ctx); err != nil {
+				t.Error(err)
+			}
+
+			client3 := NewTestClient(t, server2, hub2)
+			defer client3.CloseWithBye()
+
+			params3 := TestBackendClientAuthParams{
+				UserId: testDefaultUserId + "3",
+			}
+			if err := client3.SendHelloParams(server1.URL+"/one", "client", params3); err != nil {
+				t.Fatal(err)
+			}
+
+			if hello, err := client3.RunUntilHello(ctx); err != nil {
+				t.Error(err)
+			} else {
+				if hello.Hello.UserId != testDefaultUserId+"3" {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"3", hello.Hello)
+				}
+				if hello.Hello.SessionId == "" {
+					t.Errorf("Expected session id, got %+v", hello.Hello)
+				}
+			}
+		})
 	}
 }
 

@@ -239,9 +239,10 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 		}
 
 		hosts[parsed.Host] = append(hosts[parsed.Host], &Backend{
-			id:     id,
-			url:    u,
-			secret: []byte(secret),
+			id:        id,
+			url:       u,
+			parsedUrl: parsed,
+			secret:    []byte(secret),
 
 			allowHttp: parsed.Scheme == "http",
 

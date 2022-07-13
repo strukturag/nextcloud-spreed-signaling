@@ -163,9 +163,10 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 	}
 
 	backend := &Backend{
-		id:     key,
-		url:    info.Url,
-		secret: []byte(info.Secret),
+		id:        key,
+		url:       info.Url,
+		parsedUrl: info.parsedUrl,
+		secret:    []byte(info.Secret),
 
 		allowHttp: info.parsedUrl.Scheme == "http",
 

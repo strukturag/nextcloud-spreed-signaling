@@ -42,10 +42,11 @@ var (
 )
 
 type Backend struct {
-	id     string
-	url    string
-	secret []byte
-	compat bool
+	id        string
+	url       string
+	parsedUrl *url.URL
+	secret    []byte
+	compat    bool
 
 	allowHttp bool
 
@@ -78,6 +79,24 @@ func (b *Backend) IsUrlAllowed(u *url.URL) bool {
 	default:
 		return false
 	}
+}
+
+func (b *Backend) Url() string {
+	return b.url
+}
+
+func (b *Backend) ParsedUrl() *url.URL {
+	return b.parsedUrl
+}
+
+func (b *Backend) Limit() int {
+	return int(b.sessionLimit)
+}
+
+func (b *Backend) Len() int {
+	b.sessionsLock.Lock()
+	defer b.sessionsLock.Unlock()
+	return len(b.sessions)
 }
 
 func (b *Backend) AddSession(session Session) error {
