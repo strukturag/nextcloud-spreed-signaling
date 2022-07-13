@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -58,6 +59,7 @@ func init() {
 }
 
 type grpcClientImpl struct {
+	RpcBackendClient
 	RpcInternalClient
 	RpcMcuClient
 	RpcSessionsClient
@@ -65,6 +67,7 @@ type grpcClientImpl struct {
 
 func newGrpcClientImpl(conn grpc.ClientConnInterface) *grpcClientImpl {
 	return &grpcClientImpl{
+		RpcBackendClient:  NewRpcBackendClient(conn),
 		RpcInternalClient: NewRpcInternalClient(conn),
 		RpcMcuClient:      NewRpcMcuClient(conn),
 		RpcSessionsClient: NewRpcSessionsClient(conn),
@@ -241,6 +244,22 @@ func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, strea
 	}
 
 	return response.GetPublisherId(), response.GetProxyUrl(), net.ParseIP(response.GetIp()), nil
+}
+
+func (c *GrpcClient) GetSessionCount(ctx context.Context, u *url.URL) (uint32, error) {
+	statsGrpcClientCalls.WithLabelValues("GetSessionCount").Inc()
+	// TODO: Remove debug logging
+	log.Printf("Get session count for %s on %s", u, c.Target())
+	response, err := c.impl.GetSessionCount(ctx, &GetSessionCountRequest{
+		Url: u.String(),
+	}, grpc.WaitForReady(true))
+	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+
+	return response.GetCount(), nil
 }
 
 type GrpcClients struct {

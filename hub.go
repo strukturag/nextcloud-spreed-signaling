@@ -754,6 +754,38 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 		return
 	}
 
+	if limit := uint32(backend.Limit()); limit > 0 && h.rpcClients != nil {
+		totalCount := uint32(backend.Len())
+		var wg sync.WaitGroup
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		for _, client := range h.rpcClients.GetClients() {
+			wg.Add(1)
+			go func(c *GrpcClient) {
+				defer wg.Done()
+
+				count, err := c.GetSessionCount(ctx, backend.ParsedUrl())
+				if err != nil {
+					log.Printf("Received error while getting session count for %s from %s: %s", backend.Url(), c.Target(), err)
+					return
+				}
+
+				if count > 0 {
+					log.Printf("%d sessions connected for %s on %s", count, backend.Url(), c.Target())
+					atomic.AddUint32(&totalCount, count)
+				}
+			}(client)
+		}
+		wg.Wait()
+		if totalCount > limit {
+			backend.RemoveSession(session)
+			log.Printf("Error adding session %s to backend %s: %s", session.PublicId(), backend.Id(), SessionLimitExceeded)
+			session.Close()
+			client.SendMessage(message.NewWrappedErrorServerMessage(SessionLimitExceeded))
+			return
+		}
+	}
+
 	h.mu.Lock()
 	if !client.IsConnected() {
 		// Client disconnected while waiting for backend response.
