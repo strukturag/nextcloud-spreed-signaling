@@ -8,10 +8,13 @@ GOOS ?= linux
 GOARCH ?= amd64
 GOVERSION := $(shell "$(GO)" env GOVERSION | sed "s|go||" )
 BINDIR := "$(CURDIR)/bin"
+VENDORDIR := "$(CURDIR)/vendor"
 VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
 PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
 ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
+
+PROTOC_GEN_GRPC_VERSION := v1.2.0
 
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
@@ -53,15 +56,14 @@ hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
 $(GOPATHBIN)/easyjson:
-	$(GO) get -u -d github.com/mailru/easyjson/...
+	[ "$(GOPROXY)" = "off" ] || $(GO) get -u -d github.com/mailru/easyjson/...
 	$(GO) install github.com/mailru/easyjson/...
 
 $(GOPATHBIN)/protoc-gen-go:
-	$(GO) get -u -d google.golang.org/protobuf/cmd/protoc-gen-go
 	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go
 
 $(GOPATHBIN)/protoc-gen-go-grpc:
-	$(GO) get -u -d google.golang.org/grpc/cmd/protoc-gen-go-grpc
+	[ "$(GOPROXY)" = "off" ] || $(GO) get -u -d google.golang.org/grpc/cmd/protoc-gen-go-grpc
 	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc
 
 continentmap.go:
@@ -143,13 +145,34 @@ clean:
 
 build: server proxy
 
-tarball:
+vendor: go.mod go.sum common
+	set -e ;\
+	rm -rf $(VENDORDIR)
+	EASYJSON_DIR=$$($(GO) list -m -f '{{.Dir}}' github.com/mailru/easyjson); \
+	PROTOBUF_DIR=$$($(GO) list -m -f '{{.Dir}}' google.golang.org/protobuf); \
+	$(GO) mod tidy; \
+	$(GO) mod vendor; \
+	mkdir -p $(VENDORDIR)/github.com/mailru/easyjson/; \
+	cp -rf --no-preserve=mode $$EASYJSON_DIR/easyjson/ $(VENDORDIR)/github.com/mailru/easyjson/; \
+	mkdir -p $(VENDORDIR)/google.golang.org/grpc/cmd/protoc-gen-go-grpc/; \
+	cp -rf --no-preserve=mode $(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)/* $(VENDORDIR)/google.golang.org/grpc/cmd/protoc-gen-go-grpc/; \
+	cp -rf --no-preserve=mode $$PROTOBUF_DIR/cmd/ $(VENDORDIR)/google.golang.org/protobuf/; \
+	cp -rf --no-preserve=mode $$PROTOBUF_DIR/compiler/ $(VENDORDIR)/google.golang.org/protobuf/; \
+	cp -rf --no-preserve=mode $$PROTOBUF_DIR/types/ $(VENDORDIR)/google.golang.org/protobuf/; \
+
+tarball: vendor
 	git archive \
 		--prefix=nextcloud-spreed-signaling-$(TARVERSION)/ \
-		-o nextcloud-spreed-signaling-$(TARVERSION).tar.gz \
+		-o nextcloud-spreed-signaling-$(TARVERSION).tar \
 		HEAD
+	tar rf nextcloud-spreed-signaling-$(TARVERSION).tar \
+		-C $(CURDIR) \
+		--mtime="$(shell git log -1 --date=iso8601-strict --format=%cd HEAD)" \
+		--transform "s//nextcloud-spreed-signaling-$(TARVERSION)\//" \
+		vendor
+	gzip --force nextcloud-spreed-signaling-$(TARVERSION).tar
 
 dist: tarball
 
 .NOTPARALLEL: %_easyjson.go
-.PHONY: continentmap.go
+.PHONY: continentmap.go vendor
