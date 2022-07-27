@@ -33,7 +33,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/pion/sdp"
+	"github.com/pion/sdp/v3"
 )
 
 var (
@@ -720,7 +720,7 @@ func (s *ClientSession) isSdpAllowedToSendLocked(payload map[string]interface{})
 		return 0, &SdpError{"payload does not contain a valid sdp"}
 	}
 	var sdp sdp.SessionDescription
-	if err := sdp.Unmarshal(sdpText); err != nil {
+	if err := sdp.Unmarshal([]byte(sdpText)); err != nil {
 		return 0, &WrappedSdpError{
 			SdpError: SdpError{
 				message: fmt.Sprintf("could not parse sdp: %s", err),
