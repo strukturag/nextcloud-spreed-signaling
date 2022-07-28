@@ -81,7 +81,7 @@ jobs:
         sudo apt -y update && sudo apt -y install protobuf-compiler
 
     - name: Download tarball
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: tarball-${{ matrix.go-version }}
 
