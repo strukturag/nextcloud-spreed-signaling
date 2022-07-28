@@ -1,0 +1,105 @@
+name: tarball
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/build.yml'
+      - '**.go'
+      - 'go.*'
+      - 'Makefile'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/build.yml'
+      - '**.go'
+      - 'go.*'
+      - 'Makefile'
+
+jobs:
+  create:
+    strategy:
+      matrix:
+        go-version:
+          - "1.17"
+          - "1.18"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-go@v3
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - id: go-cache-paths
+      run: |
+        echo "::set-output name=go-build::$(go env GOCACHE)"
+        echo "::set-output name=go-mod::$(go env GOMODCACHE)"
+        echo "::set-output name=go-version::$(go version | cut -d ' ' -f 3)"
+
+    - name: Go build cache
+      uses: actions/cache@v3
+      with:
+        path: ${{ steps.go-cache-paths.outputs.go-build }}
+        key: ${{ runner.os }}-${{ steps.go-cache-paths.outputs.go-version }}-build-${{ hashFiles('**/go.mod', '**/go.sum') }}
+
+    - name: Go mod cache
+      uses: actions/cache@v3
+      with:
+        path: ${{ steps.go-cache-paths.outputs.go-mod }}
+        key: ${{ runner.os }}-${{ steps.go-cache-paths.outputs.go-version }}-mod-${{ hashFiles('**/go.mod', '**/go.sum') }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt -y update && sudo apt -y install protobuf-compiler
+
+    - name: Create tarball
+      run: |
+        echo "Building with $(nproc) threads"
+        make tarball
+
+    - name: Upload tarball
+      uses: actions/upload-artifact@v2
+      with:
+        name: tarball-${{ matrix.go-version }}
+        path: nextcloud-spreed-signaling*.tar.gz
+
+  test:
+    strategy:
+      matrix:
+        go-version:
+          - "1.17"
+          - "1.18"
+    runs-on: ubuntu-latest
+    needs: [create]
+    steps:
+    - uses: actions/setup-go@v3
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt -y update && sudo apt -y install protobuf-compiler
+
+    - name: Download tarball
+      uses: actions/download-artifact@v2
+      with:
+        name: tarball-${{ matrix.go-version }}
+
+    - name: Extract tarball
+      run: |
+        mkdir -p tmp
+        tar xf nextcloud-spreed-signaling*.tar.gz --strip-components=1 -C tmp
+        [ -d "tmp/vendor" ] || exit 1
+
+    - name: Build
+      env:
+        GOPROXY: off
+      run: |
+        echo "Building with $(nproc) threads"
+        make -C tmp build -j$(nproc)
+
+    - name: Run tests
+      env:
+        GOPROXY: off
+      run: |
+        make -C tmp test
