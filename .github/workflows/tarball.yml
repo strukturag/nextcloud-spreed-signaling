@@ -58,7 +58,7 @@ jobs:
         make tarball
 
     - name: Upload tarball
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: tarball-${{ matrix.go-version }}
         path: nextcloud-spreed-signaling*.tar.gz
