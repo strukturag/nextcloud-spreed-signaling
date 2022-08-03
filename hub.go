@@ -1063,9 +1063,17 @@ func (h *Hub) processHelloV2(client *Client, message *ClientMessage) (*Backend, 
 		ctx, cancel := context.WithTimeout(context.Background(), h.backendTimeout)
 		defer cancel()
 
-		keyData, found := h.backend.capabilities.GetStringConfig(ctx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+		keyData, cached, found := h.backend.capabilities.GetStringConfig(ctx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
 		if !found {
-			return nil, fmt.Errorf("No key found for issuer")
+			if cached {
+				// The Nextcloud instance might just have enabled JWT but we probably use
+				// the cached capabilities without the public key. Make sure to re-fetch.
+				h.backend.capabilities.InvalidateCapabilities(url)
+				keyData, _, found = h.backend.capabilities.GetStringConfig(ctx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+			}
+			if !found {
+				return nil, fmt.Errorf("No key found for issuer")
+			}
 		}
 
 		key, err := loadKeyFunc([]byte(keyData))

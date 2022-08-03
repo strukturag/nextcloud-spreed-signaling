@@ -697,7 +697,11 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if strings.Contains(t.Name(), "MultiRoom") {
 			signaling[ConfigKeySessionPingLimit] = 2
 		}
-		if strings.Contains(t.Name(), "V2") {
+		useV2 := true
+		if os.Getenv("SKIP_V2_CAPABILITIES") != "" {
+			useV2 = false
+		}
+		if strings.Contains(t.Name(), "V2") && useV2 {
 			key := getPublicAuthToken(t)
 			public, err := x509.MarshalPKIXPublicKey(key)
 			if err != nil {
@@ -1055,6 +1059,59 @@ func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
 				t.Error(err)
 			} else if message.Error.Code != "token_expired" {
 				t.Errorf("Expected \"token_expired\" reason, got %+v", message.Error)
+			}
+		})
+	}
+}
+
+func TestClientHelloV2_CachedCapabilities(t *testing.T) {
+	for _, algo := range testHelloV2Algorithms {
+		t.Run(algo, func(t *testing.T) {
+			hub, _, _, server := CreateHubForTest(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			// Simulate old-style Nextcloud without capabilities for Hello V2.
+			t.Setenv("SKIP_V2_CAPABILITIES", "1")
+
+			client1 := NewTestClient(t, server, hub)
+			defer client1.CloseWithBye()
+
+			if err := client1.SendHelloV1(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hello1.Hello.UserId != testDefaultUserId+"1" {
+				t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"1", hello1.Hello)
+			}
+			if hello1.Hello.SessionId == "" {
+				t.Errorf("Expected session id, got %+v", hello1.Hello)
+			}
+
+			// Simulate updated Nextcloud with capabilities for Hello V2.
+			t.Setenv("SKIP_V2_CAPABILITIES", "")
+
+			client2 := NewTestClient(t, server, hub)
+			defer client2.CloseWithBye()
+
+			if err := client2.SendHelloV2(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
+
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hello2.Hello.UserId != testDefaultUserId+"2" {
+				t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"2", hello2.Hello)
+			}
+			if hello2.Hello.SessionId == "" {
+				t.Errorf("Expected session id, got %+v", hello2.Hello)
 			}
 		})
 	}
