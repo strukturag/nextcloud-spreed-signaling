@@ -2,6 +2,73 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.0.0 - 2022-08-04
+
+### Added
+- Clustering support.
+  [#281](https://github.com/strukturag/nextcloud-spreed-signaling/pull/281)
+- Send initial "welcome" message when clients connect.
+  [#288](https://github.com/strukturag/nextcloud-spreed-signaling/pull/288)
+- Support hello auth version "2.0" with JWT.
+  [#251](https://github.com/strukturag/nextcloud-spreed-signaling/pull/251)
+- dist: add systemd sysusers file.
+  [#275](https://github.com/strukturag/nextcloud-spreed-signaling/pull/275)
+- Add more tests.
+  [#292](https://github.com/strukturag/nextcloud-spreed-signaling/pull/292)
+- Add tests for virtual sessions.
+  [#295](https://github.com/strukturag/nextcloud-spreed-signaling/pull/295)
+- Implement per-backend session limit for clusters.
+  [#296](https://github.com/strukturag/nextcloud-spreed-signaling/pull/296)
+
+### Changed
+- Don't run "go mod tidy" when building.
+  [#269](https://github.com/strukturag/nextcloud-spreed-signaling/pull/269)
+- Bump sphinx from 5.0.0 to 5.0.1 in /docs
+  [#270](https://github.com/strukturag/nextcloud-spreed-signaling/pull/270)
+- Bump sphinx from 5.0.1 to 5.0.2 in /docs
+  [#277](https://github.com/strukturag/nextcloud-spreed-signaling/pull/277)
+- Move common etcd code to own class.
+  [#282](https://github.com/strukturag/nextcloud-spreed-signaling/pull/282)
+- Support arbitrary capabilities values.
+  [#287](https://github.com/strukturag/nextcloud-spreed-signaling/pull/287)
+- dist: harden systemd service unit.
+  [#276](https://github.com/strukturag/nextcloud-spreed-signaling/pull/276)
+- Update to Go module version of github.com/golang-jwt/jwt
+  [#289](https://github.com/strukturag/nextcloud-spreed-signaling/pull/289)
+- Disconnect sessions with the same room session id synchronously.
+  [#294](https://github.com/strukturag/nextcloud-spreed-signaling/pull/294)
+- Bump google.golang.org/grpc from 1.47.0 to 1.48.0
+  [#297](https://github.com/strukturag/nextcloud-spreed-signaling/pull/297)
+- Update to github.com/pion/sdp v3.0.5
+  [#301](https://github.com/strukturag/nextcloud-spreed-signaling/pull/301)
+- Bump sphinx from 5.0.2 to 5.1.1 in /docs
+  [#303](https://github.com/strukturag/nextcloud-spreed-signaling/pull/303)
+- make: Include vendored dependencies in tarball.
+  [#300](https://github.com/strukturag/nextcloud-spreed-signaling/pull/300)
+- docs: update and pin dependencies.
+  [#305](https://github.com/strukturag/nextcloud-spreed-signaling/pull/305)
+- Bump actions/upload-artifact from 2 to 3
+  [#307](https://github.com/strukturag/nextcloud-spreed-signaling/pull/307)
+- Bump actions/download-artifact from 2 to 3
+  [#308](https://github.com/strukturag/nextcloud-spreed-signaling/pull/308)
+- Bump google.golang.org/protobuf from 1.28.0 to 1.28.1
+  [#306](https://github.com/strukturag/nextcloud-spreed-signaling/pull/306)
+- CI: Also test with Golang 1.19
+  [#310](https://github.com/strukturag/nextcloud-spreed-signaling/pull/310)
+
+### Fixed
+- Fix check for async room messages received while not joined to a room.
+  [#274](https://github.com/strukturag/nextcloud-spreed-signaling/pull/274)
+- Fix testing etcd server not starting up if etcd is running on host.
+  [#283](https://github.com/strukturag/nextcloud-spreed-signaling/pull/283)
+- Fix CI issues on slow CPUs.
+  [#290](https://github.com/strukturag/nextcloud-spreed-signaling/pull/290)
+- Fix handling of "unshareScreen" messages and add test.
+  [#293](https://github.com/strukturag/nextcloud-spreed-signaling/pull/293)
+- Fix Read The Ddocs builds.
+  [#302](https://github.com/strukturag/nextcloud-spreed-signaling/pull/302)
+
+
 ## 0.5.0 - 2022-06-02
 
 ### Added
