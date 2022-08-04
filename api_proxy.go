@@ -142,7 +142,7 @@ type HelloProxyClientMessage struct {
 }
 
 func (m *HelloProxyClientMessage) CheckValid() error {
-	if m.Version != HelloVersion {
+	if m.Version != HelloVersionV1 {
 		return fmt.Errorf("unsupported hello version: %s", m.Version)
 	}
 	if m.ResumeId == "" {

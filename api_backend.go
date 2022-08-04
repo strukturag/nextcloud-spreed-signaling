@@ -40,6 +40,11 @@ const (
 	HeaderBackendSignalingRandom   = "Spreed-Signaling-Random"
 	HeaderBackendSignalingChecksum = "Spreed-Signaling-Checksum"
 	HeaderBackendServer            = "Spreed-Signaling-Backend"
+
+	ConfigGroupSignaling = "signaling"
+
+	ConfigKeyHelloV2TokenKey  = "hello-v2-token-key"
+	ConfigKeySessionPingLimit = "session-ping-limit"
 )
 
 func newRandomString(length int) string {

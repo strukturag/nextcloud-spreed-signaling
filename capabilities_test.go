@@ -28,12 +28,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 )
 
-func NewCapabilitiesForTest(t *testing.T) (*url.URL, *Capabilities) {
+func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*CapabilitiesResponse)) (*url.URL, *Capabilities) {
 	pool, err := NewHttpClientPool(1, false)
 	if err != nil {
 		t.Fatal(err)
@@ -84,6 +86,10 @@ func NewCapabilitiesForTest(t *testing.T) (*url.URL, *Capabilities) {
 			},
 		}
 
+		if callback != nil {
+			callback(response)
+		}
+
 		data, err := json.Marshal(response)
 		if err != nil {
 			t.Errorf("Could not marshal %+v: %s", response, err)
@@ -110,6 +116,19 @@ func NewCapabilitiesForTest(t *testing.T) (*url.URL, *Capabilities) {
 	return u, capabilities
 }
 
+func NewCapabilitiesForTest(t *testing.T) (*url.URL, *Capabilities) {
+	return NewCapabilitiesForTestWithCallback(t, nil)
+}
+
+func SetCapabilitiesGetNow(t *testing.T, f func() time.Time) {
+	old := getCapabilitiesNow
+	t.Cleanup(func() {
+		getCapabilitiesNow = old
+	})
+
+	getCapabilitiesNow = f
+}
+
 func TestCapabilities(t *testing.T) {
 	url, capabilities := NewCapabilitiesForTest(t)
 
@@ -124,34 +143,122 @@ func TestCapabilities(t *testing.T) {
 	}
 
 	expectedString := "bar"
-	if value, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
 		t.Error("could not find value for \"foo\"")
 	} else if value != expectedString {
 		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if !cached {
+		t.Errorf("expected cached response")
 	}
-	if value, found := capabilities.GetStringConfig(ctx, url, "signaling", "baz"); found {
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "baz"); found {
 		t.Errorf("should not have found value for \"baz\", got %s", value)
+	} else if !cached {
+		t.Errorf("expected cached response")
 	}
-	if value, found := capabilities.GetStringConfig(ctx, url, "signaling", "invalid"); found {
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "invalid"); found {
 		t.Errorf("should not have found value for \"invalid\", got %s", value)
+	} else if !cached {
+		t.Errorf("expected cached response")
 	}
-	if value, found := capabilities.GetStringConfig(ctx, url, "invalid", "foo"); found {
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "invalid", "foo"); found {
 		t.Errorf("should not have found value for \"baz\", got %s", value)
+	} else if !cached {
+		t.Errorf("expected cached response")
 	}
 
 	expectedInt := 42
-	if value, found := capabilities.GetIntegerConfig(ctx, url, "signaling", "baz"); !found {
+	if value, cached, found := capabilities.GetIntegerConfig(ctx, url, "signaling", "baz"); !found {
 		t.Error("could not find value for \"baz\"")
 	} else if value != expectedInt {
 		t.Errorf("expected value %d, got %d", expectedInt, value)
+	} else if !cached {
+		t.Errorf("expected cached response")
 	}
-	if value, found := capabilities.GetIntegerConfig(ctx, url, "signaling", "foo"); found {
+	if value, cached, found := capabilities.GetIntegerConfig(ctx, url, "signaling", "foo"); found {
 		t.Errorf("should not have found value for \"foo\", got %d", value)
+	} else if !cached {
+		t.Errorf("expected cached response")
 	}
-	if value, found := capabilities.GetIntegerConfig(ctx, url, "signaling", "invalid"); found {
+	if value, cached, found := capabilities.GetIntegerConfig(ctx, url, "signaling", "invalid"); found {
 		t.Errorf("should not have found value for \"invalid\", got %d", value)
+	} else if !cached {
+		t.Errorf("expected cached response")
 	}
-	if value, found := capabilities.GetIntegerConfig(ctx, url, "invalid", "baz"); found {
+	if value, cached, found := capabilities.GetIntegerConfig(ctx, url, "invalid", "baz"); found {
 		t.Errorf("should not have found value for \"baz\", got %d", value)
+	} else if !cached {
+		t.Errorf("expected cached response")
+	}
+}
+
+func TestInvalidateCapabilities(t *testing.T) {
+	var called uint32
+	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse) {
+		atomic.AddUint32(&called, 1)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	expectedString := "bar"
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := atomic.LoadUint32(&called); value != 1 {
+		t.Errorf("expected called %d, got %d", 1, value)
+	}
+
+	// Invalidating will cause the capabilities to be reloaded.
+	capabilities.InvalidateCapabilities(url)
+
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := atomic.LoadUint32(&called); value != 2 {
+		t.Errorf("expected called %d, got %d", 2, value)
+	}
+
+	// Invalidating is throttled to about once per minute.
+	capabilities.InvalidateCapabilities(url)
+
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if !cached {
+		t.Errorf("expected cached response")
+	}
+
+	if value := atomic.LoadUint32(&called); value != 2 {
+		t.Errorf("expected called %d, got %d", 2, value)
+	}
+
+	// At a later time, invalidating can be done again.
+	SetCapabilitiesGetNow(t, func() time.Time {
+		return time.Now().Add(2 * time.Minute)
+	})
+
+	capabilities.InvalidateCapabilities(url)
+
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := atomic.LoadUint32(&called); value != 3 {
+		t.Errorf("expected called %d, got %d", 3, value)
 	}
 }

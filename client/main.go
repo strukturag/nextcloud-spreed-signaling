@@ -603,7 +603,7 @@ func main() {
 		request := &signaling.ClientMessage{
 			Type: "hello",
 			Hello: &signaling.HelloClientMessage{
-				Version: signaling.HelloVersion,
+				Version: signaling.HelloVersionV1,
 				Auth: signaling.HelloClientMessageAuth{
 					Url:    backendUrl + "/auth",
 					Params: &json.RawMessage{'{', '}'},

@@ -22,12 +22,16 @@
 package signaling
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -40,20 +44,24 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
 )
 
 var (
-	DuplicateClient   = NewError("duplicate_client", "Client already registered.")
-	HelloExpected     = NewError("hello_expected", "Expected Hello request.")
-	UserAuthFailed    = NewError("auth_failed", "The user could not be authenticated.")
-	RoomJoinFailed    = NewError("room_join_failed", "Could not join the room.")
-	InvalidClientType = NewError("invalid_client_type", "The client type is not supported.")
-	InvalidBackendUrl = NewError("invalid_backend", "The backend URL is not supported.")
-	InvalidToken      = NewError("invalid_token", "The passed token is invalid.")
-	NoSuchSession     = NewError("no_such_session", "The session to resume does not exist.")
+	DuplicateClient     = NewError("duplicate_client", "Client already registered.")
+	HelloExpected       = NewError("hello_expected", "Expected Hello request.")
+	InvalidHelloVersion = NewError("invalid_hello_version", "The hello version is not supported.")
+	UserAuthFailed      = NewError("auth_failed", "The user could not be authenticated.")
+	RoomJoinFailed      = NewError("room_join_failed", "Could not join the room.")
+	InvalidClientType   = NewError("invalid_client_type", "The client type is not supported.")
+	InvalidBackendUrl   = NewError("invalid_backend", "The backend URL is not supported.")
+	InvalidToken        = NewError("invalid_token", "The passed token is invalid.")
+	NoSuchSession       = NewError("no_such_session", "The session to resume does not exist.")
+	TokenNotValidYet    = NewError("token_not_valid_yet", "The token is not valid yet.")
+	TokenExpired        = NewError("token_expired", "The token is expired.")
 
 	// Maximum number of concurrent requests to a backend.
 	defaultMaxConcurrentRequestsPerHost = 8
@@ -850,10 +858,18 @@ func (h *Hub) processMessage(client *Client, data []byte) {
 	if err := message.CheckValid(); err != nil {
 		if session := client.GetSession(); session != nil {
 			log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
-			session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
+			if err, ok := err.(*Error); ok {
+				session.SendMessage(message.NewErrorServerMessage(err))
+			} else {
+				session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
+			}
 		} else {
 			log.Printf("Invalid message %+v from %s: %v", message, client.RemoteAddr(), err)
-			client.SendMessage(message.NewErrorServerMessage(InvalidFormat))
+			if err, ok := err.(*Error); ok {
+				client.SendMessage(message.NewErrorServerMessage(err))
+			} else {
+				client.SendMessage(message.NewErrorServerMessage(InvalidFormat))
+			}
 		}
 		return
 	}
@@ -896,7 +912,7 @@ func (h *Hub) sendHelloResponse(session *ClientSession, message *ClientMessage) 
 		Id:   message.Id,
 		Type: "hello",
 		Hello: &HelloServerMessage{
-			Version:   HelloVersion,
+			Version:   message.Hello.Version,
 			SessionId: session.PublicId(),
 			ResumeId:  session.PrivateId(),
 			UserId:    session.UserId(),
@@ -975,31 +991,163 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 	}
 }
 
-func (h *Hub) processHelloClient(client *Client, message *ClientMessage) {
-	// Make sure the client must send another "hello" in case of errors.
-	defer h.startExpectHello(client)
-
+func (h *Hub) processHelloV1(client *Client, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
 	url := message.Hello.Auth.parsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
-		client.SendMessage(message.NewErrorServerMessage(InvalidBackendUrl))
-		return
+		return nil, nil, InvalidBackendUrl
 	}
 
 	// Run in timeout context to prevent blocking too long.
 	ctx, cancel := context.WithTimeout(context.Background(), h.backendTimeout)
 	defer cancel()
 
-	request := NewBackendClientAuthRequest(message.Hello.Auth.Params)
 	var auth BackendClientResponse
+	request := NewBackendClientAuthRequest(message.Hello.Auth.Params)
 	if err := h.backend.PerformJSONRequest(ctx, url, request, &auth); err != nil {
-		client.SendMessage(message.NewWrappedErrorServerMessage(err))
-		return
+		return nil, nil, err
 	}
 
 	// TODO(jojo): Validate response
 
-	h.processRegister(client, message, backend, &auth)
+	return backend, &auth, nil
+}
+
+func (h *Hub) processHelloV2(client *Client, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
+	url := message.Hello.Auth.parsedUrl
+	backend := h.backend.GetBackend(url)
+	if backend == nil {
+		return nil, nil, InvalidBackendUrl
+	}
+
+	token, err := jwt.ParseWithClaims(message.Hello.Auth.helloV2Params.Token, &HelloV2TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+		// Only public-private-key algorithms are supported.
+		var loadKeyFunc func([]byte) (interface{}, error)
+		switch token.Method.(type) {
+		case *jwt.SigningMethodRSA:
+			loadKeyFunc = func(data []byte) (interface{}, error) {
+				return jwt.ParseRSAPublicKeyFromPEM(data)
+			}
+		case *jwt.SigningMethodECDSA:
+			loadKeyFunc = func(data []byte) (interface{}, error) {
+				return jwt.ParseECPublicKeyFromPEM(data)
+			}
+		case *jwt.SigningMethodEd25519:
+			loadKeyFunc = func(data []byte) (interface{}, error) {
+				if !bytes.HasPrefix(data, []byte("-----BEGIN ")) {
+					// Nextcloud sends the Ed25519 key as base64-encoded public key data.
+					decoded, err := base64.StdEncoding.DecodeString(string(data))
+					if err != nil {
+						return nil, err
+					}
+
+					key := ed25519.PublicKey(decoded)
+					data, err = x509.MarshalPKIXPublicKey(key)
+					if err != nil {
+						return nil, err
+					}
+
+					data = pem.EncodeToMemory(&pem.Block{
+						Type:  "PUBLIC KEY",
+						Bytes: data,
+					})
+				}
+				return jwt.ParseEdPublicKeyFromPEM(data)
+			}
+		default:
+			log.Printf("Unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		}
+
+		// Run in timeout context to prevent blocking too long.
+		ctx, cancel := context.WithTimeout(context.Background(), h.backendTimeout)
+		defer cancel()
+
+		keyData, cached, found := h.backend.capabilities.GetStringConfig(ctx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+		if !found {
+			if cached {
+				// The Nextcloud instance might just have enabled JWT but we probably use
+				// the cached capabilities without the public key. Make sure to re-fetch.
+				h.backend.capabilities.InvalidateCapabilities(url)
+				keyData, _, found = h.backend.capabilities.GetStringConfig(ctx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+			}
+			if !found {
+				return nil, fmt.Errorf("No key found for issuer")
+			}
+		}
+
+		key, err := loadKeyFunc([]byte(keyData))
+		if err != nil {
+			return nil, fmt.Errorf("Could not parse token key: %w", err)
+		}
+
+		return key, nil
+	})
+	if err != nil {
+		if err, ok := err.(*jwt.ValidationError); ok {
+			if err.Errors&jwt.ValidationErrorIssuedAt == jwt.ValidationErrorIssuedAt {
+				return nil, nil, TokenNotValidYet
+			}
+			if err.Errors&jwt.ValidationErrorExpired == jwt.ValidationErrorExpired {
+				return nil, nil, TokenExpired
+			}
+		}
+
+		return nil, nil, InvalidToken
+	}
+
+	claims, ok := token.Claims.(*HelloV2TokenClaims)
+	if !ok || !token.Valid {
+		return nil, nil, InvalidToken
+	}
+	now := time.Now()
+	if !claims.VerifyIssuedAt(now, true) {
+		return nil, nil, TokenNotValidYet
+	}
+	if !claims.VerifyExpiresAt(now, true) {
+		return nil, nil, TokenExpired
+	}
+
+	auth := &BackendClientResponse{
+		Type: "auth",
+		Auth: &BackendClientAuthResponse{
+			Version: message.Hello.Version,
+			UserId:  claims.Subject,
+			User:    claims.UserData,
+		},
+	}
+	return backend, auth, nil
+}
+
+func (h *Hub) processHelloClient(client *Client, message *ClientMessage) {
+	// Make sure the client must send another "hello" in case of errors.
+	defer h.startExpectHello(client)
+
+	var authFunc func(*Client, *ClientMessage) (*Backend, *BackendClientResponse, error)
+	switch message.Hello.Version {
+	case HelloVersionV1:
+		// Auth information contains a ticket that must be validated against the
+		// Nextcloud instance.
+		authFunc = h.processHelloV1
+	case HelloVersionV2:
+		// Auth information contains a JWT that contains all information of the user.
+		authFunc = h.processHelloV2
+	default:
+		client.SendMessage(message.NewErrorServerMessage(InvalidHelloVersion))
+		return
+	}
+
+	backend, auth, err := authFunc(client, message)
+	if err != nil {
+		if e, ok := err.(*Error); ok {
+			client.SendMessage(message.NewErrorServerMessage(e))
+		} else {
+			client.SendMessage(message.NewWrappedErrorServerMessage(err))
+		}
+		return
+	}
+
+	h.processRegister(client, message, backend, auth)
 }
 
 func (h *Hub) processHelloInternal(client *Client, message *ClientMessage) {

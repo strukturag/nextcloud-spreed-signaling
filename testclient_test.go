@@ -37,6 +37,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/websocket"
 )
 
@@ -359,11 +360,14 @@ func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId string
 }
 
 func (c *TestClient) WriteJSON(data interface{}) error {
-	if msg, ok := data.(*ClientMessage); ok {
-		if err := msg.CheckValid(); err != nil {
-			return err
+	if !strings.Contains(c.t.Name(), "HelloUnsupportedVersion") {
+		if msg, ok := data.(*ClientMessage); ok {
+			if err := msg.CheckValid(); err != nil {
+				return err
+			}
 		}
 	}
+
 	return c.conn.WriteJSON(data)
 }
 
@@ -374,10 +378,63 @@ func (c *TestClient) EnsuerWriteJSON(data interface{}) {
 }
 
 func (c *TestClient) SendHello(userid string) error {
+	return c.SendHelloV1(userid)
+}
+
+func (c *TestClient) SendHelloV1(userid string) error {
 	params := TestBackendClientAuthParams{
 		UserId: userid,
 	}
-	return c.SendHelloParams(c.server.URL, "", params)
+	return c.SendHelloParams(c.server.URL, HelloVersionV1, "", params)
+}
+
+func (c *TestClient) SendHelloV2(userid string) error {
+	now := time.Now()
+	return c.SendHelloV2WithTimes(userid, now, now.Add(time.Minute))
+}
+
+func (c *TestClient) SendHelloV2WithTimes(userid string, issuedAt time.Time, expiresAt time.Time) error {
+	userdata := map[string]string{
+		"displayname": "Displayname " + userid,
+	}
+
+	data, err := json.Marshal(userdata)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+
+	claims := &HelloV2TokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:  c.server.URL,
+			Subject: userid,
+		},
+		UserData: (*json.RawMessage)(&data),
+	}
+	if !issuedAt.IsZero() {
+		claims.IssuedAt = jwt.NewNumericDate(issuedAt)
+	}
+	if !expiresAt.IsZero() {
+		claims.ExpiresAt = jwt.NewNumericDate(expiresAt)
+	}
+
+	var token *jwt.Token
+	if strings.Contains(c.t.Name(), "ECDSA") {
+		token = jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	} else if strings.Contains(c.t.Name(), "Ed25519") {
+		token = jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	} else {
+		token = jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	}
+	private := getPrivateAuthToken(c.t)
+	tokenString, err := token.SignedString(private)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+
+	params := HelloV2AuthParams{
+		Token: tokenString,
+	}
+	return c.SendHelloParams(c.server.URL, HelloVersionV2, "", params)
 }
 
 func (c *TestClient) SendHelloResume(resumeId string) error {
@@ -385,7 +442,7 @@ func (c *TestClient) SendHelloResume(resumeId string) error {
 		Id:   "1234",
 		Type: "hello",
 		Hello: &HelloClientMessage{
-			Version:  HelloVersion,
+			Version:  HelloVersionV1,
 			ResumeId: resumeId,
 		},
 	}
@@ -396,7 +453,7 @@ func (c *TestClient) SendHelloClient(userid string) error {
 	params := TestBackendClientAuthParams{
 		UserId: userid,
 	}
-	return c.SendHelloParams(c.server.URL, "client", params)
+	return c.SendHelloParams(c.server.URL, HelloVersionV1, "client", params)
 }
 
 func (c *TestClient) SendHelloInternal() error {
@@ -411,10 +468,10 @@ func (c *TestClient) SendHelloInternal() error {
 		Token:   token,
 		Backend: backend,
 	}
-	return c.SendHelloParams("", "internal", params)
+	return c.SendHelloParams("", HelloVersionV1, "internal", params)
 }
 
-func (c *TestClient) SendHelloParams(url string, clientType string, params interface{}) error {
+func (c *TestClient) SendHelloParams(url string, version string, clientType string, params interface{}) error {
 	data, err := json.Marshal(params)
 	if err != nil {
 		c.t.Fatal(err)
@@ -424,7 +481,7 @@ func (c *TestClient) SendHelloParams(url string, clientType string, params inter
 		Id:   "1234",
 		Type: "hello",
 		Hello: &HelloClientMessage{
-			Version: HelloVersion,
+			Version: version,
 			Auth: HelloClientMessageAuth{
 				Type:   clientType,
 				Url:    url,

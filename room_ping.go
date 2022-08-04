@@ -29,11 +29,6 @@ import (
 	"time"
 )
 
-const (
-	ConfigGroupSignaling      = "signaling"
-	ConfigKeySessionPingLimit = "session-ping-limit"
-)
-
 type pingEntries struct {
 	url *url.URL
 
@@ -124,7 +119,7 @@ func (p *RoomPing) publishEntries(entries *pingEntries, timeout time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	limit, found := p.capabilities.GetIntegerConfig(ctx, entries.url, ConfigGroupSignaling, ConfigKeySessionPingLimit)
+	limit, _, found := p.capabilities.GetIntegerConfig(ctx, entries.url, ConfigGroupSignaling, ConfigKeySessionPingLimit)
 	if !found || limit <= 0 {
 		// Limit disabled while waiting for the next iteration, fallback to sending
 		// one request per room.
@@ -193,7 +188,7 @@ func (p *RoomPing) sendPingsCombined(url *url.URL, entries []BackendPingEntry, l
 }
 
 func (p *RoomPing) SendPings(ctx context.Context, room *Room, url *url.URL, entries []BackendPingEntry) error {
-	limit, found := p.capabilities.GetIntegerConfig(ctx, url, ConfigGroupSignaling, ConfigKeySessionPingLimit)
+	limit, _, found := p.capabilities.GetIntegerConfig(ctx, url, ConfigGroupSignaling, ConfigKeySessionPingLimit)
 	if !found || limit <= 0 {
 		// Old-style Nextcloud or session limit not configured. Perform one request
 		// per room. Don't queue to avoid sending all ping requests to old-style
