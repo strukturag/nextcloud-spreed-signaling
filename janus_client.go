@@ -769,9 +769,11 @@ GetMessage: // No tears..
 // a new PeerConnection with a plugin.
 // candidate should be a single ICE candidate, or a completed object to
 // signify that all candidates have been sent:
-//		{
-//			"completed": true
-//		}
+//
+//	{
+//		"completed": true
+//	}
+//
 // On success, an AckMsg will be returned and error will be nil.
 func (handle *JanusHandle) Trickle(ctx context.Context, candidate interface{}) (*janus.AckMsg, error) {
 	req, ch := newRequest("trickle")
