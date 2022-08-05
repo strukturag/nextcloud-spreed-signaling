@@ -26,4 +26,5 @@ import (
 	_ "github.com/mailru/easyjson/bootstrap"
 	_ "github.com/mailru/easyjson/gen"
 	_ "github.com/mailru/easyjson/parser"
+	_ "google.golang.org/protobuf/compiler/protogen"
 )

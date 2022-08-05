@@ -157,8 +157,6 @@ vendor: go.mod go.sum common
 	mkdir -p $(VENDORDIR)/google.golang.org/grpc/cmd/protoc-gen-go-grpc/; \
 	cp -rf --no-preserve=mode $(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)/* $(VENDORDIR)/google.golang.org/grpc/cmd/protoc-gen-go-grpc/; \
 	cp -rf --no-preserve=mode $$PROTOBUF_DIR/cmd/ $(VENDORDIR)/google.golang.org/protobuf/; \
-	cp -rf --no-preserve=mode $$PROTOBUF_DIR/compiler/ $(VENDORDIR)/google.golang.org/protobuf/; \
-	cp -rf --no-preserve=mode $$PROTOBUF_DIR/types/ $(VENDORDIR)/google.golang.org/protobuf/; \
 
 tarball: vendor
 	git archive \
