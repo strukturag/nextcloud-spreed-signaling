@@ -2,7 +2,9 @@ version: '3'
 
 services:
   spreedbackend:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/server/Dockerfile
     volumes:
       - ./server.conf:/config/server.conf
     network_mode: host
@@ -19,7 +21,7 @@ services:
     network_mode: host
     restart: unless-stopped
   janus:
-    build: docker/janus
+    build: janus
     command: ["janus", "--full-trickle"]
     network_mode: host
     restart: unless-stopped
