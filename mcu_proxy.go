@@ -170,8 +170,11 @@ func (p *mcuProxyPublisher) Close(ctx context.Context) {
 		},
 	}
 
-	if _, err := p.conn.performSyncRequest(ctx, msg); err != nil {
+	if response, err := p.conn.performSyncRequest(ctx, msg); err != nil {
 		log.Printf("Could not delete publisher %s at %s: %s", p.proxyId, p.conn, err)
+		return
+	} else if response.Type == "error" {
+		log.Printf("Could not delete publisher %s at %s: %s", p.proxyId, p.conn, response.Error)
 		return
 	}
 
@@ -247,8 +250,11 @@ func (s *mcuProxySubscriber) Close(ctx context.Context) {
 		},
 	}
 
-	if _, err := s.conn.performSyncRequest(ctx, msg); err != nil {
+	if response, err := s.conn.performSyncRequest(ctx, msg); err != nil {
 		log.Printf("Could not delete subscriber %s at %s: %s", s.proxyId, s.conn, err)
+		return
+	} else if response.Type == "error" {
+		log.Printf("Could not delete subscriber %s at %s: %s", s.proxyId, s.conn, response.Error)
 		return
 	}
 
