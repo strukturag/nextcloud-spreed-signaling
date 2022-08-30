@@ -84,6 +84,7 @@ func NewHttpClientPool(maxConcurrentRequestsPerHost int, skipVerify bool) (*Http
 	transport := &http.Transport{
 		MaxIdleConnsPerHost: maxConcurrentRequestsPerHost,
 		TLSClientConfig:     tlsconfig,
+		Proxy:               http.ProxyFromEnvironment,
 	}
 
 	result := &HttpClientPool{
