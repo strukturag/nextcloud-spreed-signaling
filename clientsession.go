@@ -839,6 +839,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 	if !found {
 		client := s.getClientUnlocked()
 		s.mu.Unlock()
+		defer s.mu.Lock()
 
 		bitrate := data.Bitrate
 		if backend := s.Backend(); backend != nil {
@@ -856,7 +857,6 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		}
 		var err error
 		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), data.Sid, streamType, bitrate, mediaTypes, client)
-		s.mu.Lock()
 		if err != nil {
 			return nil, err
 		}
