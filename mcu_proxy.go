@@ -488,7 +488,7 @@ func (c *mcuProxyConnection) sendPing() bool {
 	c.conn.SetWriteDeadline(now.Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
 		log.Printf("Could not send ping to proxy at %s: %v", c, err)
-		c.scheduleReconnect()
+		go c.scheduleReconnect()
 		return false
 	}
 
