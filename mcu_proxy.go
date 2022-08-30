@@ -488,7 +488,7 @@ func (c *mcuProxyConnection) sendPing() bool {
 	c.conn.SetWriteDeadline(now.Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
 		log.Printf("Could not send ping to proxy at %s: %v", c, err)
-		c.scheduleReconnect()
+		go c.scheduleReconnect()
 		return false
 	}
 
@@ -1042,6 +1042,8 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 	if err != nil {
 		// TODO: Cancel request
 		return nil, err
+	} else if response.Type == "error" {
+		return nil, fmt.Errorf("Error creating %s publisher for %s on %s: %+v", streamType, id, c, response.Error)
 	}
 
 	proxyId := response.Command.Id
@@ -1070,6 +1072,8 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 	if err != nil {
 		// TODO: Cancel request
 		return nil, err
+	} else if response.Type == "error" {
+		return nil, fmt.Errorf("Error creating %s subscriber for %s on %s: %+v", streamType, publisherSessionId, c, response.Error)
 	}
 
 	proxyId := response.Command.Id
