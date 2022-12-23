@@ -16,6 +16,9 @@ jobs:
       - name: Check Out Repo
         uses: actions/checkout@v3
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
       - name: Generate Docker metadata
         id: meta
         uses: docker/metadata-action@v4
@@ -61,6 +64,7 @@ jobs:
         with:
           context: .
           file: ./docker/server/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -76,6 +80,9 @@ jobs:
     steps:
       - name: Check Out Repo
         uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
 
       - name: Generate Docker metadata
         id: meta
@@ -125,6 +132,7 @@ jobs:
         with:
           context: .
           file: ./docker/proxy/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
