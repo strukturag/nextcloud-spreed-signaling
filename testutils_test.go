@@ -29,29 +29,27 @@ import (
 )
 
 func ensureNoGoroutinesLeak(t *testing.T, f func()) {
+	profile := pprof.Lookup("goroutine")
 	// Give time for things to settle before capturing the number of
 	// go routines
 	time.Sleep(500 * time.Millisecond)
-	before := pprof.Lookup("goroutine")
+	before := profile.Count()
 
 	f()
 
-	var after *pprof.Profile
+	var after int
 	// Give time for things to settle before capturing the number of
 	// go routines
 	timeout := time.Now().Add(time.Second)
 	for time.Now().Before(timeout) {
-		after = pprof.Lookup("goroutine")
-		if after.Count() == before.Count() {
+		after = profile.Count()
+		if after == before {
 			break
 		}
 	}
 
-	if after.Count() != before.Count() {
-		os.Stderr.WriteString("Before:\n")
-		before.WriteTo(os.Stderr, 1) // nolint
-		os.Stderr.WriteString("After:\n")
-		after.WriteTo(os.Stderr, 1) // nolint
-		t.Fatalf("Number of Go routines has changed in %s", t.Name())
+	if after != before {
+		profile.WriteTo(os.Stderr, 2) // nolint
+		t.Fatalf("Number of Go routines has changed in %s from %d to %d", t.Name(), before, after)
 	}
 }
