@@ -23,35 +23,52 @@ package signaling
 
 import (
 	"os"
+	"os/signal"
 	"runtime/pprof"
+	"sync"
 	"testing"
 	"time"
 )
 
-func ensureNoGoroutinesLeak(t *testing.T, f func()) {
+var listenSignalOnce sync.Once
+
+func ensureNoGoroutinesLeak(t *testing.T, f func(t *testing.T)) {
+	t.Helper()
+
+	// The signal package will start a goroutine the first time "signal.Notify"
+	// is called. Do so outside the function under test so the signal goroutine
+	// will not be shown as "leaking".
+	listenSignalOnce.Do(func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, os.Interrupt)
+		go func() {
+			for {
+				<-ch
+			}
+		}()
+	})
+
+	profile := pprof.Lookup("goroutine")
 	// Give time for things to settle before capturing the number of
 	// go routines
 	time.Sleep(500 * time.Millisecond)
-	before := pprof.Lookup("goroutine")
+	before := profile.Count()
 
-	f()
+	t.Run("leakcheck", f)
 
-	var after *pprof.Profile
+	var after int
 	// Give time for things to settle before capturing the number of
 	// go routines
 	timeout := time.Now().Add(time.Second)
 	for time.Now().Before(timeout) {
-		after = pprof.Lookup("goroutine")
-		if after.Count() == before.Count() {
+		after = profile.Count()
+		if after == before {
 			break
 		}
 	}
 
-	if after.Count() != before.Count() {
-		os.Stderr.WriteString("Before:\n")
-		before.WriteTo(os.Stderr, 1) // nolint
-		os.Stderr.WriteString("After:\n")
-		after.WriteTo(os.Stderr, 1) // nolint
-		t.Fatalf("Number of Go routines has changed in %s", t.Name())
+	if after != before {
+		profile.WriteTo(os.Stderr, 2) // nolint
+		t.Fatalf("Number of Go routines has changed from %d to %d", before, after)
 	}
 }
