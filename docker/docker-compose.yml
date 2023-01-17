@@ -5,6 +5,8 @@ services:
     build:
       context: ..
       dockerfile: docker/server/Dockerfile
+      platforms:
+        - "linux/amd64"
     volumes:
       - ./server.conf:/config/server.conf
     network_mode: host
