@@ -67,11 +67,11 @@ jobs:
 
     - name: Run tests
       run: |
-        make test
+        make test TIMEOUT=120s
 
     - name: Generate coverage report
       run: |
-        make cover
+        make cover TIMEOUT=120s
         echo "GOROOT=$(go env GOROOT)" >> $GITHUB_ENV
 
     - name: Convert coverage to lcov

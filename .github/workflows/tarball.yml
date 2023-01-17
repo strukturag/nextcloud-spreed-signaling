@@ -107,4 +107,4 @@ jobs:
       env:
         GOPROXY: off
       run: |
-        make -C tmp test
+        make -C tmp test TIMEOUT=120s
