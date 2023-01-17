@@ -16,6 +16,9 @@ on:
       - 'go.*'
       - 'Makefile'
 
+permissions:
+  contents: read
+
 jobs:
   go:
     env:
@@ -87,6 +90,8 @@ jobs:
         parallel: true
 
   finish:
+    permissions:
+      contents: none
     needs: go
     runs-on: ubuntu-latest
     steps:
