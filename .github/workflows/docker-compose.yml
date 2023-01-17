@@ -12,6 +12,9 @@ on:
       - '.github/workflows/docker-compose.yml'
       - 'docker-compose.yml'
 
+permissions:
+  contents: read
+
 jobs:
   pull:
     runs-on: ubuntu-latest

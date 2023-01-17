@@ -16,6 +16,9 @@ on:
       - 'go.*'
       - 'Makefile'
 
+permissions:
+  contents: read
+
 jobs:
   create:
     strategy:
