@@ -39,6 +39,9 @@ import (
 var (
 	ErrNotRedirecting         = errors.New("not redirecting to different host")
 	ErrUnsupportedContentType = errors.New("unsupported_content_type")
+
+	ErrIncompleteResponse = errors.New("incomplete OCS response")
+	ErrThrottledResponse  = errors.New("throttled OCS response")
 )
 
 type BackendClient struct {
@@ -193,8 +196,16 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 			return err
 		} else if ocs.Ocs == nil || ocs.Ocs.Data == nil {
 			log.Printf("Incomplete OCS response %s from %s", string(body), req.URL)
-			return fmt.Errorf("incomplete OCS response")
-		} else if err := json.Unmarshal(*ocs.Ocs.Data, response); err != nil {
+			return ErrIncompleteResponse
+		}
+
+		switch ocs.Ocs.Meta.StatusCode {
+		case http.StatusTooManyRequests:
+			log.Printf("Throttled OCS response %s from %s", string(body), req.URL)
+			return ErrThrottledResponse
+		}
+
+		if err := json.Unmarshal(*ocs.Ocs.Data, response); err != nil {
 			log.Printf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), req.URL, err)
 			return err
 		}

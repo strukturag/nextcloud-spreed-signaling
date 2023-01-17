@@ -30,6 +30,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/dlintw/goconf"
@@ -47,6 +48,14 @@ func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
 			Data: (*json.RawMessage)(&body),
 		},
 	}
+	if strings.Contains(t.Name(), "Throttled") {
+		response.Ocs.Meta = OcsMeta{
+			Status:     "failure",
+			StatusCode: 429,
+			Message:    "Reached maximum delay",
+		}
+	}
+
 	data, err := json.Marshal(response)
 	if err != nil {
 		t.Fatal(err)
@@ -204,5 +213,42 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 
 	if len(response) > 0 {
 		t.Errorf("Expected empty response, got %+v", response)
+	}
+}
+
+func TestHandleThrottled(t *testing.T) {
+	r := mux.NewRouter()
+	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
+		returnOCS(t, w, []byte("[]"))
+	})
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := goconf.NewConfigFile()
+	config.AddOption("backend", "allowed", u.Host)
+	config.AddOption("backend", "secret", string(testBackendSecret))
+	if u.Scheme == "http" {
+		config.AddOption("backend", "allowhttp", "true")
+	}
+	client, err := NewBackendClient(config, 1, "0.0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	request := map[string]string{
+		"foo": "bar",
+	}
+	var response map[string]string
+	err = client.PerformJSONRequest(ctx, u, request, &response)
+	if err == nil {
+		t.Error("should have triggered an error")
+	} else if !errors.Is(err, ErrThrottledResponse) {
+		t.Error(err)
 	}
 }
