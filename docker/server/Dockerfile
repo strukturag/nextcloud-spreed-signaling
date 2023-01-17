@@ -1,12 +1,15 @@
-FROM golang:1.19 AS builder
+FROM --platform=${BUILDPLATFORM} golang:1.19 AS builder
 
 WORKDIR /workdir
+
+ARG TARGETARCH
+ARG TARGETOS
 
 COPY . .
 RUN apt-get -y update && \
     apt-get -y install protobuf-compiler && \
-    if [ -d "vendor" ]; then GOPROXY=off make server -j$(nproc); else \
-    make server -j$(nproc); fi
+    if [ -d "vendor" ]; then GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=off make server -j$(nproc); else \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make server -j$(nproc); fi
 
 FROM alpine:3
 
