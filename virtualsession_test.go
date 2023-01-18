@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -219,6 +220,9 @@ func TestVirtualSession(t *testing.T) {
 		messages, err := client2.GetPendingMessages(ctx)
 		if err != nil {
 			t.Error(err)
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				break
+			}
 		}
 
 		receivedMessages = append(receivedMessages, messages...)
