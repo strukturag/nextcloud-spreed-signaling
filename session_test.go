@@ -26,12 +26,14 @@ import (
 )
 
 func assertSessionHasPermission(t *testing.T, session Session, permission Permission) {
+	t.Helper()
 	if !session.HasPermission(permission) {
 		t.Errorf("Session %s doesn't have permission %s", session.PublicId(), permission)
 	}
 }
 
 func assertSessionHasNotPermission(t *testing.T, session Session, permission Permission) {
+	t.Helper()
 	if session.HasPermission(permission) {
 		t.Errorf("Session %s has permission %s but shouldn't", session.PublicId(), permission)
 	}
