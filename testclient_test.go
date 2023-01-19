@@ -884,9 +884,9 @@ func checkMessageParticipantsInCall(message *ServerMessage) (*RoomEventServerMes
 	if err := checkMessageType(message, "event"); err != nil {
 		return nil, err
 	} else if message.Event.Target != "participants" {
-		return nil, fmt.Errorf("Expected event target room, got %+v", message.Event)
+		return nil, fmt.Errorf("Expected event target participants, got %+v", message.Event)
 	} else if message.Event.Type != "update" || message.Event.Update == nil {
-		return nil, fmt.Errorf("Expected event type incall, got %+v", message.Event)
+		return nil, fmt.Errorf("Expected event type update, got %+v", message.Event)
 	}
 
 	return message.Event.Update, nil

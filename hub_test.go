@@ -284,7 +284,8 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 		case <-ctx.Done():
 			h.mu.Lock()
 			h.ru.Lock()
-			t.Errorf("Error waiting for clients %+v / rooms %+v / sessions %+v to terminate: %s", h.clients, h.rooms, h.sessions, ctx.Err())
+			dumpGoroutines()
+			t.Errorf("Error waiting for clients %+v / rooms %+v / sessions %+v / %d read / %d write to terminate: %s", h.clients, h.rooms, h.sessions, readActive, writeActive, ctx.Err())
 			h.ru.Unlock()
 			h.mu.Unlock()
 			return

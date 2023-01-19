@@ -365,16 +365,11 @@ func (r *Room) notifySessionJoined(sessionId string) {
 		},
 	}
 
-	if session != nil {
-		// No need to send through asynchronous events, the session is connected locally.
-		session.(*ClientSession).SendMessage(msg)
-	} else {
-		if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
-			Type:    "message",
-			Message: msg,
-		}); err != nil {
-			log.Printf("Error publishing joined events to session %s: %s", sessionId, err)
-		}
+	if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+		Type:    "message",
+		Message: msg,
+	}); err != nil {
+		log.Printf("Error publishing joined events to session %s: %s", sessionId, err)
 	}
 
 	// Notify about initial flags of virtual sessions.
@@ -402,16 +397,11 @@ func (r *Room) notifySessionJoined(sessionId string) {
 			},
 		}
 
-		if session != nil {
-			// No need to send through asynchronous events, the session is connected locally.
-			session.(*ClientSession).SendMessage(msg)
-		} else {
-			if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
-				Type:    "message",
-				Message: msg,
-			}); err != nil {
-				log.Printf("Error publishing initial flags to session %s: %s", sessionId, err)
-			}
+		if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+			Type:    "message",
+			Message: msg,
+		}); err != nil {
+			log.Printf("Error publishing initial flags to session %s: %s", sessionId, err)
 		}
 	}
 }

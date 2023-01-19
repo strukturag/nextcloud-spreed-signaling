@@ -254,8 +254,8 @@ func (c *Client) SendMessage(message WritableClientMessage) bool {
 
 func (c *Client) ReadPump() {
 	defer func() {
-		c.Close()
 		close(c.messageChan)
+		c.Close()
 	}()
 
 	addr := c.RemoteAddr()

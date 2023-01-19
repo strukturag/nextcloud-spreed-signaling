@@ -68,7 +68,12 @@ func ensureNoGoroutinesLeak(t *testing.T, f func(t *testing.T)) {
 	}
 
 	if after != before {
-		profile.WriteTo(os.Stderr, 2) // nolint
+		dumpGoroutines()
 		t.Fatalf("Number of Go routines has changed from %d to %d", before, after)
 	}
+}
+
+func dumpGoroutines() {
+	profile := pprof.Lookup("goroutine")
+	profile.WriteTo(os.Stderr, 2) // nolint
 }
