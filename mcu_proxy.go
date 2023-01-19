@@ -1124,8 +1124,7 @@ type mcuProxy struct {
 	mu         sync.RWMutex
 	publishers map[string]*mcuProxyConnection
 
-	publisherWaitersId uint64
-	publisherWaiters   map[uint64]chan bool
+	publisherWaiters ChannelWaiters
 
 	continentsMap atomic.Value
 
@@ -1192,8 +1191,6 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 		maxScreenBitrate: maxScreenBitrate,
 
 		publishers: make(map[string]*mcuProxyConnection),
-
-		publisherWaiters: make(map[uint64]chan bool),
 
 		rpcClients: rpcClients,
 	}
@@ -1861,25 +1858,6 @@ func (m *mcuProxy) removePublisher(publisher *mcuProxyPublisher) {
 	delete(m.publishers, publisher.id+"|"+publisher.StreamType())
 }
 
-func (m *mcuProxy) wakeupWaiters() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, ch := range m.publisherWaiters {
-		ch <- true
-	}
-}
-
-func (m *mcuProxy) addWaiter(ch chan bool) uint64 {
-	id := m.publisherWaitersId + 1
-	m.publisherWaitersId = id
-	m.publisherWaiters[id] = ch
-	return id
-}
-
-func (m *mcuProxy) removeWaiter(id uint64) {
-	delete(m.publisherWaiters, id)
-}
-
 func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
 	connections := m.getSortedConnections(initiator)
 	for _, conn := range connections {
@@ -1910,7 +1888,7 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 		m.mu.Lock()
 		m.publishers[id+"|"+streamType] = conn
 		m.mu.Unlock()
-		m.wakeupWaiters()
+		m.publisherWaiters.Wakeup()
 		return publisher, nil
 	}
 
@@ -1935,9 +1913,9 @@ func (m *mcuProxy) waitForPublisherConnection(ctx context.Context, publisher str
 		return conn
 	}
 
-	ch := make(chan bool, 1)
-	id := m.addWaiter(ch)
-	defer m.removeWaiter(id)
+	ch := make(chan struct{}, 1)
+	id := m.publisherWaiters.Add(ch)
+	defer m.publisherWaiters.Remove(id)
 
 	statsWaitingForPublisherTotal.WithLabelValues(streamType).Inc()
 	for {
