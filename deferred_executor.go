@@ -33,8 +33,7 @@ import (
 // their order.
 type DeferredExecutor struct {
 	queue     chan func()
-	closeChan chan bool
-	closed    chan bool
+	closed    chan struct{}
 	closeOnce sync.Once
 }
 
@@ -43,28 +42,24 @@ func NewDeferredExecutor(queueSize int) *DeferredExecutor {
 		queueSize = 0
 	}
 	result := &DeferredExecutor{
-		queue:     make(chan func(), queueSize),
-		closeChan: make(chan bool, 1),
-		closed:    make(chan bool, 1),
+		queue:  make(chan func(), queueSize),
+		closed: make(chan struct{}),
 	}
 	go result.run()
 	return result
 }
 
 func (e *DeferredExecutor) run() {
-loop:
+	defer close(e.closed)
+
 	for {
-		select {
-		case f := <-e.queue:
-			if f == nil {
-				break loop
-			}
-			f()
-		case <-e.closeChan:
-			break loop
+		f := <-e.queue
+		if f == nil {
+			break
 		}
+
+		f()
 	}
-	e.closed <- true
 }
 
 func getFunctionName(i interface{}) string {
@@ -83,14 +78,9 @@ func (e *DeferredExecutor) Execute(f func()) {
 }
 
 func (e *DeferredExecutor) Close() {
-	select {
-	case e.closeChan <- true:
-		e.closeOnce.Do(func() {
-			close(e.queue)
-		})
-	default:
-		// Already closed.
-	}
+	e.closeOnce.Do(func() {
+		close(e.queue)
+	})
 }
 
 func (e *DeferredExecutor) waitForStop() {
