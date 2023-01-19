@@ -172,7 +172,7 @@ func unexpected(request string) error {
 type transaction struct {
 	ch       chan interface{}
 	incoming chan interface{}
-	quitChan chan bool
+	closer   *Closer
 }
 
 func (t *transaction) run() {
@@ -180,7 +180,7 @@ func (t *transaction) run() {
 		select {
 		case msg := <-t.incoming:
 			t.ch <- msg
-		case <-t.quitChan:
+		case <-t.closer.C:
 			return
 		}
 	}
@@ -191,18 +191,14 @@ func (t *transaction) add(msg interface{}) {
 }
 
 func (t *transaction) quit() {
-	select {
-	case t.quitChan <- true:
-	default:
-		// Already scheduled to quit.
-	}
+	t.closer.Close()
 }
 
 func newTransaction() *transaction {
 	t := &transaction{
 		ch:       make(chan interface{}, 1),
 		incoming: make(chan interface{}, 8),
-		quitChan: make(chan bool, 1),
+		closer:   NewCloser(),
 	}
 	return t
 }
@@ -239,7 +235,7 @@ type JanusGateway struct {
 	conn         *websocket.Conn
 	transactions map[uint64]*transaction
 
-	closeChan chan bool
+	closer *Closer
 
 	writeMu sync.Mutex
 }
@@ -269,15 +265,16 @@ func NewJanusGateway(wsURL string, listener GatewayListener) (*JanusGateway, err
 		return nil, err
 	}
 
-	gateway := new(JanusGateway)
-	gateway.conn = conn
-	gateway.transactions = make(map[uint64]*transaction)
-	gateway.Sessions = make(map[uint64]*JanusSession)
-	gateway.closeChan = make(chan bool)
 	if listener == nil {
 		listener = new(dummyGatewayListener)
 	}
-	gateway.listener = listener
+	gateway := &JanusGateway{
+		conn:         conn,
+		listener:     listener,
+		transactions: make(map[uint64]*transaction),
+		Sessions:     make(map[uint64]*JanusSession),
+		closer:       NewCloser(),
+	}
 
 	go gateway.ping()
 	go gateway.recv()
@@ -286,7 +283,7 @@ func NewJanusGateway(wsURL string, listener GatewayListener) (*JanusGateway, err
 
 // Close closes the underlying connection to the Gateway.
 func (gateway *JanusGateway) Close() error {
-	gateway.closeChan <- true
+	gateway.closer.Close()
 	gateway.writeMu.Lock()
 	if gateway.conn == nil {
 		gateway.writeMu.Unlock()
@@ -382,7 +379,7 @@ loop:
 			if err != nil {
 				log.Println("Error sending ping to MCU:", err)
 			}
-		case <-gateway.closeChan:
+		case <-gateway.closer.C:
 			break loop
 		}
 	}

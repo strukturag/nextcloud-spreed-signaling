@@ -305,8 +305,8 @@ type mcuProxyConnection struct {
 	ip     net.IP
 
 	mu         sync.Mutex
-	closeChan  chan bool
-	closedChan chan bool
+	closer     *Closer
+	closedDone *Closer
 	closed     uint32
 	conn       *websocket.Conn
 
@@ -344,8 +344,8 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP) (*mcuProx
 		rawUrl:            baseUrl,
 		url:               parsed,
 		ip:                ip,
-		closeChan:         make(chan bool, 1),
-		closedChan:        make(chan bool, 1),
+		closer:            NewCloser(),
+		closedDone:        NewCloser(),
 		reconnectInterval: int64(initialReconnectInterval),
 		load:              loadNotConnected,
 		callbacks:         make(map[string]func(*ProxyServerMessage)),
@@ -433,7 +433,7 @@ func (c *mcuProxyConnection) readPump() {
 		if atomic.LoadUint32(&c.closed) == 0 {
 			c.scheduleReconnect()
 		} else {
-			c.closedChan <- true
+			c.closedDone.Close()
 		}
 	}()
 	defer c.close()
@@ -515,7 +515,7 @@ func (c *mcuProxyConnection) writePump() {
 			c.reconnect()
 		case <-ticker.C:
 			c.sendPing()
-		case <-c.closeChan:
+		case <-c.closer.C:
 			return
 		}
 	}
@@ -543,7 +543,7 @@ func (c *mcuProxyConnection) stop(ctx context.Context) {
 		return
 	}
 
-	c.closeChan <- true
+	c.closer.Close()
 	if err := c.sendClose(); err != nil {
 		if err != ErrNotConnected {
 			log.Printf("Could not send close message to %s: %s", c, err)
@@ -553,7 +553,7 @@ func (c *mcuProxyConnection) stop(ctx context.Context) {
 	}
 
 	select {
-	case <-c.closedChan:
+	case <-c.closedDone.C:
 	case <-ctx.Done():
 		if err := ctx.Err(); err != nil {
 			log.Printf("Error waiting for connection to %s get closed: %s", c, err)

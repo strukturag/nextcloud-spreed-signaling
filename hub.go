@@ -119,8 +119,7 @@ type Hub struct {
 	infoInternal *WelcomeServerMessage
 	welcome      atomic.Value // *ServerMessage
 
-	stopped         int32
-	stopChan        chan bool
+	closer          *Closer
 	readPumpActive  uint32
 	writePumpActive uint32
 
@@ -314,7 +313,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
 		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
 
-		stopChan: make(chan bool),
+		closer: NewCloser(),
 
 		roomUpdated:      make(chan *BackendServerRoomRequest),
 		roomDeleted:      make(chan *BackendServerRoomRequest),
@@ -417,7 +416,7 @@ func (h *Hub) updateGeoDatabase() {
 
 	defer atomic.CompareAndSwapInt32(&h.geoipUpdating, 1, 0)
 	delay := time.Second
-	for atomic.LoadInt32(&h.stopped) == 0 {
+	for !h.closer.IsClosed() {
 		err := h.geoip.Update()
 		if err == nil {
 			break
@@ -458,7 +457,7 @@ loop:
 			h.performHousekeeping(now)
 		case <-geoipUpdater.C:
 			go h.updateGeoDatabase()
-		case <-h.stopChan:
+		case <-h.closer.C:
 			break loop
 		}
 	}
@@ -468,11 +467,7 @@ loop:
 }
 
 func (h *Hub) Stop() {
-	atomic.StoreInt32(&h.stopped, 1)
-	select {
-	case h.stopChan <- true:
-	default:
-	}
+	h.closer.Close()
 }
 
 func (h *Hub) Reload(config *goconf.ConfigFile) {

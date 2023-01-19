@@ -105,7 +105,7 @@ type Client struct {
 
 	mu sync.Mutex
 
-	closeChan    chan struct{}
+	closer       *Closer
 	closeOnce    sync.Once
 	messagesDone chan struct{}
 	messageChan  chan *bytes.Buffer
@@ -137,7 +137,7 @@ func NewClient(conn *websocket.Conn, remoteAddress string, agent string) (*Clien
 func (c *Client) SetConn(conn *websocket.Conn, remoteAddress string) {
 	c.conn = conn
 	c.addr = remoteAddress
-	c.closeChan = make(chan struct{})
+	c.closer = NewCloser()
 	c.messageChan = make(chan *bytes.Buffer, 16)
 	c.messagesDone = make(chan struct{})
 	c.OnLookupCountry = func(client *Client) string { return unknownCountry }
@@ -204,7 +204,7 @@ func (c *Client) doClose() {
 		}
 	} else if closed == 2 {
 		// Both the read pump and message processing must be finished before closing.
-		close(c.closeChan)
+		c.closer.Close()
 		<-c.messagesDone
 
 		c.OnClosed(c)
@@ -480,7 +480,7 @@ func (c *Client) WritePump() {
 			if !c.sendPing() {
 				return
 			}
-		case <-c.closeChan:
+		case <-c.closer.C:
 			return
 		}
 	}
