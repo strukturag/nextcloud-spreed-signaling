@@ -62,7 +62,7 @@ type asyncSubscriberNats struct {
 	client NatsClient
 
 	receiver     chan *nats.Msg
-	closeChan    chan bool
+	closeChan    chan struct{}
 	subscription NatsSubscription
 
 	processMessage func(*nats.Msg)
@@ -80,7 +80,7 @@ func newAsyncSubscriberNats(key string, client NatsClient) (*asyncSubscriberNats
 		client: client,
 
 		receiver:     receiver,
-		closeChan:    make(chan bool),
+		closeChan:    make(chan struct{}),
 		subscription: sub,
 	}
 	return result, nil
