@@ -248,6 +248,8 @@ func (c *Client) ReadPump() {
 		c.Close()
 	}()
 
+	go c.processMessages()
+
 	addr := c.RemoteAddr()
 	c.mu.Lock()
 	conn := c.conn
@@ -278,8 +280,6 @@ func (c *Client) ReadPump() {
 		}
 		return nil
 	})
-
-	go c.processMessages()
 
 	for {
 		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
