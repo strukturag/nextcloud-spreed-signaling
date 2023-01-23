@@ -17,8 +17,8 @@ require (
 	github.com/pion/sdp/v3 v3.0.6
 	github.com/prometheus/client_golang v1.14.0
 	go.etcd.io/etcd/api/v3 v3.5.7
-	go.etcd.io/etcd/client/pkg/v3 v3.5.6
-	go.etcd.io/etcd/client/v3 v3.5.6
+	go.etcd.io/etcd/client/pkg/v3 v3.5.7
+	go.etcd.io/etcd/client/v3 v3.5.7
 	go.etcd.io/etcd/server/v3 v3.5.6
 	google.golang.org/grpc v1.52.0
 	google.golang.org/protobuf v1.28.1
