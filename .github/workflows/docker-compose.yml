@@ -5,12 +5,12 @@ on:
     branches: [ master ]
     paths:
       - '.github/workflows/docker-compose.yml'
-      - 'docker-compose.yml'
+      - '**/docker-compose.yml'
   push:
     branches: [ master ]
     paths:
       - '.github/workflows/docker-compose.yml'
-      - 'docker-compose.yml'
+      - '**/docker-compose.yml'
 
 permissions:
   contents: read
