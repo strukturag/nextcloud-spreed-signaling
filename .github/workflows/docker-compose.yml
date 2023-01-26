@@ -6,11 +6,13 @@ on:
     paths:
       - '.github/workflows/docker-compose.yml'
       - '**/docker-compose.yml'
+      - 'docker/server/Dockerfile'
   push:
     branches: [ master ]
     paths:
       - '.github/workflows/docker-compose.yml'
       - '**/docker-compose.yml'
+      - 'docker/server/Dockerfile'
 
 permissions:
   contents: read
