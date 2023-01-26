@@ -107,6 +107,11 @@ docker-compose build
 docker-compose up -d
 ```
 
+Please note that docker-compose v2 is required for building while most
+distributions will ship older versions. You can download a recent version from
+https://docs.docker.com/compose/install/
+
+
 ## Setup of NATS server
 
 There is a detailed description on how to install and run the NATS server
