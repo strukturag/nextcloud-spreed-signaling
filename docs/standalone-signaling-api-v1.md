@@ -1030,3 +1030,63 @@ Message format (Backend -> Server)
         }
       }
     }
+
+
+### Notify sessions to switch to a different room
+
+This can be used to let sessions in a room know that they switch to a different
+room (available if the server returns the `switchto` feature). The session ids
+sent should be the Talk room session ids.
+
+Message format (Backend -> Server, no additional details)
+
+    {
+      "type": "switchto"
+      "switchto" {
+        "roomid": "target-room-id",
+        "sessions": [
+          "the-nextcloud-session-id-1",
+          "the-nextcloud-session-id-2",
+        ]
+      }
+    }
+
+Message format (Backend -> Server, with additional details)
+
+    {
+      "type": "switchto"
+      "switchto" {
+        "roomid": "target-room-id",
+        "sessions": {
+          "the-nextcloud-session-id-1": {
+            ...arbitrary object to sent to clients...
+          },
+          "the-nextcloud-session-id-2": null
+        }
+      }
+    }
+
+
+The signaling server will sent messages to the sessions mentioned in the
+received `switchto` event. If a details object was included for a session, it
+will be forwarded in the client message, otherwise the `details` will be
+omitted.
+
+Message format (Server -> Client):
+
+    {
+      "type": "event"
+      "event": {
+        "target": "room",
+        "type": "switchto",
+        "switchto": {
+          "roomid": "target-room-id",
+          "details": {
+            ...arbitrary object to sent to clients...
+          }
+        }
+      }
+    }
+
+Clients are expected to follow the `switchto` message. If clients don't switch
+to the target room after some time, they might get disconnected.
