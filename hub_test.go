@@ -4985,3 +4985,286 @@ func TestVirtualClientSessions(t *testing.T) {
 		})
 	}
 }
+
+func DoTestSwitchToOne(t *testing.T, details map[string]interface{}) {
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
+
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			roomSessionId1 := "roomsession1"
+			roomId1 := "test-room"
+			if room, err := client1.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId1); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId1 {
+				t.Fatalf("Expected room %s, got %s", roomId1, room.Room.RoomId)
+			}
+
+			roomSessionId2 := "roomsession2"
+			if room, err := client2.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId2); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId1 {
+				t.Fatalf("Expected room %s, got %s", roomId1, room.Room.RoomId)
+			}
+
+			if err := client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
+				t.Error(err)
+			}
+			if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
+				t.Error(err)
+			}
+
+			roomId2 := "test-room-2"
+			var sessions json.RawMessage
+			if details != nil {
+				if sessions, err = json.Marshal(map[string]interface{}{
+					roomSessionId1: details,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if sessions, err = json.Marshal([]string{
+					roomSessionId1,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Notify first client to switch to different room.
+			msg := &BackendServerRoomRequest{
+				Type: "switchto",
+				SwitchTo: &BackendRoomSwitchToMessageRequest{
+					RoomId:   roomId2,
+					Sessions: &sessions,
+				},
+			}
+
+			data, err := json.Marshal(msg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := performBackendRequest(server2.URL+"/api/v1/room/"+roomId1, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Error(err)
+			}
+			if res.StatusCode != 200 {
+				t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
+			}
+
+			var detailsData json.RawMessage
+			if details != nil {
+				if detailsData, err = json.Marshal(details); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := client1.RunUntilSwitchTo(ctx, roomId2, detailsData); err != nil {
+				t.Error(err)
+			}
+
+			// The other client will not receive a message.
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel2()
+
+			if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				t.Error(err)
+			} else if message != nil {
+				t.Errorf("Expected no message, got %+v", message)
+			}
+		})
+	}
+}
+
+func TestSwitchToOneMap(t *testing.T) {
+	DoTestSwitchToOne(t, map[string]interface{}{
+		"foo": "bar",
+	})
+}
+
+func TestSwitchToOneList(t *testing.T) {
+	DoTestSwitchToOne(t, nil)
+}
+
+func DoTestSwitchToMultiple(t *testing.T, details1 map[string]interface{}, details2 map[string]interface{}) {
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
+
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
+				t.Fatal(err)
+			}
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello1, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			roomSessionId1 := "roomsession1"
+			roomId1 := "test-room"
+			if room, err := client1.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId1); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId1 {
+				t.Fatalf("Expected room %s, got %s", roomId1, room.Room.RoomId)
+			}
+
+			roomSessionId2 := "roomsession2"
+			if room, err := client2.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId2); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId1 {
+				t.Fatalf("Expected room %s, got %s", roomId1, room.Room.RoomId)
+			}
+
+			if err := client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
+				t.Error(err)
+			}
+			if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
+				t.Error(err)
+			}
+
+			roomId2 := "test-room-2"
+			var sessions json.RawMessage
+			if details1 != nil || details2 != nil {
+				if sessions, err = json.Marshal(map[string]interface{}{
+					roomSessionId1: details1,
+					roomSessionId2: details2,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if sessions, err = json.Marshal([]string{
+					roomSessionId1,
+					roomSessionId2,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			msg := &BackendServerRoomRequest{
+				Type: "switchto",
+				SwitchTo: &BackendRoomSwitchToMessageRequest{
+					RoomId:   roomId2,
+					Sessions: &sessions,
+				},
+			}
+
+			data, err := json.Marshal(msg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := performBackendRequest(server2.URL+"/api/v1/room/"+roomId1, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Error(err)
+			}
+			if res.StatusCode != 200 {
+				t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
+			}
+
+			var detailsData1 json.RawMessage
+			if details1 != nil {
+				if detailsData1, err = json.Marshal(details1); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := client1.RunUntilSwitchTo(ctx, roomId2, detailsData1); err != nil {
+				t.Error(err)
+			}
+
+			var detailsData2 json.RawMessage
+			if details2 != nil {
+				if detailsData2, err = json.Marshal(details2); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := client2.RunUntilSwitchTo(ctx, roomId2, detailsData2); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+func TestSwitchToMultipleMap(t *testing.T) {
+	DoTestSwitchToMultiple(t, map[string]interface{}{
+		"foo": "bar",
+	}, map[string]interface{}{
+		"bar": "baz",
+	})
+}
+
+func TestSwitchToMultipleList(t *testing.T) {
+	DoTestSwitchToMultiple(t, nil, nil)
+}
+
+func TestSwitchToMultipleMixed(t *testing.T) {
+	DoTestSwitchToMultiple(t, map[string]interface{}{
+		"foo": "bar",
+	}, nil)
+}

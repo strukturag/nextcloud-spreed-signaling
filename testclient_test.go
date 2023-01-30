@@ -1055,3 +1055,32 @@ func checkMessageInCallAll(message *ServerMessage, roomId string, inCall int) er
 	}
 	return nil
 }
+
+func checkMessageSwitchTo(message *ServerMessage, roomId string, details json.RawMessage) (*EventServerMessageSwitchTo, error) {
+	if err := checkMessageType(message, "event"); err != nil {
+		return nil, err
+	} else if message.Event.Type != "switchto" {
+		return nil, fmt.Errorf("Expected switchto event, got %+v", message.Event)
+	} else if message.Event.Target != "room" {
+		return nil, fmt.Errorf("Expected room switchto event, got %+v", message.Event)
+	} else if message.Event.SwitchTo.RoomId != roomId {
+		return nil, fmt.Errorf("Expected room switchto event for room %s, got %+v", roomId, message.Event)
+	}
+	if details != nil {
+		if message.Event.SwitchTo.Details == nil || !bytes.Equal(details, message.Event.SwitchTo.Details) {
+			return nil, fmt.Errorf("Expected details %s, got %+v", string(details), message.Event)
+		}
+	} else if message.Event.SwitchTo.Details != nil {
+		return nil, fmt.Errorf("Expected no details, got %+v", message.Event)
+	}
+	return message.Event.SwitchTo, nil
+}
+
+func (c *TestClient) RunUntilSwitchTo(ctx context.Context, roomId string, details json.RawMessage) (*EventServerMessageSwitchTo, error) {
+	message, err := c.RunUntilMessage(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return checkMessageSwitchTo(message, roomId, details)
+}
