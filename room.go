@@ -238,6 +238,8 @@ func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) 
 		r.hub.roomParticipants <- message
 	case "message":
 		r.publishRoomMessage(message.Message)
+	case "switchto":
+		r.publishSwitchTo(message.SwitchTo)
 	default:
 		log.Printf("Unsupported backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
@@ -939,6 +941,65 @@ func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
 	if err := r.publish(msg); err != nil {
 		log.Printf("Could not publish room message in room %s: %s", r.Id(), err)
 	}
+}
+
+func (r *Room) publishSwitchTo(message *BackendRoomSwitchToMessageRequest) {
+	var wg sync.WaitGroup
+	if len(message.SessionsList) > 0 {
+		msg := &ServerMessage{
+			Type: "event",
+			Event: &EventServerMessage{
+				Target: "room",
+				Type:   "switchto",
+				SwitchTo: &EventServerMessageSwitchTo{
+					RoomId: message.RoomId,
+				},
+			},
+		}
+
+		for _, sessionId := range message.SessionsList {
+			wg.Add(1)
+			go func(sessionId string) {
+				defer wg.Done()
+
+				if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+					Type:    "message",
+					Message: msg,
+				}); err != nil {
+					log.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
+				}
+			}(sessionId)
+		}
+	}
+
+	if len(message.SessionsMap) > 0 {
+		for sessionId, details := range message.SessionsMap {
+			wg.Add(1)
+			go func(sessionId string, details json.RawMessage) {
+				defer wg.Done()
+
+				msg := &ServerMessage{
+					Type: "event",
+					Event: &EventServerMessage{
+						Target: "room",
+						Type:   "switchto",
+						SwitchTo: &EventServerMessageSwitchTo{
+							RoomId:  message.RoomId,
+							Details: details,
+						},
+					},
+				}
+
+				if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+					Type:    "message",
+					Message: msg,
+				}); err != nil {
+					log.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
+				}
+			}(sessionId, details)
+		}
+	}
+	wg.Wait()
 }
 
 func (r *Room) notifyInternalRoomDeleted() {

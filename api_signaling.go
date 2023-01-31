@@ -432,6 +432,7 @@ const (
 	ServerFeatureInCallAll             = "incall-all"
 	ServerFeatureWelcome               = "welcome"
 	ServerFeatureHelloV2               = "hello-v2"
+	ServerFeatureSwitchTo              = "switchto"
 
 	// Features for internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -444,6 +445,7 @@ var (
 		ServerFeatureInCallAll,
 		ServerFeatureWelcome,
 		ServerFeatureHelloV2,
+		ServerFeatureSwitchTo,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
@@ -451,6 +453,7 @@ var (
 		ServerFeatureInCallAll,
 		ServerFeatureWelcome,
 		ServerFeatureHelloV2,
+		ServerFeatureSwitchTo,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -459,6 +462,7 @@ var (
 		ServerFeatureInCallAll,
 		ServerFeatureWelcome,
 		ServerFeatureHelloV2,
+		ServerFeatureSwitchTo,
 	}
 )
 
@@ -746,9 +750,10 @@ type EventServerMessage struct {
 	Type   string `json:"type"`
 
 	// Used for target "room"
-	Join   []*EventServerMessageSessionEntry `json:"join,omitempty"`
-	Leave  []string                          `json:"leave,omitempty"`
-	Change []*EventServerMessageSessionEntry `json:"change,omitempty"`
+	Join     []*EventServerMessageSessionEntry `json:"join,omitempty"`
+	Leave    []string                          `json:"leave,omitempty"`
+	Change   []*EventServerMessageSessionEntry `json:"change,omitempty"`
+	SwitchTo *EventServerMessageSwitchTo       `json:"switchto,omitempty"`
 
 	// Used for target "roomlist" / "participants"
 	Invite    *RoomEventServerMessage          `json:"invite,omitempty"`
@@ -782,6 +787,11 @@ func (e *EventServerMessageSessionEntry) Clone() *EventServerMessageSessionEntry
 		User:          e.User,
 		RoomSessionId: e.RoomSessionId,
 	}
+}
+
+type EventServerMessageSwitchTo struct {
+	RoomId  string          `json:"roomid"`
+	Details json.RawMessage `json:"details,omitempty"`
 }
 
 // MCU-related types

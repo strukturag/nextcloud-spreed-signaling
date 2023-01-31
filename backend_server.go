@@ -546,6 +546,104 @@ func (b *BackendServer) sendRoomMessage(roomid string, backend *Backend, request
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
+func (b *BackendServer) sendRoomSwitchTo(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
+	timeout := time.Second
+
+	// Convert (Nextcloud) session ids to signaling session ids.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	if request.SwitchTo.Sessions != nil {
+		// We support both a list of sessions or a map with additional details per session.
+		if (*request.SwitchTo.Sessions)[0] == '[' {
+			var sessionsList BackendRoomSwitchToSessionsList
+			if err := json.Unmarshal(*request.SwitchTo.Sessions, &sessionsList); err != nil {
+				return err
+			}
+
+			if len(sessionsList) == 0 {
+				return nil
+			}
+
+			var internalSessionsList BackendRoomSwitchToSessionsList
+			for _, roomSessionId := range sessionsList {
+				if roomSessionId == sessionIdNotInMeeting {
+					continue
+				}
+
+				wg.Add(1)
+				go func(roomSessionId string) {
+					defer wg.Done()
+					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
+						log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
+					} else if sessionId != "" {
+						mu.Lock()
+						defer mu.Unlock()
+						internalSessionsList = append(internalSessionsList, sessionId)
+					}
+				}(roomSessionId)
+			}
+			wg.Wait()
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(internalSessionsList) == 0 {
+				return nil
+			}
+
+			request.SwitchTo.SessionsList = internalSessionsList
+			request.SwitchTo.SessionsMap = nil
+		} else {
+			var sessionsMap BackendRoomSwitchToSessionsMap
+			if err := json.Unmarshal(*request.SwitchTo.Sessions, &sessionsMap); err != nil {
+				return err
+			}
+
+			if len(sessionsMap) == 0 {
+				return nil
+			}
+
+			internalSessionsMap := make(BackendRoomSwitchToSessionsMap)
+			for roomSessionId, details := range sessionsMap {
+				if roomSessionId == sessionIdNotInMeeting {
+					continue
+				}
+
+				wg.Add(1)
+				go func(roomSessionId string, details json.RawMessage) {
+					defer wg.Done()
+					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
+						log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
+					} else if sessionId != "" {
+						mu.Lock()
+						defer mu.Unlock()
+						internalSessionsMap[sessionId] = details
+					}
+				}(roomSessionId, details)
+			}
+			wg.Wait()
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(internalSessionsMap) == 0 {
+				return nil
+			}
+
+			request.SwitchTo.SessionsList = nil
+			request.SwitchTo.SessionsMap = internalSessionsMap
+		}
+	}
+	request.SwitchTo.Sessions = nil
+
+	message := &AsyncMessage{
+		Type: "room",
+		Room: request,
+	}
+	return b.events.PublishBackendRoomMessage(roomid, backend, message)
+}
+
 func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body []byte) {
 	v := mux.Vars(r)
 	roomid := v["roomid"]
@@ -627,6 +725,8 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 		err = b.sendRoomParticipantsUpdate(roomid, backend, &request)
 	case "message":
 		err = b.sendRoomMessage(roomid, backend, &request)
+	case "switchto":
+		err = b.sendRoomSwitchTo(roomid, backend, &request)
 	default:
 		http.Error(w, "Unsupported request type: "+request.Type, http.StatusBadRequest)
 		return

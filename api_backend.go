@@ -102,6 +102,8 @@ type BackendServerRoomRequest struct {
 
 	Message *BackendRoomMessageRequest `json:"message,omitempty"`
 
+	SwitchTo *BackendRoomSwitchToMessageRequest `json:"switchto,omitempty"`
+
 	// Internal properties
 	ReceivedTime int64 `json:"received,omitempty"`
 }
@@ -147,6 +149,25 @@ type BackendRoomParticipantsRequest struct {
 
 type BackendRoomMessageRequest struct {
 	Data *json.RawMessage `json:"data,omitempty"`
+}
+
+type BackendRoomSwitchToSessionsList []string
+type BackendRoomSwitchToSessionsMap map[string]json.RawMessage
+
+type BackendRoomSwitchToMessageRequest struct {
+	// Target room id
+	RoomId string `json:"roomid"`
+
+	// Sessions is either a BackendRoomSwitchToSessionsList or a
+	// BackendRoomSwitchToSessionsMap.
+	// In the map, the key is the session id, the value additional details
+	// (or null) for the session. The details will be included in the request
+	// to the connected client.
+	Sessions *json.RawMessage `json:"sessions,omitempty"`
+
+	// Internal properties
+	SessionsList BackendRoomSwitchToSessionsList `json:"sessionslist,omitempty"`
+	SessionsMap  BackendRoomSwitchToSessionsMap  `json:"sessionsmap,omitempty"`
 }
 
 // Requests from the signaling server to the Nextcloud backend.
