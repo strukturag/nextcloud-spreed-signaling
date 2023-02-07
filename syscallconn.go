@@ -47,12 +47,12 @@ type syscallConn struct {
 //
 // This function returns newConn if rawConn doesn't implement syscall.Conn.
 func WrapSyscallConn(rawConn, newConn net.Conn) net.Conn {
-	sysConn, ok := rawConn.(syscall.Conn)
+	sc, ok := rawConn.(sysConn)
 	if !ok {
 		return newConn
 	}
 	return &syscallConn{
 		Conn:    newConn,
-		sysConn: sysConn,
+		sysConn: sc,
 	}
 }
