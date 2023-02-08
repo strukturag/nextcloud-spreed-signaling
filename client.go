@@ -93,9 +93,20 @@ type WritableClientMessage interface {
 	CloseAfterSend(session Session) bool
 }
 
+type ClientHandler interface {
+	OnClosed(*Client)
+	OnMessageReceived(*Client, []byte)
+	OnRTTReceived(*Client, time.Duration)
+}
+
+type ClientGeoIpHandler interface {
+	OnLookupCountry(*Client) string
+}
+
 type Client struct {
 	conn    *websocket.Conn
 	addr    string
+	handler ClientHandler
 	agent   string
 	closed  uint32
 	country *string
@@ -109,14 +120,9 @@ type Client struct {
 	closeOnce    sync.Once
 	messagesDone chan struct{}
 	messageChan  chan *bytes.Buffer
-
-	OnLookupCountry   func(*Client) string
-	OnClosed          func(*Client)
-	OnMessageReceived func(*Client, []byte)
-	OnRTTReceived     func(*Client, time.Duration)
 }
 
-func NewClient(conn *websocket.Conn, remoteAddress string, agent string) (*Client, error) {
+func NewClient(conn *websocket.Conn, remoteAddress string, agent string, handler ClientHandler) (*Client, error) {
 	remoteAddress = strings.TrimSpace(remoteAddress)
 	if remoteAddress == "" {
 		remoteAddress = "unknown remote address"
@@ -130,20 +136,17 @@ func NewClient(conn *websocket.Conn, remoteAddress string, agent string) (*Clien
 		agent:  agent,
 		logRTT: true,
 	}
-	client.SetConn(conn, remoteAddress)
+	client.SetConn(conn, remoteAddress, handler)
 	return client, nil
 }
 
-func (c *Client) SetConn(conn *websocket.Conn, remoteAddress string) {
+func (c *Client) SetConn(conn *websocket.Conn, remoteAddress string, handler ClientHandler) {
 	c.conn = conn
 	c.addr = remoteAddress
+	c.handler = handler
 	c.closer = NewCloser()
 	c.messageChan = make(chan *bytes.Buffer, 16)
 	c.messagesDone = make(chan struct{})
-	c.OnLookupCountry = func(client *Client) string { return unknownCountry }
-	c.OnClosed = func(client *Client) {}
-	c.OnMessageReceived = func(client *Client, data []byte) {}
-	c.OnRTTReceived = func(c *Client, d time.Duration) {}
 }
 
 func (c *Client) IsConnected() bool {
@@ -172,7 +175,12 @@ func (c *Client) UserAgent() string {
 
 func (c *Client) Country() string {
 	if c.country == nil {
-		country := c.OnLookupCountry(c)
+		var country string
+		if handler, ok := c.handler.(ClientGeoIpHandler); ok {
+			country = handler.OnLookupCountry(c)
+		} else {
+			country = unknownCountry
+		}
 		c.country = &country
 	}
 
@@ -207,7 +215,7 @@ func (c *Client) doClose() {
 		c.closer.Close()
 		<-c.messagesDone
 
-		c.OnClosed(c)
+		c.handler.OnClosed(c)
 		c.SetSession(nil)
 	}
 }
@@ -276,7 +284,7 @@ func (c *Client) ReadPump() {
 					log.Printf("Client from %s has RTT of %d ms (%s)", addr, rtt_ms, rtt)
 				}
 			}
-			c.OnRTTReceived(c, rtt)
+			c.handler.OnRTTReceived(c, rtt)
 		}
 		return nil
 	})
@@ -337,7 +345,7 @@ func (c *Client) processMessages() {
 			break
 		}
 
-		c.OnMessageReceived(c, buffer.Bytes())
+		c.handler.OnMessageReceived(c, buffer.Bytes())
 		bufferPool.Put(buffer)
 	}
 

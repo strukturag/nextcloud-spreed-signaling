@@ -2315,18 +2315,10 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewClient(conn, addr, agent)
+	client, err := NewClient(conn, addr, agent, h)
 	if err != nil {
 		log.Printf("Could not create client for %s: %s", addr, err)
 		return
-	}
-
-	if h.geoip != nil {
-		client.OnLookupCountry = h.lookupClientCountry
-	}
-	client.OnMessageReceived = h.processMessage
-	client.OnClosed = func(client *Client) {
-		h.processUnregister(client)
 	}
 
 	h.processNewClient(client)
@@ -2340,4 +2332,24 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 		defer atomic.AddUint32(&h.readPumpActive, ^uint32(0))
 		client.ReadPump()
 	}(h)
+}
+
+func (h *Hub) OnLookupCountry(client *Client) string {
+	if h.geoip == nil {
+		return unknownCountry
+	}
+
+	return h.lookupClientCountry(client)
+}
+
+func (h *Hub) OnClosed(client *Client) {
+	h.processUnregister(client)
+}
+
+func (h *Hub) OnMessageReceived(client *Client, data []byte) {
+	h.processMessage(client, data)
+}
+
+func (h *Hub) OnRTTReceived(client *Client, rtt time.Duration) {
+	// Ignore
 }
