@@ -141,6 +141,7 @@ Message format (Client -> Server):
       "type": "hello",
       "hello": {
         "version": "the-protocol-version",
+        "features": ["optional", "list, "of", "client", "feature", "ids"],
         "auth": {
           "url": "the-url-to-the-auth-backend",
           "params": {
@@ -307,6 +308,7 @@ Message format (Client -> Server):
       "type": "hello",
       "hello": {
         "version": "the-protocol-version",
+        "features": ["optional", "list, "of", "client", "feature", "ids"],
         "auth": {
           "type": "the-client-type",
           ...other attributes depending on the client type...
@@ -864,6 +866,98 @@ Message format (Server -> Client):
         "data": {
           "sample-key": "sample-value",
           ...
+        }
+      }
+    }
+
+
+## Internal clients
+
+Internal clients can be used by third-party applications to perform tasks that
+a regular client can not be used. Examples are adding virtual sessions or
+sending media without a regular client connected. This is used for example by
+the SIP bridge to publish mixed phone audio and show "virtual" sessions for the
+individial phone calls.
+
+See above for details on how to connect as internal client. By default, internal
+clients have their "inCall" and the "publishing audio" flags set. Virtual
+sessions have their "inCall" and the "publishing phone" flags set.
+
+This can be changed by including the client feature flag `internal-incall`
+which will require the client to set the flags as necessary.
+
+
+### Add virtual session
+
+Message format (Client -> Server):
+
+    {
+      "type": "internal",
+      "internal": {
+        "type": "addsession",
+        "addsession": {
+          "sessionid": "the-virtual-sessionid",
+          "roomid": "the-room-id-to-add-the-session",
+          "userid": "optional-user-id",
+          "user": {
+            ...additional data of the user...
+          },
+          "flags": "optional-initial-flags",
+          "incall": "optional-initial-incall",
+          "options": {
+            "actorId": "optional-actor-id",
+            "actorType": "optional-actor-type",
+          }
+        }
+      }
+    }
+
+
+### Update virtual session
+
+Message format (Client -> Server):
+
+    {
+      "type": "internal",
+      "internal": {
+        "type": "updatesession",
+        "updatesession": {
+          "sessionid": "the-virtual-sessionid",
+          "roomid": "the-room-id-to-update-the-session",
+          "flags": "optional-updated-flags",
+          "incall": "optional-updated-incall"
+        }
+      }
+    }
+
+
+### Remove virtual session
+
+Message format (Client -> Server):
+
+    {
+      "type": "internal",
+      "internal": {
+        "type": "removesession",
+        "removesession": {
+          "sessionid": "the-virtual-sessionid",
+          "roomid": "the-room-id-to-add-the-session",
+          "userid": "optional-user-id"
+        }
+      }
+    }
+
+
+### Change inCall flags of internal client
+
+Message format (Client -> Server):
+
+    {
+      "type": "internal",
+      "internal": {
+        "type": "incall",
+        "incall": {
+          "incall": "the-incall-flags"
         }
       }
     }
