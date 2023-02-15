@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -143,8 +144,8 @@ func TestVirtualSession(t *testing.T) {
 		t.Errorf("Expected session id %s, got %+v", sessionId, updateMsg.Users[0])
 	} else if virtual, ok := updateMsg.Users[0]["virtual"].(bool); !ok || !virtual {
 		t.Errorf("Expected virtual user, got %+v", updateMsg.Users[0])
-	} else if inCall, ok := updateMsg.Users[0]["inCall"].(float64); !ok || inCall == 0 {
-		t.Errorf("Expected user in call, got %+v", updateMsg.Users[0])
+	} else if inCall, ok := updateMsg.Users[0]["inCall"].(float64); !ok || inCall != (FlagInCall|FlagWithPhone) {
+		t.Errorf("Expected user in call with phone, got %+v", updateMsg.Users[0])
 	}
 
 	msg3, err := client.RunUntilMessage(ctx)
@@ -313,6 +314,260 @@ func TestVirtualSession(t *testing.T) {
 	}
 }
 
+func checkHasEntryWithInCall(message *RoomEventServerMessage, sessionId string, entryType string, inCall int) error {
+	found := false
+	for _, entry := range message.Users {
+		if sid, ok := entry["sessionId"].(string); ok && sid == sessionId {
+			if value, ok := entry[entryType].(bool); !ok || !value {
+				return fmt.Errorf("Expected %s user, got %+v", entryType, entry)
+			}
+
+			if value, ok := entry["inCall"].(float64); !ok || int(value) != inCall {
+				return fmt.Errorf("Expected in call %d, got %+v", inCall, entry)
+			}
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("No user with session id %s found, got %+v", sessionId, message)
+	}
+
+	return nil
+}
+
+func TestVirtualSessionCustomInCall(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	roomId := "the-room-id"
+	emptyProperties := json.RawMessage("{}")
+	backend := &Backend{
+		id:     "compat",
+		compat: true,
+	}
+	room, err := hub.createRoom(roomId, &emptyProperties, backend)
+	if err != nil {
+		t.Fatalf("Could not create room: %s", err)
+	}
+	defer room.Close()
+
+	clientInternal := NewTestClient(t, server, hub)
+	defer clientInternal.CloseWithBye()
+	features := []string{
+		ClientFeatureInternalInCall,
+	}
+	if err := clientInternal.SendHelloInternalWithFeatures(features); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+	if err := client.SendHello(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	helloInternal, err := clientInternal.RunUntilHello(ctx)
+	if err != nil {
+		t.Error(err)
+	} else {
+		if helloInternal.Hello.UserId != "" {
+			t.Errorf("Expected empty user id, got %+v", helloInternal.Hello)
+		}
+		if helloInternal.Hello.SessionId == "" {
+			t.Errorf("Expected session id, got %+v", helloInternal.Hello)
+		}
+		if helloInternal.Hello.ResumeId == "" {
+			t.Errorf("Expected resume id, got %+v", helloInternal.Hello)
+		}
+	}
+	if room, err := clientInternal.JoinRoomWithRoomSession(ctx, roomId, ""); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	hello, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+	if room, err := client.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	}
+
+	if _, additional, err := clientInternal.RunUntilJoinedAndReturn(ctx, helloInternal.Hello, hello.Hello); err != nil {
+		t.Error(err)
+	} else if len(additional) != 1 {
+		t.Errorf("expected one additional message, got %+v", additional)
+	} else if additional[0].Type != "event" {
+		t.Errorf("expected event message, got %+v", additional[0])
+	} else if additional[0].Event.Target != "participants" {
+		t.Errorf("expected event participants message, got %+v", additional[0])
+	} else if additional[0].Event.Type != "update" {
+		t.Errorf("expected event participants update message, got %+v", additional[0])
+	} else if additional[0].Event.Update.Users[0]["sessionId"].(string) != helloInternal.Hello.SessionId {
+		t.Errorf("expected event update message for internal session, got %+v", additional[0])
+	} else if additional[0].Event.Update.Users[0]["inCall"].(float64) != 0 {
+		t.Errorf("expected event update message with session not in call, got %+v", additional[0])
+	}
+	if err := client.RunUntilJoined(ctx, helloInternal.Hello, hello.Hello); err != nil {
+		t.Error(err)
+	}
+
+	internalSessionId := "session1"
+	userId := "user1"
+	msgAdd := &ClientMessage{
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type: "addsession",
+			AddSession: &AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+					SessionId: internalSessionId,
+					RoomId:    roomId,
+				},
+				UserId: userId,
+				Flags:  FLAG_MUTED_SPEAKING,
+			},
+		},
+	}
+	if err := clientInternal.WriteJSON(msgAdd); err != nil {
+		t.Fatal(err)
+	}
+
+	msg1, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The public session id will be generated by the server, so don't check for it.
+	if err := client.checkMessageJoinedSession(msg1, "", userId); err != nil {
+		t.Fatal(err)
+	}
+	sessionId := msg1.Event.Join[0].SessionId
+	session := hub.GetSessionByPublicId(sessionId)
+	if session == nil {
+		t.Fatalf("Could not get virtual session %s", sessionId)
+	}
+	if session.ClientType() != HelloClientTypeVirtual {
+		t.Errorf("Expected client type %s, got %s", HelloClientTypeVirtual, session.ClientType())
+	}
+	if sid := session.(*VirtualSession).SessionId(); sid != internalSessionId {
+		t.Errorf("Expected internal session id %s, got %s", internalSessionId, sid)
+	}
+
+	// Also a participants update event will be triggered for the virtual user.
+	msg2, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updateMsg, err := checkMessageParticipantsInCall(msg2)
+	if err != nil {
+		t.Error(err)
+	} else if updateMsg.RoomId != roomId {
+		t.Errorf("Expected room %s, got %s", roomId, updateMsg.RoomId)
+	} else if len(updateMsg.Users) != 2 {
+		t.Errorf("Expected two users, got %+v", updateMsg.Users)
+	}
+
+	if err := checkHasEntryWithInCall(updateMsg, sessionId, "virtual", 0); err != nil {
+		t.Error(err)
+	}
+	if err := checkHasEntryWithInCall(updateMsg, helloInternal.Hello.SessionId, "internal", 0); err != nil {
+		t.Error(err)
+	}
+
+	msg3, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flagsMsg, err := checkMessageParticipantFlags(msg3)
+	if err != nil {
+		t.Error(err)
+	} else if flagsMsg.RoomId != roomId {
+		t.Errorf("Expected room %s, got %s", roomId, flagsMsg.RoomId)
+	} else if flagsMsg.SessionId != sessionId {
+		t.Errorf("Expected session id %s, got %s", sessionId, flagsMsg.SessionId)
+	} else if flagsMsg.Flags != FLAG_MUTED_SPEAKING {
+		t.Errorf("Expected flags %d, got %+v", FLAG_MUTED_SPEAKING, flagsMsg.Flags)
+	}
+
+	// The internal session can change its "inCall" flags
+	msgInCall := &ClientMessage{
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type: "incall",
+			InCall: &InCallInternalClientMessage{
+				InCall: FlagInCall | FlagWithAudio,
+			},
+		},
+	}
+	if err := clientInternal.WriteJSON(msgInCall); err != nil {
+		t.Fatal(err)
+	}
+
+	msg4, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updateMsg2, err := checkMessageParticipantsInCall(msg4)
+	if err != nil {
+		t.Error(err)
+	} else if updateMsg2.RoomId != roomId {
+		t.Errorf("Expected room %s, got %s", roomId, updateMsg2.RoomId)
+	} else if len(updateMsg2.Users) != 2 {
+		t.Errorf("Expected two users, got %+v", updateMsg2.Users)
+	}
+	if err := checkHasEntryWithInCall(updateMsg2, sessionId, "virtual", 0); err != nil {
+		t.Error(err)
+	}
+	if err := checkHasEntryWithInCall(updateMsg2, helloInternal.Hello.SessionId, "internal", FlagInCall|FlagWithAudio); err != nil {
+		t.Error(err)
+	}
+
+	// The internal session can change the "inCall" flags of a virtual session
+	newInCall := FlagInCall | FlagWithPhone
+	msgInCall2 := &ClientMessage{
+		Type: "internal",
+		Internal: &InternalClientMessage{
+			Type: "updatesession",
+			UpdateSession: &UpdateSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+					SessionId: internalSessionId,
+					RoomId:    roomId,
+				},
+				InCall: &newInCall,
+			},
+		},
+	}
+	if err := clientInternal.WriteJSON(msgInCall2); err != nil {
+		t.Fatal(err)
+	}
+
+	msg5, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updateMsg3, err := checkMessageParticipantsInCall(msg5)
+	if err != nil {
+		t.Error(err)
+	} else if updateMsg3.RoomId != roomId {
+		t.Errorf("Expected room %s, got %s", roomId, updateMsg3.RoomId)
+	} else if len(updateMsg3.Users) != 2 {
+		t.Errorf("Expected two users, got %+v", updateMsg3.Users)
+	}
+	if err := checkHasEntryWithInCall(updateMsg3, sessionId, "virtual", newInCall); err != nil {
+		t.Error(err)
+	}
+	if err := checkHasEntryWithInCall(updateMsg3, helloInternal.Hello.SessionId, "internal", FlagInCall|FlagWithAudio); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestVirtualSessionCleanup(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
@@ -427,8 +682,8 @@ func TestVirtualSessionCleanup(t *testing.T) {
 		t.Errorf("Expected session id %s, got %+v", sessionId, updateMsg.Users[0])
 	} else if virtual, ok := updateMsg.Users[0]["virtual"].(bool); !ok || !virtual {
 		t.Errorf("Expected virtual user, got %+v", updateMsg.Users[0])
-	} else if inCall, ok := updateMsg.Users[0]["inCall"].(float64); !ok || inCall == 0 {
-		t.Errorf("Expected user in call, got %+v", updateMsg.Users[0])
+	} else if inCall, ok := updateMsg.Users[0]["inCall"].(float64); !ok || inCall != (FlagInCall|FlagWithPhone) {
+		t.Errorf("Expected user in call with phone, got %+v", updateMsg.Users[0])
 	}
 
 	msg3, err := client.RunUntilMessage(ctx)

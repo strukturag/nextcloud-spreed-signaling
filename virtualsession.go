@@ -38,6 +38,8 @@ const (
 )
 
 type VirtualSession struct {
+	inCall uint32
+
 	hub       *Hub
 	session   *ClientSession
 	privateId string
@@ -75,6 +77,12 @@ func NewVirtualSession(session *ClientSession, privateId string, publicId string
 		return nil, err
 	}
 
+	if msg.InCall != nil {
+		result.SetInCall(*msg.InCall)
+	} else if !session.HasFeature(ClientFeatureInternalInCall) {
+		result.SetInCall(FlagInCall | FlagWithPhone)
+	}
+
 	return result, nil
 }
 
@@ -88,6 +96,27 @@ func (s *VirtualSession) PublicId() string {
 
 func (s *VirtualSession) ClientType() string {
 	return HelloClientTypeVirtual
+}
+
+func (s *VirtualSession) GetInCall() int {
+	return int(atomic.LoadUint32(&s.inCall))
+}
+
+func (s *VirtualSession) SetInCall(inCall int) bool {
+	if inCall < 0 {
+		inCall = 0
+	}
+
+	for {
+		old := atomic.LoadUint32(&s.inCall)
+		if old == uint32(inCall) {
+			return false
+		}
+
+		if atomic.CompareAndSwapUint32(&s.inCall, old, uint32(inCall)) {
+			return true
+		}
+	}
 }
 
 func (s *VirtualSession) Data() *SessionIdData {

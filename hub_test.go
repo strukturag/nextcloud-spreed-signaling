@@ -848,7 +848,7 @@ func TestExpectClientHelloUnsupportedVersion(t *testing.T) {
 	params := TestBackendClientAuthParams{
 		UserId: testDefaultUserId,
 	}
-	if err := client.SendHelloParams(server.URL, "0.0", "", params); err != nil {
+	if err := client.SendHelloParams(server.URL, "0.0", "", nil, params); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1254,7 +1254,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params1 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId,
 			}
-			if err := client.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", params1); err != nil {
+			if err := client.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params1); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1279,7 +1279,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params2 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId + "2",
 			}
-			if err := client2.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", params2); err != nil {
+			if err := client2.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params2); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1295,7 +1295,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			}
 
 			// The client can connect to a different backend.
-			if err := client2.SendHelloParams(server1.URL+"/two", HelloVersionV1, "client", params2); err != nil {
+			if err := client2.SendHelloParams(server1.URL+"/two", HelloVersionV1, "client", nil, params2); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1322,7 +1322,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params3 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId + "3",
 			}
-			if err := client3.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", params3); err != nil {
+			if err := client3.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params3); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1926,7 +1926,7 @@ func TestClientHelloClient_V3Api(t *testing.T) {
 	}
 	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
 	// feature is returned by the capabilities endpoint.
-	if err := client.SendHelloParams(server.URL+"/ocs/v2.php/apps/spreed/api/v1/signaling/backend", HelloVersionV1, "client", params); err != nil {
+	if err := client.SendHelloParams(server.URL+"/ocs/v2.php/apps/spreed/api/v1/signaling/backend", HelloVersionV1, "client", nil, params); err != nil {
 		t.Fatal(err)
 	}
 
@@ -4269,7 +4269,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	if err := client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", params1); err != nil {
+	if err := client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1); err != nil {
 		t.Fatal(err)
 	}
 	hello1, err := client1.RunUntilHello(ctx)
@@ -4283,7 +4283,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	if err := client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", params2); err != nil {
+	if err := client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2); err != nil {
 		t.Fatal(err)
 	}
 	hello2, err := client2.RunUntilHello(ctx)
@@ -4339,7 +4339,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	if err := client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", params1); err != nil {
+	if err := client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1); err != nil {
 		t.Fatal(err)
 	}
 	hello1, err := client1.RunUntilHello(ctx)
@@ -4353,7 +4353,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	if err := client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", params2); err != nil {
+	if err := client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2); err != nil {
 		t.Fatal(err)
 	}
 	hello2, err := client2.RunUntilHello(ctx)
