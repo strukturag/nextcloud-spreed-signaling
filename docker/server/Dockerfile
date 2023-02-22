@@ -11,11 +11,13 @@ RUN apt-get -y update && \
     if [ -d "vendor" ]; then GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=off make server -j$(nproc); else \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} make server -j$(nproc); fi
 
-FROM alpine:3
+FROM debian:bullseye-slim
 
 ENV CONFIG=/config/server.conf
-RUN adduser -D spreedbackend && \
-    apk add --no-cache bash ca-certificates libc6-compat libstdc++
+RUN adduser --system --no-create-home spreedbackend && \
+    apt-get update -y && \
+    apt-get install -y ca-certificates && \
+    rm -rf /var/apt/lists/*
 
 COPY --from=builder /workdir/bin/signaling /usr/bin/nextcloud-spreed-signaling
 COPY ./server.conf.in /config/server.conf.in
