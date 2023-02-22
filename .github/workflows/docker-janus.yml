@@ -15,6 +15,9 @@ on:
 permissions:
   contents: read
 
+env:
+  TEST_TAG: strukturag/nextcloud-spreed-signaling:janus-test
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,3 +32,9 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: docker/janus
+          load: true
+          tags: ${{ env.TEST_TAG }}
+
+      - name: Test Docker image
+        run: |
+          docker run --rm ${{ env.TEST_TAG }} /usr/local/bin/janus --version
