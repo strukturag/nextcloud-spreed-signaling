@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.1 - 2023-02-22
+
+### Fixed
+- Fix Docker images.
+  [#425](https://github.com/strukturag/nextcloud-spreed-signaling/pull/425)
+
+
 ## 1.1.0 - 2023-02-22
 
 ### Added
