@@ -385,7 +385,7 @@ func (c *TestClient) SendHelloV1(userid string) error {
 	params := TestBackendClientAuthParams{
 		UserId: userid,
 	}
-	return c.SendHelloParams(c.server.URL, HelloVersionV1, "", params)
+	return c.SendHelloParams(c.server.URL, HelloVersionV1, "", nil, params)
 }
 
 func (c *TestClient) SendHelloV2(userid string) error {
@@ -434,7 +434,7 @@ func (c *TestClient) SendHelloV2WithTimes(userid string, issuedAt time.Time, exp
 	params := HelloV2AuthParams{
 		Token: tokenString,
 	}
-	return c.SendHelloParams(c.server.URL, HelloVersionV2, "", params)
+	return c.SendHelloParams(c.server.URL, HelloVersionV2, "", nil, params)
 }
 
 func (c *TestClient) SendHelloResume(resumeId string) error {
@@ -453,10 +453,14 @@ func (c *TestClient) SendHelloClient(userid string) error {
 	params := TestBackendClientAuthParams{
 		UserId: userid,
 	}
-	return c.SendHelloParams(c.server.URL, HelloVersionV1, "client", params)
+	return c.SendHelloParams(c.server.URL, HelloVersionV1, "client", nil, params)
 }
 
 func (c *TestClient) SendHelloInternal() error {
+	return c.SendHelloInternalWithFeatures(nil)
+}
+
+func (c *TestClient) SendHelloInternalWithFeatures(features []string) error {
 	random := newRandomString(48)
 	mac := hmac.New(sha256.New, testInternalSecret)
 	mac.Write([]byte(random)) // nolint
@@ -468,10 +472,10 @@ func (c *TestClient) SendHelloInternal() error {
 		Token:   token,
 		Backend: backend,
 	}
-	return c.SendHelloParams("", HelloVersionV1, "internal", params)
+	return c.SendHelloParams("", HelloVersionV1, "internal", features, params)
 }
 
-func (c *TestClient) SendHelloParams(url string, version string, clientType string, params interface{}) error {
+func (c *TestClient) SendHelloParams(url string, version string, clientType string, features []string, params interface{}) error {
 	data, err := json.Marshal(params)
 	if err != nil {
 		c.t.Fatal(err)
@@ -481,7 +485,8 @@ func (c *TestClient) SendHelloParams(url string, version string, clientType stri
 		Id:   "1234",
 		Type: "hello",
 		Hello: &HelloClientMessage{
-			Version: version,
+			Version:  version,
+			Features: features,
 			Auth: HelloClientMessageAuth{
 				Type:   clientType,
 				Url:    url,

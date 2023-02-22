@@ -423,7 +423,7 @@ func (m *HelloClientMessage) CheckValid() error {
 }
 
 const (
-	// Features for all clients.
+	// Features to send to all clients.
 	ServerFeatureMcu                   = "mcu"
 	ServerFeatureSimulcast             = "simulcast"
 	ServerFeatureUpdateSdp             = "update-sdp"
@@ -434,8 +434,11 @@ const (
 	ServerFeatureHelloV2               = "hello-v2"
 	ServerFeatureSwitchTo              = "switchto"
 
-	// Features for internal clients only.
+	// Features to send to internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
+
+	// Possible client features from the "hello" request.
+	ClientFeatureInternalInCall = "internal-incall"
 )
 
 var (
@@ -628,6 +631,7 @@ type AddSessionInternalClientMessage struct {
 	UserId string           `json:"userid,omitempty"`
 	User   *json.RawMessage `json:"user,omitempty"`
 	Flags  uint32           `json:"flags,omitempty"`
+	InCall *int             `json:"incall,omitempty"`
 
 	Options *AddSessionOptions `json:"options,omitempty"`
 }
@@ -639,7 +643,8 @@ func (m *AddSessionInternalClientMessage) CheckValid() error {
 type UpdateSessionInternalClientMessage struct {
 	CommonSessionInternalClientMessage
 
-	Flags *uint32 `json:"flags,omitempty"`
+	Flags  *uint32 `json:"flags,omitempty"`
+	InCall *int    `json:"incall,omitempty"`
 }
 
 func (m *UpdateSessionInternalClientMessage) CheckValid() error {
@@ -656,6 +661,14 @@ func (m *RemoveSessionInternalClientMessage) CheckValid() error {
 	return m.CommonSessionInternalClientMessage.CheckValid()
 }
 
+type InCallInternalClientMessage struct {
+	InCall int `json:"incall"`
+}
+
+func (m *InCallInternalClientMessage) CheckValid() error {
+	return nil
+}
+
 type InternalClientMessage struct {
 	Type string `json:"type"`
 
@@ -664,6 +677,8 @@ type InternalClientMessage struct {
 	UpdateSession *UpdateSessionInternalClientMessage `json:"updatesession,omitempty"`
 
 	RemoveSession *RemoveSessionInternalClientMessage `json:"removesession,omitempty"`
+
+	InCall *InCallInternalClientMessage `json:"incall,omitempty"`
 }
 
 func (m *InternalClientMessage) CheckValid() error {
@@ -684,6 +699,12 @@ func (m *InternalClientMessage) CheckValid() error {
 		if m.RemoveSession == nil {
 			return fmt.Errorf("removesession missing")
 		} else if err := m.RemoveSession.CheckValid(); err != nil {
+			return err
+		}
+	case "incall":
+		if m.InCall == nil {
+			return fmt.Errorf("incall missing")
+		} else if err := m.InCall.CheckValid(); err != nil {
 			return err
 		}
 	}

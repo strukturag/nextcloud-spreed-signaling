@@ -1797,7 +1797,7 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, publicSessionId)
 			request.Room.ActorId = msg.Options.ActorId
 			request.Room.ActorType = msg.Options.ActorType
-			request.Room.InCall = FlagInCall | FlagWithPhone
+			request.Room.InCall = sess.GetInCall()
 
 			var response BackendClientResponse
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
@@ -1856,18 +1856,23 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		sess := h.sessions[sid]
 		h.mu.Unlock()
 		if sess != nil {
-			update := false
+			var changed SessionChangeFlag
 			if virtualSession, ok := sess.(*VirtualSession); ok {
 				if msg.Flags != nil {
 					if virtualSession.SetFlags(*msg.Flags) {
-						update = true
+						changed |= SessionChangeFlags
+					}
+				}
+				if msg.InCall != nil {
+					if virtualSession.SetInCall(*msg.InCall) {
+						changed |= SessionChangeInCall
 					}
 				}
 			} else {
 				log.Printf("Ignore update request for non-virtual session %s", sess.PublicId())
 			}
-			if update {
-				room.NotifySessionChanged(sess)
+			if changed != 0 {
+				room.NotifySessionChanged(sess, changed)
 			}
 		}
 	case "removesession":
@@ -1896,6 +1901,13 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 				vsess.CloseWithFeedback(session, message)
 			} else {
 				sess.Close()
+			}
+		}
+	case "incall":
+		msg := msg.InCall
+		if session.SetInCall(msg.InCall) {
+			if room := session.GetRoom(); room != nil {
+				room.NotifySessionChanged(session, SessionChangeInCall)
 			}
 		}
 	default:

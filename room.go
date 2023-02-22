@@ -44,6 +44,13 @@ const (
 	FlagWithPhone    = 8
 )
 
+type SessionChangeFlag int
+
+const (
+	SessionChangeFlags  SessionChangeFlag = 1
+	SessionChangeInCall SessionChangeFlag = 2
+)
+
 var (
 	updateActiveSessionsInterval = 10 * time.Second
 )
@@ -571,7 +578,7 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 	}
 	for session := range r.internalSessions {
 		users = append(users, map[string]interface{}{
-			"inCall":    FlagInCall | FlagWithAudio,
+			"inCall":    session.(*ClientSession).GetInCall(),
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
 			"internal":  true,
@@ -579,7 +586,7 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 	}
 	for session := range r.virtualSessions {
 		users = append(users, map[string]interface{}{
-			"inCall":    FlagInCall | FlagWithPhone,
+			"inCall":    session.GetInCall(),
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
 			"virtual":   true,
@@ -816,18 +823,51 @@ func (r *Room) NotifySessionResumed(session *ClientSession) {
 	session.SendMessage(message)
 }
 
-func (r *Room) NotifySessionChanged(session Session) {
-	if session.ClientType() != HelloClientTypeVirtual {
+func (r *Room) NotifySessionChanged(session Session, flags SessionChangeFlag) {
+	if flags&SessionChangeFlags != 0 && session.ClientType() == HelloClientTypeVirtual {
 		// Only notify if a virtual session has changed.
-		return
+		if virtual, ok := session.(*VirtualSession); ok {
+			r.publishSessionFlagsChanged(virtual)
+		}
 	}
 
-	virtual, ok := session.(*VirtualSession)
-	if !ok {
-		return
-	}
+	if flags&SessionChangeInCall != 0 {
+		joinLeave := 0
+		if clientSession, ok := session.(*ClientSession); ok {
+			if clientSession.GetInCall()&FlagInCall != 0 {
+				joinLeave = 1
+			} else {
+				joinLeave = 2
+			}
+		} else if virtual, ok := session.(*VirtualSession); ok {
+			if virtual.GetInCall()&FlagInCall != 0 {
+				joinLeave = 1
+			} else {
+				joinLeave = 2
+			}
+		}
 
-	r.publishSessionFlagsChanged(virtual)
+		if joinLeave != 0 {
+			if joinLeave == 1 {
+				r.mu.Lock()
+				if !r.inCallSessions[session] {
+					r.inCallSessions[session] = true
+					log.Printf("Session %s joined call %s", session.PublicId(), r.id)
+				}
+				r.mu.Unlock()
+			} else if joinLeave == 2 {
+				r.mu.Lock()
+				delete(r.inCallSessions, session)
+				r.mu.Unlock()
+				if clientSession, ok := session.(*ClientSession); ok {
+					clientSession.LeaveCall()
+				}
+			}
+
+			// TODO: Check if we could send a smaller update message with only the changed session.
+			r.publishUsersChangedWithInternal()
+		}
+	}
 }
 
 func (r *Room) publishUsersChangedWithInternal() {

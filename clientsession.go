@@ -48,6 +48,7 @@ var (
 
 type ClientSession struct {
 	roomJoinTime int64
+	inCall       uint32
 
 	hub       *Hub
 	events    AsyncEvents
@@ -106,6 +107,9 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 	if s.clientType == HelloClientTypeInternal {
 		s.backendUrl = hello.Auth.internalParams.Backend
 		s.parsedBackendUrl = hello.Auth.internalParams.parsedBackend
+		if !s.HasFeature(ClientFeatureInternalInCall) {
+			s.SetInCall(FlagInCall | FlagWithAudio)
+		}
 	} else {
 		s.backendUrl = hello.Auth.Url
 		s.parsedBackendUrl = hello.Auth.parsedUrl
@@ -153,6 +157,28 @@ func (s *ClientSession) Data() *SessionIdData {
 
 func (s *ClientSession) ClientType() string {
 	return s.clientType
+}
+
+// GetInCall is only used for internal clients.
+func (s *ClientSession) GetInCall() int {
+	return int(atomic.LoadUint32(&s.inCall))
+}
+
+func (s *ClientSession) SetInCall(inCall int) bool {
+	if inCall < 0 {
+		inCall = 0
+	}
+
+	for {
+		old := atomic.LoadUint32(&s.inCall)
+		if old == uint32(inCall) {
+			return false
+		}
+
+		if atomic.CompareAndSwapUint32(&s.inCall, old, uint32(inCall)) {
+			return true
+		}
+	}
 }
 
 func (s *ClientSession) GetFeatures() []string {
