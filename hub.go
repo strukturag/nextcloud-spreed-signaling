@@ -119,8 +119,7 @@ type Hub struct {
 	infoInternal *WelcomeServerMessage
 	welcome      atomic.Value // *ServerMessage
 
-	stopped         int32
-	stopChan        chan bool
+	closer          *Closer
 	readPumpActive  uint32
 	writePumpActive uint32
 
@@ -314,7 +313,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
 		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
 
-		stopChan: make(chan bool),
+		closer: NewCloser(),
 
 		roomUpdated:      make(chan *BackendServerRoomRequest),
 		roomDeleted:      make(chan *BackendServerRoomRequest),
@@ -417,7 +416,7 @@ func (h *Hub) updateGeoDatabase() {
 
 	defer atomic.CompareAndSwapInt32(&h.geoipUpdating, 1, 0)
 	delay := time.Second
-	for atomic.LoadInt32(&h.stopped) == 0 {
+	for !h.closer.IsClosed() {
 		err := h.geoip.Update()
 		if err == nil {
 			break
@@ -458,7 +457,7 @@ loop:
 			h.performHousekeeping(now)
 		case <-geoipUpdater.C:
 			go h.updateGeoDatabase()
-		case <-h.stopChan:
+		case <-h.closer.C:
 			break loop
 		}
 	}
@@ -468,11 +467,7 @@ loop:
 }
 
 func (h *Hub) Stop() {
-	atomic.StoreInt32(&h.stopped, 1)
-	select {
-	case h.stopChan <- true:
-	default:
-	}
+	h.closer.Close()
 }
 
 func (h *Hub) Reload(config *goconf.ConfigFile) {
@@ -2320,18 +2315,10 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewClient(conn, addr, agent)
+	client, err := NewClient(conn, addr, agent, h)
 	if err != nil {
 		log.Printf("Could not create client for %s: %s", addr, err)
 		return
-	}
-
-	if h.geoip != nil {
-		client.OnLookupCountry = h.lookupClientCountry
-	}
-	client.OnMessageReceived = h.processMessage
-	client.OnClosed = func(client *Client) {
-		h.processUnregister(client)
 	}
 
 	h.processNewClient(client)
@@ -2345,4 +2332,24 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 		defer atomic.AddUint32(&h.readPumpActive, ^uint32(0))
 		client.ReadPump()
 	}(h)
+}
+
+func (h *Hub) OnLookupCountry(client *Client) string {
+	if h.geoip == nil {
+		return unknownCountry
+	}
+
+	return h.lookupClientCountry(client)
+}
+
+func (h *Hub) OnClosed(client *Client) {
+	h.processUnregister(client)
+}
+
+func (h *Hub) OnMessageReceived(client *Client, data []byte) {
+	h.processMessage(client, data)
+}
+
+func (h *Hub) OnRTTReceived(client *Client, rtt time.Duration) {
+	// Ignore
 }

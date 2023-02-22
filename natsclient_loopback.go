@@ -35,7 +35,6 @@ type LoopbackNatsClient struct {
 	mu            sync.Mutex
 	subscriptions map[string]map[*loopbackNatsSubscription]bool
 
-	stopping bool
 	wakeup   sync.Cond
 	incoming list.List
 }
@@ -53,10 +52,11 @@ func (c *LoopbackNatsClient) processMessages() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for {
-		for !c.stopping && c.incoming.Len() == 0 {
+		for c.subscriptions != nil && c.incoming.Len() == 0 {
 			c.wakeup.Wait()
 		}
-		if c.stopping {
+		if c.subscriptions == nil {
+			// Client was closed.
 			break
 		}
 
@@ -91,7 +91,6 @@ func (c *LoopbackNatsClient) Close() {
 	defer c.mu.Unlock()
 
 	c.subscriptions = nil
-	c.stopping = true
 	c.incoming.Init()
 	c.wakeup.Signal()
 }

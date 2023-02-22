@@ -67,9 +67,9 @@ type Room struct {
 
 	properties *json.RawMessage
 
-	closeChan chan bool
-	mu        *sync.RWMutex
-	sessions  map[string]Session
+	closer   *Closer
+	mu       *sync.RWMutex
+	sessions map[string]Session
 
 	internalSessions map[Session]bool
 	virtualSessions  map[*VirtualSession]bool
@@ -104,9 +104,9 @@ func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, events AsyncE
 
 		properties: properties,
 
-		closeChan: make(chan bool, 1),
-		mu:        &sync.RWMutex{},
-		sessions:  make(map[string]Session),
+		closer:   NewCloser(),
+		mu:       &sync.RWMutex{},
+		sessions: make(map[string]Session),
 
 		internalSessions: make(map[Session]bool),
 		virtualSessions:  make(map[*VirtualSession]bool),
@@ -173,7 +173,7 @@ func (r *Room) run() {
 loop:
 	for {
 		select {
-		case <-r.closeChan:
+		case <-r.closer.C:
 			break loop
 		case <-ticker.C:
 			r.publishActiveSessions()
@@ -182,10 +182,7 @@ loop:
 }
 
 func (r *Room) doClose() {
-	select {
-	case r.closeChan <- true:
-	default:
-	}
+	r.closer.Close()
 }
 
 func (r *Room) unsubscribeBackend() {

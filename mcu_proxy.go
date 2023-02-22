@@ -305,8 +305,8 @@ type mcuProxyConnection struct {
 	ip     net.IP
 
 	mu         sync.Mutex
-	closeChan  chan bool
-	closedChan chan bool
+	closer     *Closer
+	closedDone *Closer
 	closed     uint32
 	conn       *websocket.Conn
 
@@ -344,8 +344,8 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP) (*mcuProx
 		rawUrl:            baseUrl,
 		url:               parsed,
 		ip:                ip,
-		closeChan:         make(chan bool, 1),
-		closedChan:        make(chan bool, 1),
+		closer:            NewCloser(),
+		closedDone:        NewCloser(),
 		reconnectInterval: int64(initialReconnectInterval),
 		load:              loadNotConnected,
 		callbacks:         make(map[string]func(*ProxyServerMessage)),
@@ -433,7 +433,7 @@ func (c *mcuProxyConnection) readPump() {
 		if atomic.LoadUint32(&c.closed) == 0 {
 			c.scheduleReconnect()
 		} else {
-			c.closedChan <- true
+			c.closedDone.Close()
 		}
 	}()
 	defer c.close()
@@ -515,7 +515,7 @@ func (c *mcuProxyConnection) writePump() {
 			c.reconnect()
 		case <-ticker.C:
 			c.sendPing()
-		case <-c.closeChan:
+		case <-c.closer.C:
 			return
 		}
 	}
@@ -543,7 +543,7 @@ func (c *mcuProxyConnection) stop(ctx context.Context) {
 		return
 	}
 
-	c.closeChan <- true
+	c.closer.Close()
 	if err := c.sendClose(); err != nil {
 		if err != ErrNotConnected {
 			log.Printf("Could not send close message to %s: %s", c, err)
@@ -553,7 +553,7 @@ func (c *mcuProxyConnection) stop(ctx context.Context) {
 	}
 
 	select {
-	case <-c.closedChan:
+	case <-c.closedDone.C:
 	case <-ctx.Done():
 		if err := ctx.Err(); err != nil {
 			log.Printf("Error waiting for connection to %s get closed: %s", c, err)
@@ -1124,8 +1124,7 @@ type mcuProxy struct {
 	mu         sync.RWMutex
 	publishers map[string]*mcuProxyConnection
 
-	publisherWaitersId uint64
-	publisherWaiters   map[uint64]chan bool
+	publisherWaiters ChannelWaiters
 
 	continentsMap atomic.Value
 
@@ -1192,8 +1191,6 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 		maxScreenBitrate: maxScreenBitrate,
 
 		publishers: make(map[string]*mcuProxyConnection),
-
-		publisherWaiters: make(map[uint64]chan bool),
 
 		rpcClients: rpcClients,
 	}
@@ -1861,25 +1858,6 @@ func (m *mcuProxy) removePublisher(publisher *mcuProxyPublisher) {
 	delete(m.publishers, publisher.id+"|"+publisher.StreamType())
 }
 
-func (m *mcuProxy) wakeupWaiters() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, ch := range m.publisherWaiters {
-		ch <- true
-	}
-}
-
-func (m *mcuProxy) addWaiter(ch chan bool) uint64 {
-	id := m.publisherWaitersId + 1
-	m.publisherWaitersId = id
-	m.publisherWaiters[id] = ch
-	return id
-}
-
-func (m *mcuProxy) removeWaiter(id uint64) {
-	delete(m.publisherWaiters, id)
-}
-
 func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
 	connections := m.getSortedConnections(initiator)
 	for _, conn := range connections {
@@ -1910,7 +1888,7 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 		m.mu.Lock()
 		m.publishers[id+"|"+streamType] = conn
 		m.mu.Unlock()
-		m.wakeupWaiters()
+		m.publisherWaiters.Wakeup()
 		return publisher, nil
 	}
 
@@ -1935,9 +1913,9 @@ func (m *mcuProxy) waitForPublisherConnection(ctx context.Context, publisher str
 		return conn
 	}
 
-	ch := make(chan bool, 1)
-	id := m.addWaiter(ch)
-	defer m.removeWaiter(id)
+	ch := make(chan struct{}, 1)
+	id := m.publisherWaiters.Add(ch)
+	defer m.publisherWaiters.Remove(id)
 
 	statsWaitingForPublisherTotal.WithLabelValues(streamType).Inc()
 	for {

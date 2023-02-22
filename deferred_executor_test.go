@@ -109,3 +109,12 @@ func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
 		t.Error("method should not have been called")
 	})
 }
+
+func TestDeferredExecutor_WaitForStopTwice(t *testing.T) {
+	e := NewDeferredExecutor(64)
+	defer e.waitForStop()
+
+	e.Close()
+
+	e.waitForStop()
+}

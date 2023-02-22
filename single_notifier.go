@@ -27,17 +27,41 @@ import (
 )
 
 type SingleWaiter struct {
-	ctx    context.Context
-	cancel context.CancelFunc
+	root bool
+	ch   chan struct{}
+	once sync.Once
+}
+
+func newSingleWaiter() *SingleWaiter {
+	return &SingleWaiter{
+		root: true,
+		ch:   make(chan struct{}),
+	}
+}
+
+func (w *SingleWaiter) subWaiter() *SingleWaiter {
+	return &SingleWaiter{
+		ch: w.ch,
+	}
 }
 
 func (w *SingleWaiter) Wait(ctx context.Context) error {
 	select {
-	case <-w.ctx.Done():
+	case <-w.ch:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (w *SingleWaiter) cancel() {
+	if !w.root {
+		return
+	}
+
+	w.once.Do(func() {
+		close(w.ch)
+	})
 }
 
 type SingleNotifier struct {
@@ -52,21 +76,14 @@ func (n *SingleNotifier) NewWaiter() *SingleWaiter {
 	defer n.Unlock()
 
 	if n.waiter == nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		n.waiter = &SingleWaiter{
-			ctx:    ctx,
-			cancel: cancel,
-		}
+		n.waiter = newSingleWaiter()
 	}
 
 	if n.waiters == nil {
 		n.waiters = make(map[*SingleWaiter]bool)
 	}
 
-	w := &SingleWaiter{
-		ctx:    n.waiter.ctx,
-		cancel: n.waiter.cancel,
-	}
+	w := n.waiter.subWaiter()
 	n.waiters[w] = true
 	return w
 }

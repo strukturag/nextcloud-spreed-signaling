@@ -29,7 +29,11 @@ import (
 type Waiter struct {
 	key string
 
-	SingleWaiter
+	sw *SingleWaiter
+}
+
+func (w *Waiter) Wait(ctx context.Context) error {
+	return w.sw.Wait(ctx)
 }
 
 type Notifier struct {
@@ -47,22 +51,15 @@ func (n *Notifier) NewWaiter(key string) *Waiter {
 	if found {
 		w := &Waiter{
 			key: key,
-			SingleWaiter: SingleWaiter{
-				ctx:    waiter.ctx,
-				cancel: waiter.cancel,
-			},
+			sw:  waiter.sw,
 		}
 		n.waiterMap[key][w] = true
 		return w
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
 	waiter = &Waiter{
 		key: key,
-		SingleWaiter: SingleWaiter{
-			ctx:    ctx,
-			cancel: cancel,
-		},
+		sw:  newSingleWaiter(),
 	}
 	if n.waiters == nil {
 		n.waiters = make(map[string]*Waiter)
@@ -83,7 +80,7 @@ func (n *Notifier) Reset() {
 	defer n.Unlock()
 
 	for _, w := range n.waiters {
-		w.cancel()
+		w.sw.cancel()
 	}
 	n.waiters = nil
 	n.waiterMap = nil
@@ -98,7 +95,7 @@ func (n *Notifier) Release(w *Waiter) {
 			delete(waiters, w)
 			if len(waiters) == 0 {
 				delete(n.waiters, w.key)
-				w.cancel()
+				w.sw.cancel()
 			}
 		}
 	}
@@ -109,7 +106,7 @@ func (n *Notifier) Notify(key string) {
 	defer n.Unlock()
 
 	if w, found := n.waiters[key]; found {
-		w.cancel()
+		w.sw.cancel()
 		delete(n.waiters, w.key)
 		delete(n.waiterMap, w.key)
 	}

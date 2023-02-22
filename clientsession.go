@@ -76,8 +76,7 @@ type ClientSession struct {
 	room          unsafe.Pointer
 	roomSessionId string
 
-	publisherWaitersId uint64
-	publisherWaiters   map[uint64]chan bool
+	publisherWaiters ChannelWaiters
 
 	publishers  map[string]McuPublisher
 	subscribers map[string]McuSubscriber
@@ -832,26 +831,6 @@ func (s *ClientSession) checkOfferTypeLocked(streamType string, data *MessageCli
 	return 0, nil
 }
 
-func (s *ClientSession) wakeupPublisherWaiters() {
-	for _, ch := range s.publisherWaiters {
-		ch <- true
-	}
-}
-
-func (s *ClientSession) addPublisherWaiter(ch chan bool) uint64 {
-	if s.publisherWaiters == nil {
-		s.publisherWaiters = make(map[uint64]chan bool)
-	}
-	id := s.publisherWaitersId + 1
-	s.publisherWaitersId = id
-	s.publisherWaiters[id] = ch
-	return id
-}
-
-func (s *ClientSession) removePublisherWaiter(id uint64) {
-	delete(s.publisherWaiters, id)
-}
-
 func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, streamType string, data *MessageClientMessageData) (McuPublisher, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -900,7 +879,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 			s.publishers[streamType] = publisher
 		}
 		log.Printf("Publishing %s as %s for session %s", streamType, publisher.Id(), s.PublicId())
-		s.wakeupPublisherWaiters()
+		s.publisherWaiters.Wakeup()
 	} else {
 		publisher.SetMedia(mediaTypes)
 	}
@@ -928,9 +907,9 @@ func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType st
 		return publisher
 	}
 
-	ch := make(chan bool, 1)
-	id := s.addPublisherWaiter(ch)
-	defer s.removePublisherWaiter(id)
+	ch := make(chan struct{}, 1)
+	id := s.publisherWaiters.Add(ch)
+	defer s.publisherWaiters.Remove(id)
 
 	for {
 		s.mu.Unlock()

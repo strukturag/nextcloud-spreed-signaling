@@ -63,8 +63,8 @@ func (e *pingEntries) RemoveRoom(room *Room) {
 // For that, all ping requests across rooms of enabled instances are combined
 // and sent out batched every "updateActiveSessionsInterval" seconds.
 type RoomPing struct {
-	mu        sync.Mutex
-	closeChan chan bool
+	mu     sync.Mutex
+	closer *Closer
 
 	backend      *BackendClient
 	capabilities *Capabilities
@@ -74,7 +74,7 @@ type RoomPing struct {
 
 func NewRoomPing(backend *BackendClient, capabilities *Capabilities) (*RoomPing, error) {
 	result := &RoomPing{
-		closeChan:    make(chan bool, 1),
+		closer:       NewCloser(),
 		backend:      backend,
 		capabilities: capabilities,
 	}
@@ -87,10 +87,7 @@ func (p *RoomPing) Start() {
 }
 
 func (p *RoomPing) Stop() {
-	select {
-	case p.closeChan <- true:
-	default:
-	}
+	p.closer.Close()
 }
 
 func (p *RoomPing) run() {
@@ -98,7 +95,7 @@ func (p *RoomPing) run() {
 loop:
 	for {
 		select {
-		case <-p.closeChan:
+		case <-p.closer.C:
 			break loop
 		case <-ticker.C:
 			p.publishActiveSessions()
