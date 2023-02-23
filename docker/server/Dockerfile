@@ -5,7 +5,7 @@ ARG TARGETOS
 WORKDIR /workdir
 
 COPY . .
-RUN apk add --no-cache bash build-base protobuf && \
+RUN apk add --no-cache bash git build-base protobuf && \
     if [ -d "vendor" ]; then GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=off make server -j$(nproc); else \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} make server -j$(nproc); fi
 
