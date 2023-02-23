@@ -64,6 +64,7 @@ The running container can be configured through different environment variables:
 - `GRPC_DNS_DISCOVERY`: Enable DNS discovery on hostnames of configured GRPC targets.
 - `GRPC_ETCD`: Set to `1` if etcd should be used to configure GRPC peers.
 - `GRPC_TARGET_PREFIX`: Key prefix of GRPC target entries.
+- `SKIP_VERIFY`: Set to `true` to skip certificate validation of backends and proxy servers. This should only be enabled during development, e.g. to work with self-signed certificates.
 
 Example with two backends:
 
