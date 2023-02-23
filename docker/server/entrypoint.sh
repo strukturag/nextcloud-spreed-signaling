@@ -128,10 +128,10 @@ if [ ! -f "$CONFIG" ]; then
   fi
 
   if [ ! -z "$TURN_API_KEY" ]; then
-    sed -i "s|#apikey = the-api-key-for-the-rest-service|apikey = $TURN_API_KEY|" "$CONFIG"
+    sed -i "s|#apikey =.*|apikey = $TURN_API_KEY|" "$CONFIG"
   fi
   if [ ! -z "$TURN_SECRET" ]; then
-    sed -i "s|#secret = 6d1c17a7-c736-4e22-b02c-e2955b7ecc64|secret = $TURN_SECRET|" "$CONFIG"
+    sed -i "s|#secret =.*|secret = $TURN_SECRET|" "$CONFIG"
   fi
   if [ ! -z "$TURN_SERVERS" ]; then
     sed -i "s|#servers =.*|servers = $TURN_SERVERS|" "$CONFIG"
