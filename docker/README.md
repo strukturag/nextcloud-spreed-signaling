@@ -71,9 +71,9 @@ Example with two backends:
       ... \
       -e BACKENDS="foo bar" \
       -e BACKEND_FOO_URL=https://cloud.server1.tld \
-      -e BACKEND_FOO_SECRET=verysecret \
+      -e BACKEND_FOO_SHARED_SECRET=verysecret \
       -e BACKEND_BAR_URL=https://cloud.server2.tld \
-      -e BACKEND_BAR_SECRET=moresecret \
+      -e BACKEND_BAR_SHARED_SECRET=moresecret \
       ...
 
 See https://github.com/strukturag/nextcloud-spreed-signaling/blob/master/server.conf.in
