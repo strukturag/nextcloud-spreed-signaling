@@ -127,6 +127,10 @@ if [ ! -f "$CONFIG" ]; then
     sed -i "s|#maxscreenbitrate =.*|maxscreenbitrate = $MAX_SCREEN_BITRATE|" "$CONFIG"
   fi
 
+  if [ ! -z "$SKIP_VERIFY" ]; then
+    sed -i "s|#skipverify =.*|skipverify = $SKIP_VERIFY|" "$CONFIG"
+  fi 
+
   if [ ! -z "$TURN_API_KEY" ]; then
     sed -i "s|#apikey = the-api-key-for-the-rest-service|apikey = $TURN_API_KEY|" "$CONFIG"
   fi
