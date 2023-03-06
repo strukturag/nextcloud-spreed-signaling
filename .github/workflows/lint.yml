@@ -55,3 +55,4 @@ jobs:
         uses: golangci/golangci-lint-action@v3.4.0
         with:
           version: latest
+          args: --timeout=2m0s
