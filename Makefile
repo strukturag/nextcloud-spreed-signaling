@@ -155,6 +155,8 @@ vendor: go.mod go.sum common
 	mkdir -p $(VENDORDIR)/github.com/mailru/easyjson/; \
 	cp -rf --no-preserve=mode $$EASYJSON_DIR/easyjson/ $(VENDORDIR)/github.com/mailru/easyjson/; \
 	mkdir -p $(VENDORDIR)/google.golang.org/grpc/cmd/protoc-gen-go-grpc/; \
+	[ -d "$(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)" ] || echo "Folder for protoc-gen-go-grpc command does not exist, please check Makefile."; \
+	[ -d "$(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)" ] || exit 1; \
 	cp -rf --no-preserve=mode $(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)/* $(VENDORDIR)/google.golang.org/grpc/cmd/protoc-gen-go-grpc/; \
 	cp -rf --no-preserve=mode $$PROTOBUF_DIR/cmd/ $(VENDORDIR)/google.golang.org/protobuf/; \
 
