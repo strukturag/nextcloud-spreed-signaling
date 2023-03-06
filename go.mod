@@ -1,6 +1,6 @@
 module github.com/strukturag/nextcloud-spreed-signaling
 
-go 1.17
+go 1.18
 
 require (
 	github.com/dlintw/goconf v0.0.0-20120228082610-dcc070983490
