@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.2 - 2023-03-13
+
+### Added
+- Allow SKIP_VERIFY in docker image.
+  [#430](https://github.com/strukturag/nextcloud-spreed-signaling/pull/430)
+
+### Changed
+- Keep Docker images alpine based.
+  [#427](https://github.com/strukturag/nextcloud-spreed-signaling/pull/427)
+- build(deps): Bump coverallsapp/github-action from 1.1.3 to 1.2.0
+  [#433](https://github.com/strukturag/nextcloud-spreed-signaling/pull/433)
+- build(deps): Bump coverallsapp/github-action from 1.2.0 to 1.2.2
+  [#435](https://github.com/strukturag/nextcloud-spreed-signaling/pull/435)
+- build(deps): Bump coverallsapp/github-action from 1.2.2 to 1.2.3
+  [#436](https://github.com/strukturag/nextcloud-spreed-signaling/pull/436)
+- build(deps): Bump coverallsapp/github-action from 1.2.3 to 1.2.4
+  [#437](https://github.com/strukturag/nextcloud-spreed-signaling/pull/437)
+- build(deps): Bump github.com/nats-io/nats.go from 1.23.0 to 1.24.0
+  [#434](https://github.com/strukturag/nextcloud-spreed-signaling/pull/434)
+- Run "go mod tidy -compat=1.18".
+  [#440](https://github.com/strukturag/nextcloud-spreed-signaling/pull/440)
+- CI: Run golangci-lint with Go 1.20
+- Update protoc-gen-go-grpc to v1.3.0
+  [#442](https://github.com/strukturag/nextcloud-spreed-signaling/pull/442)
+- CI: Stop using deprecated "set-output".
+  [#441](https://github.com/strukturag/nextcloud-spreed-signaling/pull/441)
+- docker: Don't rely on default values when updating TURN settings.
+  [#439](https://github.com/strukturag/nextcloud-spreed-signaling/pull/439)
+- build(deps): Bump google.golang.org/protobuf from 1.28.1 to 1.29.0
+  [#443](https://github.com/strukturag/nextcloud-spreed-signaling/pull/443)
+
+### Fixed
+- Fix example in docker README.
+  [#429](https://github.com/strukturag/nextcloud-spreed-signaling/pull/429)
+- TURN_API_KEY and TURN_SECRET fix.
+  [#428](https://github.com/strukturag/nextcloud-spreed-signaling/pull/428)
+
+
 ## 1.1.1 - 2023-02-22
 
 ### Fixed
