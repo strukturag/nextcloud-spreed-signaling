@@ -159,6 +159,10 @@ vendor: go.mod go.sum common
 	[ -d "$(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)" ] || exit 1; \
 	cp -rf --no-preserve=mode $(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)/* $(VENDORDIR)/google.golang.org/grpc/cmd/protoc-gen-go-grpc/; \
 	cp -rf --no-preserve=mode $$PROTOBUF_DIR/cmd/ $(VENDORDIR)/google.golang.org/protobuf/; \
+	cp -rf --no-preserve=mode $$PROTOBUF_DIR/internal/ $(VENDORDIR)/google.golang.org/protobuf/; \
+	cp -rf --no-preserve=mode $$PROTOBUF_DIR/reflect/ $(VENDORDIR)/google.golang.org/protobuf/; \
+	find $(VENDORDIR)/google.golang.org/protobuf/ -name "*_test.go" -delete; \
+	find $(VENDORDIR)/google.golang.org/protobuf/ -name "testdata" | xargs rm -r; \
 
 tarball: vendor
 	git archive \
