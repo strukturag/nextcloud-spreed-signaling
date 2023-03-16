@@ -52,28 +52,6 @@ const (
 	sessionIdNotInMeeting = "0"
 )
 
-func parseIPNet(s string) (*net.IPNet, error) {
-	var ipnet *net.IPNet
-	if strings.ContainsRune(s, '/') {
-		var err error
-		if _, ipnet, err = net.ParseCIDR(s); err != nil {
-			return nil, fmt.Errorf("invalid IP address/subnet %s: %w", s, err)
-		}
-	} else {
-		ip := net.ParseIP(s)
-		if ip == nil {
-			return nil, fmt.Errorf("invalid IP address %s", s)
-		}
-
-		ipnet = &net.IPNet{
-			IP:   ip,
-			Mask: net.CIDRMask(len(ip)*8, len(ip)*8),
-		}
-	}
-
-	return ipnet, nil
-}
-
 type BackendServer struct {
 	hub          *Hub
 	events       AsyncEvents
@@ -87,7 +65,7 @@ type BackendServer struct {
 	turnvalid   time.Duration
 	turnservers []string
 
-	statsAllowedIps []*net.IPNet
+	statsAllowedIps *AllowedIps
 	invalidSecret   []byte
 }
 
@@ -122,27 +100,16 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 	}
 
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
-	var statsAllowedIps []*net.IPNet
-	for _, ip := range strings.Split(statsAllowed, ",") {
-		ip = strings.TrimSpace(ip)
-		if ip != "" {
-			i, err := parseIPNet(ip)
-			if err != nil {
-				return nil, err
-			}
-			statsAllowedIps = append(statsAllowedIps, i)
-		}
+	statsAllowedIps, err := ParseAllowedIps(statsAllowed)
+	if err != nil {
+		return nil, err
 	}
-	if len(statsAllowedIps) > 0 {
+
+	if !statsAllowedIps.Empty() {
 		log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 	} else {
 		log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
-		statsAllowedIps = []*net.IPNet{
-			{
-				IP:   net.ParseIP("127.0.0.1"),
-				Mask: net.CIDRMask(32, 32),
-			},
-		}
+		statsAllowedIps = DefaultAllowedIps()
 	}
 
 	invalidSecret := make([]byte, 32)
@@ -786,15 +753,7 @@ func (b *BackendServer) allowStatsAccess(r *http.Request) bool {
 		return false
 	}
 
-	allowed := false
-	for _, i := range b.statsAllowedIps {
-		if i.Contains(ip) {
-			allowed = true
-			break
-		}
-	}
-
-	return allowed
+	return b.statsAllowedIps.Allowed(ip)
 }
 
 func (b *BackendServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
