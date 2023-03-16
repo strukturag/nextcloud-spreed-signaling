@@ -32,6 +32,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"net/url"
 	"reflect"
 	"strings"
@@ -1687,5 +1688,75 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cred.URIs, turnServers) {
 		t.Errorf("Expected the list of servers as %s, got %s", turnServers, cred.URIs)
+	}
+}
+
+func TestBackendServer_StatsAllowedIps(t *testing.T) {
+	config := goconf.NewConfigFile()
+	config.AddOption("stats", "allowed_ips", "127.0.0.1, 192.168.0.1, 192.168.1.1/24")
+	_, backend, _, _, _, _ := CreateBackendServerForTestFromConfig(t, config)
+
+	allowed := []string{
+		"127.0.0.1",
+		"127.0.0.1:1234",
+		"192.168.0.1:1234",
+		"192.168.1.1:1234",
+		"192.168.1.100:1234",
+	}
+	notAllowed := []string{
+		"192.168.0.2:1234",
+		"10.1.2.3:1234",
+	}
+
+	for _, addr := range allowed {
+		t.Run(addr, func(t *testing.T) {
+			r1 := &http.Request{
+				RemoteAddr: addr,
+			}
+			if !backend.allowStatsAccess(r1) {
+				t.Errorf("should allow %s", addr)
+			}
+
+			r2 := &http.Request{
+				RemoteAddr: "1.2.3.4:12345",
+				Header: http.Header{
+					textproto.CanonicalMIMEHeaderKey("x-real-ip"): []string{addr},
+				},
+			}
+			if !backend.allowStatsAccess(r2) {
+				t.Errorf("should allow %s", addr)
+			}
+
+			r3 := &http.Request{
+				RemoteAddr: "1.2.3.4:12345",
+				Header: http.Header{
+					textproto.CanonicalMIMEHeaderKey("x-forwarded-for"): []string{addr},
+				},
+			}
+			if !backend.allowStatsAccess(r3) {
+				t.Errorf("should allow %s", addr)
+			}
+
+			r4 := &http.Request{
+				RemoteAddr: "1.2.3.4:12345",
+				Header: http.Header{
+					textproto.CanonicalMIMEHeaderKey("x-forwarded-for"): []string{addr + ", 1.2.3.4:23456"},
+				},
+			}
+			if !backend.allowStatsAccess(r4) {
+				t.Errorf("should allow %s", addr)
+			}
+		})
+	}
+
+	for _, addr := range notAllowed {
+		t.Run(addr, func(t *testing.T) {
+			r := &http.Request{
+				RemoteAddr: addr,
+			}
+			if backend.allowStatsAccess(r) {
+				t.Errorf("should not allow %s", addr)
+			}
+		})
 	}
 }
