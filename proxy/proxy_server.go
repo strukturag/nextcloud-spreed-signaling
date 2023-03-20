@@ -98,7 +98,7 @@ type ProxyServer struct {
 	upgrader websocket.Upgrader
 
 	tokens          ProxyTokens
-	statsAllowedIps map[string]bool
+	statsAllowedIps *signaling.AllowedIps
 
 	sid          uint64
 	cookie       *securecookie.SecureCookie
@@ -141,21 +141,16 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 	}
 
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
-	var statsAllowedIps map[string]bool
-	if statsAllowed == "" {
-		log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
-		statsAllowedIps = map[string]bool{
-			"127.0.0.1": true,
-		}
+	statsAllowedIps, err := signaling.ParseAllowedIps(statsAllowed)
+	if err != nil {
+		return nil, err
+	}
+
+	if !statsAllowedIps.Empty() {
+		log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 	} else {
-		log.Printf("Only allowing access to the stats endpoing from %s", statsAllowed)
-		statsAllowedIps = make(map[string]bool)
-		for _, ip := range strings.Split(statsAllowed, ",") {
-			ip = strings.TrimSpace(ip)
-			if ip != "" {
-				statsAllowedIps[ip] = true
-			}
-		}
+		log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
+		statsAllowedIps = signaling.DefaultAllowedIps()
 	}
 
 	country, _ := config.GetString("app", "country")
@@ -996,15 +991,25 @@ func (s *ProxyServer) getStats() map[string]interface{} {
 	return result
 }
 
+func (s *ProxyServer) allowStatsAccess(r *http.Request) bool {
+	addr := getRealUserIP(r)
+	if strings.Contains(addr, ":") {
+		if host, _, err := net.SplitHostPort(addr); err == nil {
+			addr = host
+		}
+	}
+
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return false
+	}
+
+	return s.statsAllowedIps.Allowed(ip)
+}
+
 func (s *ProxyServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		addr := getRealUserIP(r)
-		if strings.Contains(addr, ":") {
-			if host, _, err := net.SplitHostPort(addr); err == nil {
-				addr = host
-			}
-		}
-		if !s.statsAllowedIps[addr] {
+		if !s.allowStatsAccess(r) {
 			http.Error(w, "Authentication check failed", http.StatusForbidden)
 			return
 		}
