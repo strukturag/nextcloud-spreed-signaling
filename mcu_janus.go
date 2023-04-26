@@ -737,7 +737,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		"videoorient_ext": false,
 		// Offer more video & audio codecs
 		"audiocodec": "opus,g722,pcmu,pcma,isac32",
-		"videocodec": "vp9,vp8,h265,h264,av1",
+		"videocodec": "vp9,h265,vp8,h264,av1",
 	}
 	var maxBitrate int
 	if streamType == streamTypeScreen {
