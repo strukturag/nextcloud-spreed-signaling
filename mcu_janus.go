@@ -734,10 +734,13 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		"publishers": 1,
 		// Do not use the video-orientation RTP extension as it breaks video
 		// orientation changes in Firefox.
-		"videoorient_ext": false,
-		// Offer more video & audio codecs
-		"audiocodec": "opus,g722,pcmu,pcma,isac32",
-		"videocodec": "vp9,h265,vp8,h264,av1",
+                // "videoorient_ext": false,
+                // Offer more video & audio codecs
+                "audiocodec": "opus,g722,pcmu,pcma,isac32",
+                "videocodec": "av1,vp9,vp8,h265,h264",
+                "video_svc": true,
+                "vp9_profile": "2",
+                "h264_profile": "42e01f",
 	}
 	var maxBitrate int
 	if streamType == streamTypeScreen {
