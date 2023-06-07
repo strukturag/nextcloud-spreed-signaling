@@ -1,6 +1,8 @@
+//go:build tools
+
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2022 struktur AG
+ * Copyright (C) 2023 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -21,11 +23,9 @@
  */
 package signaling
 
-// Import modules that would otherwise not be detected by "go mod vendor".
+// Import applications that would otherwise not be detected by "go mod vendor".
 import (
-	_ "github.com/mailru/easyjson"
-	_ "github.com/mailru/easyjson/bootstrap"
-	_ "github.com/mailru/easyjson/gen"
-	_ "github.com/mailru/easyjson/parser"
-	_ "google.golang.org/protobuf/compiler/protogen"
+	_ "github.com/mailru/easyjson/easyjson"
+	_ "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
+	_ "google.golang.org/protobuf/cmd/protoc-gen-go"
 )
