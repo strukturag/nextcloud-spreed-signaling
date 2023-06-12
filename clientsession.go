@@ -86,6 +86,9 @@ type ClientSession struct {
 	hasPendingParticipantsUpdate bool
 
 	virtualSessions map[*VirtualSession]bool
+
+	seenJoinedLock   sync.Mutex
+	seenJoinedEvents map[string]bool
 }
 
 func NewClientSession(hub *Hub, privateId string, publicId string, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
@@ -335,6 +338,10 @@ func (s *ClientSession) SetRoom(room *Room) {
 	} else {
 		atomic.StoreInt64(&s.roomJoinTime, 0)
 	}
+
+	s.seenJoinedLock.Lock()
+	defer s.seenJoinedLock.Unlock()
+	s.seenJoinedEvents = nil
 }
 
 func (s *ClientSession) GetRoom() *Room {
@@ -1153,6 +1160,29 @@ func filterDisplayNames(events []*EventServerMessageSessionEntry) []*EventServer
 	return result
 }
 
+func (s *ClientSession) filterDuplicateJoin(entries []*EventServerMessageSessionEntry) []*EventServerMessageSessionEntry {
+	s.seenJoinedLock.Lock()
+	defer s.seenJoinedLock.Unlock()
+
+	// Due to the asynchronous events, a session might received a "Joined" event
+	// for the same (other) session twice, so filter these out on a per-session
+	// level.
+	result := make([]*EventServerMessageSessionEntry, 0, len(entries))
+	for _, e := range entries {
+		if s.seenJoinedEvents[e.SessionId] {
+			log.Printf("Session %s got duplicate joined event for %s, ignoring", s.publicId, e.SessionId)
+			continue
+		}
+
+		if s.seenJoinedEvents == nil {
+			s.seenJoinedEvents = make(map[string]bool)
+		}
+		s.seenJoinedEvents[e.SessionId] = true
+		result = append(result, e)
+	}
+	return result
+}
+
 func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 	switch message.Type {
 	case "event":
@@ -1177,17 +1207,46 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 		case "room":
 			switch message.Event.Type {
 			case "join":
-				if s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+				join := s.filterDuplicateJoin(message.Event.Join)
+				if len(join) == 0 {
+					return nil
+				}
+				copied := false
+				if len(join) != len(message.Event.Join) {
 					// Create unique copy of message for only this client.
+					copied = true
 					message = &ServerMessage{
 						Id:   message.Id,
 						Type: message.Type,
 						Event: &EventServerMessage{
 							Type:   message.Event.Type,
 							Target: message.Event.Target,
-							Join:   filterDisplayNames(message.Event.Join),
+							Join:   join,
 						},
 					}
+				}
+
+				if s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+					if copied {
+						message.Event.Join = filterDisplayNames(message.Event.Join)
+					} else {
+						message = &ServerMessage{
+							Id:   message.Id,
+							Type: message.Type,
+							Event: &EventServerMessage{
+								Type:   message.Event.Type,
+								Target: message.Event.Target,
+								Join:   filterDisplayNames(message.Event.Join),
+							},
+						}
+					}
+				}
+			case "leave":
+				s.seenJoinedLock.Lock()
+				defer s.seenJoinedLock.Unlock()
+
+				for _, e := range message.Event.Leave {
+					delete(s.seenJoinedEvents, e)
 				}
 			case "message":
 				if message.Event.Message == nil || message.Event.Message.Data == nil || len(*message.Event.Message.Data) == 0 || !s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
