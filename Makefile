@@ -14,8 +14,6 @@ TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
 PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
 ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
 
-PROTOC_GEN_GRPC_VERSION := v1.3.0
-
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
 else
@@ -148,21 +146,8 @@ build: server proxy
 vendor: go.mod go.sum common
 	set -e ;\
 	rm -rf $(VENDORDIR)
-	EASYJSON_DIR=$$($(GO) list -m -f '{{.Dir}}' github.com/mailru/easyjson); \
-	PROTOBUF_DIR=$$($(GO) list -m -f '{{.Dir}}' google.golang.org/protobuf); \
 	$(GO) mod tidy; \
-	$(GO) mod vendor; \
-	mkdir -p $(VENDORDIR)/github.com/mailru/easyjson/; \
-	cp -rf --no-preserve=mode $$EASYJSON_DIR/easyjson/ $(VENDORDIR)/github.com/mailru/easyjson/; \
-	mkdir -p $(VENDORDIR)/google.golang.org/grpc/cmd/protoc-gen-go-grpc/; \
-	[ -d "$(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)" ] || echo "Folder for protoc-gen-go-grpc command does not exist, please check Makefile."; \
-	[ -d "$(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)" ] || exit 1; \
-	cp -rf --no-preserve=mode $(GOPATH)/pkg/mod/google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)/* $(VENDORDIR)/google.golang.org/grpc/cmd/protoc-gen-go-grpc/; \
-	cp -rf --no-preserve=mode $$PROTOBUF_DIR/cmd/ $(VENDORDIR)/google.golang.org/protobuf/; \
-	cp -rf --no-preserve=mode $$PROTOBUF_DIR/internal/ $(VENDORDIR)/google.golang.org/protobuf/; \
-	cp -rf --no-preserve=mode $$PROTOBUF_DIR/reflect/ $(VENDORDIR)/google.golang.org/protobuf/; \
-	find $(VENDORDIR)/google.golang.org/protobuf/ -name "*_test.go" -delete; \
-	find $(VENDORDIR)/google.golang.org/protobuf/ -name "testdata" | xargs rm -r; \
+	$(GO) mod vendor
 
 tarball: vendor
 	git archive \
