@@ -770,7 +770,7 @@ func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*Hell
 	for len(hellos) > 0 {
 		message, err := c.RunUntilMessage(ctx)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("got error while waiting for %+v: %w", hellos, err)
 		}
 
 		if err := checkMessageType(message, "event"); err != nil {
