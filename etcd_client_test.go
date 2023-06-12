@@ -81,8 +81,11 @@ func NewEtcdForTest(t *testing.T) *embed.Etcd {
 		u.Host = net.JoinHostPort("localhost", strconv.Itoa(port))
 		cfg.ListenClientUrls = []url.URL{*u}
 		cfg.AdvertiseClientUrls = []url.URL{*u}
+		httpListener := u
+		httpListener.Host = net.JoinHostPort("localhost", strconv.Itoa(port+1))
+		cfg.ListenClientHttpUrls = []url.URL{*httpListener}
 		peerListener := u
-		peerListener.Host = net.JoinHostPort("localhost", strconv.Itoa(port+1))
+		peerListener.Host = net.JoinHostPort("localhost", strconv.Itoa(port+2))
 		cfg.ListenPeerUrls = []url.URL{*peerListener}
 		cfg.AdvertisePeerUrls = []url.URL{*peerListener}
 		cfg.InitialCluster = "default=" + peerListener.String()
