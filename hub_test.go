@@ -2401,50 +2401,11 @@ func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
 func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, hello1 *ServerMessage, client2 *TestClient, hello2 *ServerMessage) {
 	// We will receive "joined" events for all clients. The ordering is not
 	// defined as messages are processed and sent by asynchronous event handlers.
-	msg1_1, err := client1.RunUntilMessage(ctx)
-	if err != nil {
+	if err := client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
 		t.Error(err)
 	}
-	msg1_2, err := client1.RunUntilMessage(ctx)
-	if err != nil {
+	if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
 		t.Error(err)
-	}
-	msg2_1, err := client2.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	}
-	msg2_2, err := client2.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if err := client1.checkMessageJoined(msg1_1, hello1.Hello); err != nil {
-		// Ordering is "joined" from client 2, then from client 1
-		if err := client1.checkMessageJoined(msg1_1, hello2.Hello); err != nil {
-			t.Error(err)
-		}
-		if err := client1.checkMessageJoined(msg1_2, hello1.Hello); err != nil {
-			t.Error(err)
-		}
-	} else {
-		// Ordering is "joined" from client 1, then from client 2
-		if err := client1.checkMessageJoined(msg1_2, hello2.Hello); err != nil {
-			t.Error(err)
-		}
-	}
-	if err := client2.checkMessageJoined(msg2_1, hello1.Hello); err != nil {
-		// Ordering is "joined" from client 2, then from client 1
-		if err := client2.checkMessageJoined(msg2_1, hello2.Hello); err != nil {
-			t.Error(err)
-		}
-		if err := client2.checkMessageJoined(msg2_2, hello1.Hello); err != nil {
-			t.Error(err)
-		}
-	} else {
-		// Ordering is "joined" from client 1, then from client 2
-		if err := client2.checkMessageJoined(msg2_2, hello2.Hello); err != nil {
-			t.Error(err)
-		}
 	}
 }
 
