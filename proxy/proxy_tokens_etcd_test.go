@@ -79,7 +79,7 @@ func newEtcdForTesting(t *testing.T) *embed.Etcd {
 	var etcd *embed.Etcd
 	for port := 50000; port < 50100; port++ {
 		u.Host = net.JoinHostPort("localhost", strconv.Itoa(port))
-		cfg.LCUrls = []url.URL{*u}
+		cfg.ListenClientUrls = []url.URL{*u}
 		etcd, err = embed.StartEtcd(cfg)
 		if isErrorAddressAlreadyInUse(err) {
 			continue
@@ -105,7 +105,7 @@ func newTokensEtcdForTesting(t *testing.T) (*tokensEtcd, *embed.Etcd) {
 	etcd := newEtcdForTesting(t)
 
 	cfg := goconf.NewConfigFile()
-	cfg.AddOption("etcd", "endpoints", etcd.Config().LCUrls[0].String())
+	cfg.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 	cfg.AddOption("tokens", "keyformat", "/%s, /testing/%s/key")
 
 	tokens, err := NewProxyTokensEtcd(cfg)

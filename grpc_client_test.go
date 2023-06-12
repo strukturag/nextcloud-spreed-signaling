@@ -58,7 +58,7 @@ func NewGrpcClientsForTest(t *testing.T, addr string) *GrpcClients {
 
 func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) *GrpcClients {
 	config := goconf.NewConfigFile()
-	config.AddOption("etcd", "endpoints", etcd.Config().LCUrls[0].String())
+	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 
 	config.AddOption("grpc", "targettype", "etcd")
 	config.AddOption("grpc", "targetprefix", "/grpctargets")
