@@ -79,12 +79,12 @@ func NewEtcdForTest(t *testing.T) *embed.Etcd {
 	var etcd *embed.Etcd
 	for port := 50000; port < 50100; port++ {
 		u.Host = net.JoinHostPort("localhost", strconv.Itoa(port))
-		cfg.LCUrls = []url.URL{*u}
-		cfg.ACUrls = []url.URL{*u}
+		cfg.ListenClientUrls = []url.URL{*u}
+		cfg.AdvertiseClientUrls = []url.URL{*u}
 		peerListener := u
 		peerListener.Host = net.JoinHostPort("localhost", strconv.Itoa(port+1))
-		cfg.LPUrls = []url.URL{*peerListener}
-		cfg.APUrls = []url.URL{*peerListener}
+		cfg.ListenPeerUrls = []url.URL{*peerListener}
+		cfg.AdvertisePeerUrls = []url.URL{*peerListener}
 		cfg.InitialCluster = "default=" + peerListener.String()
 		etcd, err = embed.StartEtcd(cfg)
 		if isErrorAddressAlreadyInUse(err) {
@@ -111,7 +111,7 @@ func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	etcd := NewEtcdForTest(t)
 
 	config := goconf.NewConfigFile()
-	config.AddOption("etcd", "endpoints", etcd.Config().LCUrls[0].String())
+	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 
 	client, err := NewEtcdClient(config, "")
 	if err != nil {
