@@ -1115,8 +1115,8 @@ type mcuProxy struct {
 	proxyTimeout   time.Duration
 
 	dnsDiscovery bool
-	stopping     chan bool
-	stopped      chan bool
+	stopping     chan struct{}
+	stopped      chan struct{}
 
 	maxStreamBitrate int
 	maxScreenBitrate int
@@ -1184,8 +1184,8 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 		connectionsMap: make(map[string][]*mcuProxyConnection),
 		proxyTimeout:   proxyTimeout,
 
-		stopping: make(chan bool, 1),
-		stopped:  make(chan bool, 1),
+		stopping: make(chan struct{}, 1),
+		stopped:  make(chan struct{}, 1),
 
 		maxStreamBitrate: maxStreamBitrate,
 		maxScreenBitrate: maxScreenBitrate,
@@ -1303,7 +1303,7 @@ func (m *mcuProxy) Stop() {
 	}
 
 	if m.urlType == proxyUrlTypeStatic && m.dnsDiscovery {
-		m.stopping <- true
+		m.stopping <- struct{}{}
 		<-m.stopped
 	}
 }
@@ -1316,7 +1316,7 @@ func (m *mcuProxy) monitorProxyIPs() {
 		case <-ticker.C:
 			m.updateProxyIPs()
 		case <-m.stopping:
-			m.stopped <- true
+			m.stopped <- struct{}{}
 			return
 		}
 	}
@@ -1408,7 +1408,7 @@ func (m *mcuProxy) configureStatic(config *goconf.ConfigFile, fromReload bool) e
 	dnsDiscovery, _ := config.GetBool("mcu", "dnsdiscovery")
 	if dnsDiscovery != m.dnsDiscovery {
 		if !dnsDiscovery && fromReload {
-			m.stopping <- true
+			m.stopping <- struct{}{}
 			<-m.stopped
 		}
 		m.dnsDiscovery = dnsDiscovery

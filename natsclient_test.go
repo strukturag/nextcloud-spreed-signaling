@@ -61,14 +61,15 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch := make(chan bool)
+	ch := make(chan struct{})
 
 	received := int32(0)
 	max := int32(20)
-	ready := make(chan bool)
-	quit := make(chan bool)
+	ready := make(chan struct{})
+	quit := make(chan struct{})
+	defer close(quit)
 	go func() {
-		ready <- true
+		close(ready)
 		for {
 			select {
 			case <-dest:
@@ -79,7 +80,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 						t.Errorf("Unsubscribe failed with err: %s", err)
 						return
 					}
-					ch <- true
+					close(ch)
 				}
 			case <-quit:
 				return
@@ -101,7 +102,6 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	if r != max {
 		t.Fatalf("Received wrong # of messages: %d vs %d", r, max)
 	}
-	quit <- true
 }
 
 func TestNatsClient_Subscribe(t *testing.T) {

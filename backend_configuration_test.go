@@ -505,8 +505,7 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	defer cfg.Close()
 
 	storage := cfg.storage.(*backendStorageEtcd)
-	ch := make(chan bool, 1)
-	storage.SetWakeupForTesting(ch)
+	ch := storage.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()

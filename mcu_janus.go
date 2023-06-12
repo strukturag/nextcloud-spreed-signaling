@@ -146,7 +146,7 @@ type mcuJanus struct {
 	session *JanusSession
 	handle  *JanusHandle
 
-	closeChan chan bool
+	closeChan chan struct{}
 
 	muClients sync.Mutex
 	clients   map[clientInterface]bool
@@ -186,7 +186,7 @@ func NewMcuJanus(url string, config *goconf.ConfigFile) (Mcu, error) {
 		maxStreamBitrate: maxStreamBitrate,
 		maxScreenBitrate: maxScreenBitrate,
 		mcuTimeout:       mcuTimeout,
-		closeChan:        make(chan bool, 1),
+		closeChan:        make(chan struct{}, 1),
 		clients:          make(map[clientInterface]bool),
 
 		publishers: make(map[string]*mcuJanusPublisher),
@@ -205,14 +205,14 @@ func NewMcuJanus(url string, config *goconf.ConfigFile) (Mcu, error) {
 }
 
 func (m *mcuJanus) disconnect() {
-	if m.handle != nil {
-		if _, err := m.handle.Detach(context.TODO()); err != nil {
-			log.Printf("Error detaching handle %d: %s", m.handle.Id, err)
-		}
+	if handle := m.handle; handle != nil {
 		m.handle = nil
+		m.closeChan <- struct{}{}
+		if _, err := handle.Detach(context.TODO()); err != nil {
+			log.Printf("Error detaching handle %d: %s", handle.Id, err)
+		}
 	}
 	if m.session != nil {
-		m.closeChan <- true
 		if _, err := m.session.Destroy(context.TODO()); err != nil {
 			log.Printf("Error destroying session %d: %s", m.session.Id, err)
 		}
@@ -442,7 +442,7 @@ type mcuJanusClient struct {
 
 	handle    *JanusHandle
 	handleId  uint64
-	closeChan chan bool
+	closeChan chan struct{}
 	deferred  chan func()
 
 	handleEvent     func(event *janus.EventMsg)
@@ -474,7 +474,7 @@ func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClient
 func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
 	if handle := c.handle; handle != nil {
 		c.handle = nil
-		c.closeChan <- true
+		close(c.closeChan)
 		if _, err := handle.Detach(ctx); err != nil {
 			if e, ok := err.(*janus.ErrorMsg); !ok || e.Err.Code != JANUS_ERROR_HANDLE_NOT_FOUND {
 				log.Println("Could not detach client", handle.Id, err)
@@ -486,7 +486,7 @@ func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
 	return false
 }
 
-func (c *mcuJanusClient) run(handle *JanusHandle, closeChan chan bool) {
+func (c *mcuJanusClient) run(handle *JanusHandle, closeChan <-chan struct{}) {
 loop:
 	for {
 		select {
@@ -807,7 +807,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 
 			handle:    handle,
 			handleId:  handle.Id,
-			closeChan: make(chan bool, 1),
+			closeChan: make(chan struct{}, 1),
 			deferred:  make(chan func(), 64),
 		},
 		id:         id,
@@ -1047,7 +1047,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 
 			handle:    handle,
 			handleId:  handle.Id,
-			closeChan: make(chan bool, 1),
+			closeChan: make(chan struct{}, 1),
 			deferred:  make(chan func(), 64),
 		},
 		publisher: publisher,
@@ -1209,7 +1209,7 @@ retry:
 			p.roomId = pub.roomId
 			p.sid = strconv.FormatUint(handle.Id, 10)
 			p.listener.SubscriberSidUpdated(p)
-			p.closeChan = make(chan bool, 1)
+			p.closeChan = make(chan struct{}, 1)
 			go p.run(p.handle, p.closeChan)
 			log.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId)
 			goto retry

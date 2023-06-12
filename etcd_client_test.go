@@ -204,7 +204,7 @@ type EtcdClientTestListener struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	initial   chan bool
+	initial   chan struct{}
 	initialWg sync.WaitGroup
 	events    chan etcdEvent
 }
@@ -217,7 +217,7 @@ func NewEtcdClientTestListener(ctx context.Context, t *testing.T) *EtcdClientTes
 		ctx:    ctx,
 		cancel: cancel,
 
-		initial: make(chan bool),
+		initial: make(chan struct{}),
 		events:  make(chan etcdEvent),
 	}
 }
@@ -235,6 +235,7 @@ func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
 	}()
 
 	go func() {
+		defer close(l.initial)
 		client.WaitForConnection()
 
 		ctx, cancel := context.WithTimeout(l.ctx, time.Second)
@@ -250,7 +251,6 @@ func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
 			l.t.Errorf("expected value \"1\", got \"%s\"", string(response.Kvs[0].Value))
 		}
 		l.initialWg.Wait()
-		l.initial <- true
 	}()
 }
 
