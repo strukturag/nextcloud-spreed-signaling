@@ -21,6 +21,8 @@ The running container can be configured through different environment variables:
 - `HASH_KEY`: Secret value used to generate checksums of sessions (32 or 64 bytes).
 - `BLOCK_KEY`: Key for encrypting data in the sessions (16, 24 or 32 bytes).
 - `INTERNAL_SHARED_SECRET_KEY`: Shared secret for connections from internal clients.
+- `BACKENDS_ALLOWALL`: Allow all backends. Extremly insecure - use only for development!
+- `BACKENDS_ALLOWALL_SECRET`: Secret when `BACKENDS_ALLOWALL` is enabled.
 - `BACKENDS`: Space-separated list of backend ids.
 - `BACKEND_<ID>_URL`: Url of backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_SHARED_SECRET`: Shared secret for backend `ID` (where `ID` is the uppercase backend id).

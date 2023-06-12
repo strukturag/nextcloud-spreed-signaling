@@ -215,6 +215,14 @@ if [ ! -f "$CONFIG" ]; then
     echo >> "$CONFIG"
   fi
 
+  if [ ! -z "$BACKENDS_ALLOWALL" ]; then
+    sed -i "s|allowall = false|allowall = $BACKENDS_ALLOWALL|" "$CONFIG"
+  fi
+
+  if [ ! -z "$BACKENDS_ALLOWALL_SECRET" ]; then
+    sed -i "s|#secret = the-shared-secret-for-allowall|secret = $BACKENDS_ALLOWALL_SECRET|" "$CONFIG"
+  fi  
+
   if [ ! -z "$BACKENDS" ]; then
     sed -i "s|#backends = .*|backends = $BACKENDS|" "$CONFIG"
 
