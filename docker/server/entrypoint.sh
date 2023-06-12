@@ -224,7 +224,8 @@ if [ ! -f "$CONFIG" ]; then
   fi  
 
   if [ ! -z "$BACKENDS" ]; then
-    sed -i "s|#backends = .*|backends = $BACKENDS|" "$CONFIG"
+    BACKENDS_CONFIG=$(echo $BACKENDS | sed 's/ /,/g')
+    sed -i "s|#backends = .*|backends = $BACKENDS_CONFIG|" "$CONFIG"
 
     echo >> "$CONFIG"
     for backend in $BACKENDS; do
