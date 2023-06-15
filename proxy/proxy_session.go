@@ -37,12 +37,10 @@ const (
 )
 
 type ProxySession struct {
-	// 64-bit members that are accessed atomically must be 64-bit aligned.
-	lastUsed int64
-
-	proxy *ProxyServer
-	id    string
-	sid   uint64
+	proxy    *ProxyServer
+	id       string
+	sid      uint64
+	lastUsed atomic.Int64
 
 	clientLock      sync.Mutex
 	client          *ProxyClient
@@ -58,11 +56,10 @@ type ProxySession struct {
 }
 
 func NewProxySession(proxy *ProxyServer, sid uint64, id string) *ProxySession {
-	return &ProxySession{
-		proxy:    proxy,
-		id:       id,
-		sid:      sid,
-		lastUsed: time.Now().UnixNano(),
+	result := &ProxySession{
+		proxy: proxy,
+		id:    id,
+		sid:   sid,
 
 		publishers:   make(map[string]signaling.McuPublisher),
 		publisherIds: make(map[signaling.McuPublisher]string),
@@ -70,6 +67,8 @@ func NewProxySession(proxy *ProxyServer, sid uint64, id string) *ProxySession {
 		subscribers:   make(map[string]signaling.McuSubscriber),
 		subscriberIds: make(map[signaling.McuSubscriber]string),
 	}
+	result.MarkUsed()
+	return result
 }
 
 func (s *ProxySession) PublicId() string {
@@ -81,7 +80,7 @@ func (s *ProxySession) Sid() uint64 {
 }
 
 func (s *ProxySession) LastUsed() time.Time {
-	lastUsed := atomic.LoadInt64(&s.lastUsed)
+	lastUsed := s.lastUsed.Load()
 	return time.Unix(0, lastUsed)
 }
 
@@ -92,7 +91,7 @@ func (s *ProxySession) IsExpired() bool {
 
 func (s *ProxySession) MarkUsed() {
 	now := time.Now()
-	atomic.StoreInt64(&s.lastUsed, now.UnixNano())
+	s.lastUsed.Store(now.UnixNano())
 }
 
 func (s *ProxySession) Close() {

@@ -26,7 +26,7 @@ import (
 )
 
 type Closer struct {
-	closed uint32
+	closed atomic.Bool
 	C      chan struct{}
 }
 
@@ -37,11 +37,11 @@ func NewCloser() *Closer {
 }
 
 func (c *Closer) IsClosed() bool {
-	return atomic.LoadUint32(&c.closed) != 0
+	return c.closed.Load()
 }
 
 func (c *Closer) Close() {
-	if atomic.CompareAndSwapUint32(&c.closed, 0, 1) {
+	if c.closed.CompareAndSwap(false, true) {
 		close(c.C)
 	}
 }

@@ -63,7 +63,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	}
 	ch := make(chan struct{})
 
-	received := int32(0)
+	var received atomic.Int32
 	max := int32(20)
 	ready := make(chan struct{})
 	quit := make(chan struct{})
@@ -73,7 +73,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 		for {
 			select {
 			case <-dest:
-				total := atomic.AddInt32(&received, 1)
+				total := received.Add(1)
 				if total == max {
 					err := sub.Unsubscribe()
 					if err != nil {
@@ -98,8 +98,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	}
 	<-ch
 
-	r := atomic.LoadInt32(&received)
-	if r != max {
+	if r := received.Load(); r != max {
 		t.Fatalf("Received wrong # of messages: %d vs %d", r, max)
 	}
 }

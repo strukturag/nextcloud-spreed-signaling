@@ -24,7 +24,6 @@ package main
 import (
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/gorilla/websocket"
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
@@ -35,7 +34,7 @@ type ProxyClient struct {
 
 	proxy *ProxyServer
 
-	session unsafe.Pointer
+	session atomic.Pointer[ProxySession]
 }
 
 func NewProxyClient(proxy *ProxyServer, conn *websocket.Conn, addr string) (*ProxyClient, error) {
@@ -47,11 +46,11 @@ func NewProxyClient(proxy *ProxyServer, conn *websocket.Conn, addr string) (*Pro
 }
 
 func (c *ProxyClient) GetSession() *ProxySession {
-	return (*ProxySession)(atomic.LoadPointer(&c.session))
+	return c.session.Load()
 }
 
 func (c *ProxyClient) SetSession(session *ProxySession) {
-	atomic.StorePointer(&c.session, unsafe.Pointer(session))
+	c.session.Store(session)
 }
 
 func (c *ProxyClient) OnClosed(client *signaling.Client) {

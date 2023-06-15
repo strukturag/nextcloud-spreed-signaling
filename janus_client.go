@@ -221,8 +221,6 @@ func (l *dummyGatewayListener) ConnectionInterrupted() {
 
 // Gateway represents a connection to an instance of the Janus Gateway.
 type JanusGateway struct {
-	nextTransaction uint64
-
 	listener GatewayListener
 
 	// Sessions is a map of the currently active sessions to the gateway.
@@ -232,8 +230,9 @@ type JanusGateway struct {
 	// and Gateway.Unlock() methods provided by the embedded sync.Mutex.
 	sync.Mutex
 
-	conn         *websocket.Conn
-	transactions map[uint64]*transaction
+	conn            *websocket.Conn
+	nextTransaction atomic.Uint64
+	transactions    map[uint64]*transaction
 
 	closer *Closer
 
@@ -328,7 +327,7 @@ func (gateway *JanusGateway) removeTransaction(id uint64) {
 }
 
 func (gateway *JanusGateway) send(msg map[string]interface{}, t *transaction) (uint64, error) {
-	id := atomic.AddUint64(&gateway.nextTransaction, 1)
+	id := gateway.nextTransaction.Add(1)
 	msg["transaction"] = strconv.FormatUint(id, 10)
 	data, err := json.Marshal(msg)
 	if err != nil {

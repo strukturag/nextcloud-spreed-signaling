@@ -112,9 +112,6 @@ func init() {
 }
 
 type Hub struct {
-	// 64-bit members that are accessed atomically must be 64-bit aligned.
-	sid uint64
-
 	events       AsyncEvents
 	upgrader     websocket.Upgrader
 	cookie       *securecookie.SecureCookie
@@ -123,8 +120,8 @@ type Hub struct {
 	welcome      atomic.Value // *ServerMessage
 
 	closer          *Closer
-	readPumpActive  uint32
-	writePumpActive uint32
+	readPumpActive  atomic.Int32
+	writePumpActive atomic.Int32
 
 	roomUpdated      chan *BackendServerRoomRequest
 	roomDeleted      chan *BackendServerRoomRequest
@@ -134,6 +131,7 @@ type Hub struct {
 	mu sync.RWMutex
 	ru sync.RWMutex
 
+	sid      atomic.Uint64
 	clients  map[uint64]*Client
 	sessions map[uint64]Session
 	rooms    map[string]*Room
@@ -160,7 +158,7 @@ type Hub struct {
 
 	geoip          *GeoLookup
 	geoipOverrides map[*net.IPNet]string
-	geoipUpdating  int32
+	geoipUpdating  atomic.Bool
 
 	rpcServer  *GrpcServer
 	rpcClients *GrpcClients
@@ -414,12 +412,12 @@ func (h *Hub) updateGeoDatabase() {
 		return
 	}
 
-	if !atomic.CompareAndSwapInt32(&h.geoipUpdating, 0, 1) {
+	if !h.geoipUpdating.CompareAndSwap(false, true) {
 		// Already updating
 		return
 	}
 
-	defer atomic.CompareAndSwapInt32(&h.geoipUpdating, 1, 0)
+	defer h.geoipUpdating.Store(false)
 	delay := time.Second
 	for !h.closer.IsClosed() {
 		err := h.geoip.Update()
@@ -699,9 +697,9 @@ func (h *Hub) sendWelcome(client *Client) {
 }
 
 func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
-	sid := atomic.AddUint64(&h.sid, 1)
+	sid := h.sid.Add(1)
 	for sid == 0 {
-		sid = atomic.AddUint64(&h.sid, 1)
+		sid = h.sid.Add(1)
 	}
 	sessionIdData := &SessionIdData{
 		Sid:       sid,
@@ -725,10 +723,6 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 		return
 	}
 
-	sid := atomic.AddUint64(&h.sid, 1)
-	for sid == 0 {
-		sid = atomic.AddUint64(&h.sid, 1)
-	}
 	sessionIdData := h.newSessionIdData(backend)
 	privateSessionId, err := h.encodeSessionId(sessionIdData, privateSessionName)
 	if err != nil {
@@ -764,7 +758,8 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 	}
 
 	if limit := uint32(backend.Limit()); limit > 0 && h.rpcClients != nil {
-		totalCount := uint32(backend.Len())
+		var totalCount atomic.Uint32
+		totalCount.Add(uint32(backend.Len()))
 		var wg sync.WaitGroup
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -781,12 +776,12 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 
 				if count > 0 {
 					log.Printf("%d sessions connected for %s on %s", count, backend.Url(), c.Target())
-					atomic.AddUint32(&totalCount, count)
+					totalCount.Add(count)
 				}
 			}(client)
 		}
 		wg.Wait()
-		if totalCount > limit {
+		if totalCount.Load() > limit {
 			backend.RemoveSession(session)
 			log.Printf("Error adding session %s to backend %s: %s", session.PublicId(), backend.Id(), SessionLimitExceeded)
 			session.Close()
@@ -2054,7 +2049,7 @@ func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSessi
 		return false
 	}
 
-	var result int32
+	var result atomic.Bool
 	var wg sync.WaitGroup
 	rpcCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -2074,12 +2069,12 @@ func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSessi
 			}
 
 			cancel()
-			atomic.StoreInt32(&result, 1)
+			result.Store(true)
 		}(client)
 	}
 	wg.Wait()
 
-	return atomic.LoadInt32(&result) != 0
+	return result.Load()
 }
 
 func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, recipientSessionId string) bool {
@@ -2364,13 +2359,13 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 
 	h.processNewClient(client)
 	go func(h *Hub) {
-		atomic.AddUint32(&h.writePumpActive, 1)
-		defer atomic.AddUint32(&h.writePumpActive, ^uint32(0))
+		h.writePumpActive.Add(1)
+		defer h.writePumpActive.Add(-1)
 		client.WritePump()
 	}(h)
 	go func(h *Hub) {
-		atomic.AddUint32(&h.readPumpActive, 1)
-		defer atomic.AddUint32(&h.readPumpActive, ^uint32(0))
+		h.readPumpActive.Add(1)
+		defer h.readPumpActive.Add(-1)
 		client.ReadPump()
 	}(h)
 }

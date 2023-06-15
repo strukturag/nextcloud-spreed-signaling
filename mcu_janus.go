@@ -132,9 +132,6 @@ type clientInterface interface {
 }
 
 type mcuJanus struct {
-	// 64-bit members that are accessed atomically must be 64-bit aligned.
-	clientId uint64
-
 	url string
 	mu  sync.Mutex
 
@@ -150,6 +147,7 @@ type mcuJanus struct {
 
 	muClients sync.Mutex
 	clients   map[clientInterface]bool
+	clientId  atomic.Uint64
 
 	publishers         map[string]*mcuJanusPublisher
 	publisherCreated   Notifier
@@ -799,7 +797,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 			mcu:      m,
 			listener: listener,
 
-			id:         atomic.AddUint64(&m.clientId, 1),
+			id:         m.clientId.Add(1),
 			session:    session,
 			roomId:     roomId,
 			sid:        sid,
@@ -1040,7 +1038,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 			mcu:      m,
 			listener: listener,
 
-			id:         atomic.AddUint64(&m.clientId, 1),
+			id:         m.clientId.Add(1),
 			roomId:     pub.roomId,
 			sid:        strconv.FormatUint(handle.Id, 10),
 			streamType: streamType,

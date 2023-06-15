@@ -81,8 +81,8 @@ const (
 )
 
 type Stats struct {
-	numRecvMessages   uint64
-	numSentMessages   uint64
+	numRecvMessages   atomic.Uint64
+	numSentMessages   atomic.Uint64
 	resetRecvMessages uint64
 	resetSentMessages uint64
 
@@ -90,8 +90,8 @@ type Stats struct {
 }
 
 func (s *Stats) reset(start time.Time) {
-	s.resetRecvMessages = atomic.AddUint64(&s.numRecvMessages, 0)
-	s.resetSentMessages = atomic.AddUint64(&s.numSentMessages, 0)
+	s.resetRecvMessages = s.numRecvMessages.Load()
+	s.resetSentMessages = s.numSentMessages.Load()
 	s.start = start
 }
 
@@ -103,9 +103,9 @@ func (s *Stats) Log() {
 		return
 	}
 
-	totalSentMessages := atomic.AddUint64(&s.numSentMessages, 0)
+	totalSentMessages := s.numSentMessages.Load()
 	sentMessages := totalSentMessages - s.resetSentMessages
-	totalRecvMessages := atomic.AddUint64(&s.numRecvMessages, 0)
+	totalRecvMessages := s.numRecvMessages.Load()
 	recvMessages := totalRecvMessages - s.resetRecvMessages
 	log.Printf("Stats: sent=%d (%d/sec), recv=%d (%d/sec), delta=%d",
 		totalSentMessages, sentMessages/perSec,
@@ -125,7 +125,7 @@ type SignalingClient struct {
 	conn *websocket.Conn
 
 	stats  *Stats
-	closed uint32
+	closed atomic.Bool
 
 	stopChan chan struct{}
 
@@ -164,7 +164,7 @@ func NewSignalingClient(cookie *securecookie.SecureCookie, url string, stats *St
 }
 
 func (c *SignalingClient) Close() {
-	if !atomic.CompareAndSwapUint32(&c.closed, 0, 1) {
+	if !c.closed.CompareAndSwap(false, true) {
 		return
 	}
 
@@ -197,7 +197,7 @@ func (c *SignalingClient) Send(message *signaling.ClientMessage) {
 }
 
 func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
-	atomic.AddUint64(&c.stats.numRecvMessages, 1)
+	c.stats.numRecvMessages.Add(1)
 	switch message.Type {
 	case "hello":
 		c.processHelloMessage(message)
@@ -334,7 +334,7 @@ func (c *SignalingClient) writeInternal(message *signaling.ClientMessage) bool {
 	}
 
 	writer.Close()
-	atomic.AddUint64(&c.stats.numSentMessages, 1)
+	c.stats.numSentMessages.Add(1)
 	return true
 
 close:
@@ -383,7 +383,7 @@ func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
 		sessionIds[c] = c.PublicSessionId()
 	}
 
-	for atomic.LoadUint32(&c.closed) == 0 {
+	for !c.closed.Load() {
 		now := time.Now()
 
 		sender := c

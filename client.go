@@ -30,7 +30,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
@@ -108,11 +107,11 @@ type Client struct {
 	addr    string
 	handler ClientHandler
 	agent   string
-	closed  uint32
+	closed  atomic.Int32
 	country *string
 	logRTT  bool
 
-	session unsafe.Pointer
+	session atomic.Pointer[ClientSession]
 
 	mu sync.Mutex
 
@@ -150,7 +149,7 @@ func (c *Client) SetConn(conn *websocket.Conn, remoteAddress string, handler Cli
 }
 
 func (c *Client) IsConnected() bool {
-	return atomic.LoadUint32(&c.closed) == 0
+	return c.closed.Load() == 0
 }
 
 func (c *Client) IsAuthenticated() bool {
@@ -158,11 +157,11 @@ func (c *Client) IsAuthenticated() bool {
 }
 
 func (c *Client) GetSession() *ClientSession {
-	return (*ClientSession)(atomic.LoadPointer(&c.session))
+	return c.session.Load()
 }
 
 func (c *Client) SetSession(session *ClientSession) {
-	atomic.StorePointer(&c.session, unsafe.Pointer(session))
+	c.session.Store(session)
 }
 
 func (c *Client) RemoteAddr() string {
@@ -188,7 +187,7 @@ func (c *Client) Country() string {
 }
 
 func (c *Client) Close() {
-	if atomic.LoadUint32(&c.closed) >= 2 {
+	if c.closed.Load() >= 2 {
 		// Prevent reentrant call in case this was the second closing
 		// step. Would otherwise deadlock in the "Once.Do" call path
 		// through "Hub.processUnregister" (which calls "Close" again).
@@ -201,7 +200,7 @@ func (c *Client) Close() {
 }
 
 func (c *Client) doClose() {
-	closed := atomic.AddUint32(&c.closed, 1)
+	closed := c.closed.Add(1)
 	if closed == 1 {
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -329,7 +328,7 @@ func (c *Client) ReadPump() {
 		}
 
 		// Stop processing if the client was closed.
-		if atomic.LoadUint32(&c.closed) != 0 {
+		if !c.IsConnected() {
 			bufferPool.Put(decodeBuffer)
 			break
 		}

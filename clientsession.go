@@ -31,7 +31,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/pion/sdp/v3"
 )
@@ -50,9 +49,6 @@ var (
 type ResponseHandlerFunc func(message *ClientMessage) bool
 
 type ClientSession struct {
-	roomJoinTime int64
-	inCall       uint32
-
 	hub       *Hub
 	events    AsyncEvents
 	privateId string
@@ -64,6 +60,7 @@ type ClientSession struct {
 	userId     string
 	userData   *json.RawMessage
 
+	inCall              atomic.Uint32
 	supportsPermissions bool
 	permissions         map[Permission]bool
 
@@ -76,7 +73,8 @@ type ClientSession struct {
 	mu sync.Mutex
 
 	client        *Client
-	room          unsafe.Pointer
+	room          atomic.Pointer[Room]
+	roomJoinTime  atomic.Int64
 	roomSessionId string
 
 	publisherWaiters ChannelWaiters
@@ -171,7 +169,7 @@ func (s *ClientSession) ClientType() string {
 
 // GetInCall is only used for internal clients.
 func (s *ClientSession) GetInCall() int {
-	return int(atomic.LoadUint32(&s.inCall))
+	return int(s.inCall.Load())
 }
 
 func (s *ClientSession) SetInCall(inCall int) bool {
@@ -180,12 +178,12 @@ func (s *ClientSession) SetInCall(inCall int) bool {
 	}
 
 	for {
-		old := atomic.LoadUint32(&s.inCall)
+		old := s.inCall.Load()
 		if old == uint32(inCall) {
 			return false
 		}
 
-		if atomic.CompareAndSwapUint32(&s.inCall, old, uint32(inCall)) {
+		if s.inCall.CompareAndSwap(old, uint32(inCall)) {
 			return true
 		}
 	}
@@ -340,11 +338,11 @@ func (s *ClientSession) IsExpired(now time.Time) bool {
 }
 
 func (s *ClientSession) SetRoom(room *Room) {
-	atomic.StorePointer(&s.room, unsafe.Pointer(room))
+	s.room.Store(room)
 	if room != nil {
-		atomic.StoreInt64(&s.roomJoinTime, time.Now().UnixNano())
+		s.roomJoinTime.Store(time.Now().UnixNano())
 	} else {
-		atomic.StoreInt64(&s.roomJoinTime, 0)
+		s.roomJoinTime.Store(0)
 	}
 
 	s.seenJoinedLock.Lock()
@@ -353,11 +351,11 @@ func (s *ClientSession) SetRoom(room *Room) {
 }
 
 func (s *ClientSession) GetRoom() *Room {
-	return (*Room)(atomic.LoadPointer(&s.room))
+	return s.room.Load()
 }
 
 func (s *ClientSession) getRoomJoinTime() time.Time {
-	t := atomic.LoadInt64(&s.roomJoinTime)
+	t := s.roomJoinTime.Load()
 	if t == 0 {
 		return time.Time{}
 	}

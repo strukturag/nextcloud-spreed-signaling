@@ -192,9 +192,9 @@ func TestCapabilities(t *testing.T) {
 }
 
 func TestInvalidateCapabilities(t *testing.T) {
-	var called uint32
+	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse) {
-		atomic.AddUint32(&called, 1)
+		called.Add(1)
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -209,7 +209,7 @@ func TestInvalidateCapabilities(t *testing.T) {
 		t.Errorf("expected direct response")
 	}
 
-	if value := atomic.LoadUint32(&called); value != 1 {
+	if value := called.Load(); value != 1 {
 		t.Errorf("expected called %d, got %d", 1, value)
 	}
 
@@ -224,7 +224,7 @@ func TestInvalidateCapabilities(t *testing.T) {
 		t.Errorf("expected direct response")
 	}
 
-	if value := atomic.LoadUint32(&called); value != 2 {
+	if value := called.Load(); value != 2 {
 		t.Errorf("expected called %d, got %d", 2, value)
 	}
 
@@ -239,7 +239,7 @@ func TestInvalidateCapabilities(t *testing.T) {
 		t.Errorf("expected cached response")
 	}
 
-	if value := atomic.LoadUint32(&called); value != 2 {
+	if value := called.Load(); value != 2 {
 		t.Errorf("expected called %d, got %d", 2, value)
 	}
 
@@ -258,7 +258,7 @@ func TestInvalidateCapabilities(t *testing.T) {
 		t.Errorf("expected direct response")
 	}
 
-	if value := atomic.LoadUint32(&called); value != 3 {
+	if value := called.Load(); value != 3 {
 		t.Errorf("expected called %d, got %d", 3, value)
 	}
 }

@@ -42,7 +42,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -279,8 +278,8 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 		h.ru.Lock()
 		rooms := len(h.rooms)
 		h.ru.Unlock()
-		readActive := atomic.LoadUint32(&h.readPumpActive)
-		writeActive := atomic.LoadUint32(&h.writePumpActive)
+		readActive := h.readPumpActive.Load()
+		writeActive := h.writePumpActive.Load()
 		if clients == 0 && rooms == 0 && sessions == 0 && readActive == 0 && writeActive == 0 {
 			break
 		}
@@ -1631,7 +1630,7 @@ func TestClientHelloResumeOtherHub(t *testing.T) {
 	}
 
 	// Simulate a restart of the hub.
-	atomic.StoreUint64(&hub.sid, 0)
+	hub.sid.Store(0)
 	sessions := make([]Session, 0)
 	hub.mu.Lock()
 	for _, session := range hub.sessions {

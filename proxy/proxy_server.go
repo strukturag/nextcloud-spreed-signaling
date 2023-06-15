@@ -82,25 +82,23 @@ var (
 )
 
 type ProxyServer struct {
-	// 64-bit members that are accessed atomically must be 64-bit aligned.
-	load int64
-
 	version string
 	country string
 
 	url     string
 	mcu     signaling.Mcu
-	stopped uint32
+	stopped atomic.Bool
+	load    atomic.Int64
 
 	shutdownChannel   chan struct{}
-	shutdownScheduled uint32
+	shutdownScheduled atomic.Bool
 
 	upgrader websocket.Upgrader
 
 	tokens          ProxyTokens
 	statsAllowedIps *signaling.AllowedIps
 
-	sid          uint64
+	sid          atomic.Uint64
 	cookie       *securecookie.SecureCookie
 	sessions     map[uint64]*ProxySession
 	sessionsLock sync.RWMutex
@@ -279,12 +277,12 @@ loop:
 	for {
 		select {
 		case <-updateLoadTicker.C:
-			if atomic.LoadUint32(&s.stopped) != 0 {
+			if s.stopped.Load() {
 				break loop
 			}
 			s.updateLoad()
 		case <-expireSessionsTicker.C:
-			if atomic.LoadUint32(&s.stopped) != 0 {
+			if s.stopped.Load() {
 				break loop
 			}
 			s.expireSessions()
@@ -296,12 +294,12 @@ func (s *ProxyServer) updateLoad() {
 	// TODO: Take maximum bandwidth of clients into account when calculating
 	// load (screensharing requires more than regular audio/video).
 	load := s.GetClientCount()
-	if load == atomic.LoadInt64(&s.load) {
+	if load == s.load.Load() {
 		return
 	}
 
-	atomic.StoreInt64(&s.load, load)
-	if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+	s.load.Store(load)
+	if s.shutdownScheduled.Load() {
 		// Server is scheduled to shutdown, no need to update clients with current load.
 		return
 	}
@@ -349,7 +347,7 @@ func (s *ProxyServer) expireSessions() {
 }
 
 func (s *ProxyServer) Stop() {
-	if !atomic.CompareAndSwapUint32(&s.stopped, 0, 1) {
+	if !s.stopped.CompareAndSwap(false, true) {
 		return
 	}
 
@@ -364,7 +362,7 @@ func (s *ProxyServer) ShutdownChannel() <-chan struct{} {
 }
 
 func (s *ProxyServer) ScheduleShutdown() {
-	if !atomic.CompareAndSwapUint32(&s.shutdownScheduled, 0, 1) {
+	if !s.shutdownScheduled.CompareAndSwap(false, true) {
 		return
 	}
 
@@ -449,7 +447,7 @@ func (s *ProxyServer) onMcuConnected() {
 }
 
 func (s *ProxyServer) onMcuDisconnected() {
-	if atomic.LoadUint32(&s.stopped) != 0 {
+	if s.stopped.Load() {
 		// Shutting down, no need to notify.
 		return
 	}
@@ -473,7 +471,7 @@ func (s *ProxyServer) sendCurrentLoad(session *ProxySession) {
 		Type: "event",
 		Event: &signaling.EventProxyServerMessage{
 			Type: "update-load",
-			Load: atomic.LoadInt64(&s.load),
+			Load: s.load.Load(),
 		},
 	}
 	session.sendMessage(msg)
@@ -535,7 +533,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 
 			log.Printf("Resumed session %s", session.PublicId())
 			session.MarkUsed()
-			if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+			if s.shutdownScheduled.Load() {
 				s.sendShutdownScheduled(session)
 			} else {
 				s.sendCurrentLoad(session)
@@ -576,7 +574,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			},
 		}
 		client.SendMessage(response)
-		if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+		if s.shutdownScheduled.Load() {
 			s.sendShutdownScheduled(session)
 		} else {
 			s.sendCurrentLoad(session)
@@ -610,7 +608,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 
 	switch cmd.Type {
 	case "create-publisher":
-		if atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+		if s.shutdownScheduled.Load() {
 			session.sendMessage(message.NewErrorServerMessage(ShutdownScheduled))
 			return
 		}
@@ -873,9 +871,9 @@ func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*Pro
 		return nil, TokenExpired
 	}
 
-	sid := atomic.AddUint64(&s.sid, 1)
+	sid := s.sid.Add(1)
 	for sid == 0 {
-		sid = atomic.AddUint64(&s.sid, 1)
+		sid = s.sid.Add(1)
 	}
 
 	sessionIdData := &signaling.SessionIdData{
@@ -954,7 +952,7 @@ func (s *ProxyServer) DeleteClient(id string, client signaling.McuClient) bool {
 	delete(s.clients, id)
 	delete(s.clientIds, client.Id())
 
-	if len(s.clients) == 0 && atomic.LoadUint32(&s.shutdownScheduled) != 0 {
+	if len(s.clients) == 0 && s.shutdownScheduled.Load() {
 		go close(s.shutdownChannel)
 	}
 	return true
@@ -981,7 +979,7 @@ func (s *ProxyServer) GetClientId(client signaling.McuClient) string {
 func (s *ProxyServer) getStats() map[string]interface{} {
 	result := map[string]interface{}{
 		"sessions": s.GetSessionsCount(),
-		"load":     atomic.LoadInt64(&s.load),
+		"load":     s.load.Load(),
 		"mcu":      s.mcu.GetStats(),
 	}
 	return result
