@@ -150,6 +150,8 @@ func (s *ClientSession) PublicId() string {
 }
 
 func (s *ClientSession) RoomSessionId() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.roomSessionId
 }
 
@@ -1022,10 +1024,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 		return
 	case "message":
 		if message.Message.Type == "bye" && message.Message.Bye.Reason == "room_session_reconnected" {
-			s.mu.Lock()
-			roomSessionId := s.RoomSessionId()
-			s.mu.Unlock()
-			log.Printf("Closing session %s because same room session %s connected", s.PublicId(), roomSessionId)
+			log.Printf("Closing session %s because same room session %s connected", s.PublicId(), s.RoomSessionId())
 			s.LeaveRoom(false)
 			defer s.closeAndWait(false)
 		}
