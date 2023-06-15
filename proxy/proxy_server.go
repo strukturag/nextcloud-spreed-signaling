@@ -92,7 +92,7 @@ type ProxyServer struct {
 	mcu     signaling.Mcu
 	stopped uint32
 
-	shutdownChannel   chan bool
+	shutdownChannel   chan struct{}
 	shutdownScheduled uint32
 
 	upgrader websocket.Upgrader
@@ -167,7 +167,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		version: version,
 		country: country,
 
-		shutdownChannel: make(chan bool, 1),
+		shutdownChannel: make(chan struct{}),
 
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  websocketReadBufferSize,
@@ -359,7 +359,7 @@ func (s *ProxyServer) Stop() {
 	s.tokens.Close()
 }
 
-func (s *ProxyServer) ShutdownChannel() chan bool {
+func (s *ProxyServer) ShutdownChannel() <-chan struct{} {
 	return s.shutdownChannel
 }
 
@@ -379,9 +379,7 @@ func (s *ProxyServer) ScheduleShutdown() {
 	})
 
 	if s.GetClientCount() == 0 {
-		go func() {
-			s.shutdownChannel <- true
-		}()
+		go close(s.shutdownChannel)
 	}
 }
 
@@ -957,9 +955,7 @@ func (s *ProxyServer) DeleteClient(id string, client signaling.McuClient) bool {
 	delete(s.clientIds, client.Id())
 
 	if len(s.clients) == 0 && atomic.LoadUint32(&s.shutdownScheduled) != 0 {
-		go func() {
-			s.shutdownChannel <- true
-		}()
+		go close(s.shutdownChannel)
 	}
 	return true
 }

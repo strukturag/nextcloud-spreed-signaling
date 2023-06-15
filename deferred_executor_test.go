@@ -69,13 +69,13 @@ func TestDeferredExecutor_Order(t *testing.T) {
 		}
 	}
 
-	done := make(chan bool)
+	done := make(chan struct{})
 	for x := 0; x < 10; x++ {
 		e.Execute(getFunc(x))
 	}
 
 	e.Execute(func() {
-		done <- true
+		close(done)
 	})
 	<-done
 
@@ -90,10 +90,10 @@ func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
 	e := NewDeferredExecutor(64)
 	defer e.waitForStop()
 
-	done := make(chan bool)
+	done := make(chan struct{})
 	e.Execute(func() {
+		defer close(done)
 		e.Close()
-		done <- true
 	})
 
 	<-done

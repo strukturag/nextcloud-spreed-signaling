@@ -44,7 +44,7 @@ type backendStorageEtcd struct {
 	initializedCtx       context.Context
 	initializedFunc      context.CancelFunc
 	initializedWg        sync.WaitGroup
-	wakeupChanForTesting chan bool
+	wakeupChanForTesting chan struct{}
 }
 
 func NewBackendStorageEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient) (BackendStorage, error) {
@@ -83,20 +83,13 @@ func (s *backendStorageEtcd) WaitForInitialized(ctx context.Context) error {
 	}
 }
 
-func (s *backendStorageEtcd) SetWakeupForTesting(ch chan bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.wakeupChanForTesting = ch
-}
-
 func (s *backendStorageEtcd) wakeupForTesting() {
 	if s.wakeupChanForTesting == nil {
 		return
 	}
 
 	select {
-	case s.wakeupChanForTesting <- true:
+	case s.wakeupChanForTesting <- struct{}{}:
 	default:
 	}
 }

@@ -36,6 +36,16 @@ import (
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
+func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
+	if c.wakeupChanForTesting != nil {
+		return c.wakeupChanForTesting
+	}
+
+	ch := make(chan struct{}, 1)
+	c.wakeupChanForTesting = ch
+	return ch
+}
+
 func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient) *GrpcClients {
 	client, err := NewGrpcClients(config, etcdClient)
 	if err != nil {
@@ -76,7 +86,7 @@ func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) *GrpcClients 
 	return NewGrpcClientsForTestWithConfig(t, config, etcdClient)
 }
 
-func drainWakeupChannel(ch chan bool) {
+func drainWakeupChannel(ch <-chan struct{}) {
 	for {
 		select {
 		case <-ch:
@@ -86,7 +96,7 @@ func drainWakeupChannel(ch chan bool) {
 	}
 }
 
-func waitForEvent(ctx context.Context, t *testing.T, ch chan bool) {
+func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 	t.Helper()
 
 	select {
@@ -121,8 +131,7 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) {
 func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	etcd := NewEtcdForTest(t)
 	client := NewGrpcClientsWithEtcdForTest(t, etcd)
-	ch := make(chan bool, 1)
-	client.wakeupChanForTesting = ch
+	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -176,8 +185,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	etcd := NewEtcdForTest(t)
 	client := NewGrpcClientsWithEtcdForTest(t, etcd)
-	ch := make(chan bool, 1)
-	client.wakeupChanForTesting = ch
+	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -234,8 +242,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 	targetWithIp2 := fmt.Sprintf("%s (%s)", target, ip2)
 	ipsResult = []net.IP{ip1}
 	client := NewGrpcClientsForTest(t, target)
-	ch := make(chan bool, 1)
-	client.wakeupChanForTesting = ch
+	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -296,8 +303,7 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 	ip1 := net.ParseIP("192.168.0.1")
 	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
 	client := NewGrpcClientsForTest(t, target)
-	ch := make(chan bool, 1)
-	client.wakeupChanForTesting = ch
+	ch := client.getWakeupChannelForTesting()
 
 	testCtx, testCtxCancel := context.WithTimeout(context.Background(), testTimeout)
 	defer testCtxCancel()

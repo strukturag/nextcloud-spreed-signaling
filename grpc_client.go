@@ -269,8 +269,8 @@ type GrpcClients struct {
 	clients    []*GrpcClient
 
 	dnsDiscovery bool
-	stopping     chan bool
-	stopped      chan bool
+	stopping     chan struct{}
+	stopped      chan struct{}
 
 	etcdClient        *EtcdClient
 	targetPrefix      string
@@ -280,7 +280,7 @@ type GrpcClients struct {
 	initializedCtx       context.Context
 	initializedFunc      context.CancelFunc
 	initializedWg        sync.WaitGroup
-	wakeupChanForTesting chan bool
+	wakeupChanForTesting chan struct{}
 	selfCheckWaitGroup   sync.WaitGroup
 }
 
@@ -291,8 +291,8 @@ func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcCli
 		initializedCtx:  initializedCtx,
 		initializedFunc: initializedFunc,
 
-		stopping: make(chan bool, 1),
-		stopped:  make(chan bool, 1),
+		stopping: make(chan struct{}, 1),
+		stopped:  make(chan struct{}, 1),
 	}
 	if err := result.load(config, false); err != nil {
 		return nil, err
@@ -480,7 +480,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 	dnsDiscovery, _ := config.GetBool("grpc", "dnsdiscovery")
 	if dnsDiscovery != c.dnsDiscovery {
 		if !dnsDiscovery && fromReload {
-			c.stopping <- true
+			c.stopping <- struct{}{}
 			<-c.stopped
 		}
 		c.dnsDiscovery = dnsDiscovery
@@ -504,7 +504,7 @@ func (c *GrpcClients) monitorGrpcIPs() {
 		case <-ticker.C:
 			c.updateGrpcIPs()
 		case <-c.stopping:
-			c.stopped <- true
+			c.stopped <- struct{}{}
 			return
 		}
 	}
@@ -746,7 +746,7 @@ func (c *GrpcClients) wakeupForTesting() {
 	}
 
 	select {
-	case c.wakeupChanForTesting <- true:
+	case c.wakeupChanForTesting <- struct{}{}:
 	default:
 	}
 }
@@ -772,7 +772,7 @@ func (c *GrpcClients) Close() {
 	c.clients = nil
 	c.clientsMap = nil
 	if c.dnsDiscovery {
-		c.stopping <- true
+		c.stopping <- struct{}{}
 		<-c.stopped
 		c.dnsDiscovery = false
 	}

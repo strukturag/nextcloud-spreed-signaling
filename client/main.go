@@ -127,7 +127,7 @@ type SignalingClient struct {
 	stats  *Stats
 	closed uint32
 
-	stopChan chan bool
+	stopChan chan struct{}
 
 	lock             sync.Mutex
 	privateSessionId string
@@ -149,7 +149,7 @@ func NewSignalingClient(cookie *securecookie.SecureCookie, url string, stats *St
 
 		stats: stats,
 
-		stopChan: make(chan bool),
+		stopChan: make(chan struct{}),
 	}
 	doneWg.Add(2)
 	go func() {
@@ -169,10 +169,7 @@ func (c *SignalingClient) Close() {
 	}
 
 	// Signal writepump to terminate
-	select {
-	case c.stopChan <- true:
-	default:
-	}
+	close(c.stopChan)
 
 	c.lock.Lock()
 	c.publicSessionId = ""
