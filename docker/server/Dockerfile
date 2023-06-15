@@ -6,8 +6,8 @@ WORKDIR /workdir
 
 COPY . .
 RUN apk add --no-cache bash git build-base protobuf && \
-    if [ -d "vendor" ]; then GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=off make server -j$(nproc); else \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make server -j$(nproc); fi
+    if [ -d "vendor" ]; then GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=off make server; else \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make server; fi
 
 FROM alpine:3
 
