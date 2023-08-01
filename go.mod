@@ -13,7 +13,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.9.20
 	github.com/nats-io/nats.go v1.28.0
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
-	github.com/oschwald/maxminddb-golang v1.11.0
+	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/pion/sdp/v3 v3.0.6
 	github.com/prometheus/client_golang v1.16.0
 	go.etcd.io/etcd/api/v3 v3.5.9
@@ -76,7 +76,7 @@ require (
 	go.uber.org/zap v1.17.0 // indirect
 	golang.org/x/crypto v0.9.0 // indirect
 	golang.org/x/net v0.10.0 // indirect
-	golang.org/x/sys v0.9.0 // indirect
+	golang.org/x/sys v0.10.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	google.golang.org/genproto v0.0.0-20230526161137-0005af68ea54 // indirect
