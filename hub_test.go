@@ -5229,3 +5229,40 @@ func TestSwitchToMultipleMixed(t *testing.T) {
 		"foo": "bar",
 	}, nil)
 }
+
+func TestGeoipOverrides(t *testing.T) {
+	country1 := "DE"
+	country2 := "IT"
+	country3 := "site1"
+	hub, _, _, _ := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+		conf, err := getTestConfig(server)
+		if err != nil {
+			return nil, err
+		}
+
+		conf.AddOption("geoip-overrides", "10.1.0.0/16", country1)
+		conf.AddOption("geoip-overrides", "10.2.0.0/16", country2)
+		conf.AddOption("geoip-overrides", "192.168.10.20", country3)
+		return conf, err
+	})
+
+	if country := hub.OnLookupCountry(&Client{addr: "127.0.0.1"}); country != loopback {
+		t.Errorf("expected country %s, got %s", loopback, country)
+	}
+
+	if country := hub.OnLookupCountry(&Client{addr: "8.8.8.8"}); country != unknownCountry {
+		t.Errorf("expected country %s, got %s", unknownCountry, country)
+	}
+
+	if country := hub.OnLookupCountry(&Client{addr: "10.1.1.2"}); country != country1 {
+		t.Errorf("expected country %s, got %s", country1, country)
+	}
+
+	if country := hub.OnLookupCountry(&Client{addr: "10.2.1.2"}); country != country2 {
+		t.Errorf("expected country %s, got %s", country2, country)
+	}
+
+	if country := hub.OnLookupCountry(&Client{addr: "192.168.10.20"}); country != strings.ToUpper(country3) {
+		t.Errorf("expected country %s, got %s", strings.ToUpper(country3), country)
+	}
+}
