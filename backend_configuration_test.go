@@ -617,3 +617,54 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 		t.Errorf("Should have removed host information for %s", "domain1.invalid")
 	}
 }
+
+func TestBackendCommonSecret(t *testing.T) {
+	u1, err := url.Parse("http://domain1.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u2, err := url.Parse("http://domain2.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original_config := goconf.NewConfigFile()
+	original_config.AddOption("backend", "backends", "backend1, backend2")
+	original_config.AddOption("backend", "secret", string(testBackendSecret))
+	original_config.AddOption("backend1", "url", u1.String())
+	original_config.AddOption("backend2", "url", u2.String())
+	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
+	cfg, err := NewBackendConfiguration(original_config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if b1 := cfg.GetBackend(u1); b1 == nil {
+		t.Error("didn't get backend")
+	} else if !bytes.Equal(b1.Secret(), testBackendSecret) {
+		t.Errorf("expected secret %s, got %s", string(testBackendSecret), string(b1.Secret()))
+	}
+	if b2 := cfg.GetBackend(u2); b2 == nil {
+		t.Error("didn't get backend")
+	} else if !bytes.Equal(b2.Secret(), []byte(string(testBackendSecret)+"-backend2")) {
+		t.Errorf("expected secret %s, got %s", string(testBackendSecret)+"-backend2", string(b2.Secret()))
+	}
+
+	updated_config := goconf.NewConfigFile()
+	updated_config.AddOption("backend", "backends", "backend1, backend2")
+	updated_config.AddOption("backend", "secret", string(testBackendSecret))
+	updated_config.AddOption("backend1", "url", u1.String())
+	updated_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
+	updated_config.AddOption("backend2", "url", u2.String())
+	cfg.Reload(updated_config)
+
+	if b1 := cfg.GetBackend(u1); b1 == nil {
+		t.Error("didn't get backend")
+	} else if !bytes.Equal(b1.Secret(), []byte(string(testBackendSecret)+"-backend1")) {
+		t.Errorf("expected secret %s, got %s", string(testBackendSecret)+"-backend1", string(b1.Secret()))
+	}
+	if b2 := cfg.GetBackend(u2); b2 == nil {
+		t.Error("didn't get backend")
+	} else if !bytes.Equal(b2.Secret(), testBackendSecret) {
+		t.Errorf("expected secret %s, got %s", string(testBackendSecret), string(b2.Secret()))
+	}
+}

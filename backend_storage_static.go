@@ -66,7 +66,7 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 		}
 		numBackends++
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
-		for host, configuredBackends := range getConfiguredHosts(backendIds, config) {
+		for host, configuredBackends := range getConfiguredHosts(backendIds, config, commonSecret) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
 				log.Printf("Backend %s added for %s", be.id, be.url)
@@ -196,7 +196,7 @@ func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	return ids
 }
 
-func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map[string][]*Backend) {
+func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
 	hosts = make(map[string][]*Backend)
 	for _, id := range getConfiguredBackendIDs(backendIds) {
 		u, _ := config.GetString(id, "url")
@@ -220,6 +220,10 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile) (hosts map
 		}
 
 		secret, _ := config.GetString(id, "secret")
+		if secret == "" && commonSecret != "" {
+			log.Printf("Backend %s has no own shared secret set, using common shared secret", id)
+			secret = commonSecret
+		}
 		if u == "" || secret == "" {
 			log.Printf("Backend %s is missing or incomplete, skipping", id)
 			continue
@@ -269,8 +273,10 @@ func (s *backendStorageStatic) Reload(config *goconf.ConfigFile) {
 		return
 	}
 
+	commonSecret, _ := config.GetString("backend", "secret")
+
 	if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
-		configuredHosts := getConfiguredHosts(backendIds, config)
+		configuredHosts := getConfiguredHosts(backendIds, config, commonSecret)
 
 		// remove backends that are no longer configured
 		for hostname := range s.backends {
