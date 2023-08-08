@@ -115,6 +115,10 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 		}
 	}
 
+	if numBackends == 0 {
+		log.Printf("WARNING: No backends configured, client connections will not be possible.")
+	}
+
 	statsBackendsCurrent.Add(float64(numBackends))
 	return &backendStorageStatic{
 		backendStorageCommon: backendStorageCommon{
