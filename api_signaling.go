@@ -24,6 +24,7 @@ package signaling
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"sort"
 	"strings"
@@ -220,9 +221,9 @@ func (r *ServerMessage) String() string {
 }
 
 type Error struct {
-	Code    string      `json:"code"`
-	Message string      `json:"message"`
-	Details interface{} `json:"details,omitempty"`
+	Code    string          `json:"code"`
+	Message string          `json:"message"`
+	Details json.RawMessage `json:"details,omitempty"`
 }
 
 func NewError(code string, message string) *Error {
@@ -230,10 +231,19 @@ func NewError(code string, message string) *Error {
 }
 
 func NewErrorDetail(code string, message string, details interface{}) *Error {
+	var rawDetails json.RawMessage
+	if details != nil {
+		var err error
+		if rawDetails, err = json.Marshal(details); err != nil {
+			log.Printf("Could not marshal details %+v for error %s with %s: %s", details, code, message, err)
+			return NewError("internal_error", "Could not marshal error details")
+		}
+	}
+
 	return &Error{
 		Code:    code,
 		Message: message,
-		Details: details,
+		Details: rawDetails,
 	}
 }
 
@@ -509,6 +519,10 @@ func (m *RoomClientMessage) CheckValid() error {
 type RoomServerMessage struct {
 	RoomId     string           `json:"roomid"`
 	Properties *json.RawMessage `json:"properties,omitempty"`
+}
+
+type RoomErrorDetails struct {
+	Room *RoomServerMessage `json:"room"`
 }
 
 // Type "message"

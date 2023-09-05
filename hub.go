@@ -1256,6 +1256,24 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 	if session != nil {
 		if room := h.getRoomForBackend(roomId, session.Backend()); room != nil && room.HasSession(session) {
 			// Session already is in that room, no action needed.
+			roomSessionId := message.Room.SessionId
+			if roomSessionId == "" {
+				// TODO(jojo): Better make the session id required in the request.
+				log.Printf("User did not send a room session id, assuming session %s", session.PublicId())
+				roomSessionId = session.PublicId()
+			}
+
+			if err := session.UpdateRoomSessionId(roomSessionId); err != nil {
+				log.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
+			}
+			session.SendMessage(message.NewErrorServerMessage(
+				NewErrorDetail("already_joined", "Already joined this room.", &RoomErrorDetails{
+					Room: &RoomServerMessage{
+						RoomId:     room.id,
+						Properties: room.properties,
+					},
+				}),
+			))
 			return
 		}
 	}

@@ -417,6 +417,36 @@ func (s *ClientSession) SubscribeEvents() error {
 	return s.events.RegisterSessionListener(s.publicId, s.backend, s)
 }
 
+func (s *ClientSession) UpdateRoomSessionId(roomSessionId string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.roomSessionId == roomSessionId {
+		return nil
+	}
+
+	if err := s.hub.roomSessions.SetRoomSession(s, roomSessionId); err != nil {
+		return err
+	}
+
+	if roomSessionId != "" {
+		if room := s.GetRoom(); room != nil {
+			log.Printf("Session %s updated room session id to %s in room %s", s.PublicId(), roomSessionId, room.Id())
+		} else {
+			log.Printf("Session %s updated room session id to %s in unknown room", s.PublicId(), roomSessionId)
+		}
+	} else {
+		if room := s.GetRoom(); room != nil {
+			log.Printf("Session %s cleared room session id in room %s", s.PublicId(), room.Id())
+		} else {
+			log.Printf("Session %s cleared room session id in unknown room", s.PublicId())
+		}
+	}
+
+	s.roomSessionId = roomSessionId
+	return nil
+}
+
 func (s *ClientSession) SubscribeRoomEvents(roomid string, roomSessionId string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
