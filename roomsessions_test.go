@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"encoding/json"
+	"errors"
 	"net/url"
 	"testing"
 	"time"
@@ -141,6 +142,21 @@ func testRoomSessions(t *testing.T, sessions RoomSessions) {
 	}
 	sessions.DeleteRoomSession(s1)
 	if sid, err := sessions.GetSessionId("room-session"); err != nil {
+		t.Errorf("Expected session id %s, got error %s", s2.PublicId(), err)
+	} else if sid != s2.PublicId() {
+		t.Errorf("Expected session id %s, got %s", s2.PublicId(), sid)
+	}
+
+	if err := sessions.SetRoomSession(s2, "room-session2"); err != nil {
+		t.Error(err)
+	}
+	if sid, err := sessions.GetSessionId("room-session"); err == nil {
+		t.Errorf("expected error %s, got sid %s", ErrNoSuchRoomSession, sid)
+	} else if !errors.Is(err, ErrNoSuchRoomSession) {
+		t.Errorf("expected %s, got %s", ErrNoSuchRoomSession, err)
+	}
+
+	if sid, err := sessions.GetSessionId("room-session2"); err != nil {
 		t.Errorf("Expected session id %s, got error %s", s2.PublicId(), err)
 	} else if sid != s2.PublicId() {
 		t.Errorf("Expected session id %s, got %s", s2.PublicId(), sid)

@@ -460,6 +460,26 @@ Message format (Server -> Client):
   the current room or the properties of a room change.
 
 
+Message format (Server -> Client if already joined before):
+
+    {
+      "id": "unique-request-id-from-request",
+      "type": "error",
+      "error": {
+        "code": "already_joined",
+        "message": "Human readable error message",
+        "details": {
+          "roomid": "the-room-id",
+          "properties": {
+            ...additional room properties...
+          }
+        }
+      }
+    }
+
+- Sent if a client tried to join a room it is already in.
+
+
 ### Backend validation
 
 Rooms are managed by the Nextcloud backend, so the signaling server has to

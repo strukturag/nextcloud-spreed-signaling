@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -56,6 +57,10 @@ const (
 	authAnonymousUserId = "anonymous-userid"
 
 	testTimeout = 10 * time.Second
+)
+
+var (
+	testRoomProperties = []byte("{\"prop1\":\"value1\"}")
 )
 
 var (
@@ -403,8 +408,9 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	response := &BackendClientResponse{
 		Type: "room",
 		Room: &BackendClientRoomResponse{
-			Version: BackendVersion,
-			RoomId:  request.Room.RoomId,
+			Version:    BackendVersion,
+			RoomId:     request.Room.RoomId,
+			Properties: (*json.RawMessage)(&testRoomProperties),
 		},
 	}
 	switch request.Room.RoomId {
@@ -2625,6 +2631,83 @@ func TestJoinRoom(t *testing.T) {
 		t.Fatal(err)
 	} else if room.Room.RoomId != "" {
 		t.Fatalf("Expected empty room, got %s", room.Room.RoomId)
+	}
+}
+
+func TestJoinRoomTwice(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Join room by id.
+	roomId := "test-room"
+	if room, err := client.JoinRoom(ctx, roomId); err != nil {
+		t.Fatal(err)
+	} else if room.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+	} else if !bytes.Equal(testRoomProperties, *room.Room.Properties) {
+		t.Fatalf("Expected room properties %s, got %s", string(testRoomProperties), string(*room.Room.Properties))
+	}
+
+	// We will receive a "joined" event.
+	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
+		t.Error(err)
+	}
+
+	msg := &ClientMessage{
+		Id:   "ABCD",
+		Type: "room",
+		Room: &RoomClientMessage{
+			RoomId:    roomId,
+			SessionId: roomId + "-" + client.publicId + "-2",
+		},
+	}
+	if err := client.WriteJSON(msg); err != nil {
+		t.Fatal(err)
+	}
+
+	message, err := client.RunUntilMessage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkUnexpectedClose(err); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg.Id != message.Id {
+		t.Errorf("expected message id %s, got %s", msg.Id, message.Id)
+	} else if err := checkMessageType(message, "error"); err != nil {
+		t.Fatal(err)
+	} else if expected := "already_joined"; message.Error.Code != expected {
+		t.Errorf("expected error %s, got %s", expected, message.Error.Code)
+	} else if message.Error.Details == nil {
+		t.Fatal("expected error details")
+	}
+
+	var roomMsg RoomErrorDetails
+	if err := json.Unmarshal(message.Error.Details, &roomMsg); err != nil {
+		t.Fatal(err)
+	} else if roomMsg.Room == nil {
+		t.Fatalf("expected room details, got %+v", message)
+	}
+
+	if roomMsg.Room.RoomId != roomId {
+		t.Fatalf("Expected room %s, got %+v", roomId, roomMsg.Room)
+	} else if !bytes.Equal(testRoomProperties, *roomMsg.Room.Properties) {
+		t.Fatalf("Expected room properties %s, got %s", string(testRoomProperties), string(*roomMsg.Room.Properties))
 	}
 }
 

@@ -56,6 +56,14 @@ func (r *BuiltinRoomSessions) SetRoomSession(session Session, roomSessionId stri
 		r.mu.Lock()
 		defer r.mu.Unlock()
 
+		if prev, found := r.sessionIdToRoomSession[sid]; found {
+			if prev == roomSessionId {
+				return nil
+			}
+
+			delete(r.roomSessionToSessionid, prev)
+		}
+
 		r.sessionIdToRoomSession[sid] = roomSessionId
 		r.roomSessionToSessionid[roomSessionId] = sid
 	}
