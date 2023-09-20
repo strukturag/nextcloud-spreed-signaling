@@ -1772,6 +1772,10 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		return
 	}
 
+	if session.ProcessResponse(message) {
+		return
+	}
+
 	switch msg.Type {
 	case "addsession":
 		msg := msg.AddSession
@@ -1922,6 +1926,18 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 			if room := session.GetRoom(); room != nil {
 				room.NotifySessionChanged(session, SessionChangeInCall)
 			}
+		}
+	case "dialout":
+		roomId := msg.Dialout.RoomId
+		msg.Dialout.RoomId = "" // Don't send room id to recipients.
+		if err := h.events.PublishRoomMessage(roomId, session.Backend(), &AsyncMessage{
+			Type: "message",
+			Message: &ServerMessage{
+				Type:    "dialout",
+				Dialout: msg.Dialout,
+			},
+		}); err != nil {
+			log.Printf("Error publishing dialout message %+v to room %s", msg.Dialout, roomId)
 		}
 	default:
 		log.Printf("Ignore unsupported internal message %+v from %s", msg, session.PublicId())

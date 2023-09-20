@@ -46,6 +46,9 @@ var (
 	PathToOcsSignalingBackend = "ocs/v2.php/apps/spreed/api/v1/signaling/backend"
 )
 
+// ResponseHandlerFunc will return "true" has been fully processed.
+type ResponseHandlerFunc func(message *ClientMessage) bool
+
 type ClientSession struct {
 	roomJoinTime int64
 	inCall       uint32
@@ -89,6 +92,9 @@ type ClientSession struct {
 
 	seenJoinedLock   sync.Mutex
 	seenJoinedEvents map[string]bool
+
+	responseHandlersLock sync.Mutex
+	responseHandlers     map[string]ResponseHandlerFunc
 }
 
 func NewClientSession(hub *Hub, privateId string, publicId string, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
@@ -1419,4 +1425,39 @@ func (s *ClientSession) GetVirtualSessions() []*VirtualSession {
 		result = append(result, session)
 	}
 	return result
+}
+
+func (s *ClientSession) HandleResponse(id string, handler ResponseHandlerFunc) {
+	s.responseHandlersLock.Lock()
+	defer s.responseHandlersLock.Unlock()
+
+	if s.responseHandlers == nil {
+		s.responseHandlers = make(map[string]ResponseHandlerFunc)
+	}
+
+	s.responseHandlers[id] = handler
+}
+
+func (s *ClientSession) ClearResponseHandler(id string) {
+	s.responseHandlersLock.Lock()
+	defer s.responseHandlersLock.Unlock()
+
+	delete(s.responseHandlers, id)
+}
+
+func (s *ClientSession) ProcessResponse(message *ClientMessage) bool {
+	id := message.Id
+	if id == "" {
+		return false
+	}
+
+	s.responseHandlersLock.Lock()
+	cb, found := s.responseHandlers[id]
+	defer s.responseHandlersLock.Unlock()
+
+	if !found {
+		return false
+	}
+
+	return cb(message)
 }

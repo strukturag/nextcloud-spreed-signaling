@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -104,6 +105,8 @@ type BackendServerRoomRequest struct {
 
 	SwitchTo *BackendRoomSwitchToMessageRequest `json:"switchto,omitempty"`
 
+	Dialout *BackendRoomDialoutRequest `json:"dialout,omitempty"`
+
 	// Internal properties
 	ReceivedTime int64 `json:"received,omitempty"`
 }
@@ -168,6 +171,50 @@ type BackendRoomSwitchToMessageRequest struct {
 	// Internal properties
 	SessionsList BackendRoomSwitchToSessionsList `json:"sessionslist,omitempty"`
 	SessionsMap  BackendRoomSwitchToSessionsMap  `json:"sessionsmap,omitempty"`
+}
+
+type BackendRoomDialoutRequest struct {
+	// E.164 number to dial (e.g. "+1234567890")
+	Number string `json:"number"`
+
+	Options json.RawMessage `json:"options,omitempty"`
+}
+
+var (
+	checkE164Number = regexp.MustCompile(`^\+\d{2,}$`)
+)
+
+func isValidNumber(s string) bool {
+	return checkE164Number.MatchString(s)
+}
+
+func (r *BackendRoomDialoutRequest) ValidateNumber() *Error {
+	if r.Number == "" {
+		return NewError("number_missing", "No number provided")
+	}
+
+	if !isValidNumber(r.Number) {
+		return NewError("invalid_number", "Expected E.164 number.")
+	}
+
+	return nil
+}
+
+type BackendServerRoomResponse struct {
+	Type string `json:"type"`
+
+	Dialout *BackendRoomDialoutResponse `json:"dialout,omitempty"`
+}
+
+type BackendRoomDialoutError struct {
+	Code    string `json:"code"`
+	Message string `json:"message,omitempty"`
+}
+
+type BackendRoomDialoutResponse struct {
+	CallId string `json:"callid,omitempty"`
+
+	Error *Error `json:"error,omitempty"`
 }
 
 // Requests from the signaling server to the Nextcloud backend.
