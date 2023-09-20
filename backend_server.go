@@ -674,15 +674,11 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, request *B
 		return returnDialoutError(http.StatusBadRequest, err)
 	}
 
-	// TODO: Add direct lookup of internal sessions that are not in a room and support dialout.
 	var session *ClientSession
-	for _, s := range b.hub.sessions {
-		if s.GetRoom() == nil && s.ClientType() == HelloClientTypeInternal {
-			clientSession, ok := s.(*ClientSession)
-			if ok && clientSession.GetClient() != nil && clientSession.HasFeature(ClientFeatureStartDialout) {
-				session = clientSession
-				break
-			}
+	for s := range b.hub.dialoutSessions {
+		if s.GetClient() != nil {
+			session = s
+			break
 		}
 	}
 	if session == nil {
