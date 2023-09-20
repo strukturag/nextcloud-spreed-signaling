@@ -1207,3 +1207,49 @@ Message format (Server -> Client):
 
 Clients are expected to follow the `switchto` message. If clients don't switch
 to the target room after some time, they might get disconnected.
+
+
+### Start dialout from a room
+
+Use this to start a phone dialout to a new user in a given room.
+
+Message format (Backend -> Server)
+
+    {
+      "type": "dialout"
+      "dialout" {
+        "number": "e164-target-number",
+        "options": {
+          ...arbitrary options that will be sent back to validate...
+        }
+      }
+    }
+
+Please note that this requires a connected internal client that supports
+dialout (e.g. the SIP bridge).
+
+Message format (Server -> Backend, request was accepted)
+
+    {
+      "type": "dialout"
+      "dialout" {
+        "callid": "the-unique-call-id"
+      }
+    }
+
+Message format (Server -> Backend, request could not be processed)
+
+    {
+      "type": "dialout"
+      "dialout" {
+        "error": {
+          "code": "the-internal-message-id",
+          "message": "human-readable-error-message",
+          "details": {
+            ...optional additional details...
+          }
+        }
+      }
+    }
+
+A HTTP error status code will be set in this case.
