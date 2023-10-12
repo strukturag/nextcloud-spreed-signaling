@@ -148,7 +148,7 @@ func Test_TransientMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := client1.SetTransientData("foo", "bar"); err != nil {
+	if err := client1.SetTransientData("foo", "bar", 0); err != nil {
 		t.Fatal(err)
 	}
 	if msg, err := client1.RunUntilMessage(ctx); err != nil {
@@ -202,7 +202,7 @@ func Test_TransientMessages(t *testing.T) {
 	// Client 2 may not modify transient data.
 	session2.SetPermissions([]Permission{})
 
-	if err := client2.SetTransientData("foo", "bar"); err != nil {
+	if err := client2.SetTransientData("foo", "bar", 0); err != nil {
 		t.Fatal(err)
 	}
 	if msg, err := client2.RunUntilMessage(ctx); err != nil {
@@ -213,7 +213,7 @@ func Test_TransientMessages(t *testing.T) {
 		}
 	}
 
-	if err := client1.SetTransientData("foo", "bar"); err != nil {
+	if err := client1.SetTransientData("foo", "bar", 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -244,7 +244,7 @@ func Test_TransientMessages(t *testing.T) {
 	}
 
 	// Setting the same value is ignored by the server.
-	if err := client1.SetTransientData("foo", "bar"); err != nil {
+	if err := client1.SetTransientData("foo", "bar", 0); err != nil {
 		t.Fatal(err)
 	}
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -261,7 +261,7 @@ func Test_TransientMessages(t *testing.T) {
 	data := map[string]interface{}{
 		"hello": "world",
 	}
-	if err := client1.SetTransientData("foo", data); err != nil {
+	if err := client1.SetTransientData("foo", data, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -314,7 +314,7 @@ func Test_TransientMessages(t *testing.T) {
 		t.Errorf("Expected no payload, got %+v", msg)
 	}
 
-	if err := client1.SetTransientData("abc", data); err != nil {
+	if err := client1.SetTransientData("abc", data, 10*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 
@@ -353,6 +353,13 @@ func Test_TransientMessages(t *testing.T) {
 	if err := checkMessageTransientInitial(msg, map[string]interface{}{
 		"abc": data,
 	}); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	if msg, err = client3.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else if err := checkMessageTransientRemove(msg, "abc", data); err != nil {
 		t.Fatal(err)
 	}
 }

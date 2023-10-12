@@ -817,14 +817,17 @@ Message format (Client -> Server):
       "transient": {
         "type": "set",
         "key": "sample-key",
-        "value": "any-json-object"
+        "value": "any-json-object",
+        "ttl": "optional-ttl"
       }
     }
 
 - The `key` must be a string.
 - The `value` can be of any type (i.e. string, number, array, object, etc.).
+- The `ttl` is the time to live in nanoseconds. The value will be removed after
+  that time (if it is still present).
 - Requests to set a value that is already present for the key are silently
-  ignored.
+  ignored. Any TTL value will be updated / removed.
 
 
 Message format (Server -> Client):

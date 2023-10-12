@@ -578,7 +578,7 @@ func (c *TestClient) SendInternalRemoveSession(msg *RemoveSessionInternalClientM
 	return c.WriteJSON(message)
 }
 
-func (c *TestClient) SetTransientData(key string, value interface{}) error {
+func (c *TestClient) SetTransientData(key string, value interface{}, ttl time.Duration) error {
 	payload, err := json.Marshal(value)
 	if err != nil {
 		c.t.Fatal(err)
@@ -591,6 +591,7 @@ func (c *TestClient) SetTransientData(key string, value interface{}) error {
 			Type:  "set",
 			Key:   key,
 			Value: (*json.RawMessage)(&payload),
+			TTL:   ttl,
 		},
 	}
 	return c.WriteJSON(message)

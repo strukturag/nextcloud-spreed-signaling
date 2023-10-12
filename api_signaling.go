@@ -28,6 +28,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v4"
 )
@@ -847,6 +848,7 @@ type TransientDataClientMessage struct {
 
 	Key   string           `json:"key,omitempty"`
 	Value *json.RawMessage `json:"value,omitempty"`
+	TTL   time.Duration    `json:"ttl,omitempty"`
 }
 
 func (m *TransientDataClientMessage) CheckValid() error {
