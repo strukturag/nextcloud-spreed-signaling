@@ -626,7 +626,8 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client2.RunUntilHello(ctx); err != nil {
+	hello2, err := client2.RunUntilHello(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -635,16 +636,14 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	if _, err := client1.JoinRoom(ctx, roomId1); err != nil {
 		t.Fatal(err)
 	}
+	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
+		t.Error(err)
+	}
 	roomId2 := "test-room2"
 	if _, err := client2.JoinRoom(ctx, roomId2); err != nil {
 		t.Fatal(err)
 	}
-
-	// Ignore "join" events.
-	if err := client1.DrainMessages(ctx); err != nil {
-		t.Error(err)
-	}
-	if err := client2.DrainMessages(ctx); err != nil {
+	if err := client2.RunUntilJoined(ctx, hello2.Hello); err != nil {
 		t.Error(err)
 	}
 
@@ -702,6 +701,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 			UserIds: []string{
 				testDefaultUserId,
 			},
+			Properties: (*json.RawMessage)(&testRoomProperties),
 		},
 	}
 
