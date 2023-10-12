@@ -24,6 +24,7 @@ package signaling
 import (
 	"reflect"
 	"sync"
+	"time"
 )
 
 type TransientListener interface {
@@ -34,6 +35,8 @@ type TransientData struct {
 	mu        sync.Mutex
 	data      map[string]interface{}
 	listeners map[TransientListener]bool
+	timers    map[string]*time.Timer
+	ttlCh     chan<- struct{}
 }
 
 // NewTransientData creates a new transient data container.
@@ -99,9 +102,59 @@ func (t *TransientData) RemoveListener(listener TransientListener) {
 	delete(t.listeners, listener)
 }
 
+func (t *TransientData) updateTTL(key string, value interface{}, ttl time.Duration) {
+	if ttl <= 0 {
+		delete(t.timers, key)
+	} else {
+		t.removeAfterTTL(key, value, ttl)
+	}
+}
+
+func (t *TransientData) removeAfterTTL(key string, value interface{}, ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
+
+	if old, found := t.timers[key]; found {
+		old.Stop()
+	}
+
+	timer := time.AfterFunc(ttl, func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+
+		t.compareAndRemove(key, value)
+		if t.ttlCh != nil {
+			select {
+			case t.ttlCh <- struct{}{}:
+			default:
+			}
+		}
+	})
+	if t.timers == nil {
+		t.timers = make(map[string]*time.Timer)
+	}
+	t.timers[key] = timer
+}
+
+func (t *TransientData) doSet(key string, value interface{}, prev interface{}, ttl time.Duration) {
+	if t.data == nil {
+		t.data = make(map[string]interface{})
+	}
+	t.data[key] = value
+	t.notifySet(key, prev, value)
+	t.removeAfterTTL(key, value, ttl)
+}
+
 // Set sets a new value for the given key and notifies listeners
 // if the value has been changed.
 func (t *TransientData) Set(key string, value interface{}) bool {
+	return t.SetTTL(key, value, 0)
+}
+
+// SetTTL sets a new value for the given key with a time-to-live and notifies
+// listeners if the value has been changed.
+func (t *TransientData) SetTTL(key string, value interface{}, ttl time.Duration) bool {
 	if value == nil {
 		return t.Remove(key)
 	}
@@ -111,20 +164,24 @@ func (t *TransientData) Set(key string, value interface{}) bool {
 
 	prev, found := t.data[key]
 	if found && reflect.DeepEqual(prev, value) {
+		t.updateTTL(key, value, ttl)
 		return false
 	}
 
-	if t.data == nil {
-		t.data = make(map[string]interface{})
-	}
-	t.data[key] = value
-	t.notifySet(key, prev, value)
+	t.doSet(key, value, prev, ttl)
 	return true
 }
 
 // CompareAndSet sets a new value for the given key only for a given old value
 // and notifies listeners if the value has been changed.
 func (t *TransientData) CompareAndSet(key string, old, value interface{}) bool {
+	return t.CompareAndSetTTL(key, old, value, 0)
+}
+
+// CompareAndSetTTL sets a new value for the given key with a time-to-live,
+// only for a given old value and notifies listeners if the value has been
+// changed.
+func (t *TransientData) CompareAndSetTTL(key string, old, value interface{}, ttl time.Duration) bool {
 	if value == nil {
 		return t.CompareAndRemove(key, old)
 	}
@@ -139,9 +196,17 @@ func (t *TransientData) CompareAndSet(key string, old, value interface{}) bool {
 		return false
 	}
 
-	t.data[key] = value
-	t.notifySet(key, prev, value)
+	t.doSet(key, value, prev, ttl)
 	return true
+}
+
+func (t *TransientData) doRemove(key string, prev interface{}) {
+	delete(t.data, key)
+	if old, found := t.timers[key]; found {
+		old.Stop()
+		delete(t.timers, key)
+	}
+	t.notifyDeleted(key, prev)
 }
 
 // Remove deletes the value with the given key and notifies listeners
@@ -155,8 +220,7 @@ func (t *TransientData) Remove(key string) bool {
 		return false
 	}
 
-	delete(t.data, key)
-	t.notifyDeleted(key, prev)
+	t.doRemove(key, prev)
 	return true
 }
 
@@ -166,13 +230,16 @@ func (t *TransientData) CompareAndRemove(key string, old interface{}) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	return t.compareAndRemove(key, old)
+}
+
+func (t *TransientData) compareAndRemove(key string, old interface{}) bool {
 	prev, found := t.data[key]
 	if !found || !reflect.DeepEqual(prev, old) {
 		return false
 	}
 
-	delete(t.data, key)
-	t.notifyDeleted(key, prev)
+	t.doRemove(key, prev)
 	return true
 }
 

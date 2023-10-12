@@ -27,6 +27,13 @@ import (
 	"time"
 )
 
+func (t *TransientData) SetTTLChannel(ch chan<- struct{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.ttlCh = ch
+}
+
 func Test_TransientData(t *testing.T) {
 	data := NewTransientData()
 	if data.Set("foo", nil) {
@@ -53,6 +60,9 @@ func Test_TransientData(t *testing.T) {
 	if !data.CompareAndSet("test", nil, "123") {
 		t.Errorf("should have set value")
 	}
+	if data.CompareAndSet("test", nil, "456") {
+		t.Errorf("should not have set value")
+	}
 	if data.CompareAndRemove("test", "1234") {
 		t.Errorf("should not have removed value")
 	}
@@ -64,6 +74,61 @@ func Test_TransientData(t *testing.T) {
 	}
 	if !data.Remove("foo") {
 		t.Errorf("should have removed value")
+	}
+
+	ttlCh := make(chan struct{})
+	data.SetTTLChannel(ttlCh)
+	if !data.SetTTL("test", "1234", time.Millisecond) {
+		t.Errorf("should have set value")
+	}
+	if value := data.GetData()["test"]; value != "1234" {
+		t.Errorf("expected 1234, got %v", value)
+	}
+	// Data is removed after the TTL
+	<-ttlCh
+	if value := data.GetData()["test"]; value != nil {
+		t.Errorf("expected no value, got %v", value)
+	}
+
+	if !data.SetTTL("test", "1234", time.Millisecond) {
+		t.Errorf("should have set value")
+	}
+	if value := data.GetData()["test"]; value != "1234" {
+		t.Errorf("expected 1234, got %v", value)
+	}
+	if !data.SetTTL("test", "2345", 3*time.Millisecond) {
+		t.Errorf("should have set value")
+	}
+	if value := data.GetData()["test"]; value != "2345" {
+		t.Errorf("expected 2345, got %v", value)
+	}
+	// Data is removed after the TTL only if the value still matches
+	time.Sleep(2 * time.Millisecond)
+	if value := data.GetData()["test"]; value != "2345" {
+		t.Errorf("expected 2345, got %v", value)
+	}
+	// Data is removed after the (second) TTL
+	<-ttlCh
+	if value := data.GetData()["test"]; value != nil {
+		t.Errorf("expected no value, got %v", value)
+	}
+
+	// Setting existing key will update the TTL
+	if !data.SetTTL("test", "1234", time.Millisecond) {
+		t.Errorf("should have set value")
+	}
+	if data.SetTTL("test", "1234", 3*time.Millisecond) {
+		t.Errorf("should not have set value")
+	}
+	// Data still exists after the first TTL
+	time.Sleep(2 * time.Millisecond)
+	if value := data.GetData()["test"]; value != "1234" {
+		t.Errorf("expected 1234, got %v", value)
+	}
+	// Data is removed after the (updated) TTL
+	<-ttlCh
+	if value := data.GetData()["test"]; value != nil {
+		t.Errorf("expected no value, got %v", value)
 	}
 }
 
@@ -83,7 +148,7 @@ func Test_TransientMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := client1.SetTransientData("foo", "bar"); err != nil {
+	if err := client1.SetTransientData("foo", "bar", 0); err != nil {
 		t.Fatal(err)
 	}
 	if msg, err := client1.RunUntilMessage(ctx); err != nil {
@@ -137,7 +202,7 @@ func Test_TransientMessages(t *testing.T) {
 	// Client 2 may not modify transient data.
 	session2.SetPermissions([]Permission{})
 
-	if err := client2.SetTransientData("foo", "bar"); err != nil {
+	if err := client2.SetTransientData("foo", "bar", 0); err != nil {
 		t.Fatal(err)
 	}
 	if msg, err := client2.RunUntilMessage(ctx); err != nil {
@@ -148,7 +213,7 @@ func Test_TransientMessages(t *testing.T) {
 		}
 	}
 
-	if err := client1.SetTransientData("foo", "bar"); err != nil {
+	if err := client1.SetTransientData("foo", "bar", 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,7 +244,7 @@ func Test_TransientMessages(t *testing.T) {
 	}
 
 	// Setting the same value is ignored by the server.
-	if err := client1.SetTransientData("foo", "bar"); err != nil {
+	if err := client1.SetTransientData("foo", "bar", 0); err != nil {
 		t.Fatal(err)
 	}
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -196,7 +261,7 @@ func Test_TransientMessages(t *testing.T) {
 	data := map[string]interface{}{
 		"hello": "world",
 	}
-	if err := client1.SetTransientData("foo", data); err != nil {
+	if err := client1.SetTransientData("foo", data, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -249,7 +314,7 @@ func Test_TransientMessages(t *testing.T) {
 		t.Errorf("Expected no payload, got %+v", msg)
 	}
 
-	if err := client1.SetTransientData("abc", data); err != nil {
+	if err := client1.SetTransientData("abc", data, 10*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 
@@ -288,6 +353,13 @@ func Test_TransientMessages(t *testing.T) {
 	if err := checkMessageTransientInitial(msg, map[string]interface{}{
 		"abc": data,
 	}); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	if msg, err = client3.RunUntilMessage(ctx); err != nil {
+		t.Fatal(err)
+	} else if err := checkMessageTransientRemove(msg, "abc", data); err != nil {
 		t.Fatal(err)
 	}
 }

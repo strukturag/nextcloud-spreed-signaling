@@ -1965,9 +1965,9 @@ func (h *Hub) processTransientMsg(client *Client, message *ClientMessage) {
 		}
 
 		if msg.Value == nil {
-			room.SetTransientData(msg.Key, nil)
+			room.SetTransientDataTTL(msg.Key, nil, msg.TTL)
 		} else {
-			room.SetTransientData(msg.Key, *msg.Value)
+			room.SetTransientDataTTL(msg.Key, *msg.Value, msg.TTL)
 		}
 	case "remove":
 		if !isAllowedToUpdateTransientData(session) {

@@ -1059,6 +1059,10 @@ func (r *Room) SetTransientData(key string, value interface{}) {
 	r.transientData.Set(key, value)
 }
 
+func (r *Room) SetTransientDataTTL(key string, value interface{}, ttl time.Duration) {
+	r.transientData.SetTTL(key, value, ttl)
+}
+
 func (r *Room) RemoveTransientData(key string) {
 	r.transientData.Remove(key)
 }
