@@ -27,6 +27,13 @@ import (
 	"time"
 )
 
+func (t *TransientData) SetTTLChannel(ch chan<- struct{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.ttlCh = ch
+}
+
 func Test_TransientData(t *testing.T) {
 	data := NewTransientData()
 	if data.Set("foo", nil) {
@@ -53,6 +60,9 @@ func Test_TransientData(t *testing.T) {
 	if !data.CompareAndSet("test", nil, "123") {
 		t.Errorf("should have set value")
 	}
+	if data.CompareAndSet("test", nil, "456") {
+		t.Errorf("should not have set value")
+	}
 	if data.CompareAndRemove("test", "1234") {
 		t.Errorf("should not have removed value")
 	}
@@ -64,6 +74,61 @@ func Test_TransientData(t *testing.T) {
 	}
 	if !data.Remove("foo") {
 		t.Errorf("should have removed value")
+	}
+
+	ttlCh := make(chan struct{})
+	data.SetTTLChannel(ttlCh)
+	if !data.SetTTL("test", "1234", time.Millisecond) {
+		t.Errorf("should have set value")
+	}
+	if value := data.GetData()["test"]; value != "1234" {
+		t.Errorf("expected 1234, got %v", value)
+	}
+	// Data is removed after the TTL
+	<-ttlCh
+	if value := data.GetData()["test"]; value != nil {
+		t.Errorf("expected no value, got %v", value)
+	}
+
+	if !data.SetTTL("test", "1234", time.Millisecond) {
+		t.Errorf("should have set value")
+	}
+	if value := data.GetData()["test"]; value != "1234" {
+		t.Errorf("expected 1234, got %v", value)
+	}
+	if !data.SetTTL("test", "2345", 3*time.Millisecond) {
+		t.Errorf("should have set value")
+	}
+	if value := data.GetData()["test"]; value != "2345" {
+		t.Errorf("expected 2345, got %v", value)
+	}
+	// Data is removed after the TTL only if the value still matches
+	time.Sleep(2 * time.Millisecond)
+	if value := data.GetData()["test"]; value != "2345" {
+		t.Errorf("expected 2345, got %v", value)
+	}
+	// Data is removed after the (second) TTL
+	<-ttlCh
+	if value := data.GetData()["test"]; value != nil {
+		t.Errorf("expected no value, got %v", value)
+	}
+
+	// Setting existing key will update the TTL
+	if !data.SetTTL("test", "1234", time.Millisecond) {
+		t.Errorf("should have set value")
+	}
+	if data.SetTTL("test", "1234", 3*time.Millisecond) {
+		t.Errorf("should not have set value")
+	}
+	// Data still exists after the first TTL
+	time.Sleep(2 * time.Millisecond)
+	if value := data.GetData()["test"]; value != "1234" {
+		t.Errorf("expected 1234, got %v", value)
+	}
+	// Data is removed after the (updated) TTL
+	<-ttlCh
+	if value := data.GetData()["test"]; value != nil {
+		t.Errorf("expected no value, got %v", value)
 	}
 }
 
