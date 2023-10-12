@@ -97,6 +97,9 @@ var (
 
 	// Delay after which a screen publisher should be cleaned up.
 	cleanupScreenPublisherDelay = time.Second
+
+	// Delay after which a "cleared" / "rejected" dialout status should be removed.
+	removeCallStatusTTL = 5 * time.Second
 )
 
 const (
@@ -1942,14 +1945,34 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 	case "dialout":
 		roomId := msg.Dialout.RoomId
 		msg.Dialout.RoomId = "" // Don't send room id to recipients.
-		if err := h.events.PublishRoomMessage(roomId, session.Backend(), &AsyncMessage{
-			Type: "message",
-			Message: &ServerMessage{
-				Type:    "dialout",
-				Dialout: msg.Dialout,
-			},
-		}); err != nil {
-			log.Printf("Error publishing dialout message %+v to room %s", msg.Dialout, roomId)
+		if msg.Dialout.Type == "status" {
+			asyncMessage := &AsyncMessage{
+				Type: "room",
+				Room: &BackendServerRoomRequest{
+					Type: "transient",
+					Transient: &BackendRoomTransientRequest{
+						Action: TransientActionSet,
+						Key:    "callstatus_" + msg.Dialout.Status.CallId,
+						Value:  msg.Dialout.Status,
+					},
+				},
+			}
+			if msg.Dialout.Status.Status == DialoutStatusCleared || msg.Dialout.Status.Status == DialoutStatusRejected {
+				asyncMessage.Room.Transient.TTL = removeCallStatusTTL
+			}
+			if err := h.events.PublishBackendRoomMessage(roomId, session.Backend(), asyncMessage); err != nil {
+				log.Printf("Error publishing dialout message %+v to room %s", msg.Dialout, roomId)
+			}
+		} else {
+			if err := h.events.PublishRoomMessage(roomId, session.Backend(), &AsyncMessage{
+				Type: "message",
+				Message: &ServerMessage{
+					Type:    "dialout",
+					Dialout: msg.Dialout,
+				},
+			}); err != nil {
+				log.Printf("Error publishing dialout message %+v to room %s", msg.Dialout, roomId)
+			}
 		}
 	default:
 		log.Printf("Ignore unsupported internal message %+v from %s", msg, session.PublicId())

@@ -33,6 +33,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
@@ -106,6 +107,8 @@ type BackendServerRoomRequest struct {
 	SwitchTo *BackendRoomSwitchToMessageRequest `json:"switchto,omitempty"`
 
 	Dialout *BackendRoomDialoutRequest `json:"dialout,omitempty"`
+
+	Transient *BackendRoomTransientRequest `json:"transient,omitempty"`
 
 	// Internal properties
 	ReceivedTime int64 `json:"received,omitempty"`
@@ -198,6 +201,20 @@ func (r *BackendRoomDialoutRequest) ValidateNumber() *Error {
 	}
 
 	return nil
+}
+
+type TransientAction string
+
+const (
+	TransientActionSet    TransientAction = "set"
+	TransientActionDelete TransientAction = "delete"
+)
+
+type BackendRoomTransientRequest struct {
+	Action TransientAction `json:"action"`
+	Key    string          `json:"key"`
+	Value  interface{}     `json:"value,omitempty"`
+	TTL    time.Duration   `json:"ttl,omitempty"`
 }
 
 type BackendServerRoomResponse struct {

@@ -244,6 +244,15 @@ func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) 
 		r.publishRoomMessage(message.Message)
 	case "switchto":
 		r.publishSwitchTo(message.SwitchTo)
+	case "transient":
+		switch message.Transient.Action {
+		case TransientActionSet:
+			r.SetTransientDataTTL(message.Transient.Key, message.Transient.Value, message.Transient.TTL)
+		case TransientActionDelete:
+			r.RemoveTransientData(message.Transient.Key)
+		default:
+			log.Printf("Unsupported transient action in room %s: %+v", r.Id(), message.Transient)
+		}
 	default:
 		log.Printf("Unsupported backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
