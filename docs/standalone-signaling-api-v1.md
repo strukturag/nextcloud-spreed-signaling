@@ -793,6 +793,74 @@ Message format (Server -> Client, receive message)
 - The `userid` is omitted if a message was sent by an anonymous user.
 
 
+## Control messages
+
+Similar to regular messages between clients which can be sent by any session,
+messages with type `control` can only be sent if the permission flag `control`
+is available.
+
+These messages can be used to perform actions on clients that should only be
+possible by some users (e.g. moderators).
+
+Message format (Client -> Server, mute phone):
+
+    {
+      "id": "unique-request-id",
+      "type": "control",
+      "control": {
+        "recipient": {
+          "type": "session",
+          "sessionid": "the-session-id-to-send-to"
+        },
+        "data": {
+          "type": "mute",
+          "audio": "audio-flags"
+        }
+      }
+    }
+
+The bit-field `audio-flags` supports the following bits:
+- `1`: mute speaking (i.e. phone can no longer talk)
+- `2`: mute listening (i.e. phone is on hold and can no longer hear)
+
+To unmute, a value of `0` must be sent.
+
+Message format (Client -> Server, hangup phone):
+
+    {
+      "id": "unique-request-id",
+      "type": "control",
+      "control": {
+        "recipient": {
+          "type": "session",
+          "sessionid": "the-session-id-to-send-to"
+        },
+        "data": {
+          "type": "hangup"
+        }
+      }
+    }
+
+Message format (Client -> Server, send DTMF):
+
+    {
+      "id": "unique-request-id",
+      "type": "control",
+      "control": {
+        "recipient": {
+          "type": "session",
+          "sessionid": "the-session-id-to-send-to"
+        },
+        "data": {
+          "type": "dtmf",
+          "digit": "the-digit"
+        }
+      }
+    }
+
+Supported digits are `0`-`9`, `*` and `#`.
+
+
 ## Transient data
 
 Transient data can be used to share data in a room that is valid while sessions
@@ -934,6 +1002,13 @@ Message format (Client -> Server):
         }
       }
     }
+
+
+Phone sessions will have `type` set to `phone` in the additional user data
+(which will be included in the `joined` [room event](#room-events)),
+`callid` will be the id of the phone call and `number` the target of the call.
+The call id will match the one returned for accepted outgoing calls and the
+associated session id can be used to hangup a call or send DTMF tones to it.
 
 
 ### Update virtual session
