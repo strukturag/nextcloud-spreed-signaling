@@ -36,6 +36,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -669,9 +670,19 @@ func returnDialoutError(status int, err *Error) (any, error) {
 	return response, nil
 }
 
+var checkNumeric = regexp.MustCompile(`^[0-9]+$`)
+
+func isNumeric(s string) bool {
+	return checkNumeric.MatchString(s)
+}
+
 func (b *BackendServer) startDialout(roomid string, backend *Backend, request *BackendServerRoomRequest) (any, error) {
 	if err := request.Dialout.ValidateNumber(); err != nil {
 		return returnDialoutError(http.StatusBadRequest, err)
+	}
+
+	if !isNumeric(roomid) {
+		return returnDialoutError(http.StatusBadRequest, NewError("invalid_roomid", "The room id must be numeric."))
 	}
 
 	var session *ClientSession

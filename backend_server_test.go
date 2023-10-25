@@ -1760,3 +1760,32 @@ func TestBackendServer_StatsAllowedIps(t *testing.T) {
 		})
 	}
 }
+
+func Test_IsNumeric(t *testing.T) {
+	numeric := []string{
+		"0",
+		"1",
+		"12345",
+	}
+	nonNumeric := []string{
+		"",
+		" ",
+		" 0",
+		"0 ",
+		" 0 ",
+		"-1",
+		"1.2",
+		"1a",
+		"a1",
+	}
+	for _, s := range numeric {
+		if !isNumeric(s) {
+			t.Errorf("%s should be numeric", s)
+		}
+	}
+	for _, s := range nonNumeric {
+		if isNumeric(s) {
+			t.Errorf("%s should not be numeric", s)
+		}
+	}
+}
