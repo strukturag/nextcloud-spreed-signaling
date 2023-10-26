@@ -34,6 +34,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -211,6 +212,7 @@ type TestClient struct {
 	hub    *Hub
 	server *httptest.Server
 
+	mu        sync.Mutex
 	conn      *websocket.Conn
 	localAddr net.Addr
 
@@ -280,6 +282,8 @@ func (c *TestClient) CloseWithBye() {
 }
 
 func (c *TestClient) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if err := c.conn.WriteMessage(websocket.CloseMessage, []byte{}); err == websocket.ErrCloseSent {
 		// Already closed
 		return
@@ -368,6 +372,8 @@ func (c *TestClient) WriteJSON(data interface{}) error {
 		}
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.conn.WriteJSON(data)
 }
 
