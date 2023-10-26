@@ -1,5 +1,20 @@
 version: 2
 updates:
+  - package-ecosystem: "docker"
+    directory: "/docker/janus"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "docker"
+    directory: "/docker/proxy"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "docker"
+    directory: "/docker/server"
+    schedule:
+      interval: "daily"
+
   - package-ecosystem: gomod
     directory: /
     schedule:
