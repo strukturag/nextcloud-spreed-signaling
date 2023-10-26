@@ -17,7 +17,7 @@ information on the API of the signaling server.
 The following tools are required for building the signaling server.
 
 - git
-- go >= 1.19
+- go >= 1.20
 - make
 - protobuf-compiler >= 3
 
