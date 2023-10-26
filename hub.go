@@ -97,6 +97,9 @@ var (
 
 	// Delay after which a screen publisher should be cleaned up.
 	cleanupScreenPublisherDelay = time.Second
+
+	// Delay after which a "cleared" / "rejected" dialout status should be removed.
+	removeCallStatusTTL = 5 * time.Second
 )
 
 const (
@@ -150,6 +153,7 @@ type Hub struct {
 	expiredSessions    map[Session]bool
 	anonymousSessions  map[*ClientSession]time.Time
 	expectHelloClients map[*Client]time.Time
+	dialoutSessions    map[*ClientSession]bool
 
 	backendTimeout time.Duration
 	backend        *BackendClient
@@ -338,6 +342,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		expiredSessions:    make(map[Session]bool),
 		anonymousSessions:  make(map[*ClientSession]time.Time),
 		expectHelloClients: make(map[*Client]time.Time),
+		dialoutSessions:    make(map[*ClientSession]bool),
 
 		backendTimeout: backendTimeout,
 		backend:        backend,
@@ -641,6 +646,7 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 	delete(h.expiredSessions, session)
 	if session, ok := session.(*ClientSession); ok {
 		delete(h.anonymousSessions, session)
+		delete(h.dialoutSessions, session)
 	}
 	h.mu.Unlock()
 	return
@@ -802,8 +808,12 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 	h.sessions[sessionIdData.Sid] = session
 	h.clients[sessionIdData.Sid] = client
 	delete(h.expectHelloClients, client)
-	if userId == "" && auth.Type != HelloClientTypeInternal {
+	if userId == "" && session.ClientType() != HelloClientTypeInternal {
 		h.startWaitAnonymousSessionRoomLocked(session)
+	} else if session.ClientType() == HelloClientTypeInternal && session.HasFeature(ClientFeatureStartDialout) {
+		// TODO: There is a small race condition for sessions that take some time
+		// between connecting and joining a room.
+		h.dialoutSessions[session] = true
 	}
 	h.mu.Unlock()
 
@@ -1250,6 +1260,7 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 				h.startWaitAnonymousSessionRoom(session)
 			}
 		}
+
 		return
 	}
 
@@ -1389,6 +1400,10 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	h.mu.Lock()
 	// The session now joined a room, don't expire if it is anonymous.
 	delete(h.anonymousSessions, session)
+	if session.ClientType() == HelloClientTypeInternal && session.HasFeature(ClientFeatureStartDialout) {
+		// An internal session in a room can not be used for dialout.
+		delete(h.dialoutSessions, session)
+	}
 	h.mu.Unlock()
 	session.SetRoom(r)
 	if room.Room.Permissions != nil {
@@ -1772,6 +1787,10 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		return
 	}
 
+	if session.ProcessResponse(message) {
+		return
+	}
+
 	switch msg.Type {
 	case "addsession":
 		msg := msg.AddSession
@@ -1921,6 +1940,38 @@ func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
 		if session.SetInCall(msg.InCall) {
 			if room := session.GetRoom(); room != nil {
 				room.NotifySessionChanged(session, SessionChangeInCall)
+			}
+		}
+	case "dialout":
+		roomId := msg.Dialout.RoomId
+		msg.Dialout.RoomId = "" // Don't send room id to recipients.
+		if msg.Dialout.Type == "status" {
+			asyncMessage := &AsyncMessage{
+				Type: "room",
+				Room: &BackendServerRoomRequest{
+					Type: "transient",
+					Transient: &BackendRoomTransientRequest{
+						Action: TransientActionSet,
+						Key:    "callstatus_" + msg.Dialout.Status.CallId,
+						Value:  msg.Dialout.Status,
+					},
+				},
+			}
+			if msg.Dialout.Status.Status == DialoutStatusCleared || msg.Dialout.Status.Status == DialoutStatusRejected {
+				asyncMessage.Room.Transient.TTL = removeCallStatusTTL
+			}
+			if err := h.events.PublishBackendRoomMessage(roomId, session.Backend(), asyncMessage); err != nil {
+				log.Printf("Error publishing dialout message %+v to room %s", msg.Dialout, roomId)
+			}
+		} else {
+			if err := h.events.PublishRoomMessage(roomId, session.Backend(), &AsyncMessage{
+				Type: "message",
+				Message: &ServerMessage{
+					Type:    "dialout",
+					Dialout: msg.Dialout,
+				},
+			}); err != nil {
+				log.Printf("Error publishing dialout message %+v to room %s", msg.Dialout, roomId)
 			}
 		}
 	default:

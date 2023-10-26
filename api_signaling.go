@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -164,6 +165,10 @@ type ServerMessage struct {
 	Event *EventServerMessage `json:"event,omitempty"`
 
 	TransientData *TransientDataServerMessage `json:"transient,omitempty"`
+
+	Internal *InternalServerMessage `json:"internal,omitempty"`
+
+	Dialout *DialoutInternalClientMessage `json:"dialout,omitempty"`
 }
 
 func (r *ServerMessage) CloseAfterSend(session Session) bool {
@@ -444,12 +449,14 @@ const (
 	ServerFeatureWelcome               = "welcome"
 	ServerFeatureHelloV2               = "hello-v2"
 	ServerFeatureSwitchTo              = "switchto"
+	ServerFeatureDialout               = "dialout"
 
 	// Features to send to internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
 
 	// Possible client features from the "hello" request.
 	ClientFeatureInternalInCall = "internal-incall"
+	ClientFeatureStartDialout   = "start-dialout"
 )
 
 var (
@@ -460,6 +467,7 @@ var (
 		ServerFeatureWelcome,
 		ServerFeatureHelloV2,
 		ServerFeatureSwitchTo,
+		ServerFeatureDialout,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
@@ -468,6 +476,7 @@ var (
 		ServerFeatureWelcome,
 		ServerFeatureHelloV2,
 		ServerFeatureSwitchTo,
+		ServerFeatureDialout,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -477,6 +486,7 @@ var (
 		ServerFeatureWelcome,
 		ServerFeatureHelloV2,
 		ServerFeatureSwitchTo,
+		ServerFeatureDialout,
 	}
 )
 
@@ -684,6 +694,52 @@ func (m *InCallInternalClientMessage) CheckValid() error {
 	return nil
 }
 
+type DialoutStatus string
+
+var (
+	DialoutStatusAccepted  DialoutStatus = "accepted"
+	DialoutStatusRinging   DialoutStatus = "ringing"
+	DialoutStatusConnected DialoutStatus = "connected"
+	DialoutStatusRejected  DialoutStatus = "rejected"
+	DialoutStatusCleared   DialoutStatus = "cleared"
+)
+
+type DialoutStatusInternalClientMessage struct {
+	CallId string        `json:"callid"`
+	Status DialoutStatus `json:"status"`
+
+	// Cause is set if Status is "cleared" or "rejected".
+	Cause   string `json:"cause,omitempty"`
+	Code    int    `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type DialoutInternalClientMessage struct {
+	Type string `json:"type"`
+
+	RoomId string `json:"roomid,omitempty"`
+
+	Error *Error `json:"error,omitempty"`
+
+	Status *DialoutStatusInternalClientMessage `json:"status,omitempty"`
+}
+
+func (m *DialoutInternalClientMessage) CheckValid() error {
+	switch m.Type {
+	case "":
+		return errors.New("type missing")
+	case "error":
+		if m.Error == nil {
+			return errors.New("error missing")
+		}
+	case "status":
+		if m.Status == nil {
+			return errors.New("status missing")
+		}
+	}
+	return nil
+}
+
 type InternalClientMessage struct {
 	Type string `json:"type"`
 
@@ -694,10 +750,14 @@ type InternalClientMessage struct {
 	RemoveSession *RemoveSessionInternalClientMessage `json:"removesession,omitempty"`
 
 	InCall *InCallInternalClientMessage `json:"incall,omitempty"`
+
+	Dialout *DialoutInternalClientMessage `json:"dialout,omitempty"`
 }
 
 func (m *InternalClientMessage) CheckValid() error {
 	switch m.Type {
+	case "":
+		return errors.New("type missing")
 	case "addsession":
 		if m.AddSession == nil {
 			return fmt.Errorf("addsession missing")
@@ -722,8 +782,26 @@ func (m *InternalClientMessage) CheckValid() error {
 		} else if err := m.InCall.CheckValid(); err != nil {
 			return err
 		}
+	case "dialout":
+		if m.Dialout == nil {
+			return fmt.Errorf("dialout missing")
+		} else if err := m.Dialout.CheckValid(); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+type InternalServerDialoutRequest struct {
+	RoomId string `json:"roomid"`
+
+	Request *BackendRoomDialoutRequest `json:"request"`
+}
+
+type InternalServerMessage struct {
+	Type string `json:"type"`
+
+	Dialout *InternalServerDialoutRequest `json:"dialout,omitempty"`
 }
 
 // Type "event"

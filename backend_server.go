@@ -28,6 +28,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -35,8 +36,10 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -639,6 +642,121 @@ func (b *BackendServer) sendRoomSwitchTo(roomid string, backend *Backend, reques
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
+type BackendResponseWithStatus interface {
+	Status() int
+}
+
+type DialoutErrorResponse struct {
+	BackendServerRoomResponse
+
+	status int
+}
+
+func (r *DialoutErrorResponse) Status() int {
+	return r.status
+}
+
+func returnDialoutError(status int, err *Error) (any, error) {
+	response := &DialoutErrorResponse{
+		BackendServerRoomResponse: BackendServerRoomResponse{
+			Type: "dialout",
+			Dialout: &BackendRoomDialoutResponse{
+				Error: err,
+			},
+		},
+
+		status: status,
+	}
+	return response, nil
+}
+
+var checkNumeric = regexp.MustCompile(`^[0-9]+$`)
+
+func isNumeric(s string) bool {
+	return checkNumeric.MatchString(s)
+}
+
+func (b *BackendServer) startDialout(roomid string, backend *Backend, request *BackendServerRoomRequest) (any, error) {
+	if err := request.Dialout.ValidateNumber(); err != nil {
+		return returnDialoutError(http.StatusBadRequest, err)
+	}
+
+	if !isNumeric(roomid) {
+		return returnDialoutError(http.StatusBadRequest, NewError("invalid_roomid", "The room id must be numeric."))
+	}
+
+	var session *ClientSession
+	for s := range b.hub.dialoutSessions {
+		if s.GetClient() != nil {
+			session = s
+			break
+		}
+	}
+	if session == nil {
+		return returnDialoutError(http.StatusNotFound, NewError("no_client_available", "No available client found to trigger dialout."))
+	}
+
+	id := newRandomString(32)
+	msg := &ServerMessage{
+		Id:   id,
+		Type: "internal",
+		Internal: &InternalServerMessage{
+			Type: "dialout",
+			Dialout: &InternalServerDialoutRequest{
+				RoomId:  roomid,
+				Request: request.Dialout,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var response atomic.Pointer[DialoutInternalClientMessage]
+
+	session.HandleResponse(id, func(message *ClientMessage) bool {
+		response.Store(message.Internal.Dialout)
+		cancel()
+		// Don't send error to other sessions in the room.
+		return message.Internal.Dialout.Error != nil
+	})
+	defer session.ClearResponseHandler(id)
+
+	if !session.SendMessage(msg) {
+		return returnDialoutError(http.StatusBadGateway, NewError("error_notify", "Could not notify about new dialout."))
+	}
+
+	<-ctx.Done()
+	if err := ctx.Err(); err != nil && !errors.Is(err, context.Canceled) {
+		return returnDialoutError(http.StatusGatewayTimeout, NewError("timeout", "Timeout while waiting for dialout to start."))
+	}
+
+	dialout := response.Load()
+	if dialout == nil {
+		return returnDialoutError(http.StatusBadGateway, NewError("error_notify", "No dialout response received."))
+	}
+
+	switch dialout.Type {
+	case "error":
+		return returnDialoutError(http.StatusBadGateway, dialout.Error)
+	case "status":
+		if dialout.Status.Status != DialoutStatusAccepted {
+			log.Printf("Received unsupported dialout status when triggering dialout: %+v", dialout)
+			return returnDialoutError(http.StatusBadGateway, NewError("unsupported_status", "Unsupported dialout status received."))
+		}
+
+		return &BackendServerRoomResponse{
+			Type: "dialout",
+			Dialout: &BackendRoomDialoutResponse{
+				CallId: dialout.Status.CallId,
+			},
+		}, nil
+	}
+
+	log.Printf("Received unsupported dialout type when triggering dialout: %+v", dialout)
+	return returnDialoutError(http.StatusBadGateway, NewError("unsupported_type", "Unsupported dialout type received."))
+}
+
 func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body []byte) {
 	v := mux.Vars(r)
 	roomid := v["roomid"]
@@ -692,6 +810,7 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 
 	request.ReceivedTime = time.Now().UnixNano()
 
+	var response any
 	var err error
 	switch request.Type {
 	case "invite":
@@ -722,6 +841,8 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 		err = b.sendRoomMessage(roomid, backend, &request)
 	case "switchto":
 		err = b.sendRoomSwitchTo(roomid, backend, &request)
+	case "dialout":
+		response, err = b.startDialout(roomid, backend, &request)
 	default:
 		http.Error(w, "Unsupported request type: "+request.Type, http.StatusBadRequest)
 		return
@@ -733,11 +854,27 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 		return
 	}
 
+	var responseData []byte
+	responseStatus := http.StatusOK
+	if response == nil {
+		// TODO(jojo): Return better response struct.
+		responseData = []byte("{}")
+	} else {
+		if s, ok := response.(BackendResponseWithStatus); ok {
+			responseStatus = s.Status()
+		}
+		responseData, err = json.Marshal(response)
+		if err != nil {
+			log.Printf("Could not serialize backend response %+v: %s", response, err)
+			responseStatus = http.StatusInternalServerError
+			responseData = []byte("{\"error\":\"could_not_serialize\"}")
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	// TODO(jojo): Return better response struct.
-	w.Write([]byte("{}")) // nolint
+	w.WriteHeader(responseStatus)
+	w.Write(responseData) // nolint
 }
 
 func (b *BackendServer) allowStatsAccess(r *http.Request) bool {

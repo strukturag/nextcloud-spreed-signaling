@@ -21,7 +21,11 @@
  */
 package signaling
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 type AsyncMessage struct {
 	SendTime time.Time `json:"sendtime"`
@@ -39,6 +43,14 @@ type AsyncMessage struct {
 	SendOffer *SendOfferMessage `json:"sendoffer,omitempty"`
 
 	Id string `json:"id"`
+}
+
+func (m *AsyncMessage) String() string {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", m, err)
+	}
+	return string(data)
 }
 
 type AsyncRoomMessage struct {

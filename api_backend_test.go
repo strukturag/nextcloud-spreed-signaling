@@ -56,3 +56,27 @@ func TestBackendChecksum(t *testing.T) {
 		t.Errorf("Checksum %s could not be validated from request", check1)
 	}
 }
+
+func TestValidNumbers(t *testing.T) {
+	valid := []string{
+		"+12",
+		"+12345",
+	}
+	invalid := []string{
+		"+1",
+		"12345",
+		" +12345",
+		" +12345 ",
+		"+123-45",
+	}
+	for _, number := range valid {
+		if !isValidNumber(number) {
+			t.Errorf("number %s should be valid", number)
+		}
+	}
+	for _, number := range invalid {
+		if isValidNumber(number) {
+			t.Errorf("number %s should not be valid", number)
+		}
+	}
+}
