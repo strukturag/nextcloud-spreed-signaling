@@ -1789,3 +1789,267 @@ func Test_IsNumeric(t *testing.T) {
 		}
 	}
 }
+
+func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+	if err := client.SendHelloInternal(); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	_, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	roomId := "12345"
+	msg := &BackendServerRoomRequest{
+		Type: "dialout",
+		Dialout: &BackendRoomDialoutRequest{
+			Number: "+1234567890",
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("Expected error %d, got %s: %s", http.StatusNotFound, res.Status, string(body))
+	}
+
+	var response BackendServerRoomResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatal(err)
+	}
+
+	if response.Type != "dialout" || response.Dialout == nil {
+		t.Fatalf("expected type dialout, got %s", string(body))
+	}
+	if response.Dialout.Error == nil {
+		t.Fatalf("expected dialout error, got %s", string(body))
+	}
+	if expected := "no_client_available"; response.Dialout.Error.Code != expected {
+		t.Errorf("expected error code %s, got %s", expected, string(body))
+	}
+}
+
+func TestBackendServer_DialoutAccepted(t *testing.T) {
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+	if err := client.SendHelloInternalWithFeatures([]string{"start-dialout"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	_, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	roomId := "12345"
+	callId := "call-123"
+
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+
+		msg, err := client.RunUntilMessage(ctx)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+
+		if msg.Type != "internal" || msg.Internal.Type != "dialout" {
+			t.Errorf("expected internal dialout message, got %+v", msg)
+			return
+		}
+
+		if msg.Internal.Dialout.RoomId != roomId {
+			t.Errorf("expected room id %s, got %+v", roomId, msg)
+		}
+
+		response := &ClientMessage{
+			Id:   msg.Id,
+			Type: "internal",
+			Internal: &InternalClientMessage{
+				Type: "dialout",
+				Dialout: &DialoutInternalClientMessage{
+					Type:   "status",
+					RoomId: msg.Internal.Dialout.RoomId,
+					Status: &DialoutStatusInternalClientMessage{
+						Status: "accepted",
+						CallId: callId,
+					},
+				},
+			},
+		}
+		if err := client.WriteJSON(response); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	defer func() {
+		<-stopped
+	}()
+
+	msg := &BackendServerRoomRequest{
+		Type: "dialout",
+		Dialout: &BackendRoomDialoutRequest{
+			Number: "+1234567890",
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("Expected error %d, got %s: %s", http.StatusOK, res.Status, string(body))
+	}
+
+	var response BackendServerRoomResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatal(err)
+	}
+
+	if response.Type != "dialout" || response.Dialout == nil {
+		t.Fatalf("expected type dialout, got %s", string(body))
+	}
+	if response.Dialout.Error != nil {
+		t.Fatalf("expected dialout success, got %s", string(body))
+	}
+	if response.Dialout.CallId != callId {
+		t.Errorf("expected call id %s, got %s", callId, string(body))
+	}
+}
+
+func TestBackendServer_DialoutRejected(t *testing.T) {
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+	if err := client.SendHelloInternalWithFeatures([]string{"start-dialout"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	_, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	roomId := "12345"
+	errorCode := "error-code"
+	errorMessage := "rejected call"
+
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+
+		msg, err := client.RunUntilMessage(ctx)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+
+		if msg.Type != "internal" || msg.Internal.Type != "dialout" {
+			t.Errorf("expected internal dialout message, got %+v", msg)
+			return
+		}
+
+		if msg.Internal.Dialout.RoomId != roomId {
+			t.Errorf("expected room id %s, got %+v", roomId, msg)
+		}
+
+		response := &ClientMessage{
+			Id:   msg.Id,
+			Type: "internal",
+			Internal: &InternalClientMessage{
+				Type: "dialout",
+				Dialout: &DialoutInternalClientMessage{
+					Type:  "error",
+					Error: NewError(errorCode, errorMessage),
+				},
+			},
+		}
+		if err := client.WriteJSON(response); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	defer func() {
+		<-stopped
+	}()
+
+	msg := &BackendServerRoomRequest{
+		Type: "dialout",
+		Dialout: &BackendRoomDialoutRequest{
+			Number: "+1234567890",
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res.StatusCode != http.StatusBadGateway {
+		t.Fatalf("Expected error %d, got %s: %s", http.StatusBadGateway, res.Status, string(body))
+	}
+
+	var response BackendServerRoomResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatal(err)
+	}
+
+	if response.Type != "dialout" || response.Dialout == nil {
+		t.Fatalf("expected type dialout, got %s", string(body))
+	}
+	if response.Dialout.Error == nil {
+		t.Fatalf("expected dialout error, got %s", string(body))
+	}
+	if response.Dialout.Error.Code != errorCode {
+		t.Errorf("expected error code %s, got %s", errorCode, string(body))
+	}
+	if response.Dialout.Error.Message != errorMessage {
+		t.Errorf("expected error message %s, got %s", errorMessage, string(body))
+	}
+}
