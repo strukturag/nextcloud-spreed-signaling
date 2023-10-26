@@ -5,12 +5,14 @@ on:
     branches: [ master ]
     paths:
       - '.github/workflows/lint.yml'
+      - '.golangci.yml'
       - '**.go'
       - 'go.*'
   pull_request:
     branches: [ master ]
     paths:
       - '.github/workflows/lint.yml'
+      - '.golangci.yml'
       - '**.go'
       - 'go.*'
 
