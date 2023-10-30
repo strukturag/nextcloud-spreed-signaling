@@ -51,7 +51,7 @@ const (
 var (
 	lookupGrpcIp = net.LookupIP // can be overwritten from tests
 
-	customResolverPrefix uint64
+	customResolverPrefix atomic.Uint64
 )
 
 func init() {
@@ -75,12 +75,12 @@ func newGrpcClientImpl(conn grpc.ClientConnInterface) *grpcClientImpl {
 }
 
 type GrpcClient struct {
-	isSelf uint32
-
 	ip     net.IP
 	target string
 	conn   *grpc.ClientConn
 	impl   *grpcClientImpl
+
+	isSelf atomic.Bool
 }
 
 type customIpResolver struct {
@@ -125,7 +125,7 @@ func NewGrpcClient(target string, ip net.IP, opts ...grpc.DialOption) (*GrpcClie
 	var conn *grpc.ClientConn
 	var err error
 	if ip != nil {
-		prefix := atomic.AddUint64(&customResolverPrefix, 1)
+		prefix := customResolverPrefix.Add(1)
 		addr := ip.String()
 		hostname := target
 		if host, port, err := net.SplitHostPort(target); err == nil {
@@ -168,15 +168,11 @@ func (c *GrpcClient) Close() error {
 }
 
 func (c *GrpcClient) IsSelf() bool {
-	return atomic.LoadUint32(&c.isSelf) != 0
+	return c.isSelf.Load()
 }
 
 func (c *GrpcClient) SetSelf(self bool) {
-	if self {
-		atomic.StoreUint32(&c.isSelf, 1)
-	} else {
-		atomic.StoreUint32(&c.isSelf, 0)
-	}
+	c.isSelf.Store(self)
 }
 
 func (c *GrpcClient) GetServerId(ctx context.Context) (string, error) {

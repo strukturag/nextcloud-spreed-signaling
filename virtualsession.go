@@ -28,7 +28,6 @@ import (
 	"net/url"
 	"sync/atomic"
 	"time"
-	"unsafe"
 )
 
 const (
@@ -38,19 +37,18 @@ const (
 )
 
 type VirtualSession struct {
-	inCall uint32
-
 	hub       *Hub
 	session   *ClientSession
 	privateId string
 	publicId  string
 	data      *SessionIdData
-	room      unsafe.Pointer
+	room      atomic.Pointer[Room]
 
 	sessionId string
 	userId    string
 	userData  *json.RawMessage
-	flags     uint32
+	inCall    atomic.Uint32
+	flags     atomic.Uint32
 	options   *AddSessionOptions
 }
 
@@ -69,9 +67,9 @@ func NewVirtualSession(session *ClientSession, privateId string, publicId string
 		sessionId: msg.SessionId,
 		userId:    msg.UserId,
 		userData:  msg.User,
-		flags:     msg.Flags,
 		options:   msg.Options,
 	}
+	result.flags.Store(msg.Flags)
 
 	if err := session.events.RegisterSessionListener(publicId, session.Backend(), result); err != nil {
 		return nil, err
@@ -99,7 +97,7 @@ func (s *VirtualSession) ClientType() string {
 }
 
 func (s *VirtualSession) GetInCall() int {
-	return int(atomic.LoadUint32(&s.inCall))
+	return int(s.inCall.Load())
 }
 
 func (s *VirtualSession) SetInCall(inCall int) bool {
@@ -108,12 +106,12 @@ func (s *VirtualSession) SetInCall(inCall int) bool {
 	}
 
 	for {
-		old := atomic.LoadUint32(&s.inCall)
+		old := s.inCall.Load()
 		if old == uint32(inCall) {
 			return false
 		}
 
-		if atomic.CompareAndSwapUint32(&s.inCall, old, uint32(inCall)) {
+		if s.inCall.CompareAndSwap(old, uint32(inCall)) {
 			return true
 		}
 	}
@@ -144,11 +142,11 @@ func (s *VirtualSession) UserData() *json.RawMessage {
 }
 
 func (s *VirtualSession) SetRoom(room *Room) {
-	atomic.StorePointer(&s.room, unsafe.Pointer(room))
+	s.room.Store(room)
 }
 
 func (s *VirtualSession) GetRoom() *Room {
-	return (*Room)(atomic.LoadPointer(&s.room))
+	return s.room.Load()
 }
 
 func (s *VirtualSession) LeaveRoom(notify bool) *Room {
@@ -243,13 +241,13 @@ func (s *VirtualSession) SessionId() string {
 
 func (s *VirtualSession) AddFlags(flags uint32) bool {
 	for {
-		old := atomic.LoadUint32(&s.flags)
+		old := s.flags.Load()
 		if old&flags == flags {
 			// Flags already set.
 			return false
 		}
 		newFlags := old | flags
-		if atomic.CompareAndSwapUint32(&s.flags, old, newFlags) {
+		if s.flags.CompareAndSwap(old, newFlags) {
 			return true
 		}
 		// Another thread updated the flags while we were checking, retry.
@@ -258,13 +256,13 @@ func (s *VirtualSession) AddFlags(flags uint32) bool {
 
 func (s *VirtualSession) RemoveFlags(flags uint32) bool {
 	for {
-		old := atomic.LoadUint32(&s.flags)
+		old := s.flags.Load()
 		if old&flags == 0 {
 			// Flags not set.
 			return false
 		}
 		newFlags := old & ^flags
-		if atomic.CompareAndSwapUint32(&s.flags, old, newFlags) {
+		if s.flags.CompareAndSwap(old, newFlags) {
 			return true
 		}
 		// Another thread updated the flags while we were checking, retry.
@@ -273,19 +271,19 @@ func (s *VirtualSession) RemoveFlags(flags uint32) bool {
 
 func (s *VirtualSession) SetFlags(flags uint32) bool {
 	for {
-		old := atomic.LoadUint32(&s.flags)
+		old := s.flags.Load()
 		if old == flags {
 			return false
 		}
 
-		if atomic.CompareAndSwapUint32(&s.flags, old, flags) {
+		if s.flags.CompareAndSwap(old, flags) {
 			return true
 		}
 	}
 }
 
 func (s *VirtualSession) Flags() uint32 {
-	return atomic.LoadUint32(&s.flags)
+	return s.flags.Load()
 }
 
 func (s *VirtualSession) Options() *AddSessionOptions {

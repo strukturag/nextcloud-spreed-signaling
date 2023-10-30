@@ -139,7 +139,7 @@ func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publi
 }
 
 type TestMCUClient struct {
-	closed int32
+	closed atomic.Bool
 
 	id         string
 	sid        string
@@ -159,13 +159,13 @@ func (c *TestMCUClient) StreamType() string {
 }
 
 func (c *TestMCUClient) Close(ctx context.Context) {
-	if atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
+	if c.closed.CompareAndSwap(false, true) {
 		log.Printf("Close MCU client %s", c.id)
 	}
 }
 
 func (c *TestMCUClient) isClosed() bool {
-	return atomic.LoadInt32(&c.closed) != 0
+	return c.closed.Load()
 }
 
 type TestMCUPublisher struct {

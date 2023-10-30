@@ -294,31 +294,29 @@ func (s *mcuProxySubscriber) ProcessEvent(msg *EventProxyServerMessage) {
 }
 
 type mcuProxyConnection struct {
-	// 64-bit members that are accessed atomically must be 64-bit aligned.
-	reconnectInterval int64
-	msgId             int64
-	load              int64
-
 	proxy  *mcuProxy
 	rawUrl string
 	url    *url.URL
 	ip     net.IP
 
+	load       atomic.Int64
 	mu         sync.Mutex
 	closer     *Closer
 	closedDone *Closer
-	closed     uint32
+	closed     atomic.Bool
 	conn       *websocket.Conn
 
 	connectedSince    time.Time
 	reconnectTimer    *time.Timer
-	shutdownScheduled uint32
-	closeScheduled    uint32
-	trackClose        uint32
-	temporary         uint32
+	reconnectInterval atomic.Int64
+	shutdownScheduled atomic.Bool
+	closeScheduled    atomic.Bool
+	trackClose        atomic.Bool
+	temporary         atomic.Bool
 
 	connectedNotifier SingleNotifier
 
+	msgId      atomic.Int64
 	helloMsgId string
 	sessionId  string
 	country    atomic.Value
@@ -340,19 +338,19 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP) (*mcuProx
 	}
 
 	conn := &mcuProxyConnection{
-		proxy:             proxy,
-		rawUrl:            baseUrl,
-		url:               parsed,
-		ip:                ip,
-		closer:            NewCloser(),
-		closedDone:        NewCloser(),
-		reconnectInterval: int64(initialReconnectInterval),
-		load:              loadNotConnected,
-		callbacks:         make(map[string]func(*ProxyServerMessage)),
-		publishers:        make(map[string]*mcuProxyPublisher),
-		publisherIds:      make(map[string]string),
-		subscribers:       make(map[string]*mcuProxySubscriber),
+		proxy:        proxy,
+		rawUrl:       baseUrl,
+		url:          parsed,
+		ip:           ip,
+		closer:       NewCloser(),
+		closedDone:   NewCloser(),
+		callbacks:    make(map[string]func(*ProxyServerMessage)),
+		publishers:   make(map[string]*mcuProxyPublisher),
+		publisherIds: make(map[string]string),
+		subscribers:  make(map[string]*mcuProxySubscriber),
 	}
+	conn.reconnectInterval.Store(int64(initialReconnectInterval))
+	conn.load.Store(loadNotConnected)
 	conn.country.Store("")
 	return conn, nil
 }
@@ -405,7 +403,7 @@ func (c *mcuProxyConnection) GetStats() *mcuProxyConnectionStats {
 }
 
 func (c *mcuProxyConnection) Load() int64 {
-	return atomic.LoadInt64(&c.load)
+	return c.load.Load()
 }
 
 func (c *mcuProxyConnection) Country() string {
@@ -413,31 +411,31 @@ func (c *mcuProxyConnection) Country() string {
 }
 
 func (c *mcuProxyConnection) IsTemporary() bool {
-	return atomic.LoadUint32(&c.temporary) != 0
+	return c.temporary.Load()
 }
 
 func (c *mcuProxyConnection) setTemporary() {
-	atomic.StoreUint32(&c.temporary, 1)
+	c.temporary.Store(true)
 }
 
 func (c *mcuProxyConnection) clearTemporary() {
-	atomic.StoreUint32(&c.temporary, 0)
+	c.temporary.Store(false)
 }
 
 func (c *mcuProxyConnection) IsShutdownScheduled() bool {
-	return atomic.LoadUint32(&c.shutdownScheduled) != 0 || atomic.LoadUint32(&c.closeScheduled) != 0
+	return c.shutdownScheduled.Load() || c.closeScheduled.Load()
 }
 
 func (c *mcuProxyConnection) readPump() {
 	defer func() {
-		if atomic.LoadUint32(&c.closed) == 0 {
+		if !c.closed.Load() {
 			c.scheduleReconnect()
 		} else {
 			c.closedDone.Close()
 		}
 	}()
 	defer c.close()
-	defer atomic.StoreInt64(&c.load, loadNotConnected)
+	defer c.load.Store(loadNotConnected)
 
 	c.mu.Lock()
 	conn := c.conn
@@ -539,7 +537,7 @@ func (c *mcuProxyConnection) sendClose() error {
 }
 
 func (c *mcuProxyConnection) stop(ctx context.Context) {
-	if !atomic.CompareAndSwapUint32(&c.closed, 0, 1) {
+	if !c.closed.CompareAndSwap(false, true) {
 		return
 	}
 
@@ -571,18 +569,18 @@ func (c *mcuProxyConnection) close() {
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
-		if atomic.CompareAndSwapUint32(&c.trackClose, 1, 0) {
+		if c.trackClose.CompareAndSwap(true, false) {
 			statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Dec()
 		}
 	}
 }
 
 func (c *mcuProxyConnection) stopCloseIfEmpty() {
-	atomic.StoreUint32(&c.closeScheduled, 0)
+	c.closeScheduled.Store(false)
 }
 
 func (c *mcuProxyConnection) closeIfEmpty() bool {
-	atomic.StoreUint32(&c.closeScheduled, 1)
+	c.closeScheduled.Store(true)
 
 	var total int64
 	c.publishersLock.RLock()
@@ -620,14 +618,14 @@ func (c *mcuProxyConnection) scheduleReconnect() {
 		return
 	}
 
-	interval := atomic.LoadInt64(&c.reconnectInterval)
+	interval := c.reconnectInterval.Load()
 	c.reconnectTimer.Reset(time.Duration(interval))
 
 	interval = interval * 2
 	if interval > int64(maxReconnectInterval) {
 		interval = int64(maxReconnectInterval)
 	}
-	atomic.StoreInt64(&c.reconnectInterval, interval)
+	c.reconnectInterval.Store(interval)
 }
 
 func (c *mcuProxyConnection) reconnect() {
@@ -673,15 +671,15 @@ func (c *mcuProxyConnection) reconnect() {
 	}
 
 	log.Printf("Connected to %s", c)
-	atomic.StoreUint32(&c.closed, 0)
+	c.closed.Store(false)
 
 	c.mu.Lock()
 	c.connectedSince = time.Now()
 	c.conn = conn
 	c.mu.Unlock()
 
-	atomic.StoreInt64(&c.reconnectInterval, int64(initialReconnectInterval))
-	atomic.StoreUint32(&c.shutdownScheduled, 0)
+	c.reconnectInterval.Store(int64(initialReconnectInterval))
+	c.shutdownScheduled.Store(false)
 	if err := c.sendHello(); err != nil {
 		log.Printf("Could not send hello request to %s: %s", c, err)
 		c.scheduleReconnect()
@@ -723,7 +721,7 @@ func (c *mcuProxyConnection) removePublisher(publisher *mcuProxyPublisher) {
 	}
 	delete(c.publisherIds, publisher.id+"|"+publisher.StreamType())
 
-	if len(c.publishers) == 0 && (atomic.LoadUint32(&c.closeScheduled) != 0 || c.IsTemporary()) {
+	if len(c.publishers) == 0 && (c.closeScheduled.Load() || c.IsTemporary()) {
 		go c.closeIfEmpty()
 	}
 }
@@ -740,7 +738,7 @@ func (c *mcuProxyConnection) clearPublishers() {
 	c.publishers = make(map[string]*mcuProxyPublisher)
 	c.publisherIds = make(map[string]string)
 
-	if atomic.LoadUint32(&c.closeScheduled) != 0 || c.IsTemporary() {
+	if c.closeScheduled.Load() || c.IsTemporary() {
 		go c.closeIfEmpty()
 	}
 }
@@ -754,7 +752,7 @@ func (c *mcuProxyConnection) removeSubscriber(subscriber *mcuProxySubscriber) {
 		statsSubscribersCurrent.WithLabelValues(subscriber.StreamType()).Dec()
 	}
 
-	if len(c.subscribers) == 0 && (atomic.LoadUint32(&c.closeScheduled) != 0 || c.IsTemporary()) {
+	if len(c.subscribers) == 0 && (c.closeScheduled.Load() || c.IsTemporary()) {
 		go c.closeIfEmpty()
 	}
 }
@@ -770,7 +768,7 @@ func (c *mcuProxyConnection) clearSubscribers() {
 	}(c.subscribers)
 	c.subscribers = make(map[string]*mcuProxySubscriber)
 
-	if atomic.LoadUint32(&c.closeScheduled) != 0 || c.IsTemporary() {
+	if c.closeScheduled.Load() || c.IsTemporary() {
 		go c.closeIfEmpty()
 	}
 }
@@ -831,7 +829,7 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			} else {
 				log.Printf("Received session %s from %s", c.sessionId, c)
 			}
-			if atomic.CompareAndSwapUint32(&c.trackClose, 0, 1) {
+			if c.trackClose.CompareAndSwap(false, true) {
 				statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Inc()
 			}
 
@@ -902,12 +900,12 @@ func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 		if proxyDebugMessages {
 			log.Printf("Load of %s now at %d", c, event.Load)
 		}
-		atomic.StoreInt64(&c.load, event.Load)
+		c.load.Store(event.Load)
 		statsProxyBackendLoadCurrent.WithLabelValues(c.url.String()).Set(float64(event.Load))
 		return
 	case "shutdown-scheduled":
 		log.Printf("Proxy %s is scheduled to shutdown", c)
-		atomic.StoreUint32(&c.shutdownScheduled, 1)
+		c.shutdownScheduled.Store(true)
 		return
 	}
 
@@ -945,7 +943,7 @@ func (c *mcuProxyConnection) processBye(msg *ProxyServerMessage) {
 }
 
 func (c *mcuProxyConnection) sendHello() error {
-	c.helloMsgId = strconv.FormatInt(atomic.AddInt64(&c.msgId, 1), 10)
+	c.helloMsgId = strconv.FormatInt(c.msgId.Add(1), 10)
 	msg := &ProxyClientMessage{
 		Id:   c.helloMsgId,
 		Type: "hello",
@@ -992,7 +990,7 @@ func (c *mcuProxyConnection) sendMessageLocked(msg *ProxyClientMessage) error {
 }
 
 func (c *mcuProxyConnection) performAsyncRequest(ctx context.Context, msg *ProxyClientMessage, callback func(err error, response *ProxyServerMessage)) {
-	msgId := strconv.FormatInt(atomic.AddInt64(&c.msgId, 1), 10)
+	msgId := strconv.FormatInt(c.msgId.Add(1), 10)
 	msg.Id = msgId
 
 	c.mu.Lock()
@@ -1094,10 +1092,6 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 }
 
 type mcuProxy struct {
-	// 64-bit members that are accessed atomically must be 64-bit aligned.
-	connRequests int64
-	nextSort     int64
-
 	urlType  string
 	tokenId  string
 	tokenKey *rsa.PrivateKey
@@ -1113,6 +1107,8 @@ type mcuProxy struct {
 	connectionsMap map[string][]*mcuProxyConnection
 	connectionsMu  sync.RWMutex
 	proxyTimeout   time.Duration
+	connRequests   atomic.Int64
+	nextSort       atomic.Int64
 
 	dnsDiscovery bool
 	stopping     chan struct{}
@@ -1510,7 +1506,7 @@ func (m *mcuProxy) configureStatic(config *goconf.ConfigFile, fromReload bool) e
 		}
 
 		if changed {
-			atomic.StoreInt64(&m.nextSort, 0)
+			m.nextSort.Store(0)
 		}
 	} else {
 		for u, conns := range created {
@@ -1644,7 +1640,7 @@ func (m *mcuProxy) EtcdKeyUpdated(client *EtcdClient, key string, data []byte) {
 		m.urlToKey[info.Address] = key
 		m.connections = append(m.connections, conn)
 		m.connectionsMap[info.Address] = []*mcuProxyConnection{conn}
-		atomic.StoreInt64(&m.nextSort, 0)
+		m.nextSort.Store(0)
 	}
 }
 
@@ -1696,7 +1692,7 @@ func (m *mcuProxy) removeConnection(c *mcuProxyConnection) {
 			m.connectionsMap[c.rawUrl] = conns
 		}
 
-		atomic.StoreInt64(&m.nextSort, 0)
+		m.nextSort.Store(0)
 	}
 }
 
@@ -1829,8 +1825,8 @@ func (m *mcuProxy) getSortedConnections(initiator McuInitiator) []*mcuProxyConne
 	// Connections are re-sorted every <connectionSortRequests> requests or
 	// every <connectionSortInterval>.
 	now := time.Now().UnixNano()
-	if atomic.AddInt64(&m.connRequests, 1)%connectionSortRequests == 0 || atomic.LoadInt64(&m.nextSort) <= now {
-		atomic.StoreInt64(&m.nextSort, now+int64(connectionSortInterval))
+	if m.connRequests.Add(1)%connectionSortRequests == 0 || m.nextSort.Load() <= now {
+		m.nextSort.Store(now + int64(connectionSortInterval))
 
 		sorted := make(mcuProxyConnectionsList, len(connections))
 		copy(sorted, connections)
