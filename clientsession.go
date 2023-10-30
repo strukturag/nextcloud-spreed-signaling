@@ -60,7 +60,7 @@ type ClientSession struct {
 	userId     string
 	userData   *json.RawMessage
 
-	inCall              atomic.Uint32
+	inCall              Flags
 	supportsPermissions bool
 	permissions         map[Permission]bool
 
@@ -169,7 +169,7 @@ func (s *ClientSession) ClientType() string {
 
 // GetInCall is only used for internal clients.
 func (s *ClientSession) GetInCall() int {
-	return int(s.inCall.Load())
+	return int(s.inCall.Get())
 }
 
 func (s *ClientSession) SetInCall(inCall int) bool {
@@ -177,16 +177,7 @@ func (s *ClientSession) SetInCall(inCall int) bool {
 		inCall = 0
 	}
 
-	for {
-		old := s.inCall.Load()
-		if old == uint32(inCall) {
-			return false
-		}
-
-		if s.inCall.CompareAndSwap(old, uint32(inCall)) {
-			return true
-		}
-	}
+	return s.inCall.Set(uint32(inCall))
 }
 
 func (s *ClientSession) GetFeatures() []string {

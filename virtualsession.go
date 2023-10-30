@@ -47,8 +47,8 @@ type VirtualSession struct {
 	sessionId string
 	userId    string
 	userData  *json.RawMessage
-	inCall    atomic.Uint32
-	flags     atomic.Uint32
+	inCall    Flags
+	flags     Flags
 	options   *AddSessionOptions
 }
 
@@ -69,7 +69,6 @@ func NewVirtualSession(session *ClientSession, privateId string, publicId string
 		userData:  msg.User,
 		options:   msg.Options,
 	}
-	result.flags.Store(msg.Flags)
 
 	if err := session.events.RegisterSessionListener(publicId, session.Backend(), result); err != nil {
 		return nil, err
@@ -79,6 +78,9 @@ func NewVirtualSession(session *ClientSession, privateId string, publicId string
 		result.SetInCall(*msg.InCall)
 	} else if !session.HasFeature(ClientFeatureInternalInCall) {
 		result.SetInCall(FlagInCall | FlagWithPhone)
+	}
+	if msg.Flags != 0 {
+		result.SetFlags(msg.Flags)
 	}
 
 	return result, nil
@@ -97,7 +99,7 @@ func (s *VirtualSession) ClientType() string {
 }
 
 func (s *VirtualSession) GetInCall() int {
-	return int(s.inCall.Load())
+	return int(s.inCall.Get())
 }
 
 func (s *VirtualSession) SetInCall(inCall int) bool {
@@ -105,16 +107,7 @@ func (s *VirtualSession) SetInCall(inCall int) bool {
 		inCall = 0
 	}
 
-	for {
-		old := s.inCall.Load()
-		if old == uint32(inCall) {
-			return false
-		}
-
-		if s.inCall.CompareAndSwap(old, uint32(inCall)) {
-			return true
-		}
-	}
+	return s.inCall.Set(uint32(inCall))
 }
 
 func (s *VirtualSession) Data() *SessionIdData {
@@ -240,50 +233,19 @@ func (s *VirtualSession) SessionId() string {
 }
 
 func (s *VirtualSession) AddFlags(flags uint32) bool {
-	for {
-		old := s.flags.Load()
-		if old&flags == flags {
-			// Flags already set.
-			return false
-		}
-		newFlags := old | flags
-		if s.flags.CompareAndSwap(old, newFlags) {
-			return true
-		}
-		// Another thread updated the flags while we were checking, retry.
-	}
+	return s.flags.Add(flags)
 }
 
 func (s *VirtualSession) RemoveFlags(flags uint32) bool {
-	for {
-		old := s.flags.Load()
-		if old&flags == 0 {
-			// Flags not set.
-			return false
-		}
-		newFlags := old & ^flags
-		if s.flags.CompareAndSwap(old, newFlags) {
-			return true
-		}
-		// Another thread updated the flags while we were checking, retry.
-	}
+	return s.flags.Remove(flags)
 }
 
 func (s *VirtualSession) SetFlags(flags uint32) bool {
-	for {
-		old := s.flags.Load()
-		if old == flags {
-			return false
-		}
-
-		if s.flags.CompareAndSwap(old, flags) {
-			return true
-		}
-	}
+	return s.flags.Set(flags)
 }
 
 func (s *VirtualSession) Flags() uint32 {
-	return s.flags.Load()
+	return s.flags.Get()
 }
 
 func (s *VirtualSession) Options() *AddSessionOptions {
