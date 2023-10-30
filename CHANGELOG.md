@@ -2,6 +2,119 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.0 - 2023-10-30
+
+### Added
+- Use GeoIP overrides if no GeoIP database is configured.
+  [#532](https://github.com/strukturag/nextcloud-spreed-signaling/pull/532)
+- Log warning if no (static) backends have been configured.
+  [#533](https://github.com/strukturag/nextcloud-spreed-signaling/pull/533)
+- Fallback to common shared secret if none is set for backends.
+  [#534](https://github.com/strukturag/nextcloud-spreed-signaling/pull/534)
+- CI: Test with Golang 1.21
+  [#536](https://github.com/strukturag/nextcloud-spreed-signaling/pull/536)
+- Return response if session tries to join room again.
+  [#547](https://github.com/strukturag/nextcloud-spreed-signaling/pull/547)
+- Support TTL for transient data.
+  [#575](https://github.com/strukturag/nextcloud-spreed-signaling/pull/575)
+- Implement message handler for dialout support.
+  [#563](https://github.com/strukturag/nextcloud-spreed-signaling/pull/563)
+- No longer support Golang 1.19.
+  [#580](https://github.com/strukturag/nextcloud-spreed-signaling/pull/580)
+
+### Changed
+- build(deps): Bump google.golang.org/grpc from 1.56.1 to 1.57.0
+  [#520](https://github.com/strukturag/nextcloud-spreed-signaling/pull/520)
+- build(deps): Bump coverallsapp/github-action from 2.2.0 to 2.2.1
+  [#514](https://github.com/strukturag/nextcloud-spreed-signaling/pull/514)
+- build(deps): Bump github.com/nats-io/nats.go from 1.27.1 to 1.28.0
+  [#515](https://github.com/strukturag/nextcloud-spreed-signaling/pull/515)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.9.19 to 2.9.20
+  [#513](https://github.com/strukturag/nextcloud-spreed-signaling/pull/513)
+- build(deps): Bump mkdocs from 1.4.3 to 1.5.1 in /docs
+  [#523](https://github.com/strukturag/nextcloud-spreed-signaling/pull/523)
+- build(deps): Bump markdown from 3.3.7 to 3.4.4 in /docs
+  [#519](https://github.com/strukturag/nextcloud-spreed-signaling/pull/519)
+- build(deps): Bump mkdocs from 1.5.1 to 1.5.2 in /docs
+  [#525](https://github.com/strukturag/nextcloud-spreed-signaling/pull/525)
+- build(deps): Bump github.com/oschwald/maxminddb-golang from 1.11.0 to 1.12.0
+  [#524](https://github.com/strukturag/nextcloud-spreed-signaling/pull/524)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.9.20 to 2.9.21
+  [#530](https://github.com/strukturag/nextcloud-spreed-signaling/pull/530)
+- build(deps): Bump sphinx from 6.2.1 to 7.2.4 in /docs
+  [#542](https://github.com/strukturag/nextcloud-spreed-signaling/pull/542)
+- build(deps): Bump github.com/google/uuid from 1.3.0 to 1.3.1
+  [#539](https://github.com/strukturag/nextcloud-spreed-signaling/pull/539)
+- build(deps): Bump sphinx from 7.2.4 to 7.2.5 in /docs
+  [#544](https://github.com/strukturag/nextcloud-spreed-signaling/pull/544)
+- build(deps): Bump coverallsapp/github-action from 2.2.1 to 2.2.2
+  [#546](https://github.com/strukturag/nextcloud-spreed-signaling/pull/546)
+- build(deps): Bump actions/checkout from 3 to 4
+  [#545](https://github.com/strukturag/nextcloud-spreed-signaling/pull/545)
+- build(deps): Bump google.golang.org/grpc from 1.57.0 to 1.58.0
+  [#549](https://github.com/strukturag/nextcloud-spreed-signaling/pull/549)
+- build(deps): Bump docker/metadata-action from 4 to 5
+  [#552](https://github.com/strukturag/nextcloud-spreed-signaling/pull/552)
+- build(deps): Bump docker/setup-qemu-action from 2 to 3
+  [#553](https://github.com/strukturag/nextcloud-spreed-signaling/pull/553)
+- build(deps): Bump docker/login-action from 2 to 3
+  [#554](https://github.com/strukturag/nextcloud-spreed-signaling/pull/554)
+- build(deps): Bump docker/setup-buildx-action from 2 to 3
+  [#555](https://github.com/strukturag/nextcloud-spreed-signaling/pull/555)
+- build(deps): Bump coverallsapp/github-action from 2.2.2 to 2.2.3
+  [#551](https://github.com/strukturag/nextcloud-spreed-signaling/pull/551)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.9.21 to 2.9.22
+  [#550](https://github.com/strukturag/nextcloud-spreed-signaling/pull/550)
+- build(deps): Bump docker/build-push-action from 4 to 5
+  [#557](https://github.com/strukturag/nextcloud-spreed-signaling/pull/557)
+- build(deps): Bump github.com/nats-io/nats.go from 1.28.0 to 1.29.0
+  [#558](https://github.com/strukturag/nextcloud-spreed-signaling/pull/558)
+- build(deps): Bump google.golang.org/grpc from 1.58.0 to 1.58.1
+  [#559](https://github.com/strukturag/nextcloud-spreed-signaling/pull/559)
+- build(deps): Bump sphinx from 7.2.5 to 7.2.6 in /docs
+  [#560](https://github.com/strukturag/nextcloud-spreed-signaling/pull/560)
+- build(deps): Bump mkdocs from 1.5.2 to 1.5.3 in /docs
+  [#561](https://github.com/strukturag/nextcloud-spreed-signaling/pull/561)
+- build(deps): Bump markdown from 3.4.4 to 3.5 in /docs
+  [#570](https://github.com/strukturag/nextcloud-spreed-signaling/pull/570)
+- build(deps): Bump google.golang.org/grpc from 1.58.1 to 1.58.3
+  [#573](https://github.com/strukturag/nextcloud-spreed-signaling/pull/573)
+- build(deps): Bump github.com/prometheus/client_golang from 1.16.0 to 1.17.0
+  [#569](https://github.com/strukturag/nextcloud-spreed-signaling/pull/569)
+- build(deps): Bump golang.org/x/net from 0.12.0 to 0.17.0
+  [#574](https://github.com/strukturag/nextcloud-spreed-signaling/pull/574)
+- build(deps): Bump github.com/nats-io/nats.go from 1.29.0 to 1.30.2
+  [#568](https://github.com/strukturag/nextcloud-spreed-signaling/pull/568)
+- build(deps): Bump google.golang.org/grpc from 1.58.3 to 1.59.0
+  [#578](https://github.com/strukturag/nextcloud-spreed-signaling/pull/578)
+- build(deps): Bump github.com/nats-io/nats.go from 1.30.2 to 1.31.0
+  [#577](https://github.com/strukturag/nextcloud-spreed-signaling/pull/577)
+- dependabot: Check for updates in docker files.
+- build(deps): Bump golang from 1.20-alpine to 1.21-alpine in /docker/proxy
+  [#581](https://github.com/strukturag/nextcloud-spreed-signaling/pull/581)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.9.22 to 2.10.3
+  [#576](https://github.com/strukturag/nextcloud-spreed-signaling/pull/576)
+- build(deps): Bump alpine from 3.14 to 3.18 in /docker/janus
+  [#582](https://github.com/strukturag/nextcloud-spreed-signaling/pull/582)
+- build(deps): Bump golang from 1.20-alpine to 1.21-alpine in /docker/server
+  [#583](https://github.com/strukturag/nextcloud-spreed-signaling/pull/583)
+- Improve get-version.sh
+  [#584](https://github.com/strukturag/nextcloud-spreed-signaling/pull/584)
+ -build(deps): Bump go.etcd.io/etcd/client/pkg/v3 from 3.5.9 to 3.5.10
+  [#588](https://github.com/strukturag/nextcloud-spreed-signaling/pull/588)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.3 to 2.10.4
+  [#586](https://github.com/strukturag/nextcloud-spreed-signaling/pull/586)
+- build(deps): Bump github.com/google/uuid from 1.3.1 to 1.4.0
+  [#585](https://github.com/strukturag/nextcloud-spreed-signaling/pull/585)
+- dependabot: Group etcd updates.
+- build(deps): Bump the etcd group with 3 updates
+  [#590](https://github.com/strukturag/nextcloud-spreed-signaling/pull/590)
+- Switch to atomic types from Go 1.19
+  [#500](https://github.com/strukturag/nextcloud-spreed-signaling/pull/500)
+- Move common flags code to own struct.
+  [#591](https://github.com/strukturag/nextcloud-spreed-signaling/pull/591)
+
+
 ## 1.1.3 - 2023-07-05
 
 ### Added
