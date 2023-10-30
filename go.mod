@@ -16,10 +16,10 @@ require (
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/pion/sdp/v3 v3.0.6
 	github.com/prometheus/client_golang v1.17.0
-	go.etcd.io/etcd/api/v3 v3.5.9
+	go.etcd.io/etcd/api/v3 v3.5.10
 	go.etcd.io/etcd/client/pkg/v3 v3.5.10
-	go.etcd.io/etcd/client/v3 v3.5.9
-	go.etcd.io/etcd/server/v3 v3.5.9
+	go.etcd.io/etcd/client/v3 v3.5.10
+	go.etcd.io/etcd/server/v3 v3.5.10
 	google.golang.org/grpc v1.59.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.3.0
 	google.golang.org/protobuf v1.31.0
@@ -59,10 +59,10 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
-	go.etcd.io/bbolt v1.3.7 // indirect
-	go.etcd.io/etcd/client/v2 v2.305.9 // indirect
-	go.etcd.io/etcd/pkg/v3 v3.5.9 // indirect
-	go.etcd.io/etcd/raft/v3 v3.5.9 // indirect
+	go.etcd.io/bbolt v1.3.8 // indirect
+	go.etcd.io/etcd/client/v2 v2.305.10 // indirect
+	go.etcd.io/etcd/pkg/v3 v3.5.10 // indirect
+	go.etcd.io/etcd/raft/v3 v3.5.10 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.25.0 // indirect
 	go.opentelemetry.io/otel v1.0.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.0.1 // indirect
