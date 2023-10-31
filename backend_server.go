@@ -685,13 +685,7 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, request *B
 		return returnDialoutError(http.StatusBadRequest, NewError("invalid_roomid", "The room id must be numeric."))
 	}
 
-	var session *ClientSession
-	for s := range b.hub.dialoutSessions {
-		if s.GetClient() != nil {
-			session = s
-			break
-		}
-	}
+	session := b.hub.GetDialoutSession(roomid, backend)
 	if session == nil {
 		return returnDialoutError(http.StatusNotFound, NewError("no_client_available", "No available client found to trigger dialout."))
 	}
