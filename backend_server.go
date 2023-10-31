@@ -698,6 +698,7 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, request *B
 			Type: "dialout",
 			Dialout: &InternalServerDialoutRequest{
 				RoomId:  roomid,
+				Backend: backend.Url(),
 				Request: request.Dialout,
 			},
 		},

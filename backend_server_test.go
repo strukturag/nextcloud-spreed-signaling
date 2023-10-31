@@ -79,11 +79,13 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.AddOption("backend", "allowed", u.Host)
+	backendId := "backend1"
+	config.AddOption("backend", "backends", backendId)
+	config.AddOption(backendId, "url", server.URL)
 	if u.Scheme == "http" {
 		config.AddOption("backend", "allowhttp", "true")
 	}
-	config.AddOption("backend", "secret", string(testBackendSecret))
+	config.AddOption(backendId, "secret", string(testBackendSecret))
 	config.AddOption("sessions", "hashkey", "12345678901234567890123456789012")
 	config.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
@@ -1886,6 +1888,9 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 		if msg.Internal.Dialout.RoomId != roomId {
 			t.Errorf("expected room id %s, got %+v", roomId, msg)
 		}
+		if url := server.URL + "/"; msg.Internal.Dialout.Backend != url {
+			t.Errorf("expected backend %s, got %+v", url, msg)
+		}
 
 		response := &ClientMessage{
 			Id:   msg.Id,
@@ -1989,6 +1994,9 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 
 		if msg.Internal.Dialout.RoomId != roomId {
 			t.Errorf("expected room id %s, got %+v", roomId, msg)
+		}
+		if url := server.URL + "/"; msg.Internal.Dialout.Backend != url {
+			t.Errorf("expected backend %s, got %+v", url, msg)
 		}
 
 		response := &ClientMessage{

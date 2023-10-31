@@ -793,7 +793,8 @@ func (m *InternalClientMessage) CheckValid() error {
 }
 
 type InternalServerDialoutRequest struct {
-	RoomId string `json:"roomid"`
+	RoomId  string `json:"roomid"`
+	Backend string `json:"backend"`
 
 	Request *BackendRoomDialoutRequest `json:"request"`
 }
