@@ -676,7 +676,7 @@ func isNumeric(s string) bool {
 	return checkNumeric.MatchString(s)
 }
 
-func (b *BackendServer) startDialout(roomid string, backend *Backend, request *BackendServerRoomRequest) (any, error) {
+func (b *BackendServer) startDialout(roomid string, backend *Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
 	if err := request.Dialout.ValidateNumber(); err != nil {
 		return returnDialoutError(http.StatusBadRequest, err)
 	}
@@ -690,6 +690,14 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, request *B
 		return returnDialoutError(http.StatusNotFound, NewError("no_client_available", "No available client found to trigger dialout."))
 	}
 
+	url := backend.Url()
+	if url == "" {
+		// Old-style compat backend, use client-provided URL.
+		url = backendUrl
+		if url != "" && url[len(url)-1] != '/' {
+			url += "/"
+		}
+	}
 	id := newRandomString(32)
 	msg := &ServerMessage{
 		Id:   id,
@@ -698,7 +706,7 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, request *B
 			Type: "dialout",
 			Dialout: &InternalServerDialoutRequest{
 				RoomId:  roomid,
-				Backend: backend.Url(),
+				Backend: url,
 				Request: request.Dialout,
 			},
 		},
@@ -837,7 +845,7 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 	case "switchto":
 		err = b.sendRoomSwitchTo(roomid, backend, &request)
 	case "dialout":
-		response, err = b.startDialout(roomid, backend, &request)
+		response, err = b.startDialout(roomid, backend, backendUrl, &request)
 	default:
 		http.Error(w, "Unsupported request type: "+request.Type, http.StatusBadRequest)
 		return

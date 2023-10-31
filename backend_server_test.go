@@ -79,13 +79,18 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	if err != nil {
 		t.Fatal(err)
 	}
-	backendId := "backend1"
-	config.AddOption("backend", "backends", backendId)
-	config.AddOption(backendId, "url", server.URL)
+	if strings.Contains(t.Name(), "Compat") {
+		config.AddOption("backend", "allowed", u.Host)
+		config.AddOption("backend", "secret", string(testBackendSecret))
+	} else {
+		backendId := "backend1"
+		config.AddOption("backend", "backends", backendId)
+		config.AddOption(backendId, "url", server.URL)
+		config.AddOption(backendId, "secret", string(testBackendSecret))
+	}
 	if u.Scheme == "http" {
 		config.AddOption("backend", "allowhttp", "true")
 	}
-	config.AddOption(backendId, "secret", string(testBackendSecret))
 	config.AddOption("sessions", "hashkey", "12345678901234567890123456789012")
 	config.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
@@ -228,8 +233,8 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	return b1, b2, hub1, hub2, server1, server2
 }
 
-func performBackendRequest(url string, body []byte) (*http.Response, error) {
-	request, err := http.NewRequest("POST", url, bytes.NewReader(body))
+func performBackendRequest(requestUrl string, body []byte) (*http.Response, error) {
+	request, err := http.NewRequest("POST", requestUrl, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +243,11 @@ func performBackendRequest(url string, body []byte) (*http.Response, error) {
 	check := CalculateBackendChecksum(rnd, body, testBackendSecret)
 	request.Header.Set("Spreed-Signaling-Random", rnd)
 	request.Header.Set("Spreed-Signaling-Checksum", check)
-	request.Header.Set("Spreed-Signaling-Backend", url)
+	u, err := url.Parse(requestUrl)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Spreed-Signaling-Backend", u.Scheme+"://"+u.Host)
 	client := &http.Client{}
 	return client.Do(request)
 }
@@ -1851,6 +1860,112 @@ func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 }
 
 func TestBackendServer_DialoutAccepted(t *testing.T) {
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+	if err := client.SendHelloInternalWithFeatures([]string{"start-dialout"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	_, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	roomId := "12345"
+	callId := "call-123"
+
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+
+		msg, err := client.RunUntilMessage(ctx)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+
+		if msg.Type != "internal" || msg.Internal.Type != "dialout" {
+			t.Errorf("expected internal dialout message, got %+v", msg)
+			return
+		}
+
+		if msg.Internal.Dialout.RoomId != roomId {
+			t.Errorf("expected room id %s, got %+v", roomId, msg)
+		}
+		if url := server.URL + "/"; msg.Internal.Dialout.Backend != url {
+			t.Errorf("expected backend %s, got %+v", url, msg)
+		}
+
+		response := &ClientMessage{
+			Id:   msg.Id,
+			Type: "internal",
+			Internal: &InternalClientMessage{
+				Type: "dialout",
+				Dialout: &DialoutInternalClientMessage{
+					Type:   "status",
+					RoomId: msg.Internal.Dialout.RoomId,
+					Status: &DialoutStatusInternalClientMessage{
+						Status: "accepted",
+						CallId: callId,
+					},
+				},
+			},
+		}
+		if err := client.WriteJSON(response); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	defer func() {
+		<-stopped
+	}()
+
+	msg := &BackendServerRoomRequest{
+		Type: "dialout",
+		Dialout: &BackendRoomDialoutRequest{
+			Number: "+1234567890",
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("Expected error %d, got %s: %s", http.StatusOK, res.Status, string(body))
+	}
+
+	var response BackendServerRoomResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatal(err)
+	}
+
+	if response.Type != "dialout" || response.Dialout == nil {
+		t.Fatalf("expected type dialout, got %s", string(body))
+	}
+	if response.Dialout.Error != nil {
+		t.Fatalf("expected dialout success, got %s", string(body))
+	}
+	if response.Dialout.CallId != callId {
+		t.Errorf("expected call id %s, got %s", callId, string(body))
+	}
+}
+
+func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client := NewTestClient(t, server, hub)
