@@ -6,7 +6,7 @@ require (
 	github.com/dlintw/goconf v0.0.0-20120228082610-dcc070983490
 	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/google/uuid v1.4.0
-	github.com/gorilla/mux v1.8.0
+	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/securecookie v1.1.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/mailru/easyjson v0.7.7
