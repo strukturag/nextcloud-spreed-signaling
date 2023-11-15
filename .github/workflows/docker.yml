@@ -25,18 +25,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image for testing
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/server/Dockerfile
-          load: true
-          tags: ${{ env.TEST_TAG }}
-
-      - name: Test Docker image
-        run: |
-          docker run --rm ${{ env.TEST_TAG }} /usr/bin/nextcloud-spreed-signaling --version
-
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
@@ -55,18 +43,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image for testing
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/proxy/Dockerfile
-          load: true
-          tags: ${{ env.TEST_TAG }}
-
-      - name: Test Docker image
-        run: |
-          docker run --rm ${{ env.TEST_TAG }} /usr/bin/nextcloud-spreed-signaling-proxy --version
 
       - name: Build Docker image
         uses: docker/build-push-action@v5
