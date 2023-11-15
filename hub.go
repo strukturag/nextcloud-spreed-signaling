@@ -581,6 +581,24 @@ func (h *Hub) GetSessionByPublicId(sessionId string) Session {
 	return session
 }
 
+func (h *Hub) GetDialoutSession(roomId string, backend *Backend) *ClientSession {
+	url := backend.Url()
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for session := range h.dialoutSessions {
+		if session.backend.Url() != url {
+			continue
+		}
+
+		if session.GetClient() != nil {
+			return session
+		}
+	}
+
+	return nil
+}
+
 func (h *Hub) checkExpiredSessions(now time.Time) {
 	for s := range h.expiredSessions {
 		if s.IsExpired(now) {
