@@ -15,6 +15,11 @@ if [ -z "$VERSION" ] && [ -d "$ROOT/../.git" ]; then
     else
         VERSION=$(git log -1 --pretty=%H)
     fi
+    if [ -f "/.dockerenv" ]; then
+        VERSION="$VERSION~docker"
+    elif grep -sq 'docker\|lxc' /proc/1/cgroup; then
+        VERSION="$VERSION~docker"
+    fi
 fi
 
 if [ -z "$VERSION" ]; then
