@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.1 - 2023-11-15
+
+### Added
+- feat(scripts): Add a script to simplify the logs to make it more easily to trace a user/session
+[#480](https://github.com/strukturag/nextcloud-spreed-signaling/pull/480)
+
+### Changed
+- build(deps): Bump markdown from 3.5 to 3.5.1 in /docs
+  [#594](https://github.com/strukturag/nextcloud-spreed-signaling/pull/594)
+- build(deps): Bump github.com/gorilla/websocket from 1.5.0 to 1.5.1
+  [#595](https://github.com/strukturag/nextcloud-spreed-signaling/pull/595)
+- build(deps): Bump github.com/gorilla/securecookie from 1.1.1 to 1.1.2
+  [#597](https://github.com/strukturag/nextcloud-spreed-signaling/pull/597)
+- build(deps): Bump github.com/gorilla/mux from 1.8.0 to 1.8.1
+  [#596](https://github.com/strukturag/nextcloud-spreed-signaling/pull/596)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.4 to 2.10.5
+  [#599](https://github.com/strukturag/nextcloud-spreed-signaling/pull/599)
+- Improve support for multiple backends with dialouts
+  [#592](https://github.com/strukturag/nextcloud-spreed-signaling/pull/592)
+- build(deps): Bump go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc from 0.25.0 to 0.46.0
+  [#600](https://github.com/strukturag/nextcloud-spreed-signaling/pull/600)
+
+
 ## 1.2.0 - 2023-10-30
 
 ### Added
