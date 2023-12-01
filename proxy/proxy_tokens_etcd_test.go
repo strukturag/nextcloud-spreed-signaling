@@ -83,6 +83,9 @@ func newEtcdForTesting(t *testing.T) *embed.Etcd {
 		httpListener := u
 		httpListener.Host = net.JoinHostPort("localhost", strconv.Itoa(port+1))
 		cfg.ListenClientHttpUrls = []url.URL{*httpListener}
+		peerListener := u
+		peerListener.Host = net.JoinHostPort("localhost", strconv.Itoa(port+2))
+		cfg.ListenPeerUrls = []url.URL{*peerListener}
 		etcd, err = embed.StartEtcd(cfg)
 		if isErrorAddressAlreadyInUse(err) {
 			continue
