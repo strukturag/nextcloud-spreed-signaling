@@ -265,6 +265,17 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 	if options, _ := config.GetOptions("geoip-overrides"); len(options) > 0 {
 		geoipOverrides = make(map[*net.IPNet]string)
 		for _, option := range options {
+			value, err := config.GetString("geoip-overrides", option)
+			if err != nil {
+				var ge goconf.GetError
+				if errors.As(err, &ge) && ge.Reason == goconf.OptionNotFound {
+					// Skip options from "default" section.
+					continue
+				}
+
+				return nil, err
+			}
+
 			var ip net.IP
 			var ipNet *net.IPNet
 			if strings.Contains(option, "/") {
@@ -290,7 +301,6 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 				}
 			}
 
-			value, _ := config.GetString("geoip-overrides", option)
 			value = strings.ToUpper(strings.TrimSpace(value))
 			if value == "" {
 				log.Printf("IP %s doesn't have a country assigned, skipping", option)
