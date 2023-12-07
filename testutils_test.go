@@ -22,6 +22,8 @@
 package signaling
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"os/signal"
 	"runtime/pprof"
@@ -53,6 +55,8 @@ func ensureNoGoroutinesLeak(t *testing.T, f func(t *testing.T)) {
 	// go routines
 	time.Sleep(500 * time.Millisecond)
 	before := profile.Count()
+	var prev bytes.Buffer
+	dumpGoroutines("Before:", &prev)
 
 	t.Run("leakcheck", f)
 
@@ -68,12 +72,16 @@ func ensureNoGoroutinesLeak(t *testing.T, f func(t *testing.T)) {
 	}
 
 	if after != before {
-		dumpGoroutines()
+		io.Copy(os.Stderr, &prev) // nolint
+		dumpGoroutines("After:", os.Stderr)
 		t.Fatalf("Number of Go routines has changed from %d to %d", before, after)
 	}
 }
 
-func dumpGoroutines() {
+func dumpGoroutines(prefix string, w io.Writer) {
+	if prefix != "" {
+		io.WriteString(w, prefix+"\n") // nolint
+	}
 	profile := pprof.Lookup("goroutine")
-	profile.WriteTo(os.Stderr, 2) // nolint
+	profile.WriteTo(w, 2) // nolint
 }
