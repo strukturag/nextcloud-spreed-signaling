@@ -136,6 +136,13 @@ func (s *VirtualSession) UserData() *json.RawMessage {
 
 func (s *VirtualSession) SetRoom(room *Room) {
 	s.room.Store(room)
+	if room != nil {
+		if err := s.hub.roomSessions.SetRoomSession(s, s.PublicId()); err != nil {
+			log.Printf("Error adding virtual room session %s: %s", s.PublicId(), err)
+		}
+	} else {
+		s.hub.roomSessions.DeleteRoomSession(s)
+	}
 }
 
 func (s *VirtualSession) GetRoom() *Room {
@@ -196,8 +203,8 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session *ClientSession
 
 		if response.Type == "error" {
 			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
-			log.Printf("Could not leave virtual session %s at backend %s: %+v", virtualSessionId, s.BackendUrl(), response.Error)
-			if session != nil && message != nil {
+			if session != nil && message != nil && (response.Error == nil || response.Error.Code != "no_such_room") {
+				log.Printf("Could not leave virtual session %s at backend %s: %+v", virtualSessionId, s.BackendUrl(), response.Error)
 				reply := message.NewErrorServerMessage(NewError("remove_failed", response.Error.Error()))
 				session.SendMessage(reply)
 			}
@@ -267,6 +274,41 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 					UserId:    s.UserId(),
 				}
 				s.session.ProcessAsyncSessionMessage(message)
+			}
+		case "event":
+			if room := s.GetRoom(); room != nil &&
+				message.Message.Event.Target == "roomlist" &&
+				message.Message.Event.Type == "disinvite" &&
+				message.Message.Event.Disinvite != nil &&
+				message.Message.Event.Disinvite.RoomId == room.Id() {
+				log.Printf("Virtual session %s was disinvited from room %s, hanging up", s.PublicId(), room.Id())
+				payload := map[string]interface{}{
+					"type": "hangup",
+					"hangup": map[string]string{
+						"reason": "disinvited",
+					},
+				}
+				data, err := json.Marshal(payload)
+				if err != nil {
+					log.Printf("could not marshal control payload %+v: %s", payload, err)
+					return
+				}
+
+				s.session.ProcessAsyncSessionMessage(&AsyncMessage{
+					Type:     "message",
+					SendTime: message.SendTime,
+					Message: &ServerMessage{
+						Type: "control",
+						Control: &ControlServerMessage{
+							Recipient: &MessageClientMessageRecipient{
+								Type:      "session",
+								SessionId: s.SessionId(),
+								UserId:    s.UserId(),
+							},
+							Data: (*json.RawMessage)(&data),
+						},
+					},
+				})
 			}
 		case "control":
 			if message.Message.Control != nil &&
