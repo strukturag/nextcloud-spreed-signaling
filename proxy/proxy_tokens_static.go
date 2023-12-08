@@ -30,6 +30,7 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v4"
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 type tokensStatic struct {
@@ -60,10 +61,13 @@ func (t *tokensStatic) Get(id string) (*ProxyToken, error) {
 }
 
 func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error {
+	options, err := signaling.GetStringOptions(config, "tokens", ignoreErrors)
+	if err != nil {
+		return err
+	}
+
 	tokenKeys := make(map[string]*ProxyToken)
-	options, _ := config.GetOptions("tokens")
-	for _, id := range options {
-		filename, _ := config.GetString("tokens", id)
+	for id, filename := range options {
 		if filename == "" {
 			if !ignoreErrors {
 				return fmt.Errorf("No filename given for token %s", id)

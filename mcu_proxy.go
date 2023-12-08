@@ -1230,14 +1230,18 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 }
 
 func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
-	options, _ := config.GetOptions("continent-overrides")
+	options, err := GetStringOptions(config, "continent-overrides", false)
+	if err != nil {
+		return err
+	}
+
 	if len(options) == 0 {
 		m.setContinentsMap(nil)
 		return nil
 	}
 
 	continentsMap := make(map[string][]string)
-	for _, option := range options {
+	for option, value := range options {
 		option = strings.ToUpper(strings.TrimSpace(option))
 		if !IsValidContinent(option) {
 			log.Printf("Ignore unknown continent %s", option)
@@ -1245,7 +1249,6 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 		}
 
 		var values []string
-		value, _ := config.GetString("continent-overrides", option)
 		for _, v := range strings.Split(value, ",") {
 			v = strings.ToUpper(strings.TrimSpace(v))
 			if !IsValidContinent(v) {
