@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.2 - 2023-12-11
+
+### Added
+- Include "~docker" in version if built on Docker.
+  [#602](https://github.com/strukturag/nextcloud-spreed-signaling/pull/602)
+
+### Changed
+- CI: No need to build docker images for testing, done internally.
+  [#603](https://github.com/strukturag/nextcloud-spreed-signaling/pull/603)
+- build(deps): Bump sphinx-rtd-theme from 1.3.0 to 2.0.0 in /docs
+  [#604](https://github.com/strukturag/nextcloud-spreed-signaling/pull/604)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.5 to 2.10.6
+  [#605](https://github.com/strukturag/nextcloud-spreed-signaling/pull/605)
+- build(deps): Bump actions/setup-go from 4 to 5
+  [#608](https://github.com/strukturag/nextcloud-spreed-signaling/pull/608)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.6 to 2.10.7
+  [#612](https://github.com/strukturag/nextcloud-spreed-signaling/pull/612)
+- build(deps): Bump the etcd group with 4 updates
+  [#611](https://github.com/strukturag/nextcloud-spreed-signaling/pull/611)
+
+### Fixed
+- Skip options from default section when parsing "geoip-overrides".
+  [#609](https://github.com/strukturag/nextcloud-spreed-signaling/pull/609)
+- Hangup virtual session if it gets disinvited.
+  [#610](https://github.com/strukturag/nextcloud-spreed-signaling/pull/610)
+
+
 ## 1.2.1 - 2023-11-15
 
 ### Added
