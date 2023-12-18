@@ -28,6 +28,10 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    groups:
+      artifacts:
+        patterns:
+        - "actions/*-artifact"
 
   - package-ecosystem: "pip"
     directory: "/docs"
