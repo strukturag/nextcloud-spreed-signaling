@@ -20,7 +20,7 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.11
 	go.etcd.io/etcd/client/v3 v3.5.11
 	go.etcd.io/etcd/server/v3 v3.5.11
-	google.golang.org/grpc v1.60.0
+	google.golang.org/grpc v1.60.1
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.3.0
 	google.golang.org/protobuf v1.31.0
 )
