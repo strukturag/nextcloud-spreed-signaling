@@ -465,7 +465,9 @@ func (c *mcuProxyConnection) readPump() {
 		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 		_, message, err := conn.ReadMessage()
 		if err != nil {
-			if _, ok := err.(*websocket.CloseError); !ok || websocket.IsUnexpectedCloseError(err,
+			if errors.Is(err, websocket.ErrCloseSent) {
+				break
+			} else if _, ok := err.(*websocket.CloseError); !ok || websocket.IsUnexpectedCloseError(err,
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
