@@ -1,0 +1,46 @@
+name: licensecheck
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/licensecheck.yml'
+      - '**.go'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/licensecheck.yml'
+      - '**.go'
+
+permissions:
+  contents: read
+
+jobs:
+  golang:
+    name: golang
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install licensecheck
+        run: |
+          sudo apt-get -y update
+          sudo apt-get -y install licensecheck
+
+      - id: licensecheck
+        name: Check licenses
+        run: |
+          {
+            echo 'CHECK_RESULT<<EOF'
+            licensecheck *.go */*.go
+            echo EOF
+          } >> "$GITHUB_ENV"
+
+      - name: Check for missing licenses
+        run: |
+          MISSING=$(echo "$CHECK_RESULT" | grep UNKNOWN || true)
+          if [ -n "$MISSING" ]; then \
+            echo "$MISSING"; \
+            exit 1; \
+          fi
