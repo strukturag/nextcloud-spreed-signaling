@@ -183,7 +183,7 @@ func main() {
 	}()
 	defer rpcServer.Close()
 
-	rpcClients, err := signaling.NewGrpcClients(config, etcdClient)
+	rpcClients, err := signaling.NewGrpcClients(config, etcdClient, dnsMonitor)
 	if err != nil {
 		log.Fatalf("Could not create RPC clients: %s", err)
 	}

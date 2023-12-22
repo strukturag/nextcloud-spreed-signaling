@@ -66,9 +66,6 @@ const (
 	defaultProxyTimeoutSeconds = 2
 
 	rttLogDuration = 500 * time.Millisecond
-
-	// Update service IP addresses every 10 seconds.
-	updateDnsInterval = 10 * time.Second
 )
 
 type McuProxy interface {

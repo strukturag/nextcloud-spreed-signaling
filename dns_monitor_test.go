@@ -304,7 +304,7 @@ func TestDnsMonitorIP(t *testing.T) {
 	rec1 := newDnsMonitorReceiverForTest(t)
 	rec1.Expect(ips, ips, nil, nil)
 
-	entry, err := monitor.Add("https://"+ip, rec1.OnLookup)
+	entry, err := monitor.Add(ip+":12345", rec1.OnLookup)
 	if err != nil {
 		t.Fatal(err)
 	}

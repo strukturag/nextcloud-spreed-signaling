@@ -46,8 +46,9 @@ func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
 	return ch
 }
 
-func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient) *GrpcClients {
-	client, err := NewGrpcClients(config, etcdClient)
+func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcClients, *DnsMonitor) {
+	dnsMonitor := newDnsMonitorForTest(t, time.Hour) // will be updated manually
+	client, err := NewGrpcClients(config, etcdClient, dnsMonitor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,10 +56,10 @@ func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, et
 		client.Close()
 	})
 
-	return client
+	return client, dnsMonitor
 }
 
-func NewGrpcClientsForTest(t *testing.T, addr string) *GrpcClients {
+func NewGrpcClientsForTest(t *testing.T, addr string) (*GrpcClients, *DnsMonitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("grpc", "targets", addr)
 	config.AddOption("grpc", "dnsdiscovery", "true")
@@ -66,7 +67,7 @@ func NewGrpcClientsForTest(t *testing.T, addr string) *GrpcClients {
 	return NewGrpcClientsForTestWithConfig(t, config, nil)
 }
 
-func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) *GrpcClients {
+func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) (*GrpcClients, *DnsMonitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 
@@ -116,7 +117,7 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) {
 	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
-	client := NewGrpcClientsWithEtcdForTest(t, etcd)
+	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := client.WaitForInitialized(ctx); err != nil {
@@ -130,7 +131,7 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) {
 
 func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	etcd := NewEtcdForTest(t)
-	client := NewGrpcClientsWithEtcdForTest(t, etcd)
+	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -184,7 +185,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 
 func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	etcd := NewEtcdForTest(t)
-	client := NewGrpcClientsWithEtcdForTest(t, etcd)
+	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -227,26 +228,20 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 }
 
 func Test_GrpcClients_DnsDiscovery(t *testing.T) {
-	var ipsResult []net.IP
-	lookupGrpcIp = func(host string) ([]net.IP, error) {
-		if host == "testgrpc" {
-			return ipsResult, nil
-		}
-
-		return nil, fmt.Errorf("unknown host")
-	}
+	lookup := newMockDnsLookupForTest(t)
 	target := "testgrpc:12345"
 	ip1 := net.ParseIP("192.168.0.1")
 	ip2 := net.ParseIP("192.168.0.2")
 	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
 	targetWithIp2 := fmt.Sprintf("%s (%s)", target, ip2)
-	ipsResult = []net.IP{ip1}
-	client := NewGrpcClientsForTest(t, target)
+	lookup.Set("testgrpc", []net.IP{ip1})
+	client, dnsMonitor := NewGrpcClientsForTest(t, target)
 	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
+	dnsMonitor.checkHostnames()
 	if clients := client.GetClients(); len(clients) != 1 {
 		t.Errorf("Expected one client, got %+v", clients)
 	} else if clients[0].Target() != targetWithIp1 {
@@ -255,9 +250,9 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 		t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
 	}
 
-	ipsResult = []net.IP{ip1, ip2}
+	lookup.Set("testgrpc", []net.IP{ip1, ip2})
 	drainWakeupChannel(ch)
-	client.updateGrpcIPs()
+	dnsMonitor.checkHostnames()
 	waitForEvent(ctx, t, ch)
 
 	if clients := client.GetClients(); len(clients) != 2 {
@@ -272,9 +267,9 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 		t.Errorf("Expected IP %s, got %s", ip2, clients[1].ip)
 	}
 
-	ipsResult = []net.IP{ip2}
+	lookup.Set("testgrpc", []net.IP{ip2})
 	drainWakeupChannel(ch)
-	client.updateGrpcIPs()
+	dnsMonitor.checkHostnames()
 	waitForEvent(ctx, t, ch)
 
 	if clients := client.GetClients(); len(clients) != 1 {
@@ -287,22 +282,11 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 }
 
 func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
-	var ipsResult []net.IP
-	lookupGrpcIp = func(host string) ([]net.IP, error) {
-		if host == "testgrpc" && len(ipsResult) > 0 {
-			return ipsResult, nil
-		}
-
-		return nil, &net.DNSError{
-			Err:        "no such host",
-			Name:       host,
-			IsNotFound: true,
-		}
-	}
+	lookup := newMockDnsLookupForTest(t)
 	target := "testgrpc:12345"
 	ip1 := net.ParseIP("192.168.0.1")
 	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
-	client := NewGrpcClientsForTest(t, target)
+	client, dnsMonitor := NewGrpcClientsForTest(t, target)
 	ch := client.getWakeupChannelForTesting()
 
 	testCtx, testCtxCancel := context.WithTimeout(context.Background(), testTimeout)
@@ -318,9 +302,9 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 		t.Errorf("Expected no client, got %+v", clients)
 	}
 
-	ipsResult = []net.IP{ip1}
+	lookup.Set("testgrpc", []net.IP{ip1})
 	drainWakeupChannel(ch)
-	client.updateGrpcIPs()
+	dnsMonitor.checkHostnames()
 	waitForEvent(testCtx, t, ch)
 
 	if clients := client.GetClients(); len(clients) != 1 {
@@ -370,7 +354,7 @@ func Test_GrpcClients_Encryption(t *testing.T) {
 	clientConfig.AddOption("grpc", "clientcertificate", clientCertFile)
 	clientConfig.AddOption("grpc", "clientkey", clientPrivkeyFile)
 	clientConfig.AddOption("grpc", "serverca", serverCertFile)
-	clients := NewGrpcClientsForTestWithConfig(t, clientConfig, nil)
+	clients, _ := NewGrpcClientsForTestWithConfig(t, clientConfig, nil)
 
 	ctx, cancel1 := context.WithTimeout(context.Background(), time.Second)
 	defer cancel1()
