@@ -1123,7 +1123,7 @@ type mcuProxy struct {
 	rpcClients *GrpcClients
 }
 
-func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *GrpcClients) (Mcu, error) {
+func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *GrpcClients, dnsMonitor *DnsMonitor) (Mcu, error) {
 	urlType, _ := config.GetString("mcu", "urltype")
 	if urlType == "" {
 		urlType = proxyUrlTypeStatic
@@ -1196,7 +1196,7 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 
 	switch urlType {
 	case proxyUrlTypeStatic:
-		mcu.config, err = NewProxyConfigStatic(config, mcu)
+		mcu.config, err = NewProxyConfigStatic(config, mcu, dnsMonitor)
 	case proxyUrlTypeEtcd:
 		mcu.config, err = NewProxyConfigEtcd(config, etcdClient, mcu)
 	default:
