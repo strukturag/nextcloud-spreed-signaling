@@ -118,7 +118,7 @@ https://docs.docker.com/compose/install/
 ## Setup of NATS server
 
 There is a detailed description on how to install and run the NATS server
-available at http://nats.io/documentation/tutorials/gnatsd-install/
+available at https://docs.nats.io/running-a-nats-service/introduction
 
 You can use the `gnatsd.conf` file as base for the configuration of the NATS
 server.
