@@ -92,6 +92,12 @@ if [ ! -f "$CONFIG" ]; then
     fi
   elif [ ! -z "$USE_PROXY" ]; then
     sed -i "s|#type =$|type = proxy|" "$CONFIG"
+    if [ ! -z "$PROXY_TOKEN_ID" ]; then
+      sed -i "s|#token_id =.*|token_id = $PROXY_TOKEN_ID|" "$CONFIG"
+    fi
+    if [ ! -z "$PROXY_TOKEN_KEY" ]; then
+      sed -i "s|#token_key =.*|token_key = $PROXY_TOKEN_KEY|" "$CONFIG"
+    fi
 
     if [ ! -z "$PROXY_ETCD" ]; then
       if [ -z "$HAS_ETCD" ]; then
@@ -101,12 +107,6 @@ if [ ! -f "$CONFIG" ]; then
 
       sed -i "s|#urltype = static|urltype = etcd|" "$CONFIG"
 
-      if [ ! -z "$PROXY_TOKEN_ID" ]; then
-        sed -i "s|#token_id =.*|token_id = $PROXY_TOKEN_ID|" "$CONFIG"
-      fi
-      if [ ! -z "$PROXY_TOKEN_KEY" ]; then
-        sed -i "s|#token_key =.*|token_key = $PROXY_TOKEN_KEY|" "$CONFIG"
-      fi
       if [ ! -z "$PROXY_KEY_PREFIX" ]; then
         sed -i "s|#keyprefix =.*|keyprefix = $PROXY_KEY_PREFIX|" "$CONFIG"
       fi
@@ -221,7 +221,7 @@ if [ ! -f "$CONFIG" ]; then
 
   if [ ! -z "$BACKENDS_ALLOWALL_SECRET" ]; then
     sed -i "s|#secret = the-shared-secret-for-allowall|secret = $BACKENDS_ALLOWALL_SECRET|" "$CONFIG"
-  fi  
+  fi
 
   if [ ! -z "$BACKENDS" ]; then
     BACKENDS_CONFIG=$(echo $BACKENDS | sed 's/ /,/g')
