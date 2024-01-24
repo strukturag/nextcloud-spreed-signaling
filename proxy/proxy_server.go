@@ -26,6 +26,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -82,8 +83,9 @@ var (
 )
 
 type ProxyServer struct {
-	version string
-	country string
+	version        string
+	country        string
+	welcomeMessage string
 
 	url     string
 	mcu     signaling.Mcu
@@ -161,9 +163,20 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		log.Printf("Not sending country information")
 	}
 
+	welcome := map[string]string{
+		"nextcloud-spreed-signaling-proxy": "Welcome",
+		"version":                          version,
+	}
+	welcomeMessage, err := json.Marshal(welcome)
+	if err != nil {
+		// Should never happen.
+		return nil, err
+	}
+
 	result := &ProxyServer{
-		version: version,
-		country: country,
+		version:        version,
+		country:        country,
+		welcomeMessage: string(welcomeMessage) + "\n",
 
 		shutdownChannel: make(chan struct{}),
 
@@ -197,6 +210,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		}
 	}
 
+	r.HandleFunc("/welcome", result.setCommonHeaders(result.welcomeHandler)).Methods("GET")
 	r.HandleFunc("/proxy", result.setCommonHeaders(result.proxyHandler)).Methods("GET")
 	r.HandleFunc("/stats", result.setCommonHeaders(result.validateStatsRequest(result.statsHandler))).Methods("GET")
 	r.HandleFunc("/metrics", result.setCommonHeaders(result.validateStatsRequest(result.metricsHandler))).Methods("GET")
@@ -408,6 +422,12 @@ func getRealUserIP(r *http.Request) string {
 	}
 
 	return r.RemoteAddr
+}
+
+func (s *ProxyServer) welcomeHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, s.welcomeMessage) // nolint
 }
 
 func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
