@@ -35,24 +35,6 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
 
-    - id: go-cache-paths
-      run: |
-        echo "go-build=$(go env GOCACHE)" >> $GITHUB_OUTPUT
-        echo "go-mod=$(go env GOMODCACHE)" >> $GITHUB_OUTPUT
-        echo "go-version=$(go version | cut -d ' ' -f 3)" >> $GITHUB_OUTPUT
-
-    - name: Go build cache
-      uses: actions/cache@v4
-      with:
-        path: ${{ steps.go-cache-paths.outputs.go-build }}
-        key: ${{ runner.os }}-${{ steps.go-cache-paths.outputs.go-version }}-build-${{ hashFiles('**/go.mod', '**/go.sum') }}
-
-    - name: Go mod cache
-      uses: actions/cache@v4
-      with:
-        path: ${{ steps.go-cache-paths.outputs.go-mod }}
-        key: ${{ runner.os }}-${{ steps.go-cache-paths.outputs.go-version }}-mod-${{ hashFiles('**/go.mod', '**/go.sum') }}
-
     - name: Install dependencies
       run: |
         sudo apt -y update && sudo apt -y install protobuf-compiler
