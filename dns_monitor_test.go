@@ -27,6 +27,7 @@ import (
 	"net"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -314,4 +315,20 @@ func TestDnsMonitorIP(t *testing.T) {
 
 	rec1.ExpectNone()
 	time.Sleep(5 * interval)
+}
+
+func TestDnsMonitorNoLookupIfEmpty(t *testing.T) {
+	interval := time.Millisecond
+	monitor := newDnsMonitorForTest(t, interval)
+
+	var checked atomic.Bool
+	monitor.checkHostnames = func() {
+		checked.Store(true)
+		monitor.doCheckHostnames()
+	}
+
+	time.Sleep(10 * interval)
+	if checked.Load() {
+		t.Error("should not have checked hostnames")
+	}
 }

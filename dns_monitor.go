@@ -126,7 +126,11 @@ type DnsMonitor struct {
 	stopFunc func()
 
 	mu        sync.RWMutex
+	cond      *sync.Cond
 	hostnames map[string]*dnsMonitorEntry
+
+	// Can be overwritten from tests.
+	checkHostnames func()
 }
 
 func NewDnsMonitor(interval time.Duration) (*DnsMonitor, error) {
@@ -143,6 +147,8 @@ func NewDnsMonitor(interval time.Duration) (*DnsMonitor, error) {
 
 		hostnames: make(map[string]*dnsMonitorEntry),
 	}
+	monitor.cond = sync.NewCond(&monitor.mu)
+	monitor.checkHostnames = monitor.doCheckHostnames
 	return monitor, nil
 }
 
@@ -153,6 +159,7 @@ func (m *DnsMonitor) Start() error {
 
 func (m *DnsMonitor) Stop() {
 	m.stopFunc()
+	m.cond.Signal()
 }
 
 func (m *DnsMonitor) Add(target string, callback DnsMonitorCallback) (*DnsMonitorEntry, error) {
@@ -191,6 +198,7 @@ func (m *DnsMonitor) Add(target string, callback DnsMonitorCallback) (*DnsMonito
 	}
 	e.entry = entry
 	entry.entries[e] = true
+	m.cond.Signal()
 	return e, nil
 }
 
@@ -209,11 +217,37 @@ func (m *DnsMonitor) Remove(entry *DnsMonitorEntry) {
 
 	entry.entry = nil
 	delete(e.entries, entry)
+	if len(e.entries) == 0 {
+		delete(m.hostnames, e.hostname)
+	}
+}
+
+func (m *DnsMonitor) waitForEntries() (waited bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for len(m.hostnames) == 0 && m.stopCtx.Err() == nil {
+		m.cond.Wait()
+		waited = true
+	}
+	return
 }
 
 func (m *DnsMonitor) run() {
 	ticker := time.NewTicker(m.interval)
+	defer ticker.Stop()
+
 	for {
+		if m.waitForEntries() {
+			ticker.Reset(m.interval)
+			if m.stopCtx.Err() == nil {
+				// Initial check when a new entry was added. More checks will be
+				// triggered by the Ticker.
+				m.checkHostnames()
+				continue
+			}
+		}
+
 		select {
 		case <-m.stopCtx.Done():
 			return
@@ -223,7 +257,7 @@ func (m *DnsMonitor) run() {
 	}
 }
 
-func (m *DnsMonitor) checkHostnames() {
+func (m *DnsMonitor) doCheckHostnames() {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
