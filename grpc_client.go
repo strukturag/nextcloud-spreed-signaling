@@ -49,8 +49,6 @@ const (
 )
 
 var (
-	lookupGrpcIp = net.LookupIP // can be overwritten from tests
-
 	customResolverPrefix atomic.Uint64
 )
 
@@ -258,15 +256,19 @@ func (c *GrpcClient) GetSessionCount(ctx context.Context, u *url.URL) (uint32, e
 	return response.GetCount(), nil
 }
 
+type grpcClientsList struct {
+	clients []*GrpcClient
+	entry   *DnsMonitorEntry
+}
+
 type GrpcClients struct {
 	mu sync.RWMutex
 
-	clientsMap map[string][]*GrpcClient
+	clientsMap map[string]*grpcClientsList
 	clients    []*GrpcClient
 
+	dnsMonitor   *DnsMonitor
 	dnsDiscovery bool
-	stopping     chan struct{}
-	stopped      chan struct{}
 
 	etcdClient        *EtcdClient
 	targetPrefix      string
@@ -280,15 +282,13 @@ type GrpcClients struct {
 	selfCheckWaitGroup   sync.WaitGroup
 }
 
-func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcClients, error) {
+func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient, dnsMonitor *DnsMonitor) (*GrpcClients, error) {
 	initializedCtx, initializedFunc := context.WithCancel(context.Background())
 	result := &GrpcClients{
+		dnsMonitor:      dnsMonitor,
 		etcdClient:      etcdClient,
 		initializedCtx:  initializedCtx,
 		initializedFunc: initializedFunc,
-
-		stopping: make(chan struct{}, 1),
-		stopped:  make(chan struct{}, 1),
 	}
 	if err := result.load(config, false); err != nil {
 		return nil, err
@@ -313,9 +313,6 @@ func (c *GrpcClients) load(config *goconf.ConfigFile, fromReload bool) error {
 	switch targetType {
 	case GrpcTargetTypeStatic:
 		err = c.loadTargetsStatic(config, fromReload, opts...)
-		if err == nil && c.dnsDiscovery {
-			go c.monitorGrpcIPs()
-		}
 	case GrpcTargetTypeEtcd:
 		err = c.loadTargetsEtcd(config, fromReload, opts...)
 	default:
@@ -344,7 +341,7 @@ func (c *GrpcClients) isClientAvailable(target string, client *GrpcClient) bool 
 		return false
 	}
 
-	for _, entry := range entries {
+	for _, entry := range entries.clients {
 		if entry == client {
 			return true
 		}
@@ -401,7 +398,20 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	clientsMap := make(map[string][]*GrpcClient)
+	dnsDiscovery, _ := config.GetBool("grpc", "dnsdiscovery")
+	if dnsDiscovery != c.dnsDiscovery {
+		if !dnsDiscovery {
+			for _, entry := range c.clientsMap {
+				if entry.entry != nil {
+					c.dnsMonitor.Remove(entry.entry)
+					entry.entry = nil
+				}
+			}
+		}
+		c.dnsDiscovery = dnsDiscovery
+	}
+
+	clientsMap := make(map[string]*grpcClientsList)
 	var clients []*GrpcClient
 	removeTargets := make(map[string]bool, len(c.clientsMap))
 	for target, entries := range c.clientsMap {
@@ -417,7 +427,15 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 		}
 
 		if entries, found := clientsMap[target]; found {
-			clients = append(clients, entries...)
+			clients = append(clients, entries.clients...)
+			if dnsDiscovery && entries.entry == nil {
+				entry, err := c.dnsMonitor.Add(target, c.onLookup)
+				if err != nil {
+					return err
+				}
+
+				entries.entry = entry
+			}
 			delete(removeTargets, target)
 			continue
 		}
@@ -427,61 +445,58 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 			host = h
 		}
 
-		var ips []net.IP
-		if net.ParseIP(host) == nil {
+		if dnsDiscovery && net.ParseIP(host) == nil {
 			// Use dedicated client for each IP address.
-			var err error
-			ips, err = lookupGrpcIp(host)
+			entry, err := c.dnsMonitor.Add(target, c.onLookup)
 			if err != nil {
-				log.Printf("Could not lookup %s: %s", host, err)
-				// Make sure updating continues even if initial lookup failed.
-				clientsMap[target] = nil
-				continue
-			}
-		} else {
-			// Connect directly to IP address.
-			ips = []net.IP{nil}
-		}
-
-		for _, ip := range ips {
-			client, err := NewGrpcClient(target, ip, opts...)
-			if err != nil {
-				for _, clients := range clientsMap {
-					for _, client := range clients {
-						c.closeClient(client)
-					}
-				}
 				return err
 			}
 
-			c.selfCheckWaitGroup.Add(1)
-			go c.checkIsSelf(context.Background(), target, client)
-
-			log.Printf("Adding %s as GRPC target", client.Target())
-			clientsMap[target] = append(clientsMap[target], client)
-			clients = append(clients, client)
+			clientsMap[target] = &grpcClientsList{
+				entry: entry,
+			}
+			continue
 		}
+
+		client, err := NewGrpcClient(target, nil, opts...)
+		if err != nil {
+			for _, entry := range clientsMap {
+				for _, client := range entry.clients {
+					c.closeClient(client)
+				}
+
+				if entry.entry != nil {
+					c.dnsMonitor.Remove(entry.entry)
+					entry.entry = nil
+				}
+			}
+			return err
+		}
+
+		c.selfCheckWaitGroup.Add(1)
+		go c.checkIsSelf(context.Background(), target, client)
+
+		log.Printf("Adding %s as GRPC target", client.Target())
+		entry, found := clientsMap[target]
+		if !found {
+			entry = &grpcClientsList{}
+		}
+		entry.clients = append(entry.clients, client)
+		clients = append(clients, client)
 	}
 
 	for target := range removeTargets {
-		if clients, found := clientsMap[target]; found {
-			for _, client := range clients {
+		if entry, found := clientsMap[target]; found {
+			for _, client := range entry.clients {
 				log.Printf("Deleting GRPC target %s", client.Target())
 				c.closeClient(client)
 			}
-			delete(clientsMap, target)
-		}
-	}
 
-	dnsDiscovery, _ := config.GetBool("grpc", "dnsdiscovery")
-	if dnsDiscovery != c.dnsDiscovery {
-		if !dnsDiscovery && fromReload {
-			c.stopping <- struct{}{}
-			<-c.stopped
-		}
-		c.dnsDiscovery = dnsDiscovery
-		if dnsDiscovery && fromReload {
-			go c.monitorGrpcIPs()
+			if entry.entry != nil {
+				c.dnsMonitor.Remove(entry.entry)
+				entry.entry = nil
+			}
+			delete(clientsMap, target)
 		}
 	}
 
@@ -492,91 +507,61 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 	return nil
 }
 
-func (c *GrpcClients) monitorGrpcIPs() {
-	log.Printf("Start monitoring GRPC client IPs")
-	ticker := time.NewTicker(updateDnsInterval)
-	for {
-		select {
-		case <-ticker.C:
-			c.updateGrpcIPs()
-		case <-c.stopping:
-			c.stopped <- struct{}{}
-			return
-		}
-	}
-}
-
-func (c *GrpcClients) updateGrpcIPs() {
+func (c *GrpcClients) onLookup(entry *DnsMonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	target := entry.URL()
+	e, found := c.clientsMap[target]
+	if !found {
+		return
+	}
 
 	opts := c.dialOptions.Load().([]grpc.DialOption)
 
 	mapModified := false
-	for target, clients := range c.clientsMap {
-		host := target
-		if h, _, err := net.SplitHostPort(target); err == nil {
-			host = h
-		}
-
-		if net.ParseIP(host) != nil {
-			// No need to lookup endpoints that connect to IP addresses.
-			continue
-		}
-
-		ips, err := lookupGrpcIp(host)
-		if err != nil {
-			log.Printf("Could not lookup %s: %s", host, err)
-			continue
-		}
-
-		var newClients []*GrpcClient
-		changed := false
-		for _, client := range clients {
-			found := false
-			for idx, ip := range ips {
-				if ip.Equal(client.ip) {
-					ips = append(ips[:idx], ips[idx+1:]...)
-					found = true
-					newClients = append(newClients, client)
-					break
-				}
-			}
-
-			if !found {
-				changed = true
+	var newClients []*GrpcClient
+	for _, ip := range removed {
+		for _, client := range e.clients {
+			if ip.Equal(client.ip) {
+				mapModified = true
 				log.Printf("Removing connection to %s", client.Target())
 				c.closeClient(client)
 				c.wakeupForTesting()
 			}
 		}
+	}
 
-		for _, ip := range ips {
-			client, err := NewGrpcClient(target, ip, opts...)
-			if err != nil {
-				log.Printf("Error creating client to %s with IP %s: %s", target, ip.String(), err)
-				continue
+	for _, ip := range keep {
+		for _, client := range e.clients {
+			if ip.Equal(client.ip) {
+				newClients = append(newClients, client)
 			}
-
-			c.selfCheckWaitGroup.Add(1)
-			go c.checkIsSelf(context.Background(), target, client)
-
-			log.Printf("Adding %s as GRPC target", client.Target())
-			newClients = append(newClients, client)
-			changed = true
-			c.wakeupForTesting()
-		}
-
-		if changed {
-			c.clientsMap[target] = newClients
-			mapModified = true
 		}
 	}
 
+	for _, ip := range added {
+		client, err := NewGrpcClient(target, ip, opts...)
+		if err != nil {
+			log.Printf("Error creating client to %s with IP %s: %s", target, ip.String(), err)
+			continue
+		}
+
+		c.selfCheckWaitGroup.Add(1)
+		go c.checkIsSelf(context.Background(), target, client)
+
+		log.Printf("Adding %s as GRPC target", client.Target())
+		newClients = append(newClients, client)
+		mapModified = true
+		c.wakeupForTesting()
+	}
+
 	if mapModified {
+		c.clientsMap[target].clients = newClients
+
 		c.clients = make([]*GrpcClient, 0, len(c.clientsMap))
-		for _, clients := range c.clientsMap {
-			c.clients = append(c.clients, clients...)
+		for _, entry := range c.clientsMap {
+			c.clients = append(c.clients, entry.clients...)
 		}
 		statsGrpcClients.Set(float64(len(c.clients)))
 	}
@@ -684,9 +669,11 @@ func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte
 	log.Printf("Adding %s as GRPC target", cl.Target())
 
 	if c.clientsMap == nil {
-		c.clientsMap = make(map[string][]*GrpcClient)
+		c.clientsMap = make(map[string]*grpcClientsList)
 	}
-	c.clientsMap[info.Address] = []*GrpcClient{cl}
+	c.clientsMap[info.Address] = &grpcClientsList{
+		clients: []*GrpcClient{cl},
+	}
 	c.clients = append(c.clients, cl)
 	c.targetInformation[key] = &info
 	statsGrpcClients.Inc()
@@ -709,19 +696,19 @@ func (c *GrpcClients) removeEtcdClientLocked(key string) {
 	}
 
 	delete(c.targetInformation, key)
-	clients, found := c.clientsMap[info.Address]
+	entry, found := c.clientsMap[info.Address]
 	if !found {
 		return
 	}
 
-	for _, client := range clients {
+	for _, client := range entry.clients {
 		log.Printf("Removing connection to %s (from %s)", client.Target(), key)
 		c.closeClient(client)
 	}
 	delete(c.clientsMap, info.Address)
 	c.clients = make([]*GrpcClient, 0, len(c.clientsMap))
-	for _, clients := range c.clientsMap {
-		c.clients = append(c.clients, clients...)
+	for _, entry := range c.clientsMap {
+		c.clients = append(c.clients, entry.clients...)
 	}
 	statsGrpcClients.Dec()
 	c.wakeupForTesting()
@@ -757,21 +744,22 @@ func (c *GrpcClients) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for _, clients := range c.clientsMap {
-		for _, client := range clients {
+	for _, entry := range c.clientsMap {
+		for _, client := range entry.clients {
 			if err := client.Close(); err != nil {
 				log.Printf("Error closing client to %s: %s", client.Target(), err)
 			}
+		}
+
+		if entry.entry != nil {
+			c.dnsMonitor.Remove(entry.entry)
+			entry.entry = nil
 		}
 	}
 
 	c.clients = nil
 	c.clientsMap = nil
-	if c.dnsDiscovery {
-		c.stopping <- struct{}{}
-		<-c.stopped
-		c.dnsDiscovery = false
-	}
+	c.dnsDiscovery = false
 
 	if c.etcdClient != nil {
 		c.etcdClient.RemoveListener(c)

@@ -62,6 +62,8 @@ const (
 
 	initialMcuRetry = time.Second
 	maxMcuRetry     = time.Second * 16
+
+	dnsMonitorInterval = time.Second
 )
 
 func createListener(addr string) (net.Listener, error) {
@@ -154,6 +156,12 @@ func main() {
 	}
 	defer events.Close()
 
+	dnsMonitor, err := signaling.NewDnsMonitor(dnsMonitorInterval)
+	if err != nil {
+		log.Fatal("Could not create DNS monitor: ", err)
+	}
+	defer dnsMonitor.Stop()
+
 	etcdClient, err := signaling.NewEtcdClient(config, "mcu")
 	if err != nil {
 		log.Fatalf("Could not create etcd client: %s", err)
@@ -175,7 +183,7 @@ func main() {
 	}()
 	defer rpcServer.Close()
 
-	rpcClients, err := signaling.NewGrpcClients(config, etcdClient)
+	rpcClients, err := signaling.NewGrpcClients(config, etcdClient, dnsMonitor)
 	if err != nil {
 		log.Fatalf("Could not create RPC clients: %s", err)
 	}
@@ -209,7 +217,7 @@ func main() {
 				signaling.UnregisterProxyMcuStats()
 				signaling.RegisterJanusMcuStats()
 			case signaling.McuTypeProxy:
-				mcu, err = signaling.NewMcuProxy(config, etcdClient, rpcClients)
+				mcu, err = signaling.NewMcuProxy(config, etcdClient, rpcClients, dnsMonitor)
 				signaling.UnregisterJanusMcuStats()
 				signaling.RegisterProxyMcuStats()
 			default:

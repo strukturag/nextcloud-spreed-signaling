@@ -169,7 +169,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	t.Cleanup(func() {
 		events1.Close()
 	})
-	client1 := NewGrpcClientsForTest(t, addr2)
+	client1, _ := NewGrpcClientsForTest(t, addr2)
 	hub1, err := NewHub(config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	t.Cleanup(func() {
 		events2.Close()
 	})
-	client2 := NewGrpcClientsForTest(t, addr1)
+	client2, _ := NewGrpcClientsForTest(t, addr1)
 	hub2, err := NewHub(config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	if err != nil {
 		t.Fatal(err)

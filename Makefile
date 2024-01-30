@@ -37,7 +37,7 @@ TIMEOUT := 60s
 endif
 
 ifneq ($(TEST),)
-TESTARGS := $(TESTARGS) -run $(TEST)
+TESTARGS := $(TESTARGS) -run "$(TEST)"
 endif
 
 ifneq ($(COUNT),)

@@ -25,24 +25,26 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dlintw/goconf"
 )
 
-func newProxyConfigStatic(t *testing.T, proxy McuProxy, dns bool, urls ...string) ProxyConfig {
+func newProxyConfigStatic(t *testing.T, proxy McuProxy, dns bool, urls ...string) (ProxyConfig, *DnsMonitor) {
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "url", strings.Join(urls, " "))
 	if dns {
 		cfg.AddOption("mcu", "dnsdiscovery", "true")
 	}
-	p, err := NewProxyConfigStatic(cfg, proxy)
+	dnsMonitor := newDnsMonitorForTest(t, time.Hour) // will be updated manually
+	p, err := NewProxyConfigStatic(cfg, proxy, dnsMonitor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		p.Stop()
 	})
-	return p
+	return p, dnsMonitor
 }
 
 func updateProxyConfigStatic(t *testing.T, config ProxyConfig, dns bool, urls ...string) {
@@ -58,7 +60,7 @@ func updateProxyConfigStatic(t *testing.T, config ProxyConfig, dns bool, urls ..
 
 func TestProxyConfigStaticSimple(t *testing.T) {
 	proxy := newMcuProxyForConfig(t)
-	config := newProxyConfigStatic(t, proxy, false, "https://foo/")
+	config, _ := newProxyConfigStatic(t, proxy, false, "https://foo/")
 	proxy.Expect("add", "https://foo/")
 	if err := config.Start(); err != nil {
 		t.Fatal(err)
@@ -75,38 +77,31 @@ func TestProxyConfigStaticSimple(t *testing.T) {
 }
 
 func TestProxyConfigStaticDNS(t *testing.T) {
-	old := lookupProxyIP
-	t.Cleanup(func() {
-		lookupProxyIP = old
-	})
-	proxyIPs := make(map[string][]net.IP)
-	lookupProxyIP = func(hostname string) ([]net.IP, error) {
-		ips := append([]net.IP{}, proxyIPs[hostname]...)
-		return ips, nil
-	}
-	proxyIPs["foo"] = []net.IP{
+	lookup := newMockDnsLookupForTest(t)
+	lookup.Set("foo", []net.IP{
 		net.ParseIP("192.168.0.1"),
 		net.ParseIP("10.1.2.3"),
-	}
+	})
 
 	proxy := newMcuProxyForConfig(t)
-	config := newProxyConfigStatic(t, proxy, true, "https://foo/").(*proxyConfigStatic)
-	proxy.Expect("add", "https://foo/", proxyIPs["foo"]...)
+	config, dnsMonitor := newProxyConfigStatic(t, proxy, true, "https://foo/")
+	proxy.Expect("add", "https://foo/", lookup.Get("foo")...)
 	if err := config.Start(); err != nil {
 		t.Fatal(err)
 	}
 
-	proxyIPs["foo"] = []net.IP{
+	dnsMonitor.checkHostnames()
+	lookup.Set("foo", []net.IP{
 		net.ParseIP("192.168.0.1"),
 		net.ParseIP("192.168.1.1"),
 		net.ParseIP("192.168.1.2"),
-	}
+	})
 	proxy.Expect("keep", "https://foo/", net.ParseIP("192.168.0.1"))
 	proxy.Expect("add", "https://foo/", net.ParseIP("192.168.1.1"), net.ParseIP("192.168.1.2"))
 	proxy.Expect("remove", "https://foo/", net.ParseIP("10.1.2.3"))
-	config.updateProxyIPs()
+	dnsMonitor.checkHostnames()
 
 	proxy.Expect("add", "https://bar/")
-	proxy.Expect("remove", "https://foo/", proxyIPs["foo"]...)
+	proxy.Expect("remove", "https://foo/", lookup.Get("foo")...)
 	updateProxyConfigStatic(t, config, false, "https://bar/")
 }

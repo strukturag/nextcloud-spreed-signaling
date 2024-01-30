@@ -22,13 +22,7 @@
 package signaling
 
 import (
-	"net"
-
 	"github.com/dlintw/goconf"
-)
-
-var (
-	lookupProxyIP = net.LookupIP
 )
 
 type ProxyConfig interface {

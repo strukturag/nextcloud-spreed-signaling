@@ -28,8 +28,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/dlintw/goconf"
 )
@@ -37,27 +35,24 @@ import (
 type ipList struct {
 	hostname string
 
-	ips []net.IP
+	entry *DnsMonitorEntry
+	ips   []net.IP
 }
 
 type proxyConfigStatic struct {
 	mu    sync.Mutex
 	proxy McuProxy
 
-	dnsDiscovery atomic.Bool
-	stopping     chan struct{}
-	stopped      chan struct{}
+	dnsMonitor   *DnsMonitor
+	dnsDiscovery bool
 
 	connectionsMap map[string]*ipList
 }
 
-func NewProxyConfigStatic(config *goconf.ConfigFile, proxy McuProxy) (ProxyConfig, error) {
+func NewProxyConfigStatic(config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *DnsMonitor) (ProxyConfig, error) {
 	result := &proxyConfigStatic{
-		proxy: proxy,
-
-		stopping: make(chan struct{}, 1),
-		stopped:  make(chan struct{}, 1),
-
+		proxy:          proxy,
+		dnsMonitor:     dnsMonitor,
 		connectionsMap: make(map[string]*ipList),
 	}
 	if err := result.configure(config, false); err != nil {
@@ -70,18 +65,21 @@ func NewProxyConfigStatic(config *goconf.ConfigFile, proxy McuProxy) (ProxyConfi
 }
 
 func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool) error {
-	dnsDiscovery, _ := config.GetBool("mcu", "dnsdiscovery")
-	if p.dnsDiscovery.CompareAndSwap(!dnsDiscovery, dnsDiscovery) && fromReload {
-		if !dnsDiscovery {
-			p.stopping <- struct{}{}
-			<-p.stopped
-		} else {
-			go p.monitorProxyIPs()
-		}
-	}
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	dnsDiscovery, _ := config.GetBool("mcu", "dnsdiscovery")
+	if dnsDiscovery != p.dnsDiscovery {
+		if !dnsDiscovery {
+			for _, ips := range p.connectionsMap {
+				if ips.entry != nil {
+					p.dnsMonitor.Remove(ips.entry)
+					ips.entry = nil
+				}
+			}
+		}
+		p.dnsDiscovery = dnsDiscovery
+	}
 
 	remove := make(map[string]*ipList)
 	for u, ips := range p.connectionsMap {
@@ -116,18 +114,15 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 			parsed.Host = host
 		}
 
-		var ips []net.IP
 		if dnsDiscovery {
-			ips, err = lookupProxyIP(parsed.Host)
-			if err != nil {
-				// Will be retried later.
-				log.Printf("Could not lookup %s: %s\n", parsed.Host, err)
-				continue
+			p.connectionsMap[u] = &ipList{
+				hostname: parsed.Host,
 			}
+			continue
 		}
 
 		if fromReload {
-			if err := p.proxy.AddConnection(fromReload, u, ips...); err != nil {
+			if err := p.proxy.AddConnection(fromReload, u); err != nil {
 				if !fromReload {
 					return err
 				}
@@ -139,7 +134,6 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 
 		p.connectionsMap[u] = &ipList{
 			hostname: parsed.Host,
-			ips:      ips,
 		}
 	}
 
@@ -155,92 +149,53 @@ func (p *proxyConfigStatic) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for u, ipList := range p.connectionsMap {
-		if err := p.proxy.AddConnection(false, u, ipList.ips...); err != nil {
-			return err
+	if p.dnsDiscovery {
+		for u, ips := range p.connectionsMap {
+			entry, err := p.dnsMonitor.Add(u, p.onLookup)
+			if err != nil {
+				return err
+			}
+
+			ips.entry = entry
+		}
+	} else {
+		for u, ipList := range p.connectionsMap {
+			if err := p.proxy.AddConnection(false, u, ipList.ips...); err != nil {
+				return err
+			}
 		}
 	}
 
-	if p.dnsDiscovery.Load() {
-		go p.monitorProxyIPs()
-	}
 	return nil
 }
 
 func (p *proxyConfigStatic) Stop() {
-	if p.dnsDiscovery.CompareAndSwap(true, false) {
-		p.stopping <- struct{}{}
-		<-p.stopped
-	}
 }
 
 func (p *proxyConfigStatic) Reload(config *goconf.ConfigFile) error {
 	return p.configure(config, true)
 }
 
-func (p *proxyConfigStatic) monitorProxyIPs() {
-	log.Printf("Start monitoring proxy IPs")
-	ticker := time.NewTicker(updateDnsInterval)
-	for {
-		select {
-		case <-ticker.C:
-			p.updateProxyIPs()
-		case <-p.stopping:
-			p.stopped <- struct{}{}
-			return
-		}
-	}
-}
-
-func (p *proxyConfigStatic) updateProxyIPs() {
+func (p *proxyConfigStatic) onLookup(entry *DnsMonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for u, iplist := range p.connectionsMap {
-		if len(iplist.ips) == 0 {
-			continue
-		}
+	u := entry.URL()
+	for _, ip := range keep {
+		p.proxy.KeepConnection(u, ip)
+	}
 
-		if net.ParseIP(iplist.hostname) != nil {
-			// No need to lookup endpoints that connect to IP addresses.
-			continue
+	if len(added) > 0 {
+		if err := p.proxy.AddConnection(true, u, added...); err != nil {
+			log.Printf("Could not add proxy connection to %s with %+v: %s", u, added, err)
 		}
+	}
 
-		ips, err := lookupProxyIP(iplist.hostname)
-		if err != nil {
-			log.Printf("Could not lookup %s: %s", iplist.hostname, err)
-			continue
-		}
+	if len(removed) > 0 {
+		p.proxy.RemoveConnection(u, removed...)
+	}
 
-		var newIPs []net.IP
-		var removedIPs []net.IP
-		for _, oldIP := range iplist.ips {
-			found := false
-			for idx, newIP := range ips {
-				if oldIP.Equal(newIP) {
-					ips = append(ips[:idx], ips[idx+1:]...)
-					found = true
-					p.proxy.KeepConnection(u, oldIP)
-					newIPs = append(newIPs, oldIP)
-					break
-				}
-			}
-
-			if !found {
-				removedIPs = append(removedIPs, oldIP)
-			}
-		}
-
-		if len(ips) > 0 {
-			newIPs = append(newIPs, ips...)
-			if err := p.proxy.AddConnection(true, u, ips...); err != nil {
-				log.Printf("Could not add proxy connection to %s with %+v: %s", u, ips, err)
-			}
-		}
-		iplist.ips = newIPs
-
-		if len(removedIPs) > 0 {
-			p.proxy.RemoveConnection(u, removedIPs...)
-		}
+	if ipList, found := p.connectionsMap[u]; found {
+		ipList.ips = all
 	}
 }
