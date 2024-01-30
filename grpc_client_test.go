@@ -37,6 +37,9 @@ import (
 )
 
 func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.wakeupChanForTesting != nil {
 		return c.wakeupChanForTesting
 	}
