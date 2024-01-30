@@ -55,11 +55,15 @@ type dnsMonitorEntry struct {
 	hostname string
 	hostIP   net.IP
 
+	mu      sync.Mutex
 	ips     []net.IP
 	entries map[*DnsMonitorEntry]bool
 }
 
 func (e *dnsMonitorEntry) setIPs(ips []net.IP, fromIP bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	empty := len(e.ips) == 0
 	if empty {
 		// Simple case: initial lookup.
@@ -111,6 +115,21 @@ func (e *dnsMonitorEntry) setIPs(ips []net.IP, fromIP bool) {
 	if len(addedIPs) > 0 || len(removedIPs) > 0 {
 		e.runCallbacks(newIPs, addedIPs, keepIPs, removedIPs)
 	}
+}
+
+func (e *dnsMonitorEntry) addEntry(entry *DnsMonitorEntry) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.entries[entry] = true
+}
+
+func (e *dnsMonitorEntry) removeEntry(entry *DnsMonitorEntry) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	delete(e.entries, entry)
+	return len(e.entries) == 0
 }
 
 func (e *dnsMonitorEntry) runCallbacks(all []net.IP, add []net.IP, keep []net.IP, remove []net.IP) {
@@ -197,7 +216,7 @@ func (m *DnsMonitor) Add(target string, callback DnsMonitorCallback) (*DnsMonito
 		m.hostnames[hostname] = entry
 	}
 	e.entry = entry
-	entry.entries[e] = true
+	entry.addEntry(e)
 	m.cond.Signal()
 	return e, nil
 }
@@ -216,8 +235,7 @@ func (m *DnsMonitor) Remove(entry *DnsMonitorEntry) {
 	}
 
 	entry.entry = nil
-	delete(e.entries, entry)
-	if len(e.entries) == 0 {
+	if e.removeEntry(entry) {
 		delete(m.hostnames, e.hostname)
 	}
 }
