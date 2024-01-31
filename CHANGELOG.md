@@ -2,6 +2,65 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.3 - 2024-01-31
+
+### Added
+- CI: Check license headers.
+  [#627](https://github.com/strukturag/nextcloud-spreed-signaling/pull/627)
+- Add "welcome" endpoint to proxy.
+  [#644](https://github.com/strukturag/nextcloud-spreed-signaling/pull/644)
+
+### Changed
+- build(deps): Bump github/codeql-action from 2 to 3
+  [#619](https://github.com/strukturag/nextcloud-spreed-signaling/pull/619)
+- build(deps): Bump github.com/google/uuid from 1.4.0 to 1.5.0
+  [#618](https://github.com/strukturag/nextcloud-spreed-signaling/pull/618)
+- build(deps): Bump google.golang.org/grpc from 1.59.0 to 1.60.0
+  [#617](https://github.com/strukturag/nextcloud-spreed-signaling/pull/617)
+- build(deps): Bump the artifacts group with 2 updates
+  [#622](https://github.com/strukturag/nextcloud-spreed-signaling/pull/622)
+- build(deps): Bump golang.org/x/crypto from 0.16.0 to 0.17.0
+  [#623](https://github.com/strukturag/nextcloud-spreed-signaling/pull/623)
+- build(deps): Bump google.golang.org/grpc from 1.60.0 to 1.60.1
+  [#624](https://github.com/strukturag/nextcloud-spreed-signaling/pull/624)
+- Refactor proxy config
+  [#606](https://github.com/strukturag/nextcloud-spreed-signaling/pull/606)
+- build(deps): Bump google.golang.org/protobuf from 1.31.0 to 1.32.0
+  [#629](https://github.com/strukturag/nextcloud-spreed-signaling/pull/629)
+- build(deps): Bump github.com/prometheus/client_golang from 1.17.0 to 1.18.0
+  [#630](https://github.com/strukturag/nextcloud-spreed-signaling/pull/630)
+- build(deps): Bump jinja2 from 3.1.2 to 3.1.3 in /docs
+  [#632](https://github.com/strukturag/nextcloud-spreed-signaling/pull/632)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.7 to 2.10.9
+  [#633](https://github.com/strukturag/nextcloud-spreed-signaling/pull/633)
+- build(deps): Bump markdown from 3.5.1 to 3.5.2 in /docs
+  [#631](https://github.com/strukturag/nextcloud-spreed-signaling/pull/631)
+- build(deps): Bump github.com/nats-io/nats.go from 1.31.0 to 1.32.0
+  [#634](https://github.com/strukturag/nextcloud-spreed-signaling/pull/634)
+- build(deps): Bump readthedocs-sphinx-search from 0.3.1 to 0.3.2 in /docs
+  [#635](https://github.com/strukturag/nextcloud-spreed-signaling/pull/635)
+- build(deps): Bump actions/cache from 3 to 4
+  [#638](https://github.com/strukturag/nextcloud-spreed-signaling/pull/638)
+- build(deps): Bump github.com/google/uuid from 1.5.0 to 1.6.0
+  [#643](https://github.com/strukturag/nextcloud-spreed-signaling/pull/643)
+- build(deps): Bump google.golang.org/grpc from 1.60.1 to 1.61.0
+  [#645](https://github.com/strukturag/nextcloud-spreed-signaling/pull/645)
+- build(deps): Bump peter-evans/create-or-update-comment from 3 to 4
+  [#646](https://github.com/strukturag/nextcloud-spreed-signaling/pull/646)
+- CI: No longer need to manually cache Go modules.
+  [#648](https://github.com/strukturag/nextcloud-spreed-signaling/pull/648)
+- CI: Disable cache for linter to bring back annotations.
+  [#647](https://github.com/strukturag/nextcloud-spreed-signaling/pull/647)
+- Refactor DNS monitoring
+  [#648](https://github.com/strukturag/nextcloud-spreed-signaling/pull/648)
+
+### Fixed
+- Fix link to NATS install docs
+  [#637](https://github.com/strukturag/nextcloud-spreed-signaling/pull/637)
+- docker: Always need to set proxy token id / key for server.
+  [#641](https://github.com/strukturag/nextcloud-spreed-signaling/pull/641)
+
+
 ## 1.2.2 - 2023-12-11
 
 ### Added
