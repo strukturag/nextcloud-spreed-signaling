@@ -110,6 +110,7 @@ coverhtml: vet common
 	$(GO) tool cover -html=cover.out -o coverage.html
 
 %_easyjson.go: %.go $(GOPATHBIN)/easyjson | $(PROTO_GO_FILES)
+	rm -f easyjson-bootstrap*.go
 	PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
 
 %.pb.go: %.proto $(GOPATHBIN)/protoc-gen-go $(GOPATHBIN)/protoc-gen-go-grpc
@@ -165,3 +166,4 @@ dist: tarball
 
 .NOTPARALLEL: $(EASYJSON_GO_FILES)
 .PHONY: continentmap.go vendor
+.DELETE_ON_ERROR:
