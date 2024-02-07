@@ -28,6 +28,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -42,6 +43,7 @@ const (
 type DnsMonitorCallback = func(entry *DnsMonitorEntry, all []net.IP, add []net.IP, keep []net.IP, remove []net.IP)
 
 type DnsMonitorEntry struct {
+	removing atomic.Bool
 	entry    *dnsMonitorEntry
 	url      string
 	callback DnsMonitorCallback
@@ -148,6 +150,8 @@ type DnsMonitor struct {
 	cond      *sync.Cond
 	hostnames map[string]*dnsMonitorEntry
 
+	hasRemoved atomic.Bool
+
 	// Can be overwritten from tests.
 	checkHostnames func()
 }
@@ -222,7 +226,22 @@ func (m *DnsMonitor) Add(target string, callback DnsMonitorCallback) (*DnsMonito
 }
 
 func (m *DnsMonitor) Remove(entry *DnsMonitorEntry) {
-	m.mu.Lock()
+	if !entry.removing.CompareAndSwap(false, true) {
+		// Already removed.
+		return
+	}
+
+	locked := m.mu.TryLock()
+	// Spin-lock for simple cases that resolve immediately to avoid deferred removal.
+	for i := 0; !locked && i < 1000; i++ {
+		time.Sleep(time.Nanosecond)
+		locked = m.mu.TryLock()
+	}
+	if !locked {
+		// Currently processing callbacks for this entry, need to defer removal.
+		m.hasRemoved.Store(true)
+		return
+	}
 	defer m.mu.Unlock()
 
 	if entry.entry == nil {
@@ -237,6 +256,29 @@ func (m *DnsMonitor) Remove(entry *DnsMonitorEntry) {
 	entry.entry = nil
 	if e.removeEntry(entry) {
 		delete(m.hostnames, e.hostname)
+	}
+}
+
+func (m *DnsMonitor) clearRemoved() {
+	if !m.hasRemoved.CompareAndSwap(true, false) {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for hostname, entry := range m.hostnames {
+		deleted := false
+		for e := range entry.entries {
+			if e.removing.Load() {
+				delete(entry.entries, e)
+				deleted = true
+			}
+		}
+
+		if deleted && len(entry.entries) == 0 {
+			delete(m.hostnames, hostname)
+		}
 	}
 }
 
@@ -276,6 +318,8 @@ func (m *DnsMonitor) run() {
 }
 
 func (m *DnsMonitor) doCheckHostnames() {
+	m.clearRemoved()
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
