@@ -53,14 +53,14 @@ endif
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
-$(GOPATHBIN)/easyjson:
+$(GOPATHBIN)/easyjson: go.mod go.sum
 	[ "$(GOPROXY)" = "off" ] || $(GO) get -u -d github.com/mailru/easyjson/...
 	$(GO) install github.com/mailru/easyjson/...
 
-$(GOPATHBIN)/protoc-gen-go:
+$(GOPATHBIN)/protoc-gen-go: go.mod go.sum
 	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go
 
-$(GOPATHBIN)/protoc-gen-go-grpc:
+$(GOPATHBIN)/protoc-gen-go-grpc: go.mod go.sum
 	[ "$(GOPROXY)" = "off" ] || $(GO) get -u -d google.golang.org/grpc/cmd/protoc-gen-go-grpc
 	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc
 
