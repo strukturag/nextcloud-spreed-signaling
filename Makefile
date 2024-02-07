@@ -105,7 +105,12 @@ coverhtml: vet common
 	PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
 
 %.pb.go: %.proto $(GOPATHBIN)/protoc-gen-go $(GOPATHBIN)/protoc-gen-go-grpc
-	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc --go_out=. --go_opt=paths=source_relative \
+	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc \
+		--go_out=. --go_opt=paths=source_relative \
+		$*.proto
+
+%_grpc.pb.go: %.proto $(GOPATHBIN)/protoc-gen-go $(GOPATHBIN)/protoc-gen-go-grpc
+	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		$*.proto
 
@@ -120,9 +125,13 @@ common_easyjson: \
 
 common_proto: \
 	grpc_backend.pb.go \
+	grpc_backend_grpc.pb.go \
 	grpc_internal.pb.go \
+	grpc_internal_grpc.pb.go \
 	grpc_mcu.pb.go \
-	grpc_sessions.pb.go
+	grpc_mcu_grpc.pb.go \
+	grpc_sessions.pb.go \
+	grpc_sessions_grpc.pb.go
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
