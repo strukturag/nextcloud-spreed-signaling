@@ -332,3 +332,97 @@ func TestDnsMonitorNoLookupIfEmpty(t *testing.T) {
 		t.Error("should not have checked hostnames")
 	}
 }
+
+type deadlockMonitorReceiver struct {
+	t       *testing.T
+	monitor *DnsMonitor
+
+	mu sync.RWMutex
+	wg sync.WaitGroup
+
+	entry     *DnsMonitorEntry
+	started   chan struct{}
+	triggered bool
+	closed    atomic.Bool
+}
+
+func newDeadlockMonitorReceiver(t *testing.T, monitor *DnsMonitor) *deadlockMonitorReceiver {
+	return &deadlockMonitorReceiver{
+		t:       t,
+		monitor: monitor,
+		started: make(chan struct{}),
+	}
+}
+
+func (r *deadlockMonitorReceiver) OnLookup(entry *DnsMonitorEntry, all []net.IP, add []net.IP, keep []net.IP, remove []net.IP) {
+	if r.closed.Load() {
+		r.t.Error("received lookup after closed")
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.triggered {
+		return
+	}
+
+	r.triggered = true
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+
+		close(r.started)
+		time.Sleep(50 * time.Millisecond)
+	}()
+}
+
+func (r *deadlockMonitorReceiver) Start() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry, err := r.monitor.Add("foo", r.OnLookup)
+	if err != nil {
+		r.t.Errorf("error adding listener: %s", err)
+		return
+	}
+
+	r.entry = entry
+}
+
+func (r *deadlockMonitorReceiver) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.entry != nil {
+		r.monitor.Remove(r.entry)
+		r.closed.Store(true)
+	}
+	r.wg.Wait()
+}
+
+func TestDnsMonitorDeadlock(t *testing.T) {
+	lookup := newMockDnsLookupForTest(t)
+	ip1 := net.ParseIP("192.168.0.1")
+	ip2 := net.ParseIP("192.168.0.2")
+	lookup.Set("foo", []net.IP{ip1})
+
+	interval := time.Millisecond
+	monitor := newDnsMonitorForTest(t, interval)
+
+	r := newDeadlockMonitorReceiver(t, monitor)
+	r.Start()
+	<-r.started
+	lookup.Set("foo", []net.IP{ip2})
+	r.Close()
+	lookup.Set("foo", []net.IP{ip1})
+	time.Sleep(10 * interval)
+	monitor.mu.Lock()
+	defer monitor.mu.Unlock()
+	if len(monitor.hostnames) > 0 {
+		t.Errorf("should have cleared hostnames, got %+v", monitor.hostnames)
+	}
+}
