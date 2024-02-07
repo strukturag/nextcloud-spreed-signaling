@@ -52,8 +52,8 @@ The running container can be configured through different environment variables:
 - `TURN_SERVERS`: A comma-separated list of TURN servers to use.
 - `GEOIP_LICENSE`: License key to use when downloading the MaxMind GeoIP database.
 - `GEOIP_URL`: Optional URL to download a MaxMind GeoIP database from.
-- `GEOIP_OVERRIDES`: Optional spae-separated list of overrides for GeoIP lookups.
-- `CONTINENT_OVERRIDES`: Optional spae-separated list of overrides for continent mappings.
+- `GEOIP_OVERRIDES`: Optional space-separated list of overrides for GeoIP lookups.
+- `CONTINENT_OVERRIDES`: Optional space-separated list of overrides for continent mappings.
 - `STATS_IPS`: Comma-separated list of IP addresses that are allowed to access the stats endpoint.
 - `GRPC_LISTEN`: IP and port to listen on for GRPC requests.
 - `GRPC_SERVER_CERTIFICATE`: Certificate to use for the GRPC server.
