@@ -15,6 +15,12 @@ PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
 ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
 PROTO_FILES := $(basename $(wildcard *.proto))
 PROTO_GO_FILES := $(addsuffix .pb.go,$(PROTO_FILES)) $(addsuffix _grpc.pb.go,$(PROTO_FILES))
+EASYJSON_GO_FILES := \
+	api_async_easyjson.go \
+	api_backend_easyjson.go \
+	api_grpc_easyjson.go \
+	api_proxy_easyjson.go \
+	api_signaling_easyjson.go
 
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
@@ -116,14 +122,7 @@ coverhtml: vet common
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		$*.proto
 
-common: common_easyjson $(PROTO_GO_FILES)
-
-common_easyjson: \
-	api_async_easyjson.go \
-	api_backend_easyjson.go \
-	api_grpc_easyjson.go \
-	api_proxy_easyjson.go \
-	api_signaling_easyjson.go
+common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
@@ -138,7 +137,7 @@ proxy: common $(BINDIR)
 	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./proxy/...
 
 clean:
-	rm -f *_easyjson.go
+	rm -f $(EASYJSON_GO_FILES)
 	rm -f easyjson-bootstrap*.go
 	rm -f $(PROTO_GO_FILES)
 
@@ -164,5 +163,5 @@ tarball: vendor
 
 dist: tarball
 
-.NOTPARALLEL: %_easyjson.go
+.NOTPARALLEL: $(EASYJSON_GO_FILES)
 .PHONY: continentmap.go vendor
