@@ -166,4 +166,5 @@ dist: tarball
 
 .NOTPARALLEL: $(EASYJSON_GO_FILES)
 .PHONY: continentmap.go common vendor
+.SECONDARY: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
 .DELETE_ON_ERROR:
