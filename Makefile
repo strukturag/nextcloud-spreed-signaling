@@ -7,12 +7,20 @@ GOFMT := "$(GODIR)/gofmt"
 GOOS ?= linux
 GOARCH ?= amd64
 GOVERSION := $(shell "$(GO)" env GOVERSION | sed "s|go||" )
-BINDIR := "$(CURDIR)/bin"
+BINDIR := $(CURDIR)/bin
 VENDORDIR := "$(CURDIR)/vendor"
 VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
 PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
 ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
+PROTO_FILES := $(basename $(wildcard *.proto))
+PROTO_GO_FILES := $(addsuffix .pb.go,$(PROTO_FILES)) $(addsuffix _grpc.pb.go,$(PROTO_FILES))
+EASYJSON_GO_FILES := \
+	api_async_easyjson.go \
+	api_backend_easyjson.go \
+	api_grpc_easyjson.go \
+	api_proxy_easyjson.go \
+	api_signaling_easyjson.go
 
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
@@ -53,14 +61,14 @@ endif
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
-$(GOPATHBIN)/easyjson:
+$(GOPATHBIN)/easyjson: go.mod go.sum
 	[ "$(GOPROXY)" = "off" ] || $(GO) get -u -d github.com/mailru/easyjson/...
 	$(GO) install github.com/mailru/easyjson/...
 
-$(GOPATHBIN)/protoc-gen-go:
+$(GOPATHBIN)/protoc-gen-go: go.mod go.sum
 	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go
 
-$(GOPATHBIN)/protoc-gen-go-grpc:
+$(GOPATHBIN)/protoc-gen-go-grpc: go.mod go.sum
 	[ "$(GOPROXY)" = "off" ] || $(GO) get -u -d google.golang.org/grpc/cmd/protoc-gen-go-grpc
 	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc
 
@@ -78,7 +86,7 @@ check-continentmap:
 get:
 	$(GO) get $(PACKAGE)
 
-fmt: hook | common_proto
+fmt: hook | $(PROTO_GO_FILES)
 	$(GOFMT) -s -w *.go client proxy server
 
 vet: common
@@ -101,45 +109,38 @@ coverhtml: vet common
 	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -html=cover.out -o coverage.html
 
-%_easyjson.go: %.go $(GOPATHBIN)/easyjson | common_proto
+%_easyjson.go: %.go $(GOPATHBIN)/easyjson | $(PROTO_GO_FILES)
+	rm -f easyjson-bootstrap*.go
 	PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
 
 %.pb.go: %.proto $(GOPATHBIN)/protoc-gen-go $(GOPATHBIN)/protoc-gen-go-grpc
-	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc --go_out=. --go_opt=paths=source_relative \
+	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc \
+		--go_out=. --go_opt=paths=source_relative \
+		$*.proto
+
+%_grpc.pb.go: %.proto $(GOPATHBIN)/protoc-gen-go $(GOPATHBIN)/protoc-gen-go-grpc
+	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		$*.proto
 
-common: common_easyjson common_proto
-
-common_easyjson: \
-	api_async_easyjson.go \
-	api_backend_easyjson.go \
-	api_grpc_easyjson.go \
-	api_proxy_easyjson.go \
-	api_signaling_easyjson.go
-
-common_proto: \
-	grpc_backend.pb.go \
-	grpc_internal.pb.go \
-	grpc_mcu.pb.go \
-	grpc_sessions.pb.go
+common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
 
 $(BINDIR):
-	mkdir -p $(BINDIR)
+	mkdir -p "$(BINDIR)"
 
 client: common $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/client ./client/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/client" ./client/...
 
 server: common $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/signaling ./server/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/signaling" ./server/...
 
 proxy: common $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./proxy/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/proxy" ./proxy/...
 
 clean:
-	rm -f *_easyjson.go
+	rm -f $(EASYJSON_GO_FILES)
 	rm -f easyjson-bootstrap*.go
-	rm -f *.pb.go
+	rm -f $(PROTO_GO_FILES)
 
 build: server proxy
 
@@ -163,5 +164,7 @@ tarball: vendor
 
 dist: tarball
 
-.NOTPARALLEL: %_easyjson.go
-.PHONY: continentmap.go vendor
+.NOTPARALLEL: $(EASYJSON_GO_FILES)
+.PHONY: continentmap.go common vendor
+.SECONDARY: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
+.DELETE_ON_ERROR:
