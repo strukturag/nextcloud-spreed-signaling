@@ -121,6 +121,9 @@ func (p *mcuProxyForConfig) checkEvent(event *proxyConfigEvent) {
 		}
 	}
 
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if len(p.expected) == 0 {
 		p.t.Errorf("no event expected, got %+v from %s:%d", event, caller.File, caller.Line)
 		return
@@ -128,10 +131,10 @@ func (p *mcuProxyForConfig) checkEvent(event *proxyConfigEvent) {
 
 	defer func() {
 		if len(p.expected) == 0 {
-			p.mu.Lock()
 			waiters := p.waiters
 			p.waiters = nil
 			p.mu.Unlock()
+			defer p.mu.Lock()
 
 			for _, ch := range waiters {
 				ch <- struct{}{}
@@ -139,8 +142,6 @@ func (p *mcuProxyForConfig) checkEvent(event *proxyConfigEvent) {
 		}
 	}()
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	expected := p.expected[0]
 	p.expected = p.expected[1:]
 	if !reflect.DeepEqual(expected, *event) {
