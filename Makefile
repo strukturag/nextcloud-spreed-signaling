@@ -7,7 +7,7 @@ GOFMT := "$(GODIR)/gofmt"
 GOOS ?= linux
 GOARCH ?= amd64
 GOVERSION := $(shell "$(GO)" env GOVERSION | sed "s|go||" )
-BINDIR := "$(CURDIR)/bin"
+BINDIR := $(CURDIR)/bin
 VENDORDIR := "$(CURDIR)/vendor"
 VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
@@ -126,16 +126,16 @@ coverhtml: vet common
 common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
 
 $(BINDIR):
-	mkdir -p $(BINDIR)
+	mkdir -p "$(BINDIR)"
 
 client: common $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/client ./client/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/client" ./client/...
 
 server: common $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/signaling ./server/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/signaling" ./server/...
 
 proxy: common $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $(BINDIR)/proxy ./proxy/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/proxy" ./proxy/...
 
 clean:
 	rm -f $(EASYJSON_GO_FILES)
