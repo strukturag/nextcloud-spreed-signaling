@@ -13,6 +13,8 @@ VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
 PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
 ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
+PROTO_FILES := $(basename $(wildcard *.proto))
+PROTO_GO_FILES := $(addsuffix .pb.go,$(PROTO_FILES)) $(addsuffix _grpc.pb.go,$(PROTO_FILES))
 
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
@@ -78,7 +80,7 @@ check-continentmap:
 get:
 	$(GO) get $(PACKAGE)
 
-fmt: hook | common_proto
+fmt: hook | $(PROTO_GO_FILES)
 	$(GOFMT) -s -w *.go client proxy server
 
 vet: common
@@ -101,7 +103,7 @@ coverhtml: vet common
 	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -html=cover.out -o coverage.html
 
-%_easyjson.go: %.go $(GOPATHBIN)/easyjson | common_proto
+%_easyjson.go: %.go $(GOPATHBIN)/easyjson | $(PROTO_GO_FILES)
 	PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
 
 %.pb.go: %.proto $(GOPATHBIN)/protoc-gen-go $(GOPATHBIN)/protoc-gen-go-grpc
@@ -114,7 +116,7 @@ coverhtml: vet common
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		$*.proto
 
-common: common_easyjson common_proto
+common: common_easyjson $(PROTO_GO_FILES)
 
 common_easyjson: \
 	api_async_easyjson.go \
@@ -122,16 +124,6 @@ common_easyjson: \
 	api_grpc_easyjson.go \
 	api_proxy_easyjson.go \
 	api_signaling_easyjson.go
-
-common_proto: \
-	grpc_backend.pb.go \
-	grpc_backend_grpc.pb.go \
-	grpc_internal.pb.go \
-	grpc_internal_grpc.pb.go \
-	grpc_mcu.pb.go \
-	grpc_mcu_grpc.pb.go \
-	grpc_sessions.pb.go \
-	grpc_sessions_grpc.pb.go
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
@@ -148,7 +140,7 @@ proxy: common $(BINDIR)
 clean:
 	rm -f *_easyjson.go
 	rm -f easyjson-bootstrap*.go
-	rm -f *.pb.go
+	rm -f $(PROTO_GO_FILES)
 
 build: server proxy
 
