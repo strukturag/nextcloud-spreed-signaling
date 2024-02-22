@@ -151,6 +151,10 @@ func (p *proxyConfigStatic) Start() error {
 
 	if p.dnsDiscovery {
 		for u, ips := range p.connectionsMap {
+			if ips.entry != nil {
+				continue
+			}
+
 			entry, err := p.dnsMonitor.Add(u, p.onLookup)
 			if err != nil {
 				return err
@@ -170,6 +174,19 @@ func (p *proxyConfigStatic) Start() error {
 }
 
 func (p *proxyConfigStatic) Stop() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.dnsDiscovery {
+		for _, ips := range p.connectionsMap {
+			if ips.entry == nil {
+				continue
+			}
+
+			p.dnsMonitor.Remove(ips.entry)
+			ips.entry = nil
+		}
+	}
 }
 
 func (p *proxyConfigStatic) Reload(config *goconf.ConfigFile) error {
