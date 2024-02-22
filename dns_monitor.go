@@ -145,6 +145,7 @@ type DnsMonitor struct {
 
 	stopCtx  context.Context
 	stopFunc func()
+	stopped  chan struct{}
 
 	mu        sync.RWMutex
 	cond      *sync.Cond
@@ -167,6 +168,7 @@ func NewDnsMonitor(interval time.Duration) (*DnsMonitor, error) {
 
 		stopCtx:  stopCtx,
 		stopFunc: stopFunc,
+		stopped:  make(chan struct{}),
 
 		hostnames: make(map[string]*dnsMonitorEntry),
 	}
@@ -183,6 +185,7 @@ func (m *DnsMonitor) Start() error {
 func (m *DnsMonitor) Stop() {
 	m.stopFunc()
 	m.cond.Signal()
+	<-m.stopped
 }
 
 func (m *DnsMonitor) Add(target string, callback DnsMonitorCallback) (*DnsMonitorEntry, error) {
@@ -296,6 +299,7 @@ func (m *DnsMonitor) waitForEntries() (waited bool) {
 func (m *DnsMonitor) run() {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
+	defer close(m.stopped)
 
 	for {
 		if m.waitForEntries() {
