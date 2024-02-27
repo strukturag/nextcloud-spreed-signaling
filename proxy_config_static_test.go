@@ -78,19 +78,21 @@ func TestProxyConfigStaticSimple(t *testing.T) {
 
 func TestProxyConfigStaticDNS(t *testing.T) {
 	lookup := newMockDnsLookupForTest(t)
-	lookup.Set("foo", []net.IP{
-		net.ParseIP("192.168.0.1"),
-		net.ParseIP("10.1.2.3"),
-	})
-
 	proxy := newMcuProxyForConfig(t)
 	config, dnsMonitor := newProxyConfigStatic(t, proxy, true, "https://foo/")
-	proxy.Expect("add", "https://foo/", lookup.Get("foo")...)
 	if err := config.Start(); err != nil {
 		t.Fatal(err)
 	}
 
+	time.Sleep(time.Millisecond)
+
+	lookup.Set("foo", []net.IP{
+		net.ParseIP("192.168.0.1"),
+		net.ParseIP("10.1.2.3"),
+	})
+	proxy.Expect("add", "https://foo/", lookup.Get("foo")...)
 	dnsMonitor.checkHostnames()
+
 	lookup.Set("foo", []net.IP{
 		net.ParseIP("192.168.0.1"),
 		net.ParseIP("192.168.1.1"),
