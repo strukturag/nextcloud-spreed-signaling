@@ -438,6 +438,7 @@ type mcuJanusClient struct {
 	roomId     uint64
 	sid        string
 	streamType StreamType
+	maxBitrate int
 
 	handle    *JanusHandle
 	handleId  uint64
@@ -462,6 +463,10 @@ func (c *mcuJanusClient) Sid() string {
 
 func (c *mcuJanusClient) StreamType() StreamType {
 	return c.streamType
+}
+
+func (c *mcuJanusClient) MaxBitrate() int {
+	return c.maxBitrate
 }
 
 func (c *mcuJanusClient) Close(ctx context.Context) {
@@ -715,14 +720,14 @@ func min(a, b int) int {
 	return b
 }
 
-func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, bitrate int) (*JanusHandle, uint64, uint64, error) {
+func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, bitrate int) (*JanusHandle, uint64, uint64, int, error) {
 	session := m.session
 	if session == nil {
-		return nil, 0, 0, ErrNotConnected
+		return nil, 0, 0, 0, ErrNotConnected
 	}
 	handle, err := session.Attach(ctx, pluginVideoRoom)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, 0, err
 	}
 
 	log.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
@@ -752,7 +757,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err2 := handle.Detach(ctx); err2 != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
-		return nil, 0, 0, err
+		return nil, 0, 0, 0, err
 	}
 
 	roomId := getPluginIntValue(create_response.PluginData, pluginVideoRoom, "room")
@@ -760,7 +765,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err := handle.Detach(ctx); err != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err)
 		}
-		return nil, 0, 0, fmt.Errorf("No room id received: %+v", create_response)
+		return nil, 0, 0, 0, fmt.Errorf("No room id received: %+v", create_response)
 	}
 
 	log.Println("Created room", roomId, create_response.PluginData)
@@ -777,10 +782,10 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err2 := handle.Detach(ctx); err2 != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
-		return nil, 0, 0, err
+		return nil, 0, 0, 0, err
 	}
 
-	return handle, response.Session, roomId, nil
+	return handle, response.Session, roomId, bitrate, nil
 }
 
 func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
@@ -788,7 +793,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
 	}
 
-	handle, session, roomId, err := m.getOrCreatePublisherHandle(ctx, id, streamType, bitrate)
+	handle, session, roomId, maxBitrate, err := m.getOrCreatePublisherHandle(ctx, id, streamType, bitrate)
 	if err != nil {
 		return nil, err
 	}
@@ -803,6 +808,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 			roomId:     roomId,
 			sid:        sid,
 			streamType: streamType,
+			maxBitrate: maxBitrate,
 
 			handle:    handle,
 			handleId:  handle.Id,
@@ -892,7 +898,7 @@ func (p *mcuJanusPublisher) SetMedia(mt MediaType) {
 
 func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
-	handle, session, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
+	handle, session, roomId, _, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
 	if err != nil {
 		log.Printf("Could not reconnect publisher %s: %s", p.id, err)
 		// TODO(jojo): Retry
@@ -1043,6 +1049,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 			roomId:     pub.roomId,
 			sid:        strconv.FormatUint(handle.Id, 10),
 			streamType: streamType,
+			maxBitrate: pub.MaxBitrate(),
 
 			handle:    handle,
 			handleId:  handle.Id,

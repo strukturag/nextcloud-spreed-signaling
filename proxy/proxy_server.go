@@ -305,9 +305,7 @@ loop:
 }
 
 func (s *ProxyServer) updateLoad() {
-	// TODO: Take maximum bandwidth of clients into account when calculating
-	// load (screensharing requires more than regular audio/video).
-	load := s.GetClientCount()
+	load := s.GetClientsLoad()
 	if load == s.load.Load() {
 		return
 	}
@@ -390,7 +388,7 @@ func (s *ProxyServer) ScheduleShutdown() {
 		session.sendMessage(msg)
 	})
 
-	if s.GetClientCount() == 0 {
+	if !s.HasClients() {
 		go close(s.shutdownChannel)
 	}
 }
@@ -653,7 +651,8 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			Id:   message.Id,
 			Type: "command",
 			Command: &signaling.CommandProxyServerMessage{
-				Id: id,
+				Id:      id,
+				Bitrate: int(publisher.MaxBitrate()),
 			},
 		}
 		session.sendMessage(response)
@@ -978,10 +977,21 @@ func (s *ProxyServer) DeleteClient(id string, client signaling.McuClient) bool {
 	return true
 }
 
-func (s *ProxyServer) GetClientCount() int64 {
+func (s *ProxyServer) HasClients() bool {
 	s.clientsLock.RLock()
 	defer s.clientsLock.RUnlock()
-	return int64(len(s.clients))
+	return len(s.clients) > 0
+}
+
+func (s *ProxyServer) GetClientsLoad() int64 {
+	s.clientsLock.RLock()
+	defer s.clientsLock.RUnlock()
+
+	var load int64
+	for _, c := range s.clients {
+		load += int64(c.MaxBitrate())
+	}
+	return load / 1024
 }
 
 func (s *ProxyServer) GetClient(id string) signaling.McuClient {

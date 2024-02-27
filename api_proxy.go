@@ -215,6 +215,8 @@ func (m *CommandProxyClientMessage) CheckValid() error {
 type CommandProxyServerMessage struct {
 	Id  string `json:"id,omitempty"`
 	Sid string `json:"sid,omitempty"`
+
+	Bitrate int `json:"bitrate,omitempty"`
 }
 
 // Type "payload"

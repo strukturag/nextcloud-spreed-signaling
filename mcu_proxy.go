@@ -77,6 +77,7 @@ type McuProxy interface {
 type mcuProxyPubSubCommon struct {
 	sid        string
 	streamType StreamType
+	maxBitrate int
 	proxyId    string
 	conn       *mcuProxyConnection
 	listener   McuListener
@@ -92,6 +93,10 @@ func (c *mcuProxyPubSubCommon) Sid() string {
 
 func (c *mcuProxyPubSubCommon) StreamType() StreamType {
 	return c.streamType
+}
+
+func (c *mcuProxyPubSubCommon) MaxBitrate() int {
+	return c.maxBitrate
 }
 
 func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClientMessage, callback func(error, map[string]interface{})) {
@@ -132,11 +137,12 @@ type mcuProxyPublisher struct {
 	mediaTypes MediaType
 }
 
-func newMcuProxyPublisher(id string, sid string, streamType StreamType, mediaTypes MediaType, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
+func newMcuProxyPublisher(id string, sid string, streamType StreamType, maxBitrate int, mediaTypes MediaType, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
 	return &mcuProxyPublisher{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			sid:        sid,
 			streamType: streamType,
+			maxBitrate: maxBitrate,
 			proxyId:    proxyId,
 			conn:       conn,
 			listener:   listener,
@@ -217,11 +223,12 @@ type mcuProxySubscriber struct {
 	publisherId string
 }
 
-func newMcuProxySubscriber(publisherId string, sid string, streamType StreamType, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxySubscriber {
+func newMcuProxySubscriber(publisherId string, sid string, streamType StreamType, maxBitrate int, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxySubscriber {
 	return &mcuProxySubscriber{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			sid:        sid,
 			streamType: streamType,
+			maxBitrate: maxBitrate,
 			proxyId:    proxyId,
 			conn:       conn,
 			listener:   listener,
@@ -1054,7 +1061,7 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 
 	proxyId := response.Command.Id
 	log.Printf("Created %s publisher %s on %s for %s", streamType, proxyId, c, id)
-	publisher := newMcuProxyPublisher(id, sid, streamType, mediaTypes, proxyId, c, listener)
+	publisher := newMcuProxyPublisher(id, sid, streamType, response.Command.Bitrate, mediaTypes, proxyId, c, listener)
 	c.publishersLock.Lock()
 	c.publishers[proxyId] = publisher
 	c.publisherIds[getStreamId(id, streamType)] = proxyId
@@ -1084,7 +1091,7 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 
 	proxyId := response.Command.Id
 	log.Printf("Created %s subscriber %s on %s for %s", streamType, proxyId, c, publisherSessionId)
-	subscriber := newMcuProxySubscriber(publisherSessionId, response.Command.Sid, streamType, proxyId, c, listener)
+	subscriber := newMcuProxySubscriber(publisherSessionId, response.Command.Sid, streamType, response.Command.Bitrate, proxyId, c, listener)
 	c.subscribersLock.Lock()
 	c.subscribers[proxyId] = subscriber
 	c.subscribersLock.Unlock()

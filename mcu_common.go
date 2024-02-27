@@ -104,6 +104,7 @@ type McuClient interface {
 	Id() string
 	Sid() string
 	StreamType() StreamType
+	MaxBitrate() int
 
 	Close(ctx context.Context)
 

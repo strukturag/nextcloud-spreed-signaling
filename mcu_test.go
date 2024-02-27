@@ -158,6 +158,10 @@ func (c *TestMCUClient) StreamType() StreamType {
 	return c.streamType
 }
 
+func (c *TestMCUClient) MaxBitrate() int {
+	return 0
+}
+
 func (c *TestMCUClient) Close(ctx context.Context) {
 	if c.closed.CompareAndSwap(false, true) {
 		log.Printf("Close MCU client %s", c.id)
