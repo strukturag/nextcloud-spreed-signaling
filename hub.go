@@ -417,19 +417,20 @@ func (h *Hub) updateGeoDatabase() {
 	}
 
 	defer h.geoipUpdating.Store(false)
-	delay := time.Second
+	backoff, err := NewExponentialBackoff(time.Second, 5*time.Minute)
+	if err != nil {
+		log.Printf("Could not create exponential backoff: %s", err)
+		return
+	}
+
 	for !h.closer.IsClosed() {
 		err := h.geoip.Update()
 		if err == nil {
 			break
 		}
 
-		log.Printf("Could not update GeoIP database, will retry later (%s)", err)
-		time.Sleep(delay)
-		delay = delay * 2
-		if delay > 5*time.Minute {
-			delay = 5 * time.Minute
-		}
+		log.Printf("Could not update GeoIP database, will retry in %s (%s)", backoff.NextWait(), err)
+		backoff.Wait(context.Background())
 	}
 }
 
