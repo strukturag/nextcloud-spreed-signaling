@@ -212,26 +212,30 @@ func (c *EtcdClient) RemoveListener(listener EtcdClientListener) {
 	delete(c.listeners, listener)
 }
 
-func (c *EtcdClient) WaitForConnection() {
-	waitDelay := initialWaitDelay
+func (c *EtcdClient) WaitForConnection(ctx context.Context) error {
+	backoff, err := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+	if err != nil {
+		return err
+	}
+
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if err := c.syncClient(); err != nil {
 			if err == context.DeadlineExceeded {
-				log.Printf("Timeout waiting for etcd client to connect to the cluster, retry in %s", waitDelay)
+				log.Printf("Timeout waiting for etcd client to connect to the cluster, retry in %s", backoff.NextWait())
 			} else {
-				log.Printf("Could not sync etcd client with the cluster, retry in %s: %s", waitDelay, err)
+				log.Printf("Could not sync etcd client with the cluster, retry in %s: %s", backoff.NextWait(), err)
 			}
 
-			time.Sleep(waitDelay)
-			waitDelay = waitDelay * 2
-			if waitDelay > maxWaitDelay {
-				waitDelay = maxWaitDelay
-			}
+			backoff.Wait(ctx)
 			continue
 		}
 
 		log.Printf("Client synced, using endpoints %+v", c.getEtcdClient().Endpoints())
-		return
+		return nil
 	}
 }
 

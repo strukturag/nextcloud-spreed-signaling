@@ -93,23 +93,24 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 	}()
 
 	go func() {
-		client.WaitForConnection()
+		if err := client.WaitForConnection(context.Background()); err != nil {
+			panic(err)
+		}
 
-		waitDelay := initialWaitDelay
+		backoff, err := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+		if err != nil {
+			panic(err)
+		}
 		for {
 			response, err := p.getProxyUrls(client, p.keyPrefix)
 			if err != nil {
 				if err == context.DeadlineExceeded {
-					log.Printf("Timeout getting initial list of proxy URLs, retry in %s", waitDelay)
+					log.Printf("Timeout getting initial list of proxy URLs, retry in %s", backoff.NextWait())
 				} else {
-					log.Printf("Could not get initial list of proxy URLs, retry in %s: %s", waitDelay, err)
+					log.Printf("Could not get initial list of proxy URLs, retry in %s: %s", backoff.NextWait(), err)
 				}
 
-				time.Sleep(waitDelay)
-				waitDelay = waitDelay * 2
-				if waitDelay > maxWaitDelay {
-					waitDelay = maxWaitDelay
-				}
+				backoff.Wait(context.Background())
 				continue
 			}
 
