@@ -240,7 +240,7 @@ func TestDnsMonitor(t *testing.T) {
 	rec1 := newDnsMonitorReceiverForTest(t)
 	rec1.Expect(ips1, ips1, nil, nil)
 
-	entry1, err := monitor.Add("https://foo", rec1.OnLookup)
+	entry1, err := monitor.Add("https://foo:12345", rec1.OnLookup)
 	if err != nil {
 		t.Fatal(err)
 	}
