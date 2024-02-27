@@ -233,14 +233,15 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 		mcuType = signaling.McuTypeDefault
 	}
 
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-	defer signal.Stop(interrupt)
+	backoff, err := signaling.NewExponentialBackoff(initialMcuRetry, maxMcuRetry)
+	if err != nil {
+		return err
+	}
 
-	var err error
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	var mcu signaling.Mcu
-	mcuRetry := initialMcuRetry
-	mcuRetryTimer := time.NewTimer(mcuRetry)
 	for {
 		switch mcuType {
 		case signaling.McuTypeJanus:
@@ -263,17 +264,10 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 			break
 		}
 
-		log.Printf("Could not initialize %s MCU at %s (%s) will retry in %s", mcuType, s.url, err, mcuRetry)
-		mcuRetryTimer.Reset(mcuRetry)
-		select {
-		case <-interrupt:
+		log.Printf("Could not initialize %s MCU at %s (%s) will retry in %s", mcuType, s.url, err, backoff.NextWait())
+		backoff.Wait(ctx)
+		if ctx.Err() != nil {
 			return fmt.Errorf("Cancelled")
-		case <-mcuRetryTimer.C:
-			// Retry connection
-			mcuRetry = mcuRetry * 2
-			if mcuRetry > maxMcuRetry {
-				mcuRetry = maxMcuRetry
-			}
 		}
 	}
 
