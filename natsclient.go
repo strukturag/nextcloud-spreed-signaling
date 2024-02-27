@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -74,33 +75,27 @@ func NewNatsClient(url string) (NatsClient, error) {
 		return NewLoopbackNatsClient()
 	}
 
+	backoff, err := NewExponentialBackoff(initialConnectInterval, maxConnectInterval)
+	if err != nil {
+		return nil, err
+	}
+
 	client := &natsClient{}
 
-	var err error
 	client.nc, err = nats.Connect(url,
 		nats.ClosedHandler(client.onClosed),
 		nats.DisconnectHandler(client.onDisconnected),
 		nats.ReconnectHandler(client.onReconnected))
 
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-	defer signal.Stop(interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
-	delay := initialConnectInterval
-	timer := time.NewTimer(delay)
 	// The initial connect must succeed, so we retry in the case of an error.
 	for err != nil {
-		log.Printf("Could not create connection (%s), will retry in %s", err, delay)
-		timer.Reset(delay)
-		select {
-		case <-interrupt:
+		log.Printf("Could not create connection (%s), will retry in %s", err, backoff.NextWait())
+		backoff.Wait(ctx)
+		if ctx.Err() != nil {
 			return nil, fmt.Errorf("interrupted")
-		case <-timer.C:
-			// Retry connection
-			delay = delay * 2
-			if delay > maxConnectInterval {
-				delay = maxConnectInterval
-			}
 		}
 
 		client.nc, err = nats.Connect(url)

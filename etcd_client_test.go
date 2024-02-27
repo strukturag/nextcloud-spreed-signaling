@@ -236,7 +236,10 @@ func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
 
 	go func() {
 		defer close(l.initial)
-		client.WaitForConnection()
+		if err := client.WaitForConnection(l.ctx); err != nil {
+			l.t.Errorf("error waiting for connection: %s", err)
+			return
+		}
 
 		ctx, cancel := context.WithTimeout(l.ctx, time.Second)
 		defer cancel()

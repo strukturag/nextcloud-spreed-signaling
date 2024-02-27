@@ -594,7 +594,9 @@ func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
 	}()
 
 	go func() {
-		client.WaitForConnection()
+		if err := client.WaitForConnection(context.Background()); err != nil {
+			panic(err)
+		}
 
 		backoff, _ := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 		for {
