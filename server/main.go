@@ -160,6 +160,9 @@ func main() {
 	if err != nil {
 		log.Fatal("Could not create DNS monitor: ", err)
 	}
+	if err := dnsMonitor.Start(); err != nil {
+		log.Fatal("Could not start DNS monitor: ", err)
+	}
 	defer dnsMonitor.Stop()
 
 	etcdClient, err := signaling.NewEtcdClient(config, "mcu")

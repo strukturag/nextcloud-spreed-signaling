@@ -197,11 +197,11 @@ func (m *DnsMonitor) Add(target string, callback DnsMonitorCallback) (*DnsMonito
 		}
 		hostname = parsed.Host
 	} else {
-		// Hostname with optional port passed.
+		// Hostname only passed.
 		hostname = target
-		if h, _, err := net.SplitHostPort(target); err == nil {
-			hostname = h
-		}
+	}
+	if h, _, err := net.SplitHostPort(hostname); err == nil {
+		hostname = h
 	}
 
 	m.mu.Lock()
