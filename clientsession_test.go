@@ -222,16 +222,16 @@ func TestBandwidth_Backend(t *testing.T) {
 
 	hub.SetMcu(mcu)
 
-	streamTypes := []string{
-		streamTypeVideo,
-		streamTypeScreen,
+	streamTypes := []StreamType{
+		StreamTypeVideo,
+		StreamTypeScreen,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	for _, streamType := range streamTypes {
-		t.Run(streamType, func(t *testing.T) {
+		t.Run(string(streamType), func(t *testing.T) {
 			client := NewTestClient(t, server, hub)
 			defer client.CloseWithBye()
 
@@ -268,7 +268,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			}, MessageClientMessageData{
 				Type:     "offer",
 				Sid:      "54321",
-				RoomType: streamType,
+				RoomType: string(streamType),
 				Bitrate:  bitrate,
 				Payload: map[string]interface{}{
 					"sdp": MockSdpOfferAudioAndVideo,
@@ -287,7 +287,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			}
 
 			var expectBitrate int
-			if streamType == streamTypeVideo {
+			if streamType == StreamTypeVideo {
 				expectBitrate = backend.maxStreamBitrate
 			} else {
 				expectBitrate = backend.maxScreenBitrate

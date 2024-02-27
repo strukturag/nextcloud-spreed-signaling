@@ -171,7 +171,7 @@ func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherId
 		return nil, status.Error(codes.NotFound, "no such session")
 	}
 
-	publisher := clientSession.GetOrWaitForPublisher(ctx, request.StreamType)
+	publisher := clientSession.GetOrWaitForPublisher(ctx, StreamType(request.StreamType))
 	if publisher, ok := publisher.(*mcuProxyPublisher); ok {
 		reply := &GetPublisherIdReply{
 			PublisherId: publisher.Id(),

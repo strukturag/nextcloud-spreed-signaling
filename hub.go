@@ -1445,6 +1445,16 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 			// Maybe this is a message to be processed by the MCU.
 			var data MessageClientMessageData
 			if err := json.Unmarshal(*msg.Data, &data); err == nil {
+				if err := data.CheckValid(); err != nil {
+					log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
+					if err, ok := err.(*Error); ok {
+						session.SendMessage(message.NewErrorServerMessage(err))
+					} else {
+						session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
+					}
+					return
+				}
+
 				clientData = &data
 
 				switch clientData.Type {
@@ -1476,7 +1486,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 								return
 							}
 
-							publisher := session.GetPublisher(streamTypeScreen)
+							publisher := session.GetPublisher(StreamTypeScreen)
 							if publisher == nil {
 								return
 							}
@@ -1547,6 +1557,16 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				if h.mcu != nil {
 					var data MessageClientMessageData
 					if err := json.Unmarshal(*msg.Data, &data); err == nil {
+						if err := data.CheckValid(); err != nil {
+							log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
+							if err, ok := err.(*Error); ok {
+								session.SendMessage(message.NewErrorServerMessage(err))
+							} else {
+								session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
+							}
+							return
+						}
+
 						clientData = &data
 					}
 				}
@@ -1586,7 +1606,7 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 				ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
 				defer cancel()
 
-				mc, err := recipient.GetOrCreateSubscriber(ctx, h.mcu, session.PublicId(), clientData.RoomType)
+				mc, err := recipient.GetOrCreateSubscriber(ctx, h.mcu, session.PublicId(), StreamType(clientData.RoomType))
 				if err != nil {
 					log.Printf("Could not create MCU subscriber for session %s to send %+v to %s: %s", session.PublicId(), clientData, recipient.PublicId(), err)
 					sendMcuClientNotFound(session, message)
@@ -2145,13 +2165,13 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 		}
 
 		clientType = "subscriber"
-		mc, err = session.GetOrCreateSubscriber(ctx, h.mcu, message.Recipient.SessionId, data.RoomType)
+		mc, err = session.GetOrCreateSubscriber(ctx, h.mcu, message.Recipient.SessionId, StreamType(data.RoomType))
 	case "sendoffer":
 		// Will be sent directly.
 		return
 	case "offer":
 		clientType = "publisher"
-		mc, err = session.GetOrCreatePublisher(ctx, h.mcu, data.RoomType, data)
+		mc, err = session.GetOrCreatePublisher(ctx, h.mcu, StreamType(data.RoomType), data)
 		if err, ok := err.(*PermissionError); ok {
 			log.Printf("Session %s is not allowed to offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
 			sendNotAllowed(session, client_message, "Not allowed to publish.")
@@ -2169,7 +2189,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 		}
 
 		clientType = "subscriber"
-		mc = session.GetSubscriber(message.Recipient.SessionId, data.RoomType)
+		mc = session.GetSubscriber(message.Recipient.SessionId, StreamType(data.RoomType))
 	default:
 		if session.PublicId() == message.Recipient.SessionId {
 			if err := session.IsAllowedToSend(data); err != nil {
@@ -2179,10 +2199,10 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 			}
 
 			clientType = "publisher"
-			mc = session.GetPublisher(data.RoomType)
+			mc = session.GetPublisher(StreamType(data.RoomType))
 		} else {
 			clientType = "subscriber"
-			mc = session.GetSubscriber(message.Recipient.SessionId, data.RoomType)
+			mc = session.GetSubscriber(message.Recipient.SessionId, StreamType(data.RoomType))
 		}
 	}
 	if err != nil {

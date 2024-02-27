@@ -75,14 +75,35 @@ type Mcu interface {
 
 	GetStats() interface{}
 
-	NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error)
-	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType string) (McuSubscriber, error)
+	NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error)
+	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType) (McuSubscriber, error)
+}
+
+type StreamType string
+
+const (
+	StreamTypeAudio  StreamType = "audio"
+	StreamTypeVideo  StreamType = "video"
+	StreamTypeScreen StreamType = "screen"
+)
+
+func IsValidStreamType(s string) bool {
+	switch s {
+	case string(StreamTypeAudio):
+		fallthrough
+	case string(StreamTypeVideo):
+		fallthrough
+	case string(StreamTypeScreen):
+		return true
+	default:
+		return false
+	}
 }
 
 type McuClient interface {
 	Id() string
 	Sid() string
-	StreamType() string
+	StreamType() StreamType
 
 	Close(ctx context.Context)
 

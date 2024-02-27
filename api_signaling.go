@@ -565,6 +565,13 @@ type MessageClientMessageData struct {
 	Payload  map[string]interface{} `json:"payload"`
 }
 
+func (m *MessageClientMessageData) CheckValid() error {
+	if !IsValidStreamType(m.RoomType) {
+		return fmt.Errorf("invalid room type: %s", m.RoomType)
+	}
+	return nil
+}
+
 func (m *MessageClientMessage) CheckValid() error {
 	if m.Data == nil || len(*m.Data) == 0 {
 		return fmt.Errorf("message empty")

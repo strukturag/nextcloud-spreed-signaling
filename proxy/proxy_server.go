@@ -657,8 +657,8 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			},
 		}
 		session.sendMessage(response)
-		statsPublishersCurrent.WithLabelValues(cmd.StreamType).Inc()
-		statsPublishersTotal.WithLabelValues(cmd.StreamType).Inc()
+		statsPublishersCurrent.WithLabelValues(string(cmd.StreamType)).Inc()
+		statsPublishersTotal.WithLabelValues(string(cmd.StreamType)).Inc()
 	case "create-subscriber":
 		id := uuid.New().String()
 		publisherId := cmd.PublisherId
@@ -686,8 +686,8 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			},
 		}
 		session.sendMessage(response)
-		statsSubscribersCurrent.WithLabelValues(cmd.StreamType).Inc()
-		statsSubscribersTotal.WithLabelValues(cmd.StreamType).Inc()
+		statsSubscribersCurrent.WithLabelValues(string(cmd.StreamType)).Inc()
+		statsSubscribersTotal.WithLabelValues(string(cmd.StreamType)).Inc()
 	case "delete-publisher":
 		client := s.GetClient(cmd.ClientId)
 		if client == nil {
@@ -707,7 +707,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		if s.DeleteClient(cmd.ClientId, client) {
-			statsPublishersCurrent.WithLabelValues(client.StreamType()).Dec()
+			statsPublishersCurrent.WithLabelValues(string(client.StreamType())).Dec()
 		}
 
 		go func() {
@@ -742,7 +742,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		if s.DeleteClient(cmd.ClientId, client) {
-			statsSubscribersCurrent.WithLabelValues(client.StreamType()).Dec()
+			statsSubscribersCurrent.WithLabelValues(string(client.StreamType())).Dec()
 		}
 
 		go func() {

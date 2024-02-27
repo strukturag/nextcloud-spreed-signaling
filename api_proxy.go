@@ -179,12 +179,12 @@ type ByeProxyServerMessage struct {
 type CommandProxyClientMessage struct {
 	Type string `json:"type"`
 
-	Sid         string    `json:"sid,omitempty"`
-	StreamType  string    `json:"streamType,omitempty"`
-	PublisherId string    `json:"publisherId,omitempty"`
-	ClientId    string    `json:"clientId,omitempty"`
-	Bitrate     int       `json:"bitrate,omitempty"`
-	MediaTypes  MediaType `json:"mediatypes,omitempty"`
+	Sid         string     `json:"sid,omitempty"`
+	StreamType  StreamType `json:"streamType,omitempty"`
+	PublisherId string     `json:"publisherId,omitempty"`
+	ClientId    string     `json:"clientId,omitempty"`
+	Bitrate     int        `json:"bitrate,omitempty"`
+	MediaTypes  MediaType  `json:"mediatypes,omitempty"`
 }
 
 func (m *CommandProxyClientMessage) CheckValid() error {
