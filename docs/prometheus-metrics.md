@@ -48,3 +48,4 @@ The following metrics are available:
 | `signaling_grpc_clients`                          | Gauge     | 1.0.0     | The current number of GRPC clients                                        |                                   |
 | `signaling_grpc_client_calls_total`               | Counter   | 1.0.0     | The total number of GRPC client calls                                     | `method`                          |
 | `signaling_grpc_server_calls_total`               | Counter   | 1.0.0     | The total number of GRPC server calls                                     | `method`                          |
+| `signaling_http_client_pool_connections`          | Gauge     | 1.2.4     | The current number of HTTP client connections per host                    | `host`                            |

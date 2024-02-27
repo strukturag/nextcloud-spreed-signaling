@@ -29,10 +29,18 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+func init() {
+	RegisterHttpClientPoolStats()
+}
 
 type Pool struct {
 	pool chan *http.Client
+
+	currentConnections prometheus.Gauge
 }
 
 func (p *Pool) get(ctx context.Context) (client *http.Client, err error) {
@@ -40,21 +48,24 @@ func (p *Pool) get(ctx context.Context) (client *http.Client, err error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case client := <-p.pool:
+		p.currentConnections.Inc()
 		return client, nil
 	}
 }
 
 func (p *Pool) Put(c *http.Client) {
+	p.currentConnections.Dec()
 	p.pool <- c
 }
 
-func newPool(constructor func() *http.Client, size int) (*Pool, error) {
+func newPool(host string, constructor func() *http.Client, size int) (*Pool, error) {
 	if size <= 0 {
 		return nil, fmt.Errorf("can't create empty pool")
 	}
 
 	p := &Pool{
-		pool: make(chan *http.Client, size),
+		pool:               make(chan *http.Client, size),
+		currentConnections: connectionsPerHostCurrent.WithLabelValues(host),
 	}
 	for size > 0 {
 		c := constructor()
@@ -103,7 +114,7 @@ func (p *HttpClientPool) getPool(url *url.URL) (*Pool, error) {
 		return pool, nil
 	}
 
-	pool, err := newPool(func() *http.Client {
+	pool, err := newPool(url.Host, func() *http.Client {
 		return &http.Client{
 			Transport: p.transport,
 			// Only send body in redirect if going to same scheme / host.
