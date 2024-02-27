@@ -143,6 +143,7 @@ type mcuJanus struct {
 	gw      *JanusGateway
 	session *JanusSession
 	handle  *JanusHandle
+	version int
 
 	closeChan chan struct{}
 
@@ -283,6 +284,10 @@ func (m *mcuJanus) ConnectionInterrupted() {
 	m.notifyOnDisconnected()
 }
 
+func (m *mcuJanus) isMultistream() bool {
+	return m.version >= 1000
+}
+
 func (m *mcuJanus) Start() error {
 	ctx := context.TODO()
 	info, err := m.gw.Info(ctx)
@@ -295,6 +300,8 @@ func (m *mcuJanus) Start() error {
 	if !found {
 		return fmt.Errorf("Plugin %s is not supported", pluginVideoRoom)
 	}
+
+	m.version = info.Version
 
 	log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
 	if !info.DataChannels {
@@ -1175,7 +1182,15 @@ retry:
 		"request": "join",
 		"ptype":   "subscriber",
 		"room":    p.roomId,
-		"feed":    streamTypeUserIds[p.streamType],
+	}
+	if p.mcu.isMultistream() {
+		join_msg["streams"] = []map[string]interface{}{
+			{
+				"feed": streamTypeUserIds[p.streamType],
+			},
+		}
+	} else {
+		join_msg["feed"] = streamTypeUserIds[p.streamType]
 	}
 	if stream != nil {
 		stream.AddToMessage(join_msg)
