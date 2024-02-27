@@ -79,7 +79,7 @@ type ClientSession struct {
 
 	publisherWaiters ChannelWaiters
 
-	publishers  map[string]McuPublisher
+	publishers  map[StreamType]McuPublisher
 	subscribers map[string]McuSubscriber
 
 	pendingClientMessages        []*ServerMessage
@@ -356,7 +356,7 @@ func (s *ClientSession) getRoomJoinTime() time.Time {
 
 func (s *ClientSession) releaseMcuObjects() {
 	if len(s.publishers) > 0 {
-		go func(publishers map[string]McuPublisher) {
+		go func(publishers map[StreamType]McuPublisher) {
 			ctx := context.TODO()
 			for _, publisher := range publishers {
 				publisher.Close(ctx)
@@ -573,12 +573,12 @@ func (s *ClientSession) SetClient(client *Client) *Client {
 	return prev
 }
 
-func (s *ClientSession) sendOffer(client McuClient, sender string, streamType string, offer map[string]interface{}) {
+func (s *ClientSession) sendOffer(client McuClient, sender string, streamType StreamType, offer map[string]interface{}) {
 	offer_message := &AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
 		Type:     "offer",
-		RoomType: streamType,
+		RoomType: string(streamType),
 		Payload:  offer,
 		Sid:      client.Sid(),
 	}
@@ -601,12 +601,12 @@ func (s *ClientSession) sendOffer(client McuClient, sender string, streamType st
 	s.sendMessageUnlocked(response_message)
 }
 
-func (s *ClientSession) sendCandidate(client McuClient, sender string, streamType string, candidate interface{}) {
+func (s *ClientSession) sendCandidate(client McuClient, sender string, streamType StreamType, candidate interface{}) {
 	candidate_message := &AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
 		Type:     "candidate",
-		RoomType: streamType,
+		RoomType: string(streamType),
 		Payload: map[string]interface{}{
 			"candidate": candidate,
 		},
@@ -839,15 +839,15 @@ func (s *ClientSession) IsAllowedToSend(data *MessageClientMessageData) error {
 	}
 }
 
-func (s *ClientSession) CheckOfferType(streamType string, data *MessageClientMessageData) (MediaType, error) {
+func (s *ClientSession) CheckOfferType(streamType StreamType, data *MessageClientMessageData) (MediaType, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.checkOfferTypeLocked(streamType, data)
 }
 
-func (s *ClientSession) checkOfferTypeLocked(streamType string, data *MessageClientMessageData) (MediaType, error) {
-	if streamType == streamTypeScreen {
+func (s *ClientSession) checkOfferTypeLocked(streamType StreamType, data *MessageClientMessageData) (MediaType, error) {
+	if streamType == StreamTypeScreen {
 		if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
 			return 0, &PermissionError{PERMISSION_MAY_PUBLISH_SCREEN}
 		}
@@ -865,7 +865,7 @@ func (s *ClientSession) checkOfferTypeLocked(streamType string, data *MessageCli
 	return 0, nil
 }
 
-func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, streamType string, data *MessageClientMessageData) (McuPublisher, error) {
+func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, streamType StreamType, data *MessageClientMessageData) (McuPublisher, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -883,7 +883,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		bitrate := data.Bitrate
 		if backend := s.Backend(); backend != nil {
 			var maxBitrate int
-			if streamType == streamTypeScreen {
+			if streamType == StreamTypeScreen {
 				maxBitrate = backend.maxScreenBitrate
 			} else {
 				maxBitrate = backend.maxStreamBitrate
@@ -900,7 +900,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 			return nil, err
 		}
 		if s.publishers == nil {
-			s.publishers = make(map[string]McuPublisher)
+			s.publishers = make(map[StreamType]McuPublisher)
 		}
 		if prev, found := s.publishers[streamType]; found {
 			// Another thread created the publisher while we were waiting.
@@ -921,18 +921,18 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 	return publisher, nil
 }
 
-func (s *ClientSession) getPublisherLocked(streamType string) McuPublisher {
+func (s *ClientSession) getPublisherLocked(streamType StreamType) McuPublisher {
 	return s.publishers[streamType]
 }
 
-func (s *ClientSession) GetPublisher(streamType string) McuPublisher {
+func (s *ClientSession) GetPublisher(streamType StreamType) McuPublisher {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.getPublisherLocked(streamType)
 }
 
-func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType string) McuPublisher {
+func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType StreamType) McuPublisher {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -961,13 +961,13 @@ func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType st
 	}
 }
 
-func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id string, streamType string) (McuSubscriber, error) {
+func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id string, streamType StreamType) (McuSubscriber, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// TODO(jojo): Add method to remove subscribers.
 
-	subscriber, found := s.subscribers[id+"|"+streamType]
+	subscriber, found := s.subscribers[getStreamId(id, streamType)]
 	if !found {
 		s.mu.Unlock()
 		var err error
@@ -979,7 +979,7 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id s
 		if s.subscribers == nil {
 			s.subscribers = make(map[string]McuSubscriber)
 		}
-		if prev, found := s.subscribers[id+"|"+streamType]; found {
+		if prev, found := s.subscribers[getStreamId(id, streamType)]; found {
 			// Another thread created the subscriber while we were waiting.
 			go func(sub McuSubscriber) {
 				closeCtx := context.TODO()
@@ -987,7 +987,7 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id s
 			}(subscriber)
 			subscriber = prev
 		} else {
-			s.subscribers[id+"|"+streamType] = subscriber
+			s.subscribers[getStreamId(id, streamType)] = subscriber
 		}
 		log.Printf("Subscribing %s from %s as %s in session %s", streamType, id, subscriber.Id(), s.PublicId())
 	}
@@ -995,11 +995,11 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id s
 	return subscriber, nil
 }
 
-func (s *ClientSession) GetSubscriber(id string, streamType string) McuSubscriber {
+func (s *ClientSession) GetSubscriber(id string, streamType StreamType) McuSubscriber {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.subscribers[id+"|"+streamType]
+	return s.subscribers[getStreamId(id, streamType)]
 }
 
 func (s *ClientSession) ProcessAsyncRoomMessage(message *AsyncMessage) {
@@ -1023,10 +1023,10 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			defer s.mu.Unlock()
 
 			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA) {
-				if publisher, found := s.publishers[streamTypeVideo]; found {
+				if publisher, found := s.publishers[StreamTypeVideo]; found {
 					if (publisher.HasMedia(MediaTypeAudio) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO)) ||
 						(publisher.HasMedia(MediaTypeVideo) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_VIDEO)) {
-						delete(s.publishers, streamTypeVideo)
+						delete(s.publishers, StreamTypeVideo)
 						log.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
 						go func() {
 							publisher.Close(context.Background())
@@ -1036,8 +1036,8 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 				}
 			}
 			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
-				if publisher, found := s.publishers[streamTypeScreen]; found {
-					delete(s.publishers, streamTypeScreen)
+				if publisher, found := s.publishers[StreamTypeScreen]; found {
+					delete(s.publishers, StreamTypeScreen)
 					log.Printf("Session %s is no longer allowed to publish screen, closing publisher %s", s.PublicId(), publisher.Id())
 					go func() {
 						publisher.Close(context.Background())
@@ -1059,7 +1059,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			ctx, cancel := context.WithTimeout(context.Background(), s.hub.mcuTimeout)
 			defer cancel()
 
-			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, message.SendOffer.Data.RoomType)
+			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, StreamType(message.SendOffer.Data.RoomType))
 			if err != nil {
 				log.Printf("Could not create MCU subscriber for session %s to process sendoffer in %s: %s", message.SendOffer.SessionId, s.PublicId(), err)
 				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{

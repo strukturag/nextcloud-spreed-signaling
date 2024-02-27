@@ -223,13 +223,13 @@ func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId string, room
 	return response.GetInCall(), nil
 }
 
-func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, streamType string) (string, string, net.IP, error) {
+func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, streamType StreamType) (string, string, net.IP, error) {
 	statsGrpcClientCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Get %s publisher id %s on %s", streamType, sessionId, c.Target())
 	response, err := c.impl.GetPublisherId(ctx, &GetPublisherIdRequest{
 		SessionId:  sessionId,
-		StreamType: streamType,
+		StreamType: string(streamType),
 	}, grpc.WaitForReady(true))
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return "", "", nil, nil

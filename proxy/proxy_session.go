@@ -212,7 +212,7 @@ func (s *ProxySession) SubscriberSidUpdated(subscriber signaling.McuSubscriber) 
 func (s *ProxySession) PublisherClosed(publisher signaling.McuPublisher) {
 	if id := s.DeletePublisher(publisher); id != "" {
 		if s.proxy.DeleteClient(id, publisher) {
-			statsPublishersCurrent.WithLabelValues(publisher.StreamType()).Dec()
+			statsPublishersCurrent.WithLabelValues(string(publisher.StreamType())).Dec()
 		}
 
 		msg := &signaling.ProxyServerMessage{
@@ -229,7 +229,7 @@ func (s *ProxySession) PublisherClosed(publisher signaling.McuPublisher) {
 func (s *ProxySession) SubscriberClosed(subscriber signaling.McuSubscriber) {
 	if id := s.DeleteSubscriber(subscriber); id != "" {
 		if s.proxy.DeleteClient(id, subscriber) {
-			statsSubscribersCurrent.WithLabelValues(subscriber.StreamType()).Dec()
+			statsSubscribersCurrent.WithLabelValues(string(subscriber.StreamType())).Dec()
 		}
 
 		msg := &signaling.ProxyServerMessage{
@@ -294,7 +294,7 @@ func (s *ProxySession) clearPublishers() {
 	go func(publishers map[string]signaling.McuPublisher) {
 		for id, publisher := range publishers {
 			if s.proxy.DeleteClient(id, publisher) {
-				statsPublishersCurrent.WithLabelValues(publisher.StreamType()).Dec()
+				statsPublishersCurrent.WithLabelValues(string(publisher.StreamType())).Dec()
 			}
 			publisher.Close(context.Background())
 		}
@@ -310,7 +310,7 @@ func (s *ProxySession) clearSubscribers() {
 	go func(subscribers map[string]signaling.McuSubscriber) {
 		for id, subscriber := range subscribers {
 			if s.proxy.DeleteClient(id, subscriber) {
-				statsSubscribersCurrent.WithLabelValues(subscriber.StreamType()).Dec()
+				statsSubscribersCurrent.WithLabelValues(string(subscriber.StreamType())).Dec()
 			}
 			subscriber.Close(context.Background())
 		}

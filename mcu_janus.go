@@ -50,17 +50,18 @@ const (
 
 	defaultMaxStreamBitrate = 1024 * 1024
 	defaultMaxScreenBitrate = 2048 * 1024
-
-	streamTypeVideo  = "video"
-	streamTypeScreen = "screen"
 )
 
 var (
-	streamTypeUserIds = map[string]uint64{
-		streamTypeVideo:  videoPublisherUserId,
-		streamTypeScreen: screenPublisherUserId,
+	streamTypeUserIds = map[StreamType]uint64{
+		StreamTypeVideo:  videoPublisherUserId,
+		StreamTypeScreen: screenPublisherUserId,
 	}
 )
+
+func getStreamId(publisherId string, streamType StreamType) string {
+	return fmt.Sprintf("%s|%s", publisherId, streamType)
+}
 
 func getPluginValue(data janus.PluginData, pluginName string, key string) interface{} {
 	if data.Plugin != pluginName {
@@ -436,7 +437,8 @@ type mcuJanusClient struct {
 	session    uint64
 	roomId     uint64
 	sid        string
-	streamType string
+	streamType StreamType
+	maxBitrate int
 
 	handle    *JanusHandle
 	handleId  uint64
@@ -459,8 +461,12 @@ func (c *mcuJanusClient) Sid() string {
 	return c.sid
 }
 
-func (c *mcuJanusClient) StreamType() string {
+func (c *mcuJanusClient) StreamType() StreamType {
 	return c.streamType
+}
+
+func (c *mcuJanusClient) MaxBitrate() int {
+	return c.maxBitrate
 }
 
 func (c *mcuJanusClient) Close(ctx context.Context) {
@@ -609,7 +615,7 @@ func (c *mcuJanusClient) selectStream(ctx context.Context, stream *streamSelecti
 type publisherStatsCounter struct {
 	mu sync.Mutex
 
-	streamTypes map[string]bool
+	streamTypes map[StreamType]bool
 	subscribers map[string]bool
 }
 
@@ -619,14 +625,14 @@ func (c *publisherStatsCounter) Reset() {
 
 	count := len(c.subscribers)
 	for streamType := range c.streamTypes {
-		statsMcuPublisherStreamTypesCurrent.WithLabelValues(streamType).Dec()
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Sub(float64(count))
+		statsMcuPublisherStreamTypesCurrent.WithLabelValues(string(streamType)).Dec()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Sub(float64(count))
 	}
 	c.streamTypes = nil
 	c.subscribers = nil
 }
 
-func (c *publisherStatsCounter) EnableStream(streamType string, enable bool) {
+func (c *publisherStatsCounter) EnableStream(streamType StreamType, enable bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -636,15 +642,15 @@ func (c *publisherStatsCounter) EnableStream(streamType string, enable bool) {
 
 	if enable {
 		if c.streamTypes == nil {
-			c.streamTypes = make(map[string]bool)
+			c.streamTypes = make(map[StreamType]bool)
 		}
 		c.streamTypes[streamType] = true
-		statsMcuPublisherStreamTypesCurrent.WithLabelValues(streamType).Inc()
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Add(float64(len(c.subscribers)))
+		statsMcuPublisherStreamTypesCurrent.WithLabelValues(string(streamType)).Inc()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Add(float64(len(c.subscribers)))
 	} else {
 		delete(c.streamTypes, streamType)
-		statsMcuPublisherStreamTypesCurrent.WithLabelValues(streamType).Dec()
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Sub(float64(len(c.subscribers)))
+		statsMcuPublisherStreamTypesCurrent.WithLabelValues(string(streamType)).Dec()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Sub(float64(len(c.subscribers)))
 	}
 }
 
@@ -661,7 +667,7 @@ func (c *publisherStatsCounter) AddSubscriber(id string) {
 	}
 	c.subscribers[id] = true
 	for streamType := range c.streamTypes {
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Inc()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Inc()
 	}
 }
 
@@ -675,7 +681,7 @@ func (c *publisherStatsCounter) RemoveSubscriber(id string) {
 
 	delete(c.subscribers, id)
 	for streamType := range c.streamTypes {
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(streamType).Dec()
+		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Dec()
 	}
 }
 
@@ -688,20 +694,20 @@ type mcuJanusPublisher struct {
 	stats      publisherStatsCounter
 }
 
-func (m *mcuJanus) SubscriberConnected(id string, publisher string, streamType string) {
+func (m *mcuJanus) SubscriberConnected(id string, publisher string, streamType StreamType) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if p, found := m.publishers[publisher+"|"+streamType]; found {
+	if p, found := m.publishers[getStreamId(publisher, streamType)]; found {
 		p.stats.AddSubscriber(id)
 	}
 }
 
-func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamType string) {
+func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamType StreamType) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if p, found := m.publishers[publisher+"|"+streamType]; found {
+	if p, found := m.publishers[getStreamId(publisher, streamType)]; found {
 		p.stats.RemoveSubscriber(id)
 	}
 }
@@ -714,20 +720,20 @@ func min(a, b int) int {
 	return b
 }
 
-func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType string, bitrate int) (*JanusHandle, uint64, uint64, error) {
+func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, bitrate int) (*JanusHandle, uint64, uint64, int, error) {
 	session := m.session
 	if session == nil {
-		return nil, 0, 0, ErrNotConnected
+		return nil, 0, 0, 0, ErrNotConnected
 	}
 	handle, err := session.Attach(ctx, pluginVideoRoom)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, 0, err
 	}
 
 	log.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
 	create_msg := map[string]interface{}{
 		"request":     "create",
-		"description": id + "|" + streamType,
+		"description": getStreamId(id, streamType),
 		// We publish every stream in its own Janus room.
 		"publishers": 1,
 		// Do not use the video-orientation RTP extension as it breaks video
@@ -735,7 +741,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		"videoorient_ext": false,
 	}
 	var maxBitrate int
-	if streamType == streamTypeScreen {
+	if streamType == StreamTypeScreen {
 		maxBitrate = m.maxScreenBitrate
 	} else {
 		maxBitrate = m.maxStreamBitrate
@@ -751,7 +757,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err2 := handle.Detach(ctx); err2 != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
-		return nil, 0, 0, err
+		return nil, 0, 0, 0, err
 	}
 
 	roomId := getPluginIntValue(create_response.PluginData, pluginVideoRoom, "room")
@@ -759,7 +765,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err := handle.Detach(ctx); err != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err)
 		}
-		return nil, 0, 0, fmt.Errorf("No room id received: %+v", create_response)
+		return nil, 0, 0, 0, fmt.Errorf("No room id received: %+v", create_response)
 	}
 
 	log.Println("Created room", roomId, create_response.PluginData)
@@ -776,18 +782,18 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err2 := handle.Detach(ctx); err2 != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
-		return nil, 0, 0, err
+		return nil, 0, 0, 0, err
 	}
 
-	return handle, response.Session, roomId, nil
+	return handle, response.Session, roomId, bitrate, nil
 }
 
-func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType string, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
 	}
 
-	handle, session, roomId, err := m.getOrCreatePublisherHandle(ctx, id, streamType, bitrate)
+	handle, session, roomId, maxBitrate, err := m.getOrCreatePublisherHandle(ctx, id, streamType, bitrate)
 	if err != nil {
 		return nil, err
 	}
@@ -802,6 +808,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 			roomId:     roomId,
 			sid:        sid,
 			streamType: streamType,
+			maxBitrate: maxBitrate,
 
 			handle:    handle,
 			handleId:  handle.Id,
@@ -823,11 +830,11 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 	log.Printf("Publisher %s is using handle %d", client.id, client.handleId)
 	go client.run(handle, client.closeChan)
 	m.mu.Lock()
-	m.publishers[id+"|"+streamType] = client
-	m.publisherCreated.Notify(id + "|" + streamType)
+	m.publishers[getStreamId(id, streamType)] = client
+	m.publisherCreated.Notify(getStreamId(id, streamType))
 	m.mu.Unlock()
-	statsPublishersCurrent.WithLabelValues(streamType).Inc()
-	statsPublishersTotal.WithLabelValues(streamType).Inc()
+	statsPublishersCurrent.WithLabelValues(string(streamType)).Inc()
+	statsPublishersTotal.WithLabelValues(string(streamType)).Inc()
 	return client, nil
 }
 
@@ -860,7 +867,7 @@ func (p *mcuJanusPublisher) handleDetached(event *janus.DetachedMsg) {
 
 func (p *mcuJanusPublisher) handleConnected(event *janus.WebRTCUpMsg) {
 	log.Printf("Publisher %d received connected", p.handleId)
-	p.mcu.publisherConnected.Notify(p.id + "|" + p.streamType)
+	p.mcu.publisherConnected.Notify(getStreamId(p.id, p.streamType))
 }
 
 func (p *mcuJanusPublisher) handleSlowLink(event *janus.SlowLinkMsg) {
@@ -872,8 +879,8 @@ func (p *mcuJanusPublisher) handleSlowLink(event *janus.SlowLinkMsg) {
 }
 
 func (p *mcuJanusPublisher) handleMedia(event *janus.MediaMsg) {
-	mediaType := event.Type
-	if mediaType == "video" && p.streamType == "screen" {
+	mediaType := StreamType(event.Type)
+	if mediaType == StreamTypeVideo && p.streamType == StreamTypeScreen {
 		// We want to differentiate between audio, video and screensharing
 		mediaType = p.streamType
 	}
@@ -891,7 +898,7 @@ func (p *mcuJanusPublisher) SetMedia(mt MediaType) {
 
 func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
-	handle, session, roomId, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
+	handle, session, roomId, _, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
 	if err != nil {
 		log.Printf("Could not reconnect publisher %s: %s", p.id, err)
 		// TODO(jojo): Retry
@@ -920,7 +927,7 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 			log.Printf("Room %d destroyed", p.roomId)
 		}
 		p.mcu.mu.Lock()
-		delete(p.mcu.publishers, p.id+"|"+p.streamType)
+		delete(p.mcu.publishers, getStreamId(p.id, p.streamType))
 		p.mcu.mu.Unlock()
 		p.roomId = 0
 		notify = true
@@ -931,7 +938,7 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	p.stats.Reset()
 
 	if notify {
-		statsPublishersCurrent.WithLabelValues(p.streamType).Dec()
+		statsPublishersCurrent.WithLabelValues(string(p.streamType)).Dec()
 		p.mcu.unregisterClient(p)
 		p.listener.PublisherClosed(p)
 	}
@@ -975,9 +982,9 @@ type mcuJanusSubscriber struct {
 	publisher string
 }
 
-func (m *mcuJanus) getPublisher(ctx context.Context, publisher string, streamType string) (*mcuJanusPublisher, error) {
+func (m *mcuJanus) getPublisher(ctx context.Context, publisher string, streamType StreamType) (*mcuJanusPublisher, error) {
 	// Do the direct check immediately as this should be the normal case.
-	key := publisher + "|" + streamType
+	key := getStreamId(publisher, streamType)
 	m.mu.Lock()
 	if result, found := m.publishers[key]; found {
 		m.mu.Unlock()
@@ -1002,7 +1009,7 @@ func (m *mcuJanus) getPublisher(ctx context.Context, publisher string, streamTyp
 	}
 }
 
-func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher string, streamType string) (*JanusHandle, *mcuJanusPublisher, error) {
+func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher string, streamType StreamType) (*JanusHandle, *mcuJanusPublisher, error) {
 	var pub *mcuJanusPublisher
 	var err error
 	if pub, err = m.getPublisher(ctx, publisher, streamType); err != nil {
@@ -1023,7 +1030,7 @@ func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher st
 	return handle, pub, nil
 }
 
-func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType string) (McuSubscriber, error) {
+func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType) (McuSubscriber, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
 	}
@@ -1042,6 +1049,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 			roomId:     pub.roomId,
 			sid:        strconv.FormatUint(handle.Id, 10),
 			streamType: streamType,
+			maxBitrate: pub.MaxBitrate(),
 
 			handle:    handle,
 			handleId:  handle.Id,
@@ -1058,8 +1066,8 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 	client.mcuJanusClient.handleMedia = client.handleMedia
 	m.registerClient(client)
 	go client.run(handle, client.closeChan)
-	statsSubscribersCurrent.WithLabelValues(streamType).Inc()
-	statsSubscribersTotal.WithLabelValues(streamType).Inc()
+	statsSubscribersCurrent.WithLabelValues(string(streamType)).Inc()
+	statsSubscribersTotal.WithLabelValues(string(streamType)).Inc()
 	return client, nil
 }
 
@@ -1144,7 +1152,7 @@ func (p *mcuJanusSubscriber) Close(ctx context.Context) {
 
 	if closed {
 		p.mcu.SubscriberDisconnected(p.Id(), p.publisher, p.streamType)
-		statsSubscribersCurrent.WithLabelValues(p.streamType).Dec()
+		statsSubscribersCurrent.WithLabelValues(string(p.streamType)).Dec()
 	}
 	p.mcu.unregisterClient(p)
 	p.listener.SubscriberClosed(p)
@@ -1158,7 +1166,7 @@ func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelecti
 		return
 	}
 
-	waiter := p.mcu.publisherConnected.NewWaiter(p.publisher + "|" + p.streamType)
+	waiter := p.mcu.publisherConnected.NewWaiter(getStreamId(p.publisher, p.streamType))
 	defer p.mcu.publisherConnected.Release(waiter)
 
 	loggedNotPublishingYet := false
@@ -1223,7 +1231,7 @@ retry:
 
 			if !loggedNotPublishingYet {
 				loggedNotPublishingYet = true
-				statsWaitingForPublisherTotal.WithLabelValues(p.streamType).Inc()
+				statsWaitingForPublisherTotal.WithLabelValues(string(p.streamType)).Inc()
 			}
 
 			if err := waiter.Wait(ctx); err != nil {
