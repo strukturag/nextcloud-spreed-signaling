@@ -22,6 +22,11 @@
 #
 set -e
 
+if [ -n "$1" ]; then
+  # Run custom command.
+  exec "$@"
+fi
+
 if [ -z "$CONFIG" ]; then
   echo "No configuration filename given in CONFIG environment variable"
   exit 1
@@ -31,52 +36,52 @@ if [ ! -f "$CONFIG" ]; then
   echo "Preparing signaling proxy configuration in $CONFIG ..."
   cp /config/proxy.conf.in "$CONFIG"
 
-  if [ ! -z "$HTTP_LISTEN" ]; then
+  if [ -n "$HTTP_LISTEN" ]; then
     sed -i "s|#listen = 127.0.0.1:9090|listen = $HTTP_LISTEN|" "$CONFIG"
   fi
 
-  if [ ! -z "$COUNTRY" ]; then
+  if [ -n "$COUNTRY" ]; then
     sed -i "s|#country =.*|country = $COUNTRY|" "$CONFIG"
   fi
 
   HAS_ETCD=
-  if [ ! -z "$ETCD_ENDPOINTS" ]; then
+  if [ -n "$ETCD_ENDPOINTS" ]; then
     sed -i "s|#endpoints =.*|endpoints = $ETCD_ENDPOINTS|" "$CONFIG"
     HAS_ETCD=1
   else
-    if [ ! -z "$ETCD_DISCOVERY_SRV" ]; then
+    if [ -n "$ETCD_DISCOVERY_SRV" ]; then
       sed -i "s|#discoverysrv =.*|discoverysrv = $ETCD_DISCOVERY_SRV|" "$CONFIG"
       HAS_ETCD=1
     fi
-    if [ ! -z "$ETCD_DISCOVERY_SERVICE" ]; then
+    if [ -n "$ETCD_DISCOVERY_SERVICE" ]; then
       sed -i "s|#discoveryservice =.*|discoveryservice = $ETCD_DISCOVERY_SERVICE|" "$CONFIG"
     fi
   fi
-  if [ ! -z "$HAS_ETCD" ]; then
-    if [ ! -z "$ETCD_CLIENT_KEY" ]; then
+  if [ -n "$HAS_ETCD" ]; then
+    if [ -n "$ETCD_CLIENT_KEY" ]; then
       sed -i "s|#clientkey = /path/to/etcd-client.key|clientkey = $ETCD_CLIENT_KEY|" "$CONFIG"
     fi
-    if [ ! -z "$ETCD_CLIENT_CERTIFICATE" ]; then
+    if [ -n "$ETCD_CLIENT_CERTIFICATE" ]; then
       sed -i "s|#clientcert = /path/to/etcd-client.crt|clientcert = $ETCD_CLIENT_CERTIFICATE|" "$CONFIG"
     fi
-    if [ ! -z "$ETCD_CLIENT_CA" ]; then
+    if [ -n "$ETCD_CLIENT_CA" ]; then
       sed -i "s|#cacert = /path/to/etcd-ca.crt|cacert = $ETCD_CLIENT_CA|" "$CONFIG"
     fi
   fi
 
-  if [ ! -z "$JANUS_URL" ]; then
+  if [ -n "$JANUS_URL" ]; then
     sed -i "s|url =.*|url = $JANUS_URL|" "$CONFIG"
   else
     sed -i "s|url =.*|#url =|" "$CONFIG"
   fi
-  if [ ! -z "$MAX_STREAM_BITRATE" ]; then
+  if [ -n "$MAX_STREAM_BITRATE" ]; then
     sed -i "s|#maxstreambitrate =.*|maxstreambitrate = $MAX_STREAM_BITRATE|" "$CONFIG"
   fi
-  if [ ! -z "$MAX_SCREEN_BITRATE" ]; then
+  if [ -n "$MAX_SCREEN_BITRATE" ]; then
     sed -i "s|#maxscreenbitrate =.*|maxscreenbitrate = $MAX_SCREEN_BITRATE|" "$CONFIG"
   fi
 
-  if [ ! -z "$TOKENS_ETCD" ]; then
+  if [ -n "$TOKENS_ETCD" ]; then
     if [ -z "$HAS_ETCD" ]; then
       echo "No etcd endpoint configured, can't use etcd for proxy tokens"
       exit 1
@@ -84,7 +89,7 @@ if [ ! -f "$CONFIG" ]; then
 
     sed -i "s|tokentype =.*|tokentype = etcd|" "$CONFIG"
 
-    if [ ! -z "$TOKEN_KEY_FORMAT" ]; then
+    if [ -n "$TOKEN_KEY_FORMAT" ]; then
       sed -i "s|#keyformat =.*|keyformat = $TOKEN_KEY_FORMAT|" "$CONFIG"
     fi
   else
@@ -93,18 +98,18 @@ if [ ! -f "$CONFIG" ]; then
     echo "[tokens]" >> "$CONFIG"
     for token in $TOKENS; do
       declare var="TOKEN_${token^^}_KEY"
-      var=$(echo $var | sed "s|\.|_|")
-      if [ ! -z "${!var}" ]; then
+      var=${var//./_}
+      if [ -n "${!var}" ]; then
         echo "$token = ${!var}" >> "$CONFIG"
       fi
     done
     echo >> "$CONFIG"
   fi
 
-  if [ ! -z "$STATS_IPS" ]; then
+  if [ -n "$STATS_IPS" ]; then
     sed -i "s|#allowed_ips =.*|allowed_ips = $STATS_IPS|" "$CONFIG"
   fi
 fi
 
 echo "Starting signaling proxy with $CONFIG ..."
-exec "$@"
+exec /usr/bin/nextcloud-spreed-signaling-proxy -config "$CONFIG"
