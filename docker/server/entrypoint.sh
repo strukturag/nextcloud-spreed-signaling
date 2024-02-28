@@ -22,6 +22,11 @@
 #
 set -e
 
+if [ -n "$1" ]; then
+  # Run custom command.
+  exec "$@"
+fi
+
 if [ -z "$CONFIG" ]; then
   echo "No configuration filename given in CONFIG environment variable"
   exit 1
@@ -261,4 +266,4 @@ if [ ! -f "$CONFIG" ]; then
 fi
 
 echo "Starting signaling server with $CONFIG ..."
-exec "$@"
+exec /usr/bin/nextcloud-spreed-signaling -config "$CONFIG"

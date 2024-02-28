@@ -25,4 +25,3 @@ RUN /usr/bin/nextcloud-spreed-signaling-proxy -version
 USER spreedbackend
 
 ENTRYPOINT [ "/entrypoint.sh" ]
-CMD ["/bin/sh", "-c", "/usr/bin/nextcloud-spreed-signaling-proxy -config $CONFIG"]
