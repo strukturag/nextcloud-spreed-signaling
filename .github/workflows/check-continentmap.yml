@@ -1,6 +1,18 @@
 name: check-continentmap
 
 on:
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/check-continentmap.yml'
+      - 'scripts/get_continent_map.py'
+      - 'Makefile'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/check-continentmap.yml'
+      - 'scripts/get_continent_map.py'
+      - 'Makefile'
   schedule:
     - cron: "0 2 * * SUN"
 
