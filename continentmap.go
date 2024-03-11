@@ -1,7 +1,7 @@
 package signaling
 
 // This file has been automatically generated, do not modify.
-// Source: https://datahub.io/core/country-codes/r/country-codes.json
+// Source: https://github.com/datasets/country-codes/raw/master/data/country-codes.csv
 
 var (
 	ContinentMap = map[string][]string{

@@ -26,11 +26,11 @@ try:
   from cStringIO import StringIO
 except ImportError:
   from io import StringIO
-import json
+import csv
 import subprocess
 import sys
 
-URL = 'https://datahub.io/core/country-codes/r/country-codes.json'
+URL = 'https://github.com/datasets/country-codes/raw/master/data/country-codes.csv'
 
 def tostr(s):
   if isinstance(s, bytes) and not isinstance(s, str):
@@ -55,12 +55,13 @@ def generate_map(filename):
     '-L',
     URL,
   ])
-  data = json.loads(tostr(data))
+
+  reader = csv.DictReader(StringIO(tostr(data)), delimiter=',')
   continents = {}
-  for entry in data:
+  for entry in reader:
     country = entry['ISO3166-1-Alpha-2']
     continent = entry['Continent']
-    if country is None and continent is None:
+    if not country and not continent:
       continue
 
     continents.setdefault(country, []).append(continent)
