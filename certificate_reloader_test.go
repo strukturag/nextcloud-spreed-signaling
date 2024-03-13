@@ -27,10 +27,10 @@ import (
 )
 
 func UpdateCertificateCheckIntervalForTest(t *testing.T, interval time.Duration) {
-	old := CertificateCheckInterval
+	old := deduplicateWatchEvents
 	t.Cleanup(func() {
-		CertificateCheckInterval = old
+		deduplicateWatchEvents = old
 	})
 
-	CertificateCheckInterval = interval
+	deduplicateWatchEvents = interval
 }

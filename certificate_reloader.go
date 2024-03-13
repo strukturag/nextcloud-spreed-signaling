@@ -27,26 +27,17 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
-	"time"
-)
-
-var (
-	// CertificateCheckInterval defines the interval in which certificate files
-	// are checked for modifications.
-	CertificateCheckInterval = time.Minute
+	"sync/atomic"
 )
 
 type CertificateReloader struct {
-	mu sync.Mutex
+	certFile    string
+	certWatcher *FileWatcher
 
-	certFile string
-	keyFile  string
+	keyFile    string
+	keyWatcher *FileWatcher
 
-	certificate  *tls.Certificate
-	lastModified time.Time
-
-	nextCheck time.Time
+	certificate atomic.Pointer[tls.Certificate]
 }
 
 func NewCertificateReloader(certFile string, keyFile string) (*CertificateReloader, error) {
@@ -55,52 +46,37 @@ func NewCertificateReloader(certFile string, keyFile string) (*CertificateReload
 		return nil, fmt.Errorf("could not load certificate / key: %w", err)
 	}
 
-	stat, err := os.Stat(certFile)
-	if err != nil {
-		return nil, fmt.Errorf("could not stat %s: %w", certFile, err)
-	}
-
-	return &CertificateReloader{
+	reloader := &CertificateReloader{
 		certFile: certFile,
 		keyFile:  keyFile,
+	}
+	reloader.certificate.Store(&pair)
+	reloader.certWatcher, err = NewFileWatcher(certFile, reloader.reload)
+	if err != nil {
+		return nil, err
+	}
+	reloader.keyWatcher, err = NewFileWatcher(keyFile, reloader.reload)
+	if err != nil {
+		reloader.certWatcher.Close() // nolint
+		return nil, err
+	}
 
-		certificate:  &pair,
-		lastModified: stat.ModTime(),
+	return reloader, nil
+}
 
-		nextCheck: time.Now().Add(CertificateCheckInterval),
-	}, nil
+func (r *CertificateReloader) reload(filename string) {
+	log.Printf("reloading certificate from %s with %s", r.certFile, r.keyFile)
+	pair, err := tls.LoadX509KeyPair(r.certFile, r.keyFile)
+	if err != nil {
+		log.Printf("could not load certificate / key: %s", err)
+		return
+	}
+
+	r.certificate.Store(&pair)
 }
 
 func (r *CertificateReloader) getCertificate() (*tls.Certificate, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now()
-	if now.Before(r.nextCheck) {
-		return r.certificate, nil
-	}
-
-	r.nextCheck = now.Add(CertificateCheckInterval)
-
-	stat, err := os.Stat(r.certFile)
-	if err != nil {
-		log.Printf("could not stat %s: %s", r.certFile, err)
-		return r.certificate, nil
-	}
-
-	if !stat.ModTime().Equal(r.lastModified) {
-		log.Printf("reloading certificate from %s with %s", r.certFile, r.keyFile)
-		pair, err := tls.LoadX509KeyPair(r.certFile, r.keyFile)
-		if err != nil {
-			log.Printf("could not load certificate / key: %s", err)
-			return r.certificate, nil
-		}
-
-		r.certificate = &pair
-		r.lastModified = stat.ModTime()
-	}
-
-	return r.certificate, nil
+	return r.certificate.Load(), nil
 }
 
 func (r *CertificateReloader) GetCertificate(h *tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -112,14 +88,10 @@ func (r *CertificateReloader) GetClientCertificate(i *tls.CertificateRequestInfo
 }
 
 type CertPoolReloader struct {
-	mu sync.Mutex
+	certFile    string
+	certWatcher *FileWatcher
 
-	certFile string
-
-	pool         *x509.CertPool
-	lastModified time.Time
-
-	nextCheck time.Time
+	pool atomic.Pointer[x509.CertPool]
 }
 
 func loadCertPool(filename string) (*x509.CertPool, error) {
@@ -142,49 +114,29 @@ func NewCertPoolReloader(certFile string) (*CertPoolReloader, error) {
 		return nil, err
 	}
 
-	stat, err := os.Stat(certFile)
+	reloader := &CertPoolReloader{
+		certFile: certFile,
+	}
+	reloader.pool.Store(pool)
+	reloader.certWatcher, err = NewFileWatcher(certFile, reloader.reload)
 	if err != nil {
-		return nil, fmt.Errorf("could not stat %s: %w", certFile, err)
+		return nil, err
 	}
 
-	return &CertPoolReloader{
-		certFile: certFile,
+	return reloader, nil
+}
 
-		pool:         pool,
-		lastModified: stat.ModTime(),
+func (r *CertPoolReloader) reload(filename string) {
+	log.Printf("reloading certificate pool from %s", r.certFile)
+	pool, err := loadCertPool(r.certFile)
+	if err != nil {
+		log.Printf("could not load certificate pool: %s", err)
+		return
+	}
 
-		nextCheck: time.Now().Add(CertificateCheckInterval),
-	}, nil
+	r.pool.Store(pool)
 }
 
 func (r *CertPoolReloader) GetCertPool() *x509.CertPool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now()
-	if now.Before(r.nextCheck) {
-		return r.pool
-	}
-
-	r.nextCheck = now.Add(CertificateCheckInterval)
-
-	stat, err := os.Stat(r.certFile)
-	if err != nil {
-		log.Printf("could not stat %s: %s", r.certFile, err)
-		return r.pool
-	}
-
-	if !stat.ModTime().Equal(r.lastModified) {
-		log.Printf("reloading certificate pool from %s", r.certFile)
-		pool, err := loadCertPool(r.certFile)
-		if err != nil {
-			log.Printf("could not load certificate pool: %s", err)
-			return r.pool
-		}
-
-		r.pool = pool
-		r.lastModified = stat.ModTime()
-	}
-
-	return r.pool
+	return r.pool.Load()
 }

@@ -99,7 +99,7 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	config.AddOption("grpc", "servercertificate", certFile)
 	config.AddOption("grpc", "serverkey", privkeyFile)
 
-	UpdateCertificateCheckIntervalForTest(t, time.Millisecond)
+	UpdateCertificateCheckIntervalForTest(t, 0)
 	_, addr := NewGrpcServerForTestWithConfig(t, config)
 
 	cp1 := x509.NewCertPool()
@@ -180,7 +180,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	config.AddOption("grpc", "serverkey", privkeyFile)
 	config.AddOption("grpc", "clientca", caFile)
 
-	UpdateCertificateCheckIntervalForTest(t, time.Millisecond)
+	UpdateCertificateCheckIntervalForTest(t, 0)
 	_, addr := NewGrpcServerForTestWithConfig(t, config)
 
 	pool := x509.NewCertPool()
