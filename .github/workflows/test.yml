@@ -23,6 +23,7 @@ jobs:
   go:
     env:
       MAXMIND_GEOLITE2_LICENSE: ${{ secrets.MAXMIND_GEOLITE2_LICENSE }}
+      USE_DB_IP_GEOIP_DATABASE: "1"
     strategy:
       matrix:
         go-version:

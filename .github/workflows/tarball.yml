@@ -88,5 +88,6 @@ jobs:
     - name: Run tests
       env:
         GOPROXY: off
+        USE_DB_IP_GEOIP_DATABASE: "1"
       run: |
         make -C tmp test TIMEOUT=120s

@@ -24,12 +24,14 @@ package signaling
 import (
 	"archive/tar"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
@@ -57,13 +59,26 @@ func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
 	}
 }
 
-func TestGeoLookup(t *testing.T) {
-	license := os.Getenv("MAXMIND_GEOLITE2_LICENSE")
-	if license == "" {
-		t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
-	}
+func GetGeoIpUrlForTest(t *testing.T) string {
+	t.Helper()
 
-	reader, err := NewGeoLookupFromUrl(GetGeoIpDownloadUrl(license))
+	var geoIpUrl string
+	if os.Getenv("USE_DB_IP_GEOIP_DATABASE") != "" {
+		now := time.Now().UTC()
+		geoIpUrl = fmt.Sprintf("https://download.db-ip.com/free/dbip-country-lite-%d-%.2d.mmdb.gz", now.Year(), now.Month())
+	}
+	if geoIpUrl == "" {
+		license := os.Getenv("MAXMIND_GEOLITE2_LICENSE")
+		if license == "" {
+			t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
+		}
+		geoIpUrl = GetGeoIpDownloadUrl(license)
+	}
+	return geoIpUrl
+}
+
+func TestGeoLookup(t *testing.T) {
+	reader, err := NewGeoLookupFromUrl(GetGeoIpUrlForTest(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,12 +92,7 @@ func TestGeoLookup(t *testing.T) {
 }
 
 func TestGeoLookupCaching(t *testing.T) {
-	license := os.Getenv("MAXMIND_GEOLITE2_LICENSE")
-	if license == "" {
-		t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
-	}
-
-	reader, err := NewGeoLookupFromUrl(GetGeoIpDownloadUrl(license))
+	reader, err := NewGeoLookupFromUrl(GetGeoIpUrlForTest(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,24 +146,22 @@ func TestGeoLookupCloseEmpty(t *testing.T) {
 }
 
 func TestGeoLookupFromFile(t *testing.T) {
-	license := os.Getenv("MAXMIND_GEOLITE2_LICENSE")
-	if license == "" {
-		t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
-	}
+	geoIpUrl := GetGeoIpUrlForTest(t)
 
-	url := GetGeoIpDownloadUrl(license)
-	resp, err := http.Get(url)
+	resp, err := http.Get(geoIpUrl)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 
 	body := resp.Body
-	if strings.HasSuffix(url, ".gz") {
+	url := geoIpUrl
+	if strings.HasSuffix(geoIpUrl, ".gz") {
 		body, err = gzip.NewReader(body)
 		if err != nil {
 			t.Fatal(err)
 		}
+		url = strings.TrimSuffix(url, ".gz")
 	}
 
 	tmpfile, err := os.CreateTemp("", "geoipdb")
@@ -164,21 +172,33 @@ func TestGeoLookupFromFile(t *testing.T) {
 		os.Remove(tmpfile.Name())
 	})
 
-	tarfile := tar.NewReader(body)
 	foundDatabase := false
-	for {
-		header, err := tarfile.Next()
-		if err == io.EOF {
+	if strings.HasSuffix(url, ".tar") || strings.HasSuffix(url, "=tar") {
+		tarfile := tar.NewReader(body)
+		for {
+			header, err := tarfile.Next()
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				t.Fatal(err)
+			}
+
+			if !strings.HasSuffix(header.Name, ".mmdb") {
+				continue
+			}
+
+			if _, err := io.Copy(tmpfile, tarfile); err != nil {
+				tmpfile.Close()
+				t.Fatal(err)
+			}
+			if err := tmpfile.Close(); err != nil {
+				t.Fatal(err)
+			}
+			foundDatabase = true
 			break
-		} else if err != nil {
-			t.Fatal(err)
 		}
-
-		if !strings.HasSuffix(header.Name, ".mmdb") {
-			continue
-		}
-
-		if _, err := io.Copy(tmpfile, tarfile); err != nil {
+	} else {
+		if _, err := io.Copy(tmpfile, body); err != nil {
 			tmpfile.Close()
 			t.Fatal(err)
 		}
@@ -186,11 +206,10 @@ func TestGeoLookupFromFile(t *testing.T) {
 			t.Fatal(err)
 		}
 		foundDatabase = true
-		break
 	}
 
 	if !foundDatabase {
-		t.Fatal("Did not find MaxMind database in tarball")
+		t.Fatalf("Did not find GeoIP database in download from %s", geoIpUrl)
 	}
 
 	reader, err := NewGeoLookupFromFile(tmpfile.Name())
