@@ -156,36 +156,45 @@ func (g *GeoLookup) updateUrl() error {
 	}
 
 	body := response.Body
-	if strings.HasSuffix(g.url, ".gz") {
+	url := g.url
+	if strings.HasSuffix(url, ".gz") {
 		body, err = gzip.NewReader(body)
 		if err != nil {
 			return err
 		}
+		url = strings.TrimSuffix(url, ".gz")
 	}
 
-	tarfile := tar.NewReader(body)
 	var geoipdata []byte
-	for {
-		header, err := tarfile.Next()
-		if err == io.EOF {
+	if strings.HasSuffix(url, ".tar") || strings.HasSuffix(url, "=tar") {
+		tarfile := tar.NewReader(body)
+		for {
+			header, err := tarfile.Next()
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				return err
+			}
+
+			if !strings.HasSuffix(header.Name, ".mmdb") {
+				continue
+			}
+
+			geoipdata, err = io.ReadAll(tarfile)
+			if err != nil {
+				return err
+			}
 			break
-		} else if err != nil {
-			return err
 		}
-
-		if !strings.HasSuffix(header.Name, ".mmdb") {
-			continue
-		}
-
-		geoipdata, err = io.ReadAll(tarfile)
+	} else {
+		geoipdata, err = io.ReadAll(body)
 		if err != nil {
 			return err
 		}
-		break
 	}
 
 	if len(geoipdata) == 0 {
-		return fmt.Errorf("did not find MaxMind database in tarball from %s", g.url)
+		return fmt.Errorf("did not find GeoIP database in download from %s", g.url)
 	}
 
 	reader, err := maxminddb.FromBytes(geoipdata)
