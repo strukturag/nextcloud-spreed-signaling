@@ -2,6 +2,97 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.4 - 2024-04-03
+
+### Added
+- Add metrics for current number of HTTP client connections.
+  [#668](https://github.com/strukturag/nextcloud-spreed-signaling/pull/668)
+- Support getting GeoIP DB from db-ip.com for tests.
+  [#689](https://github.com/strukturag/nextcloud-spreed-signaling/pull/689)
+- Use fsnotify to detect file changes
+  [#680](https://github.com/strukturag/nextcloud-spreed-signaling/pull/680)
+- CI: Check dependencies for minimum supported version.
+  [#692](https://github.com/strukturag/nextcloud-spreed-signaling/pull/692)
+
+### Changed
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.9 to 2.10.10
+  [#650](https://github.com/strukturag/nextcloud-spreed-signaling/pull/650)
+- CI: Also test with Golang 1.22
+  [#651](https://github.com/strukturag/nextcloud-spreed-signaling/pull/651)
+- build(deps): Bump the etcd group with 4 updates
+  [#649](https://github.com/strukturag/nextcloud-spreed-signaling/pull/649)
+- Improve Makefile
+  [#653](https://github.com/strukturag/nextcloud-spreed-signaling/pull/653)
+- build(deps): Bump google.golang.org/grpc from 1.61.0 to 1.61.1
+  [#659](https://github.com/strukturag/nextcloud-spreed-signaling/pull/659)
+- build(deps): Bump golangci/golangci-lint-action from 3.7.0 to 4.0.0
+  [#658](https://github.com/strukturag/nextcloud-spreed-signaling/pull/658)
+- Minor improvements to DNS monitor
+  [#663](https://github.com/strukturag/nextcloud-spreed-signaling/pull/663)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.10 to 2.10.11
+  [#662](https://github.com/strukturag/nextcloud-spreed-signaling/pull/662)
+- build(deps): Bump google.golang.org/grpc from 1.61.1 to 1.62.0
+  [#664](https://github.com/strukturag/nextcloud-spreed-signaling/pull/664)
+- Support ports in full URLs for DNS monitor.
+  [#667](https://github.com/strukturag/nextcloud-spreed-signaling/pull/667)
+- Calculate proxy load based on maximum bandwidth.
+  [#670](https://github.com/strukturag/nextcloud-spreed-signaling/pull/670)
+- build(deps): Bump github.com/nats-io/nats.go from 1.32.0 to 1.33.1
+  [#661](https://github.com/strukturag/nextcloud-spreed-signaling/pull/661)
+- build(deps): Bump golang from 1.21-alpine to 1.22-alpine in /docker/server
+  [#655](https://github.com/strukturag/nextcloud-spreed-signaling/pull/655)
+- build(deps): Bump golang from 1.21-alpine to 1.22-alpine in /docker/proxy
+  [#656](https://github.com/strukturag/nextcloud-spreed-signaling/pull/656)
+- docker: Update Janus from 0.11.8 to 0.14.1.
+  [#672](https://github.com/strukturag/nextcloud-spreed-signaling/pull/672)
+- build(deps): Bump alpine from 3.18 to 3.19 in /docker/janus
+  [#613](https://github.com/strukturag/nextcloud-spreed-signaling/pull/613)
+- Reuse backoff waiting code where possible
+  [#673](https://github.com/strukturag/nextcloud-spreed-signaling/pull/673)
+- build(deps): Bump github.com/prometheus/client_golang from 1.18.0 to 1.19.0
+  [#674](https://github.com/strukturag/nextcloud-spreed-signaling/pull/674)
+- Docker improvements
+  [#675](https://github.com/strukturag/nextcloud-spreed-signaling/pull/675)
+- make: Don't update dependencies but use pinned versions.
+  [#679](https://github.com/strukturag/nextcloud-spreed-signaling/pull/679)
+- build(deps): Bump github.com/pion/sdp/v3 from 3.0.6 to 3.0.7
+  [#678](https://github.com/strukturag/nextcloud-spreed-signaling/pull/678)
+- build(deps): Bump google.golang.org/grpc from 1.62.0 to 1.62.1
+  [#677](https://github.com/strukturag/nextcloud-spreed-signaling/pull/677)
+- build(deps): Bump google.golang.org/protobuf from 1.32.0 to 1.33.0
+  [#676](https://github.com/strukturag/nextcloud-spreed-signaling/pull/676)
+- build(deps): Bump github.com/pion/sdp/v3 from 3.0.7 to 3.0.8
+  [#681](https://github.com/strukturag/nextcloud-spreed-signaling/pull/681)
+- Update source of continentmap to original CSV file.
+  [#682](https://github.com/strukturag/nextcloud-spreed-signaling/pull/682)
+- build(deps): Bump markdown from 3.5.2 to 3.6 in /docs
+  [#684](https://github.com/strukturag/nextcloud-spreed-signaling/pull/684)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.11 to 2.10.12
+  [#683](https://github.com/strukturag/nextcloud-spreed-signaling/pull/683)
+- build(deps): Bump github.com/pion/sdp/v3 from 3.0.8 to 3.0.9
+  [#687](https://github.com/strukturag/nextcloud-spreed-signaling/pull/687)
+- build(deps): Bump the etcd group with 4 updates
+  [#686](https://github.com/strukturag/nextcloud-spreed-signaling/pull/686)
+- build(deps): Bump github.com/nats-io/nats.go from 1.33.1 to 1.34.0
+  [#685](https://github.com/strukturag/nextcloud-spreed-signaling/pull/685)
+- Revert "build(deps): Bump the etcd group with 4 updates"
+  [#691](https://github.com/strukturag/nextcloud-spreed-signaling/pull/691)
+- CI: Limit when to run Docker build jobs.
+  [#695](https://github.com/strukturag/nextcloud-spreed-signaling/pull/695)
+- Remove deprecated section on multiple signaling servers from README.
+  [#696](https://github.com/strukturag/nextcloud-spreed-signaling/pull/696)
+
+### Fixed
+- Fix race condition when accessing "expected" in proxy_config tests.
+  [#652](https://github.com/strukturag/nextcloud-spreed-signaling/pull/652)
+- Fix deadlock when entry is removed while receiver holds lock in lookup.
+  [#654](https://github.com/strukturag/nextcloud-spreed-signaling/pull/654)
+- Fix flaky "TestProxyConfigStaticDNS".
+  [#671](https://github.com/strukturag/nextcloud-spreed-signaling/pull/671)
+- Fix flaky DnsMonitor test.
+  [#690](https://github.com/strukturag/nextcloud-spreed-signaling/pull/690)
+
+
 ## 1.2.3 - 2024-01-31
 
 ### Added
