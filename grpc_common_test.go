@@ -22,11 +22,13 @@
 package signaling
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"io/fs"
 	"math/big"
 	"net"
@@ -34,6 +36,22 @@ import (
 	"testing"
 	"time"
 )
+
+func (c *reloadableCredentials) WaitForCertificateReload(ctx context.Context) error {
+	if c.loader == nil {
+		return errors.New("no certificate loaded")
+	}
+
+	return c.loader.WaitForReload(ctx)
+}
+
+func (c *reloadableCredentials) WaitForCertPoolReload(ctx context.Context) error {
+	if c.pool == nil {
+		return errors.New("no certificate pool loaded")
+	}
+
+	return c.pool.WaitForReload(ctx)
+}
 
 func GenerateSelfSignedCertificateForTesting(t *testing.T, bits int, organization string, key *rsa.PrivateKey) []byte {
 	template := x509.Certificate{

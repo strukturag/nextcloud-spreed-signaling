@@ -35,6 +35,7 @@ import (
 	"github.com/dlintw/goconf"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	status "google.golang.org/grpc/status"
 )
 
@@ -60,6 +61,7 @@ type GrpcServer struct {
 	UnimplementedRpcMcuServer
 	UnimplementedRpcSessionsServer
 
+	creds    credentials.TransportCredentials
 	conn     *grpc.Server
 	listener net.Listener
 	serverId string // can be overwritten from tests
@@ -84,6 +86,7 @@ func NewGrpcServer(config *goconf.ConfigFile) (*GrpcServer, error) {
 
 	conn := grpc.NewServer(grpc.Creds(creds))
 	result := &GrpcServer{
+		creds:    creds,
 		conn:     conn,
 		listener: listener,
 		serverId: GrpcServerId,

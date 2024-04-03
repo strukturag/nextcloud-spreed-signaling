@@ -29,14 +29,23 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
-var (
-	deduplicateWatchEvents = 100 * time.Millisecond
+const (
+	defaultDeduplicateWatchEvents = 100 * time.Millisecond
 )
+
+var (
+	deduplicateWatchEvents atomic.Int64
+)
+
+func init() {
+	deduplicateWatchEvents.Store(int64(defaultDeduplicateWatchEvents))
+}
 
 type FileWatcherCallback func(filename string)
 
@@ -90,7 +99,8 @@ func (f *FileWatcher) run() {
 	timers := make(map[string]*time.Timer)
 
 	triggerEvent := func(event fsnotify.Event) {
-		if deduplicateWatchEvents <= 0 {
+		deduplicate := time.Duration(deduplicateWatchEvents.Load())
+		if deduplicate <= 0 {
 			f.callback(f.filename)
 			return
 		}
@@ -100,7 +110,7 @@ func (f *FileWatcher) run() {
 		t, found := timers[event.Name]
 		mu.Unlock()
 		if !found {
-			t = time.AfterFunc(deduplicateWatchEvents, func() {
+			t = time.AfterFunc(deduplicate, func() {
 				f.callback(f.filename)
 
 				mu.Lock()
@@ -111,7 +121,7 @@ func (f *FileWatcher) run() {
 			timers[event.Name] = t
 			mu.Unlock()
 		} else {
-			t.Reset(deduplicateWatchEvents)
+			t.Reset(deduplicate)
 		}
 	}
 

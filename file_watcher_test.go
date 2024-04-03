@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	testWatcherNoEventTimeout = 2 * deduplicateWatchEvents
+	testWatcherNoEventTimeout = 2 * defaultDeduplicateWatchEvents
 )
 
 func TestFileWatcher_NotExist(t *testing.T) {

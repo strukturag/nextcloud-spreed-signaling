@@ -38,6 +38,8 @@ type CertificateReloader struct {
 	keyWatcher *FileWatcher
 
 	certificate atomic.Pointer[tls.Certificate]
+
+	reloadCounter atomic.Uint64
 }
 
 func NewCertificateReloader(certFile string, keyFile string) (*CertificateReloader, error) {
@@ -73,6 +75,7 @@ func (r *CertificateReloader) reload(filename string) {
 	}
 
 	r.certificate.Store(&pair)
+	r.reloadCounter.Add(1)
 }
 
 func (r *CertificateReloader) getCertificate() (*tls.Certificate, error) {
@@ -87,11 +90,17 @@ func (r *CertificateReloader) GetClientCertificate(i *tls.CertificateRequestInfo
 	return r.getCertificate()
 }
 
+func (r *CertificateReloader) GetReloadCounter() uint64 {
+	return r.reloadCounter.Load()
+}
+
 type CertPoolReloader struct {
 	certFile    string
 	certWatcher *FileWatcher
 
 	pool atomic.Pointer[x509.CertPool]
+
+	reloadCounter atomic.Uint64
 }
 
 func loadCertPool(filename string) (*x509.CertPool, error) {
@@ -135,8 +144,13 @@ func (r *CertPoolReloader) reload(filename string) {
 	}
 
 	r.pool.Store(pool)
+	r.reloadCounter.Add(1)
 }
 
 func (r *CertPoolReloader) GetCertPool() *x509.CertPool {
 	return r.pool.Load()
+}
+
+func (r *CertPoolReloader) GetReloadCounter() uint64 {
+	return r.reloadCounter.Load()
 }
