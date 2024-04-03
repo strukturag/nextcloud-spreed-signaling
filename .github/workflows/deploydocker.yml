@@ -2,6 +2,15 @@ name: Deploy to Docker Hub / GHCR
 
 on:
   pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/deploydocker.yml'
+      - '**.go'
+      - 'go.*'
+      - 'Makefile'
+      - '*.conf.in'
+      - 'docker/server/*'
+      - 'docker/proxy/*'
   push:
     branches:
       - master
