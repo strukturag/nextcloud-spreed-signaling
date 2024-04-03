@@ -255,26 +255,26 @@ func TestDnsMonitor(t *testing.T) {
 	}
 	add2 := []net.IP{ip3}
 	keep2 := []net.IP{ip1, ip2}
-	lookup.Set("foo", ips2)
 	rec1.Expect(ips2, add2, keep2, nil)
+	lookup.Set("foo", ips2)
 	rec1.WaitForExpected(ctx)
 
 	ips3 := []net.IP{
 		ip2,
 		ip3,
 	}
-	lookup.Set("foo", ips3)
 	keep3 := []net.IP{ip2, ip3}
 	remove3 := []net.IP{ip1}
 	rec1.Expect(ips3, nil, keep3, remove3)
+	lookup.Set("foo", ips3)
 	rec1.WaitForExpected(ctx)
 
 	rec1.ExpectNone()
 	time.Sleep(5 * interval)
 
-	lookup.Set("foo", nil)
 	remove4 := []net.IP{ip2, ip3}
 	rec1.Expect(nil, nil, nil, remove4)
+	lookup.Set("foo", nil)
 	rec1.WaitForExpected(ctx)
 
 	rec1.ExpectNone()
