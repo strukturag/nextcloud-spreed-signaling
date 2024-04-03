@@ -43,3 +43,22 @@ jobs:
           skip-cache: true
           skip-pkg-cache: true
           skip-build-cache: true
+
+  dependencies:
+    name: dependencies
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Check minimum supported version of Go
+        run: |
+          go mod tidy -go=1.20 -compat=1.20
+
+      - name: Check go.mod / go.sum
+        run: |
+          git add go.*
+          git diff --cached --exit-code go.*
