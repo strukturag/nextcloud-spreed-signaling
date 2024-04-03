@@ -3,8 +3,24 @@ name: Docker image
 on:
   pull_request:
     branches: [ master ]
+    paths:
+      - '.github/workflows/docker.yml'
+      - '**.go'
+      - 'go.*'
+      - 'Makefile'
+      - '*.conf.in'
+      - 'docker/server/*'
+      - 'docker/proxy/*'
   push:
     branches: [ master ]
+    paths:
+      - '.github/workflows/docker.yml'
+      - '**.go'
+      - 'go.*'
+      - 'Makefile'
+      - '*.conf.in'
+      - 'docker/server/*'
+      - 'docker/proxy/*'
 
 permissions:
   contents: read
