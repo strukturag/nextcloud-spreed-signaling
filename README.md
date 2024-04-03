@@ -380,23 +380,3 @@ Usage:
             config file to use (default "server.conf")
       -maxClients int
             number of client connections (default 100)
-
-
-## Running multiple signaling servers
-
-IMPORTANT: This is considered experimental and might not work with all
-functionality of the signaling server, especially when using the Janus
-integration.
-
-The signaling server uses the NATS server to send messages to peers that are
-not connected locally. Therefore multiple signaling servers running on different
-hosts can use the same NATS server to build a simple cluster, allowing more
-simultaneous connections and distribute the load.
-
-To set this up, make sure all signaling servers are using the same settings for
-their `session` keys and the `secret` in the `backend` section. Also the URL to
-the NATS server (option `url` in section `nats`) must point to the same NATS
-server.
-
-If all this is setup correctly, clients can connect to either of the signaling
-servers and exchange messages between them.
