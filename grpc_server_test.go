@@ -28,6 +28,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"net"
 	"os"
 	"path"
@@ -39,6 +40,24 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
+
+func (s *GrpcServer) WaitForCertificateReload(ctx context.Context) error {
+	c, ok := s.creds.(*reloadableCredentials)
+	if !ok {
+		return errors.New("no reloadable credentials found")
+	}
+
+	return c.WaitForCertificateReload(ctx)
+}
+
+func (s *GrpcServer) WaitForCertPoolReload(ctx context.Context) error {
+	c, ok := s.creds.(*reloadableCredentials)
+	if !ok {
+		return errors.New("no reloadable credentials found")
+	}
+
+	return c.WaitForCertPoolReload(ctx)
+}
 
 func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (server *GrpcServer, addr string) {
 	for port := 50000; port < 50100; port++ {
@@ -99,8 +118,8 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	config.AddOption("grpc", "servercertificate", certFile)
 	config.AddOption("grpc", "serverkey", privkeyFile)
 
-	UpdateCertificateCheckIntervalForTest(t, time.Millisecond)
-	_, addr := NewGrpcServerForTestWithConfig(t, config)
+	UpdateCertificateCheckIntervalForTest(t, 0)
+	server, addr := NewGrpcServerForTestWithConfig(t, config)
 
 	cp1 := x509.NewCertPool()
 	if !cp1.AppendCertsFromPEM(cert1) {
@@ -127,6 +146,13 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	org2 := "Updated certificate"
 	cert2 := GenerateSelfSignedCertificateForTesting(t, 1024, org2, key)
 	replaceFile(t, certFile, cert2, 0755)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	if err := server.WaitForCertificateReload(ctx); err != nil {
+		t.Fatal(err)
+	}
 
 	cp2 := x509.NewCertPool()
 	if !cp2.AppendCertsFromPEM(cert2) {
@@ -180,8 +206,8 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	config.AddOption("grpc", "serverkey", privkeyFile)
 	config.AddOption("grpc", "clientca", caFile)
 
-	UpdateCertificateCheckIntervalForTest(t, time.Millisecond)
-	_, addr := NewGrpcServerForTestWithConfig(t, config)
+	UpdateCertificateCheckIntervalForTest(t, 0)
+	server, addr := NewGrpcServerForTestWithConfig(t, config)
 
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(serverCert) {
@@ -216,6 +242,10 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	org2 := "Updated client"
 	clientCert2 := GenerateSelfSignedCertificateForTesting(t, 1024, org2, clientKey)
 	replaceFile(t, caFile, clientCert2, 0755)
+
+	if err := server.WaitForCertPoolReload(ctx1); err != nil {
+		t.Fatal(err)
+	}
 
 	pair2, err := tls.X509KeyPair(clientCert2, pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",

@@ -22,15 +22,38 @@
 package signaling
 
 import (
+	"context"
 	"testing"
 	"time"
 )
 
 func UpdateCertificateCheckIntervalForTest(t *testing.T, interval time.Duration) {
-	old := CertificateCheckInterval
+	old := deduplicateWatchEvents.Load()
 	t.Cleanup(func() {
-		CertificateCheckInterval = old
+		deduplicateWatchEvents.Store(old)
 	})
 
-	CertificateCheckInterval = interval
+	deduplicateWatchEvents.Store(int64(interval))
+}
+
+func (r *CertificateReloader) WaitForReload(ctx context.Context) error {
+	counter := r.GetReloadCounter()
+	for counter == r.GetReloadCounter() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return nil
+}
+
+func (r *CertPoolReloader) WaitForReload(ctx context.Context) error {
+	counter := r.GetReloadCounter()
+	for counter == r.GetReloadCounter() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return nil
 }
