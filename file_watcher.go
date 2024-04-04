@@ -73,11 +73,9 @@ func NewFileWatcher(filename string, callback FileWatcherCallback) (*FileWatcher
 		return nil, err
 	}
 
-	if filename != realFilename {
-		if err := watcher.Add(path.Dir(filename)); err != nil {
-			watcher.Close() // nolint
-			return nil, err
-		}
+	if err := watcher.Add(path.Dir(filename)); err != nil {
+		watcher.Close() // nolint
+		return nil, err
 	}
 
 	w := &FileWatcher{
