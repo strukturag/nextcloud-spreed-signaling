@@ -91,6 +91,51 @@ func TestFileWatcher_File(t *testing.T) {
 	}
 }
 
+func TestFileWatcher_Rename(t *testing.T) {
+	tmpdir := t.TempDir()
+	filename := path.Join(tmpdir, "test.txt")
+	if err := os.WriteFile(filename, []byte("Hello world!"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	modified := make(chan struct{})
+	w, err := NewFileWatcher(filename, func(filename string) {
+		modified <- struct{}{}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	filename2 := path.Join(tmpdir, "test.txt.tmp")
+	if err := os.WriteFile(filename2, []byte("Updated"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+	defer cancel()
+
+	select {
+	case <-modified:
+		t.Error("should not have received another event")
+	case <-ctxTimeout.Done():
+	}
+
+	if err := os.Rename(filename2, filename); err != nil {
+		t.Fatal(err)
+	}
+	<-modified
+
+	ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+	defer cancel()
+
+	select {
+	case <-modified:
+		t.Error("should not have received another event")
+	case <-ctxTimeout.Done():
+	}
+}
+
 func TestFileWatcher_Symlink(t *testing.T) {
 	tmpdir := t.TempDir()
 	sourceFilename := path.Join(tmpdir, "test1.txt")
@@ -208,6 +253,56 @@ func TestFileWatcher_OtherSymlink(t *testing.T) {
 	select {
 	case <-modified:
 		t.Error("should not have received event for other symlink")
+	case <-ctxTimeout.Done():
+	}
+}
+
+func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
+	tmpdir := t.TempDir()
+	sourceFilename1 := path.Join(tmpdir, "test1.txt")
+	if err := os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	filename := path.Join(tmpdir, "test.txt")
+	if err := os.Symlink(sourceFilename1, filename); err != nil {
+		t.Fatal(err)
+	}
+
+	modified := make(chan struct{})
+	w, err := NewFileWatcher(filename, func(filename string) {
+		modified <- struct{}{}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	sourceFilename2 := path.Join(tmpdir, "test1.txt.tmp")
+	if err := os.WriteFile(sourceFilename2, []byte("Updated"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+	defer cancel()
+
+	select {
+	case <-modified:
+		t.Error("should not have received another event")
+	case <-ctxTimeout.Done():
+	}
+
+	if err := os.Rename(sourceFilename2, sourceFilename1); err != nil {
+		t.Fatal(err)
+	}
+	<-modified
+
+	ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+	defer cancel()
+
+	select {
+	case <-modified:
+		t.Error("should not have received another event")
 	case <-ctxTimeout.Done():
 	}
 }
