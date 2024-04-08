@@ -136,9 +136,9 @@ func NewGrpcClient(target string, ip net.IP, opts ...grpc.DialOption) (*GrpcClie
 			hostname: hostname,
 		}
 		opts = append(opts, grpc.WithResolvers(resolver))
-		conn, err = grpc.Dial(fmt.Sprintf("%s://%s", resolver.Scheme(), target), opts...)
+		conn, err = grpc.NewClient(fmt.Sprintf("%s://%s", resolver.Scheme(), target), opts...)
 	} else {
-		conn, err = grpc.Dial(target, opts...)
+		conn, err = grpc.NewClient(target, opts...)
 	}
 	if err != nil {
 		return nil, err
