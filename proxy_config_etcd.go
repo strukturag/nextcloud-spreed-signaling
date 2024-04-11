@@ -132,10 +132,22 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 			break
 		}
 
+		prevRevision := nextRevision
+		backoff.Reset()
 		for p.closeCtx.Err() == nil {
 			var err error
 			if nextRevision, err = client.Watch(p.closeCtx, p.keyPrefix, nextRevision, p, clientv3.WithPrefix()); err != nil {
-				log.Printf("Error processing watch for %s: %s", p.keyPrefix, err)
+				log.Printf("Error processing watch for %s (%s), retry in %s", p.keyPrefix, err, backoff.NextWait())
+				backoff.Wait(p.closeCtx)
+				continue
+			}
+
+			if nextRevision != prevRevision {
+				backoff.Reset()
+				prevRevision = nextRevision
+			} else {
+				log.Printf("Processing watch for %s interrupted, retry in %s", p.keyPrefix, backoff.NextWait())
+				backoff.Wait(p.closeCtx)
 			}
 		}
 	}()

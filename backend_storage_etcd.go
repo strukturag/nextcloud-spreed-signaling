@@ -134,10 +134,22 @@ func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
 			s.initializedFunc()
 
 			nextRevision := response.Header.Revision + 1
+			prevRevision := nextRevision
+			backoff.Reset()
 			for s.closeCtx.Err() == nil {
 				var err error
 				if nextRevision, err = client.Watch(s.closeCtx, s.keyPrefix, nextRevision, s, clientv3.WithPrefix()); err != nil {
-					log.Printf("Error processing watch for %s: %s", s.keyPrefix, err)
+					log.Printf("Error processing watch for %s (%s), retry in %s", s.keyPrefix, err, backoff.NextWait())
+					backoff.Wait(s.closeCtx)
+					continue
+				}
+
+				if nextRevision != prevRevision {
+					backoff.Reset()
+					prevRevision = nextRevision
+				} else {
+					log.Printf("Processing watch for %s interrupted, retry in %s", s.keyPrefix, backoff.NextWait())
+					backoff.Wait(s.closeCtx)
 				}
 			}
 			return

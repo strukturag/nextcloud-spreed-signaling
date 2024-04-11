@@ -630,10 +630,22 @@ func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
 			break
 		}
 
+		prevRevision := nextRevision
+		backoff.Reset()
 		for c.closeCtx.Err() == nil {
 			var err error
 			if nextRevision, err = client.Watch(c.closeCtx, c.targetPrefix, nextRevision, c, clientv3.WithPrefix()); err != nil {
-				log.Printf("Error processing watch for %s: %s", c.targetPrefix, err)
+				log.Printf("Error processing watch for %s (%s), retry in %s", c.targetPrefix, err, backoff.NextWait())
+				backoff.Wait(c.closeCtx)
+				continue
+			}
+
+			if nextRevision != prevRevision {
+				backoff.Reset()
+				prevRevision = nextRevision
+			} else {
+				log.Printf("Processing watch for %s interrupted, retry in %s", c.targetPrefix, backoff.NextWait())
+				backoff.Wait(c.closeCtx)
 			}
 		}
 	}()
