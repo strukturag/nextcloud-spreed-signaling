@@ -381,6 +381,10 @@ loop:
 
 			id, err := c.getServerIdWithTimeout(ctx, client)
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+
 				if status.Code(err) != codes.Canceled {
 					log.Printf("Error checking GRPC server id of %s, retrying in %s: %s", client.Target(), backoff.NextWait(), err)
 				}
@@ -480,7 +484,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 		}
 
 		c.selfCheckWaitGroup.Add(1)
-		go c.checkIsSelf(context.Background(), target, client)
+		go c.checkIsSelf(c.closeCtx, target, client)
 
 		log.Printf("Adding %s as GRPC target", client.Target())
 		entry, found := clientsMap[target]
@@ -554,7 +558,7 @@ func (c *GrpcClients) onLookup(entry *DnsMonitorEntry, all []net.IP, added []net
 		}
 
 		c.selfCheckWaitGroup.Add(1)
-		go c.checkIsSelf(context.Background(), target, client)
+		go c.checkIsSelf(c.closeCtx, target, client)
 
 		log.Printf("Adding %s as GRPC target", client.Target())
 		newClients = append(newClients, client)
@@ -678,7 +682,7 @@ func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte
 	}
 
 	c.selfCheckWaitGroup.Add(1)
-	go c.checkIsSelf(context.Background(), info.Address, cl)
+	go c.checkIsSelf(c.closeCtx, info.Address, cl)
 
 	log.Printf("Adding %s as GRPC target", cl.Target())
 
