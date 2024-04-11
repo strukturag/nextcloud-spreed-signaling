@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -277,18 +278,23 @@ type GrpcClients struct {
 
 	initializedCtx       context.Context
 	initializedFunc      context.CancelFunc
-	initializedWg        sync.WaitGroup
 	wakeupChanForTesting chan struct{}
 	selfCheckWaitGroup   sync.WaitGroup
+
+	closeCtx  context.Context
+	closeFunc context.CancelFunc
 }
 
 func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient, dnsMonitor *DnsMonitor) (*GrpcClients, error) {
 	initializedCtx, initializedFunc := context.WithCancel(context.Background())
+	closeCtx, closeFunc := context.WithCancel(context.Background())
 	result := &GrpcClients{
 		dnsMonitor:      dnsMonitor,
 		etcdClient:      etcdClient,
 		initializedCtx:  initializedCtx,
 		initializedFunc: initializedFunc,
+		closeCtx:        closeCtx,
+		closeFunc:       closeFunc,
 	}
 	if err := result.load(config, false); err != nil {
 		return nil, err
@@ -586,48 +592,54 @@ func (c *GrpcClients) loadTargetsEtcd(config *goconf.ConfigFile, fromReload bool
 }
 
 func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
-	c.initializedWg.Add(1)
 	go func() {
-		if err := client.Watch(context.Background(), c.targetPrefix, c, clientv3.WithPrefix()); err != nil {
-			log.Printf("Error processing watch for %s: %s", c.targetPrefix, err)
-		}
-	}()
+		if err := client.WaitForConnection(c.closeCtx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
 
-	go func() {
-		if err := client.WaitForConnection(context.Background()); err != nil {
 			panic(err)
 		}
 
 		backoff, _ := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
-		for {
-			response, err := c.getGrpcTargets(client, c.targetPrefix)
+		var nextRevision int64
+		for c.closeCtx.Err() == nil {
+			response, err := c.getGrpcTargets(c.closeCtx, client, c.targetPrefix)
 			if err != nil {
-				if err == context.DeadlineExceeded {
+				if errors.Is(err, context.Canceled) {
+					return
+				} else if errors.Is(err, context.DeadlineExceeded) {
 					log.Printf("Timeout getting initial list of GRPC targets, retry in %s", backoff.NextWait())
 				} else {
 					log.Printf("Could not get initial list of GRPC targets, retry in %s: %s", backoff.NextWait(), err)
 				}
 
-				backoff.Wait(context.Background())
+				backoff.Wait(c.closeCtx)
 				continue
 			}
 
 			for _, ev := range response.Kvs {
 				c.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
 			}
-			c.initializedWg.Wait()
 			c.initializedFunc()
-			return
+			nextRevision = response.Header.Revision + 1
+			break
+		}
+
+		for c.closeCtx.Err() == nil {
+			var err error
+			if nextRevision, err = client.Watch(c.closeCtx, c.targetPrefix, nextRevision, c, clientv3.WithPrefix()); err != nil {
+				log.Printf("Error processing watch for %s: %s", c.targetPrefix, err)
+			}
 		}
 	}()
 }
 
 func (c *GrpcClients) EtcdWatchCreated(client *EtcdClient, key string) {
-	c.initializedWg.Done()
 }
 
-func (c *GrpcClients) getGrpcTargets(client *EtcdClient, targetPrefix string) (*clientv3.GetResponse, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+func (c *GrpcClients) getGrpcTargets(ctx context.Context, client *EtcdClient, targetPrefix string) (*clientv3.GetResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return client.Get(ctx, targetPrefix, clientv3.WithPrefix())
@@ -766,6 +778,7 @@ func (c *GrpcClients) Close() {
 	if c.etcdClient != nil {
 		c.etcdClient.RemoveListener(c)
 	}
+	c.closeFunc()
 }
 
 func (c *GrpcClients) GetClients() []*GrpcClient {

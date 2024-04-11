@@ -21,6 +21,13 @@
  */
 package signaling
 
+import (
+	"testing"
+
+	"github.com/dlintw/goconf"
+	"go.etcd.io/etcd/server/v3/embed"
+)
+
 func (s *backendStorageEtcd) getWakeupChannelForTesting() <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -32,4 +39,38 @@ func (s *backendStorageEtcd) getWakeupChannelForTesting() <-chan struct{} {
 	ch := make(chan struct{}, 1)
 	s.wakeupChanForTesting = ch
 	return ch
+}
+
+type testListener struct {
+	etcd   *embed.Etcd
+	closed chan struct{}
+}
+
+func (tl *testListener) EtcdClientCreated(client *EtcdClient) {
+	tl.etcd.Server.Stop()
+	close(tl.closed)
+}
+
+func Test_BackendStorageEtcdNoLeak(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		etcd, client := NewEtcdClientForTest(t)
+		tl := &testListener{
+			etcd:   etcd,
+			closed: make(chan struct{}),
+		}
+		client.AddListener(tl)
+		defer client.RemoveListener(tl)
+
+		config := goconf.NewConfigFile()
+		config.AddOption("backend", "backendtype", "etcd")
+		config.AddOption("backend", "backendprefix", "/backends")
+
+		cfg, err := NewBackendConfiguration(config, client)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		<-tl.closed
+		cfg.Close()
+	})
 }
