@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -34,6 +35,8 @@ import (
 	"go.etcd.io/etcd/client/pkg/v3/srv"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type EtcdClientListener interface {
@@ -112,6 +115,17 @@ func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 			DialTimeout: time.Second,
 		}
 
+		if logLevel, _ := config.GetString("etcd", "loglevel"); logLevel != "" {
+			var l zapcore.Level
+			if err := l.Set(logLevel); err != nil {
+				return fmt.Errorf("Unsupported etcd log level %s: %w", logLevel, err)
+			}
+
+			logConfig := zap.NewProductionConfig()
+			logConfig.Level = zap.NewAtomicLevelAt(l)
+			cfg.LogConfig = &logConfig
+		}
+
 		clientKey := c.getConfigStringWithFallback(config, "clientkey")
 		clientCert := c.getConfigStringWithFallback(config, "clientcert")
 		caCert := c.getConfigStringWithFallback(config, "cacert")
@@ -176,8 +190,8 @@ func (c *EtcdClient) getEtcdClient() *clientv3.Client {
 	return client.(*clientv3.Client)
 }
 
-func (c *EtcdClient) syncClient() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+func (c *EtcdClient) syncClient(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return c.getEtcdClient().Sync(ctx)
@@ -223,8 +237,10 @@ func (c *EtcdClient) WaitForConnection(ctx context.Context) error {
 			return err
 		}
 
-		if err := c.syncClient(); err != nil {
-			if err == context.DeadlineExceeded {
+		if err := c.syncClient(ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return err
+			} else if errors.Is(err, context.DeadlineExceeded) {
 				log.Printf("Timeout waiting for etcd client to connect to the cluster, retry in %s", backoff.NextWait())
 			} else {
 				log.Printf("Could not sync etcd client with the cluster, retry in %s: %s", backoff.NextWait(), err)
@@ -243,16 +259,18 @@ func (c *EtcdClient) Get(ctx context.Context, key string, opts ...clientv3.OpOpt
 	return c.getEtcdClient().Get(ctx, key, opts...)
 }
 
-func (c *EtcdClient) Watch(ctx context.Context, key string, watcher EtcdClientWatcher, opts ...clientv3.OpOption) error {
-	log.Printf("Wait for leader and start watching on %s", key)
+func (c *EtcdClient) Watch(ctx context.Context, key string, nextRevision int64, watcher EtcdClientWatcher, opts ...clientv3.OpOption) (int64, error) {
+	log.Printf("Wait for leader and start watching on %s (rev=%d)", key, nextRevision)
+	opts = append(opts, clientv3.WithRev(nextRevision))
 	ch := c.getEtcdClient().Watch(clientv3.WithRequireLeader(ctx), key, opts...)
 	log.Printf("Watch created for %s", key)
 	watcher.EtcdWatchCreated(c, key)
 	for response := range ch {
 		if err := response.Err(); err != nil {
-			return err
+			return nextRevision, err
 		}
 
+		nextRevision = response.Header.Revision + 1
 		for _, ev := range response.Events {
 			switch ev.Type {
 			case clientv3.EventTypePut:
@@ -265,5 +283,5 @@ func (c *EtcdClient) Watch(ctx context.Context, key string, watcher EtcdClientWa
 		}
 	}
 
-	return nil
+	return nextRevision, nil
 }

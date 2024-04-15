@@ -24,10 +24,10 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -43,8 +43,10 @@ type backendStorageEtcd struct {
 
 	initializedCtx       context.Context
 	initializedFunc      context.CancelFunc
-	initializedWg        sync.WaitGroup
 	wakeupChanForTesting chan struct{}
+
+	closeCtx  context.Context
+	closeFunc context.CancelFunc
 }
 
 func NewBackendStorageEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient) (BackendStorage, error) {
@@ -58,6 +60,7 @@ func NewBackendStorageEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient) (B
 	}
 
 	initializedCtx, initializedFunc := context.WithCancel(context.Background())
+	closeCtx, closeFunc := context.WithCancel(context.Background())
 	result := &backendStorageEtcd{
 		backendStorageCommon: backendStorageCommon{
 			backends: make(map[string][]*Backend),
@@ -68,6 +71,8 @@ func NewBackendStorageEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient) (B
 
 		initializedCtx:  initializedCtx,
 		initializedFunc: initializedFunc,
+		closeCtx:        closeCtx,
+		closeFunc:       closeFunc,
 	}
 
 	etcdClient.AddListener(result)
@@ -95,15 +100,12 @@ func (s *backendStorageEtcd) wakeupForTesting() {
 }
 
 func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
-	s.initializedWg.Add(1)
 	go func() {
-		if err := client.Watch(context.Background(), s.keyPrefix, s, clientv3.WithPrefix()); err != nil {
-			log.Printf("Error processing watch for %s: %s", s.keyPrefix, err)
-		}
-	}()
+		if err := client.WaitForConnection(s.closeCtx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
 
-	go func() {
-		if err := client.WaitForConnection(context.Background()); err != nil {
 			panic(err)
 		}
 
@@ -111,35 +113,55 @@ func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
 		if err != nil {
 			panic(err)
 		}
-		for {
-			response, err := s.getBackends(client, s.keyPrefix)
+		for s.closeCtx.Err() == nil {
+			response, err := s.getBackends(s.closeCtx, client, s.keyPrefix)
 			if err != nil {
-				if err == context.DeadlineExceeded {
+				if errors.Is(err, context.Canceled) {
+					return
+				} else if errors.Is(err, context.DeadlineExceeded) {
 					log.Printf("Timeout getting initial list of backends, retry in %s", backoff.NextWait())
 				} else {
 					log.Printf("Could not get initial list of backends, retry in %s: %s", backoff.NextWait(), err)
 				}
 
-				backoff.Wait(context.Background())
+				backoff.Wait(s.closeCtx)
 				continue
 			}
 
 			for _, ev := range response.Kvs {
 				s.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
 			}
-			s.initializedWg.Wait()
 			s.initializedFunc()
+
+			nextRevision := response.Header.Revision + 1
+			prevRevision := nextRevision
+			backoff.Reset()
+			for s.closeCtx.Err() == nil {
+				var err error
+				if nextRevision, err = client.Watch(s.closeCtx, s.keyPrefix, nextRevision, s, clientv3.WithPrefix()); err != nil {
+					log.Printf("Error processing watch for %s (%s), retry in %s", s.keyPrefix, err, backoff.NextWait())
+					backoff.Wait(s.closeCtx)
+					continue
+				}
+
+				if nextRevision != prevRevision {
+					backoff.Reset()
+					prevRevision = nextRevision
+				} else {
+					log.Printf("Processing watch for %s interrupted, retry in %s", s.keyPrefix, backoff.NextWait())
+					backoff.Wait(s.closeCtx)
+				}
+			}
 			return
 		}
 	}()
 }
 
 func (s *backendStorageEtcd) EtcdWatchCreated(client *EtcdClient, key string) {
-	s.initializedWg.Done()
 }
 
-func (s *backendStorageEtcd) getBackends(client *EtcdClient, keyPrefix string) (*clientv3.GetResponse, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+func (s *backendStorageEtcd) getBackends(ctx context.Context, client *EtcdClient, keyPrefix string) (*clientv3.GetResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return client.Get(ctx, keyPrefix, clientv3.WithPrefix())
@@ -241,6 +263,7 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string) {
 
 func (s *backendStorageEtcd) Close() {
 	s.etcdClient.RemoveListener(s)
+	s.closeFunc()
 }
 
 func (s *backendStorageEtcd) Reload(config *goconf.ConfigFile) {

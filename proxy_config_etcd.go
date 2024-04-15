@@ -41,6 +41,9 @@ type proxyConfigEtcd struct {
 	keyPrefix string
 	keyInfos  map[string]*ProxyInformationEtcd
 	urlToKey  map[string]string
+
+	closeCtx  context.Context
+	closeFunc context.CancelFunc
 }
 
 func NewProxyConfigEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient, proxy McuProxy) (ProxyConfig, error) {
@@ -48,12 +51,17 @@ func NewProxyConfigEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient, proxy
 		return nil, errors.New("No etcd endpoints configured")
 	}
 
+	closeCtx, closeFunc := context.WithCancel(context.Background())
+
 	result := &proxyConfigEtcd{
 		proxy: proxy,
 
 		client:   etcdClient,
 		keyInfos: make(map[string]*ProxyInformationEtcd),
 		urlToKey: make(map[string]string),
+
+		closeCtx:  closeCtx,
+		closeFunc: closeFunc,
 	}
 	if err := result.configure(config, false); err != nil {
 		return nil, err
@@ -83,17 +91,16 @@ func (p *proxyConfigEtcd) Reload(config *goconf.ConfigFile) error {
 
 func (p *proxyConfigEtcd) Stop() {
 	p.client.RemoveListener(p)
+	p.closeFunc()
 }
 
 func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 	go func() {
-		if err := client.Watch(context.Background(), p.keyPrefix, p, clientv3.WithPrefix()); err != nil {
-			log.Printf("Error processing watch for %s: %s", p.keyPrefix, err)
-		}
-	}()
+		if err := client.WaitForConnection(p.closeCtx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
 
-	go func() {
-		if err := client.WaitForConnection(context.Background()); err != nil {
 			panic(err)
 		}
 
@@ -101,23 +108,47 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 		if err != nil {
 			panic(err)
 		}
-		for {
-			response, err := p.getProxyUrls(client, p.keyPrefix)
+
+		var nextRevision int64
+		for p.closeCtx.Err() == nil {
+			response, err := p.getProxyUrls(p.closeCtx, client, p.keyPrefix)
 			if err != nil {
-				if err == context.DeadlineExceeded {
+				if errors.Is(err, context.Canceled) {
+					return
+				} else if errors.Is(err, context.DeadlineExceeded) {
 					log.Printf("Timeout getting initial list of proxy URLs, retry in %s", backoff.NextWait())
 				} else {
 					log.Printf("Could not get initial list of proxy URLs, retry in %s: %s", backoff.NextWait(), err)
 				}
 
-				backoff.Wait(context.Background())
+				backoff.Wait(p.closeCtx)
 				continue
 			}
 
 			for _, ev := range response.Kvs {
 				p.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
 			}
-			return
+			nextRevision = response.Header.Revision + 1
+			break
+		}
+
+		prevRevision := nextRevision
+		backoff.Reset()
+		for p.closeCtx.Err() == nil {
+			var err error
+			if nextRevision, err = client.Watch(p.closeCtx, p.keyPrefix, nextRevision, p, clientv3.WithPrefix()); err != nil {
+				log.Printf("Error processing watch for %s (%s), retry in %s", p.keyPrefix, err, backoff.NextWait())
+				backoff.Wait(p.closeCtx)
+				continue
+			}
+
+			if nextRevision != prevRevision {
+				backoff.Reset()
+				prevRevision = nextRevision
+			} else {
+				log.Printf("Processing watch for %s interrupted, retry in %s", p.keyPrefix, backoff.NextWait())
+				backoff.Wait(p.closeCtx)
+			}
 		}
 	}()
 }
@@ -125,8 +156,8 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 func (p *proxyConfigEtcd) EtcdWatchCreated(client *EtcdClient, key string) {
 }
 
-func (p *proxyConfigEtcd) getProxyUrls(client *EtcdClient, keyPrefix string) (*clientv3.GetResponse, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+func (p *proxyConfigEtcd) getProxyUrls(ctx context.Context, client *EtcdClient, keyPrefix string) (*clientv3.GetResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return client.Get(ctx, keyPrefix, clientv3.WithPrefix())

@@ -29,7 +29,6 @@ import (
 	"os"
 	"runtime"
 	"strconv"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -115,6 +114,7 @@ func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
+	config.AddOption("etcd", "loglevel", "error")
 
 	client, err := NewEtcdClient(config, "")
 	if err != nil {
@@ -204,9 +204,8 @@ type EtcdClientTestListener struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	initial   chan struct{}
-	initialWg sync.WaitGroup
-	events    chan etcdEvent
+	initial chan struct{}
+	events  chan etcdEvent
 }
 
 func NewEtcdClientTestListener(ctx context.Context, t *testing.T) *EtcdClientTestListener {
@@ -227,15 +226,7 @@ func (l *EtcdClientTestListener) Close() {
 }
 
 func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
-	l.initialWg.Add(1)
 	go func() {
-		if err := client.Watch(clientv3.WithRequireLeader(l.ctx), "foo", l, clientv3.WithPrefix()); err != nil {
-			l.t.Error(err)
-		}
-	}()
-
-	go func() {
-		defer close(l.initial)
 		if err := client.WaitForConnection(l.ctx); err != nil {
 			l.t.Errorf("error waiting for connection: %s", err)
 			return
@@ -244,7 +235,8 @@ func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
 		ctx, cancel := context.WithTimeout(l.ctx, time.Second)
 		defer cancel()
 
-		if response, err := client.Get(ctx, "foo", clientv3.WithPrefix()); err != nil {
+		response, err := client.Get(ctx, "foo", clientv3.WithPrefix())
+		if err != nil {
 			l.t.Error(err)
 		} else if response.Count != 1 {
 			l.t.Errorf("expected 1 responses, got %d", response.Count)
@@ -253,12 +245,19 @@ func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
 		} else if string(response.Kvs[0].Value) != "1" {
 			l.t.Errorf("expected value \"1\", got \"%s\"", string(response.Kvs[0].Value))
 		}
-		l.initialWg.Wait()
+
+		close(l.initial)
+		nextRevision := response.Header.Revision + 1
+		for l.ctx.Err() == nil {
+			var err error
+			if nextRevision, err = client.Watch(clientv3.WithRequireLeader(l.ctx), "foo", nextRevision, l, clientv3.WithPrefix()); err != nil {
+				l.t.Error(err)
+			}
+		}
 	}()
 }
 
 func (l *EtcdClientTestListener) EtcdWatchCreated(client *EtcdClient, key string) {
-	l.initialWg.Done()
 }
 
 func (l *EtcdClientTestListener) EtcdKeyUpdated(client *EtcdClient, key string, value []byte) {
