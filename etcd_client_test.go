@@ -196,6 +196,8 @@ type etcdEvent struct {
 	t     mvccpb.Event_EventType
 	key   string
 	value string
+
+	prevValue string
 }
 
 type EtcdClientTestListener struct {
@@ -260,19 +262,27 @@ func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
 func (l *EtcdClientTestListener) EtcdWatchCreated(client *EtcdClient, key string) {
 }
 
-func (l *EtcdClientTestListener) EtcdKeyUpdated(client *EtcdClient, key string, value []byte) {
-	l.events <- etcdEvent{
+func (l *EtcdClientTestListener) EtcdKeyUpdated(client *EtcdClient, key string, value []byte, prevValue []byte) {
+	evt := etcdEvent{
 		t:     clientv3.EventTypePut,
 		key:   string(key),
 		value: string(value),
 	}
+	if len(prevValue) > 0 {
+		evt.prevValue = string(prevValue)
+	}
+	l.events <- evt
 }
 
-func (l *EtcdClientTestListener) EtcdKeyDeleted(client *EtcdClient, key string) {
-	l.events <- etcdEvent{
+func (l *EtcdClientTestListener) EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte) {
+	evt := etcdEvent{
 		t:   clientv3.EventTypeDelete,
 		key: string(key),
 	}
+	if len(prevValue) > 0 {
+		evt.prevValue = string(prevValue)
+	}
+	l.events <- evt
 }
 
 func Test_EtcdClient_Watch(t *testing.T) {
@@ -298,11 +308,23 @@ func Test_EtcdClient_Watch(t *testing.T) {
 		t.Errorf("expected value %s, got %s", "2", event.value)
 	}
 
+	SetEtcdValue(etcd, "foo/a", []byte("3"))
+	event = <-listener.events
+	if event.t != clientv3.EventTypePut {
+		t.Errorf("expected type %d, got %d", clientv3.EventTypePut, event.t)
+	} else if event.key != "foo/a" {
+		t.Errorf("expected key %s, got %s", "foo/a", event.key)
+	} else if event.value != "3" {
+		t.Errorf("expected value %s, got %s", "3", event.value)
+	}
+
 	DeleteEtcdValue(etcd, "foo/a")
 	event = <-listener.events
 	if event.t != clientv3.EventTypeDelete {
 		t.Errorf("expected type %d, got %d", clientv3.EventTypeDelete, event.t)
 	} else if event.key != "foo/a" {
 		t.Errorf("expected key %s, got %s", "foo/a", event.key)
+	} else if event.prevValue != "3" {
+		t.Errorf("expected previous value %s, got %s", "3", event.prevValue)
 	}
 }

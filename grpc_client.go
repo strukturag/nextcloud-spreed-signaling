@@ -623,7 +623,7 @@ func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
 			}
 
 			for _, ev := range response.Kvs {
-				c.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
+				c.EtcdKeyUpdated(client, string(ev.Key), ev.Value, nil)
 			}
 			c.initializedFunc()
 			nextRevision = response.Header.Revision + 1
@@ -661,7 +661,7 @@ func (c *GrpcClients) getGrpcTargets(ctx context.Context, client *EtcdClient, ta
 	return client.Get(ctx, targetPrefix, clientv3.WithPrefix())
 }
 
-func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte) {
+func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
 	var info GrpcTargetInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
 		log.Printf("Could not decode GRPC target %s=%s: %s", key, string(data), err)
@@ -710,7 +710,7 @@ func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte
 	c.wakeupForTesting()
 }
 
-func (c *GrpcClients) EtcdKeyDeleted(client *EtcdClient, key string) {
+func (c *GrpcClients) EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

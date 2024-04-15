@@ -129,7 +129,7 @@ func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
 			}
 
 			for _, ev := range response.Kvs {
-				s.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
+				s.EtcdKeyUpdated(client, string(ev.Key), ev.Value, nil)
 			}
 			s.initializedFunc()
 
@@ -167,7 +167,7 @@ func (s *backendStorageEtcd) getBackends(ctx context.Context, client *EtcdClient
 	return client.Get(ctx, keyPrefix, clientv3.WithPrefix())
 }
 
-func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []byte) {
+func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
 	var info BackendInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
 		log.Printf("Could not decode backend information %s: %s", string(data), err)
@@ -227,7 +227,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 	s.wakeupForTesting()
 }
 
-func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string) {
+func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

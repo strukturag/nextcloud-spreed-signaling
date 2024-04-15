@@ -45,8 +45,8 @@ type EtcdClientListener interface {
 
 type EtcdClientWatcher interface {
 	EtcdWatchCreated(client *EtcdClient, key string)
-	EtcdKeyUpdated(client *EtcdClient, key string, value []byte)
-	EtcdKeyDeleted(client *EtcdClient, key string)
+	EtcdKeyUpdated(client *EtcdClient, key string, value []byte, prevValue []byte)
+	EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte)
 }
 
 type EtcdClient struct {
@@ -261,7 +261,7 @@ func (c *EtcdClient) Get(ctx context.Context, key string, opts ...clientv3.OpOpt
 
 func (c *EtcdClient) Watch(ctx context.Context, key string, nextRevision int64, watcher EtcdClientWatcher, opts ...clientv3.OpOption) (int64, error) {
 	log.Printf("Wait for leader and start watching on %s (rev=%d)", key, nextRevision)
-	opts = append(opts, clientv3.WithRev(nextRevision))
+	opts = append(opts, clientv3.WithRev(nextRevision), clientv3.WithPrevKV())
 	ch := c.getEtcdClient().Watch(clientv3.WithRequireLeader(ctx), key, opts...)
 	log.Printf("Watch created for %s", key)
 	watcher.EtcdWatchCreated(c, key)
@@ -274,9 +274,17 @@ func (c *EtcdClient) Watch(ctx context.Context, key string, nextRevision int64, 
 		for _, ev := range response.Events {
 			switch ev.Type {
 			case clientv3.EventTypePut:
-				watcher.EtcdKeyUpdated(c, string(ev.Kv.Key), ev.Kv.Value)
+				var prevValue []byte
+				if ev.PrevKv != nil {
+					prevValue = ev.PrevKv.Value
+				}
+				watcher.EtcdKeyUpdated(c, string(ev.Kv.Key), ev.Kv.Value, prevValue)
 			case clientv3.EventTypeDelete:
-				watcher.EtcdKeyDeleted(c, string(ev.Kv.Key))
+				var prevValue []byte
+				if ev.PrevKv != nil {
+					prevValue = ev.PrevKv.Value
+				}
+				watcher.EtcdKeyDeleted(c, string(ev.Kv.Key), prevValue)
 			default:
 				log.Printf("Unsupported watch event %s %q -> %q", ev.Type, ev.Kv.Key, ev.Kv.Value)
 			}
