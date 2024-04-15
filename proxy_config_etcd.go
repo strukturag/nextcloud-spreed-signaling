@@ -126,7 +126,7 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 			}
 
 			for _, ev := range response.Kvs {
-				p.EtcdKeyUpdated(client, string(ev.Key), ev.Value)
+				p.EtcdKeyUpdated(client, string(ev.Key), ev.Value, nil)
 			}
 			nextRevision = response.Header.Revision + 1
 			break
@@ -163,7 +163,7 @@ func (p *proxyConfigEtcd) getProxyUrls(ctx context.Context, client *EtcdClient, 
 	return client.Get(ctx, keyPrefix, clientv3.WithPrefix())
 }
 
-func (p *proxyConfigEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []byte) {
+func (p *proxyConfigEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
 	var info ProxyInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
 		log.Printf("Could not decode proxy information %s: %s", string(data), err)
@@ -204,7 +204,7 @@ func (p *proxyConfigEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []
 	}
 }
 
-func (p *proxyConfigEtcd) EtcdKeyDeleted(client *EtcdClient, key string) {
+func (p *proxyConfigEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
