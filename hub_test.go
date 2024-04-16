@@ -4697,6 +4697,30 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			if err := client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo); err != nil {
 				t.Fatal(err)
 			}
+
+			if err := client2.SendMessage(MessageClientMessageRecipient{
+				Type:      "session",
+				SessionId: hello1.Hello.SessionId,
+			}, MessageClientMessageData{
+				Type:     "answer",
+				Sid:      "12345",
+				RoomType: "screen",
+				Payload: map[string]interface{}{
+					"sdp": MockSdpAnswerAudioAndVideo,
+				},
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			// The sender won't get a reply...
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel2()
+
+			if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				t.Error(err)
+			} else if message != nil {
+				t.Errorf("Expected no message, got %+v", message)
+			}
 		})
 	}
 }

@@ -730,23 +730,6 @@ func (s *ClientSession) SubscriberClosed(subscriber McuSubscriber) {
 	}
 }
 
-type SdpError struct {
-	message string
-}
-
-func (e *SdpError) Error() string {
-	return e.message
-}
-
-type WrappedSdpError struct {
-	SdpError
-	err error
-}
-
-func (e *WrappedSdpError) Unwrap() error {
-	return e.err
-}
-
 type PermissionError struct {
 	permission Permission
 }
@@ -759,23 +742,10 @@ func (e *PermissionError) Error() string {
 	return fmt.Sprintf("permission \"%s\" not found", e.permission)
 }
 
-func (s *ClientSession) isSdpAllowedToSendLocked(payload map[string]interface{}) (MediaType, error) {
-	sdpValue, found := payload["sdp"]
-	if !found {
-		return 0, &SdpError{"payload does not contain a sdp"}
-	}
-	sdpText, ok := sdpValue.(string)
-	if !ok {
-		return 0, &SdpError{"payload does not contain a valid sdp"}
-	}
-	var sdp sdp.SessionDescription
-	if err := sdp.Unmarshal([]byte(sdpText)); err != nil {
-		return 0, &WrappedSdpError{
-			SdpError: SdpError{
-				message: fmt.Sprintf("could not parse sdp: %s", err),
-			},
-			err: err,
-		}
+func (s *ClientSession) isSdpAllowedToSendLocked(sdp *sdp.SessionDescription) (MediaType, error) {
+	if sdp == nil {
+		// Should have already been checked when data was validated.
+		return 0, ErrNoSdp
 	}
 
 	var mediaTypes MediaType
@@ -813,8 +783,8 @@ func (s *ClientSession) IsAllowedToSend(data *MessageClientMessageData) error {
 		// Client is allowed to publish any media (audio / video).
 		return nil
 	} else if data != nil && data.Type == "offer" {
-		// Parse SDP to check what user is trying to publish and check permissions accordingly.
-		if _, err := s.isSdpAllowedToSendLocked(data.Payload); err != nil {
+		// Check what user is trying to publish and check permissions accordingly.
+		if _, err := s.isSdpAllowedToSendLocked(data.offerSdp); err != nil {
 			return err
 		}
 
@@ -844,7 +814,7 @@ func (s *ClientSession) checkOfferTypeLocked(streamType StreamType, data *Messag
 
 		return MediaTypeScreen, nil
 	} else if data != nil && data.Type == "offer" {
-		mediaTypes, err := s.isSdpAllowedToSendLocked(data.Payload)
+		mediaTypes, err := s.isSdpAllowedToSendLocked(data.offerSdp)
 		if err != nil {
 			return 0, err
 		}

@@ -2334,11 +2334,6 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 			sendNotAllowed(session, client_message, "Not allowed to publish.")
 			return
 		}
-		if err, ok := err.(*SdpError); ok {
-			log.Printf("Session %s sent unsupported offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
-			sendNotAllowed(session, client_message, "Not allowed to publish.")
-			return
-		}
 	case "selectStream":
 		if session.PublicId() == message.Recipient.SessionId {
 			log.Printf("Not selecting substream for own %s stream in session %s", data.RoomType, session.PublicId())

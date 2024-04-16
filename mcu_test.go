@@ -253,6 +253,8 @@ func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageCli
 				"type": "offer",
 				"sdp":  sdp,
 			})
+		case "answer":
+			callback(nil, nil)
 		default:
 			callback(fmt.Errorf("Message type %s is not implemented", data.Type), nil)
 		}

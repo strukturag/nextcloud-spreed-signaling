@@ -777,9 +777,10 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 		fallthrough
 	case "candidate":
 		mcuData = &signaling.MessageClientMessageData{
-			Type:    payload.Type,
-			Sid:     payload.Sid,
-			Payload: payload.Payload,
+			RoomType: string(mcuClient.StreamType()),
+			Type:     payload.Type,
+			Sid:      payload.Sid,
+			Payload:  payload.Payload,
 		}
 	case "endOfCandidates":
 		// Ignore but confirm, not passed along to Janus anyway.
@@ -796,10 +797,17 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 		fallthrough
 	case "sendoffer":
 		mcuData = &signaling.MessageClientMessageData{
-			Type: payload.Type,
-			Sid:  payload.Sid,
+			RoomType: string(mcuClient.StreamType()),
+			Type:     payload.Type,
+			Sid:      payload.Sid,
 		}
 	default:
+		session.sendMessage(message.NewErrorServerMessage(UnsupportedPayload))
+		return
+	}
+
+	if err := mcuData.CheckValid(); err != nil {
+		log.Printf("Received invalid payload %+v for %s client %s: %s", mcuData, mcuClient.StreamType(), payload.ClientId, err)
 		session.sendMessage(message.NewErrorServerMessage(UnsupportedPayload))
 		return
 	}
