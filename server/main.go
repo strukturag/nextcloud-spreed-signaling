@@ -23,6 +23,7 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -34,6 +35,7 @@ import (
 	"runtime"
 	runtimepprof "runtime/pprof"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -91,6 +93,29 @@ func createTLSListener(addr string, certFile, keyFile string) (net.Listener, err
 	return tls.Listen("tcp", addr, &config)
 }
 
+type Listeners struct {
+	mu        sync.Mutex
+	listeners []net.Listener
+}
+
+func (l *Listeners) Add(listener net.Listener) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.listeners = append(l.listeners, listener)
+}
+
+func (l *Listeners) Close() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for _, listener := range l.listeners {
+		if err := listener.Close(); err != nil {
+			log.Printf("Error closing listener %s: %s", listener.Addr(), err)
+		}
+	}
+}
+
 func main() {
 	log.SetFlags(log.Lshortfile)
 	flag.Parse()
@@ -103,6 +128,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 	signal.Notify(sigChan, syscall.SIGHUP)
+	signal.Notify(sigChan, syscall.SIGUSR1)
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -300,6 +326,8 @@ func main() {
 		}
 	}
 
+	var listeners Listeners
+
 	if saddr, _ := config.GetString("https", "listen"); saddr != "" {
 		cert, _ := config.GetString("https", "certificate")
 		key, _ := config.GetString("https", "key")
@@ -328,8 +356,11 @@ func main() {
 					ReadTimeout:  time.Duration(readTimeout) * time.Second,
 					WriteTimeout: time.Duration(writeTimeout) * time.Second,
 				}
+				listeners.Add(listener)
 				if err := srv.Serve(listener); err != nil {
-					log.Fatal("Could not start server: ", err)
+					if !hub.IsShutdownScheduled() || !errors.Is(err, net.ErrClosed) {
+						log.Fatal("Could not start server: ", err)
+					}
 				}
 			}(address)
 		}
@@ -359,26 +390,39 @@ func main() {
 					ReadTimeout:  time.Duration(readTimeout) * time.Second,
 					WriteTimeout: time.Duration(writeTimeout) * time.Second,
 				}
+				listeners.Add(listener)
 				if err := srv.Serve(listener); err != nil {
-					log.Fatal("Could not start server: ", err)
+					if !hub.IsShutdownScheduled() || !errors.Is(err, net.ErrClosed) {
+						log.Fatal("Could not start server: ", err)
+					}
 				}
 			}(address)
 		}
 	}
 
 loop:
-	for sig := range sigChan {
-		switch sig {
-		case os.Interrupt:
-			log.Println("Interrupted")
-			break loop
-		case syscall.SIGHUP:
-			log.Printf("Received SIGHUP, reloading %s", *configFlag)
-			if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
-				log.Printf("Could not read configuration from %s: %s", *configFlag, err)
-			} else {
-				hub.Reload(config)
+	for {
+		select {
+		case sig := <-sigChan:
+			switch sig {
+			case os.Interrupt:
+				log.Println("Interrupted")
+				break loop
+			case syscall.SIGHUP:
+				log.Printf("Received SIGHUP, reloading %s", *configFlag)
+				if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
+					log.Printf("Could not read configuration from %s: %s", *configFlag, err)
+				} else {
+					hub.Reload(config)
+				}
+			case syscall.SIGUSR1:
+				log.Printf("Received SIGUSR1, scheduling server to shutdown")
+				hub.ScheduleShutdown()
+				listeners.Close()
 			}
+		case <-hub.ShutdownChannel():
+			log.Printf("All clients disconnected, shutting down")
+			break loop
 		}
 	}
 }

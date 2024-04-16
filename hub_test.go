@@ -5866,3 +5866,83 @@ func TestDialoutStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestGracefulShutdownInitial(t *testing.T) {
+	hub, _, _, _ := CreateHubForTest(t)
+
+	hub.ScheduleShutdown()
+	<-hub.ShutdownChannel()
+}
+
+func TestGracefulShutdownOnBye(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client.RunUntilHello(ctx); err != nil {
+		t.Error(err)
+	}
+
+	hub.ScheduleShutdown()
+	select {
+	case <-hub.ShutdownChannel():
+		t.Error("should not have shutdown")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	client.CloseWithBye()
+
+	select {
+	case <-hub.ShutdownChannel():
+	case <-time.After(100 * time.Millisecond):
+		t.Error("should have shutdown")
+	}
+}
+
+func TestGracefulShutdownOnExpiration(t *testing.T) {
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client.RunUntilHello(ctx); err != nil {
+		t.Error(err)
+	}
+
+	hub.ScheduleShutdown()
+	select {
+	case <-hub.ShutdownChannel():
+		t.Error("should not have shutdown")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	client.Close()
+	select {
+	case <-hub.ShutdownChannel():
+		t.Error("should not have shutdown")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	performHousekeeping(hub, time.Now().Add(sessionExpireDuration+time.Second))
+
+	select {
+	case <-hub.ShutdownChannel():
+	case <-time.After(100 * time.Millisecond):
+		t.Error("should have shutdown")
+	}
+}
