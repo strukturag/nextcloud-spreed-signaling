@@ -328,7 +328,7 @@ type mcuProxyConnection struct {
 
 	msgId      atomic.Int64
 	helloMsgId string
-	sessionId  string
+	sessionId  atomic.Value
 	country    atomic.Value
 
 	callbacks map[string]func(*ProxyServerMessage)
@@ -418,6 +418,21 @@ func (c *mcuProxyConnection) Load() int64 {
 
 func (c *mcuProxyConnection) Country() string {
 	return c.country.Load().(string)
+}
+
+func (c *mcuProxyConnection) SessionId() string {
+	sid := c.sessionId.Load()
+	if sid == nil {
+		return ""
+	}
+
+	return sid.(string)
+}
+
+func (c *mcuProxyConnection) IsConnected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn != nil && c.SessionId() != ""
 }
 
 func (c *mcuProxyConnection) IsTemporary() bool {
@@ -810,11 +825,11 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 		switch msg.Type {
 		case "error":
 			if msg.Error.Code == "no_such_session" {
-				log.Printf("Session %s could not be resumed on %s, registering new", c.sessionId, c)
+				log.Printf("Session %s could not be resumed on %s, registering new", c.SessionId(), c)
 				c.clearPublishers()
 				c.clearSubscribers()
 				c.clearCallbacks()
-				c.sessionId = ""
+				c.sessionId.Store("")
 				if err := c.sendHello(); err != nil {
 					log.Printf("Could not send hello request to %s: %s", c, err)
 					c.scheduleReconnect()
@@ -825,8 +840,8 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			log.Printf("Hello connection to %s failed with %+v, reconnecting", c, msg.Error)
 			c.scheduleReconnect()
 		case "hello":
-			resumed := c.sessionId == msg.Hello.SessionId
-			c.sessionId = msg.Hello.SessionId
+			resumed := c.SessionId() == msg.Hello.SessionId
+			c.sessionId.Store(msg.Hello.SessionId)
 			country := ""
 			if msg.Hello.Server != nil {
 				if country = msg.Hello.Server.Country; country != "" && !IsValidCountry(country) {
@@ -836,11 +851,11 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			}
 			c.country.Store(country)
 			if resumed {
-				log.Printf("Resumed session %s on %s", c.sessionId, c)
+				log.Printf("Resumed session %s on %s", c.SessionId(), c)
 			} else if country != "" {
-				log.Printf("Received session %s from %s (in %s)", c.sessionId, c, country)
+				log.Printf("Received session %s from %s (in %s)", c.SessionId(), c, country)
 			} else {
-				log.Printf("Received session %s from %s", c.sessionId, c)
+				log.Printf("Received session %s from %s", c.SessionId(), c)
 			}
 			if c.trackClose.CompareAndSwap(false, true) {
 				statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Inc()
@@ -948,8 +963,8 @@ func (c *mcuProxyConnection) processBye(msg *ProxyServerMessage) {
 	bye := msg.Bye
 	switch bye.Reason {
 	case "session_resumed":
-		log.Printf("Session %s on %s was resumed by other client, resetting", c.sessionId, c)
-		c.sessionId = ""
+		log.Printf("Session %s on %s was resumed by other client, resetting", c.SessionId(), c)
+		c.sessionId.Store("")
 	default:
 		log.Printf("Received bye with unsupported reason from %s %+v", c, bye)
 	}
@@ -964,8 +979,8 @@ func (c *mcuProxyConnection) sendHello() error {
 			Version: "1.0",
 		},
 	}
-	if c.sessionId != "" {
-		msg.Hello.ResumeId = c.sessionId
+	if sessionId := c.SessionId(); sessionId != "" {
+		msg.Hello.ResumeId = sessionId
 	} else {
 		claims := &TokenClaims{
 			jwt.RegisteredClaims{
@@ -1276,6 +1291,31 @@ func (m *mcuProxy) Stop() {
 	}
 
 	m.config.Stop()
+}
+
+func (m *mcuProxy) hasConnections() bool {
+	m.connectionsMu.RLock()
+	defer m.connectionsMu.RUnlock()
+	for _, conn := range m.connections {
+		if conn.IsConnected() {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *mcuProxy) WaitForConnections(ctx context.Context) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for !m.hasConnections() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	return nil
 }
 
 func (m *mcuProxy) AddConnection(ignoreErrors bool, url string, ips ...net.IP) error {

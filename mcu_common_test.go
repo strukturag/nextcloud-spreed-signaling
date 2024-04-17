@@ -28,3 +28,43 @@ import (
 func TestCommonMcuStats(t *testing.T) {
 	collectAndLint(t, commonMcuStats...)
 }
+
+type MockMcuListener struct {
+	publicId string
+}
+
+func (m *MockMcuListener) PublicId() string {
+	return m.publicId
+}
+
+func (m *MockMcuListener) OnUpdateOffer(client McuClient, offer map[string]interface{}) {
+
+}
+
+func (m *MockMcuListener) OnIceCandidate(client McuClient, candidate interface{}) {
+
+}
+
+func (m *MockMcuListener) OnIceCompleted(client McuClient) {
+
+}
+
+func (m *MockMcuListener) SubscriberSidUpdated(subscriber McuSubscriber) {
+
+}
+
+func (m *MockMcuListener) PublisherClosed(publisher McuPublisher) {
+
+}
+
+func (m *MockMcuListener) SubscriberClosed(subscriber McuSubscriber) {
+
+}
+
+type MockMcuInitiator struct {
+	country string
+}
+
+func (m *MockMcuInitiator) Country() string {
+	return m.country
+}
