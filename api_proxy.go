@@ -48,6 +48,14 @@ type ProxyClientMessage struct {
 	Payload *PayloadProxyClientMessage `json:"payload,omitempty"`
 }
 
+func (m *ProxyClientMessage) String() string {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", m, err)
+	}
+	return string(data)
+}
+
 func (m *ProxyClientMessage) CheckValid() error {
 	switch m.Type {
 	case "":
@@ -113,6 +121,14 @@ type ProxyServerMessage struct {
 	Payload *PayloadProxyServerMessage `json:"payload,omitempty"`
 
 	Event *EventProxyServerMessage `json:"event,omitempty"`
+}
+
+func (r *ProxyServerMessage) String() string {
+	data, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", r, err)
+	}
+	return string(data)
 }
 
 func (r *ProxyServerMessage) CloseAfterSend(session Session) bool {
