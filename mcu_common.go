@@ -79,10 +79,40 @@ type Mcu interface {
 	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)
 }
 
+// PublisherStream contains the available properties when creating a
+// remote publisher in Janus.
+type PublisherStream struct {
+	Mid    string `json:"mid"`
+	Mindex int    `json:"mindex"`
+	Type   string `json:"type"`
+
+	Description string `json:"description,omitempty"`
+	Disabled    bool   `json:"disabled,omitempty"`
+
+	// For types "audio" and "video"
+	Codec string `json:"codec,omitempty"`
+
+	// For type "audio"
+	Stereo bool `json:"stereo,omitempty"`
+	Fec    bool `json:"fec,omitempty"`
+	Dtx    bool `json:"dtx,omitempty"`
+
+	// For type "video"
+	Simulcast bool `json:"simulcast,omitempty"`
+	Svc       bool `json:"svc,omitempty"`
+
+	ProfileH264 string `json:"h264_profile,omitempty"`
+	ProfileVP9  string `json:"vp9_profile,omitempty"`
+
+	ExtIdVideoOrientation int `json:"videoorient_ext_id,omitempty"`
+	ExtIdPlayoutDelay     int `json:"playoutdelay_ext_id,omitempty"`
+}
+
 type RemotePublisherController interface {
 	PublisherId() string
 
 	StartPublishing(ctx context.Context, publisher McuRemotePublisherProperties) error
+	GetStreams(ctx context.Context) ([]PublisherStream, error)
 }
 
 type RemoteMcu interface {
@@ -128,6 +158,7 @@ type McuPublisher interface {
 	HasMedia(MediaType) bool
 	SetMedia(MediaType)
 
+	GetStreams(ctx context.Context) ([]PublisherStream, error)
 	PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error
 }
 

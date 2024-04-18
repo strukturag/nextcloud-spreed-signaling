@@ -253,6 +253,8 @@ type CommandProxyServerMessage struct {
 	Sid string `json:"sid,omitempty"`
 
 	Bitrate int `json:"bitrate,omitempty"`
+
+	Streams []PublisherStream `json:"streams,omitempty"`
 }
 
 // Type "payload"

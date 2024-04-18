@@ -568,6 +568,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 			closeChan: make(chan struct{}, 1),
 			deferred:  make(chan func(), 64),
 		},
+		sdpReady:   NewCloser(),
 		id:         id,
 		bitrate:    bitrate,
 		mediaTypes: mediaTypes,
@@ -688,6 +689,15 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 		return pub, nil
 	}
 
+	streams, err := controller.GetStreams(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(streams) == 0 {
+		return nil, errors.New("remote publisher has no streams")
+	}
+
 	session := m.session
 	if session == nil {
 		return nil, ErrNotConnected
@@ -710,27 +720,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 		"request": "add_remote_publisher",
 		"room":    roomId,
 		"id":      streamTypeUserIds[streamType],
-		"streams": []map[string]interface{}{
-			{
-				"mid":    "0",
-				"mindex": 0,
-				"type":   "audio",
-				"codec":  "opus",
-				"fec":    true,
-			},
-			{
-				"mid":       "1",
-				"mindex":    1,
-				"type":      "video",
-				"codec":     "vp8",
-				"simulcast": true,
-			},
-			{
-				"mid":    "2",
-				"mindex": 2,
-				"type":   "data",
-			},
-		},
+		"streams": streams,
 	})
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
@@ -761,7 +751,8 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 				deferred:  make(chan func(), 64),
 			},
 
-			id: controller.PublisherId(),
+			sdpReady: NewCloser(),
+			id:       controller.PublisherId(),
 		},
 
 		port:     int(port),

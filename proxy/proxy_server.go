@@ -721,7 +721,6 @@ func (p *proxyRemotePublisher) PublisherId() string {
 }
 
 func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher signaling.McuRemotePublisherProperties) error {
-	var conn *RemoteConnection
 	conn, err := p.proxy.getRemoteConnection(ctx, p.remoteUrl)
 	if err != nil {
 		return err
@@ -741,6 +740,26 @@ func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher si
 	}
 
 	return nil
+}
+
+func (p *proxyRemotePublisher) GetStreams(ctx context.Context) ([]signaling.PublisherStream, error) {
+	conn, err := p.proxy.getRemoteConnection(ctx, p.remoteUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := conn.RequestMessage(ctx, &signaling.ProxyClientMessage{
+		Type: "command",
+		Command: &signaling.CommandProxyClientMessage{
+			Type:     "get-publisher-streams",
+			ClientId: p.publisherId,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return response.Command.Streams, nil
 }
 
 func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, session *ProxySession, message *signaling.ProxyClientMessage) {
@@ -976,6 +995,35 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			Type: "command",
 			Command: &signaling.CommandProxyServerMessage{
 				Id: cmd.ClientId,
+			},
+		}
+		session.sendMessage(response)
+	case "get-publisher-streams":
+		client := s.GetClient(cmd.ClientId)
+		if client == nil {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		publisher, ok := client.(signaling.McuPublisher)
+		if !ok {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		streams, err := publisher.GetStreams(ctx)
+		if err != nil {
+			log.Printf("Could not get streams of publisher %s: %s", publisher.Id(), err)
+			session.sendMessage(message.NewWrappedErrorServerMessage(err))
+			return
+		}
+
+		response := &signaling.ProxyServerMessage{
+			Id:   message.Id,
+			Type: "command",
+			Command: &signaling.CommandProxyServerMessage{
+				Id:      cmd.ClientId,
+				Streams: streams,
 			},
 		}
 		session.sendMessage(response)

@@ -23,10 +23,25 @@ package signaling
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
+	"sync/atomic"
 
 	"github.com/notedit/janus-go"
+	"github.com/pion/sdp/v3"
+)
+
+const (
+	ExtensionUrlPlayoutDelay     = "http://www.webrtc.org/experiments/rtp-hdrext/playout-delay"
+	ExtensionUrlVideoOrientation = "urn:3gpp:video-orientation"
+)
+
+const (
+	sdpHasOffer  = 1
+	sdpHasAnswer = 2
 )
 
 type mcuJanusPublisher struct {
@@ -36,6 +51,10 @@ type mcuJanusPublisher struct {
 	bitrate    int
 	mediaTypes MediaType
 	stats      publisherStatsCounter
+	sdpFlags   Flags
+	sdpReady   *Closer
+	offerSdp   atomic.Pointer[sdp.SessionDescription]
+	answerSdp  atomic.Pointer[sdp.SessionDescription]
 }
 
 func (p *mcuJanusPublisher) handleEvent(event *janus.EventMsg) {
@@ -151,12 +170,54 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 	switch data.Type {
 	case "offer":
 		p.deferred <- func() {
-			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
-			defer cancel()
+			if data.offerSdp == nil {
+				// Should have been checked before.
+				go callback(errors.New("No sdp found in offer"), nil)
+				return
+			}
+
+			p.offerSdp.Store(data.offerSdp)
+			p.sdpFlags.Add(sdpHasOffer)
+			if p.sdpFlags.Get() == sdpHasAnswer|sdpHasOffer {
+				p.sdpReady.Close()
+			}
 
 			// TODO Tear down previous publisher and get a new one if sid does
 			// not match?
-			p.sendOffer(msgctx, jsep_msg, callback)
+			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+			defer cancel()
+
+			p.sendOffer(msgctx, jsep_msg, func(err error, jsep map[string]interface{}) {
+				if err != nil {
+					callback(err, jsep)
+					return
+				}
+
+				sdpData, found := jsep["sdp"]
+				if !found {
+					log.Printf("No sdp found in answer %+v", jsep)
+				} else {
+					sdpString, ok := sdpData.(string)
+					if !ok {
+						log.Printf("Invalid sdp found in answer %+v", jsep)
+					} else {
+						var answerSdp sdp.SessionDescription
+						if err := answerSdp.UnmarshalString(sdpString); err != nil {
+							log.Printf("Error parsing answer sdp %+v: %s", sdpString, err)
+							p.answerSdp.Store(nil)
+							p.sdpFlags.Remove(sdpHasAnswer)
+						} else {
+							p.answerSdp.Store(&answerSdp)
+							p.sdpFlags.Add(sdpHasAnswer)
+							if p.sdpFlags.Get() == sdpHasAnswer|sdpHasOffer {
+								p.sdpReady.Close()
+							}
+						}
+					}
+				}
+
+				callback(nil, jsep)
+			})
 		}
 	case "candidate":
 		p.deferred <- func() {
@@ -174,6 +235,150 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 	default:
 		go callback(fmt.Errorf("Unsupported message type: %s", data.Type), nil)
 	}
+}
+
+func getFmtpValue(fmtp string, key string) (string, bool) {
+	parts := strings.Split(fmtp, ";")
+	for _, part := range parts {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+
+		if strings.EqualFold(strings.TrimSpace(kv[0]), key) {
+			return strings.TrimSpace(kv[1]), true
+		}
+
+	}
+	return "", false
+}
+
+func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, error) {
+	offerSdp := p.offerSdp.Load()
+	answerSdp := p.answerSdp.Load()
+	if offerSdp == nil || answerSdp == nil {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-p.sdpReady.C:
+			offerSdp = p.offerSdp.Load()
+			answerSdp = p.answerSdp.Load()
+			if offerSdp == nil || answerSdp == nil {
+				// Only can happen on invalid SDPs.
+				return nil, errors.New("no offer and/or answer processed yet")
+			}
+		}
+	}
+
+	var streams []PublisherStream
+	for idx, m := range answerSdp.MediaDescriptions {
+		mid, found := m.Attribute(sdp.AttrKeyMID)
+		if !found {
+			continue
+		}
+
+		s := PublisherStream{
+			Mid:    mid,
+			Mindex: idx,
+			Type:   m.MediaName.Media,
+		}
+
+		if len(m.MediaName.Formats) == 0 {
+			continue
+		}
+
+		if strings.EqualFold(s.Type, "application") && strings.EqualFold(m.MediaName.Formats[0], "webrtc-datachannel") {
+			s.Type = "data"
+			streams = append(streams, s)
+			continue
+		}
+
+		pt, err := strconv.ParseInt(m.MediaName.Formats[0], 10, 8)
+		if err != nil {
+			continue
+		}
+
+		answerCodec, err := answerSdp.GetCodecForPayloadType(uint8(pt))
+		if err != nil {
+			continue
+		}
+
+		if strings.EqualFold(s.Type, "audio") {
+			s.Codec = answerCodec.Name
+			if value, found := getFmtpValue(answerCodec.Fmtp, "useinbandfec"); found && value == "1" {
+				s.Fec = true
+			}
+			if value, found := getFmtpValue(answerCodec.Fmtp, "usedtx"); found && value == "1" {
+				s.Dtx = true
+			}
+			if value, found := getFmtpValue(answerCodec.Fmtp, "stereo"); found && value == "1" {
+				s.Stereo = true
+			}
+		} else if strings.EqualFold(s.Type, "video") {
+			s.Codec = answerCodec.Name
+			// TODO: Determine if SVC is used.
+			s.Svc = false
+
+			if strings.EqualFold(answerCodec.Name, "vp9") {
+				// Parse VP9 profile from "profile-id=XXX"
+				// Exampe: "a=fmtp:98 profile-id=0"
+				if profile, found := getFmtpValue(answerCodec.Fmtp, "profile-id"); found {
+					s.ProfileVP9 = profile
+				}
+			} else if strings.EqualFold(answerCodec.Name, "h264") {
+				// Parse H.264 profile from "profile-level-id=XXX"
+				// Example: "a=fmtp:104 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
+				if profile, found := getFmtpValue(answerCodec.Fmtp, "profile-level-id"); found {
+					s.ProfileH264 = profile
+				}
+			}
+
+			var extmap sdp.ExtMap
+			for _, a := range m.Attributes {
+				switch a.Key {
+				case sdp.AttrKeyExtMap:
+					if err := extmap.Unmarshal(extmap.Name() + ":" + a.Value); err != nil {
+						log.Printf("Error parsing extmap %s: %s", a.Value, err)
+						continue
+					}
+
+					switch extmap.URI.String() {
+					case ExtensionUrlPlayoutDelay:
+						s.ExtIdPlayoutDelay = extmap.Value
+					case ExtensionUrlVideoOrientation:
+						s.ExtIdVideoOrientation = extmap.Value
+					}
+				case "simulcast":
+					s.Simulcast = true
+				case sdp.AttrKeySSRCGroup:
+					if strings.HasPrefix(a.Value, "SIM ") {
+						s.Simulcast = true
+					}
+				}
+			}
+
+			for _, a := range offerSdp.MediaDescriptions[idx].Attributes {
+				switch a.Key {
+				case "simulcast":
+					s.Simulcast = true
+				case sdp.AttrKeySSRCGroup:
+					if strings.HasPrefix(a.Value, "SIM ") {
+						s.Simulcast = true
+					}
+				}
+			}
+
+		} else if strings.EqualFold(s.Type, "data") { // nolint
+			// Already handled above.
+		} else {
+			log.Printf("Skip type %s", s.Type)
+			continue
+		}
+
+		streams = append(streams, s)
+	}
+
+	return streams, nil
 }
 
 func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error {
