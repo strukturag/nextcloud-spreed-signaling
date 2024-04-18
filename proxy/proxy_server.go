@@ -25,6 +25,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -118,6 +119,7 @@ type ProxyServer struct {
 
 	tokenId               string
 	tokenKey              *rsa.PrivateKey
+	remoteTlsConfig       *tls.Config
 	remoteHostname        string
 	remoteConnections     map[string]*RemoteConnection
 	remoteConnectionsLock sync.Mutex
@@ -237,6 +239,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 	tokenId, _ := config.GetString("app", "token_id")
 	var tokenKey *rsa.PrivateKey
 	var remoteHostname string
+	var remoteTlsConfig *tls.Config
 	if tokenId != "" {
 		tokenKeyFilename, _ := config.GetString("app", "token_key")
 		if tokenKeyFilename == "" {
@@ -263,6 +266,14 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 			log.Printf("WARNING: Could not determine hostname for remote streams, will be disabled. Please configure manually.")
 		} else {
 			log.Printf("Using \"%s\" as hostname for remote streams", remoteHostname)
+		}
+
+		skipverify, _ := config.GetBool("backend", "skipverify")
+		if skipverify {
+			log.Println("WARNING: Remote stream requests verification is disabled!")
+			remoteTlsConfig = &tls.Config{
+				InsecureSkipVerify: skipverify,
+			}
 		}
 	} else {
 		log.Printf("No token id configured, remote streams will be disabled")
@@ -293,6 +304,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 
 		tokenId:           tokenId,
 		tokenKey:          tokenKey,
+		remoteTlsConfig:   remoteTlsConfig,
 		remoteHostname:    remoteHostname,
 		remoteConnections: make(map[string]*RemoteConnection),
 	}
@@ -1305,7 +1317,7 @@ func (s *ProxyServer) getRemoteConnection(ctx context.Context, url string) (*Rem
 		return conn, nil
 	}
 
-	conn, err := NewRemoteConnection(url, s.tokenId, s.tokenKey)
+	conn, err := NewRemoteConnection(url, s.tokenId, s.tokenKey, s.remoteTlsConfig)
 	if err != nil {
 		return nil, err
 	}

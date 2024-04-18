@@ -36,6 +36,11 @@ tokentype = static
 # streams.
 #token_key = privkey.pem
 
+# If set to "true", certificate validation of remote stream requests will be
+# skipped. This should only be enabled during development, e.g. to work with
+# self-signed certificates.
+#skipverify = false
+
 [tokens]
 # For token type "static": Mapping of <tokenid> = <publickey> of signaling
 # servers allowed to connect.

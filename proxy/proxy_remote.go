@@ -51,8 +51,9 @@ type RemoteConnection struct {
 	url  *url.URL
 	conn *websocket.Conn
 
-	tokenId  string
-	tokenKey *rsa.PrivateKey
+	tokenId   string
+	tokenKey  *rsa.PrivateKey
+	tlsConfig *tls.Config
 
 	msgId      atomic.Int64
 	helloMsgId string
@@ -61,7 +62,7 @@ type RemoteConnection struct {
 	messageCallbacks map[string]chan *signaling.ProxyServerMessage
 }
 
-func NewRemoteConnection(proxyUrl string, tokenId string, tokenKey *rsa.PrivateKey) (*RemoteConnection, error) {
+func NewRemoteConnection(proxyUrl string, tokenId string, tokenKey *rsa.PrivateKey, tlsConfig *tls.Config) (*RemoteConnection, error) {
 	u, err := url.Parse(proxyUrl)
 	if err != nil {
 		return nil, err
@@ -70,8 +71,9 @@ func NewRemoteConnection(proxyUrl string, tokenId string, tokenKey *rsa.PrivateK
 	result := &RemoteConnection{
 		url: u,
 
-		tokenId:  tokenId,
-		tokenKey: tokenKey,
+		tokenId:   tokenId,
+		tokenKey:  tokenKey,
+		tlsConfig: tlsConfig,
 
 		messageCallbacks: make(map[string]chan *signaling.ProxyServerMessage),
 	}
@@ -101,11 +103,8 @@ func (c *RemoteConnection) Connect(ctx context.Context) error {
 	}
 
 	dialer := websocket.Dialer{
-		Proxy: http.ProxyFromEnvironment,
-		TLSClientConfig: &tls.Config{
-			// TODO: Make this configurable.
-			InsecureSkipVerify: true,
-		},
+		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig: c.tlsConfig,
 	}
 
 	conn, _, err := dialer.DialContext(ctx, u.String(), nil)
