@@ -1025,69 +1025,6 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, hostname string, 
 	return nil
 }
 
-type mcuJanusRemotePublisher struct {
-	mcuJanusClient
-
-	ref       atomic.Int64
-	publisher string
-	port      int
-	rtcpPort  int
-}
-
-func (p *mcuJanusRemotePublisher) addRef() int64 {
-	return p.ref.Add(1)
-}
-
-func (p *mcuJanusRemotePublisher) release() bool {
-	return p.ref.Add(-1) == 0
-}
-
-func (p *mcuJanusRemotePublisher) Port() int {
-	return p.port
-}
-
-func (p *mcuJanusRemotePublisher) RtcpPort() int {
-	return p.rtcpPort
-}
-
-func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
-	if !p.release() {
-		return
-	}
-
-	p.mu.Lock()
-	if handle := p.handle; handle != nil {
-		response, err := p.handle.Request(ctx, map[string]interface{}{
-			"request": "remove_remote_publisher",
-			"room":    p.roomId,
-			"id":      streamTypeUserIds[p.streamType],
-		})
-		if err != nil {
-			log.Printf("Error removing remote publisher %d in room %d: %s", p.id, p.roomId, err)
-		} else {
-			log.Printf("Removed remote publisher: %+v", response)
-		}
-		if p.roomId != 0 {
-			destroy_msg := map[string]interface{}{
-				"request": "destroy",
-				"room":    p.roomId,
-			}
-			if _, err := handle.Request(ctx, destroy_msg); err != nil {
-				log.Printf("Error destroying room %d: %s", p.roomId, err)
-			} else {
-				log.Printf("Room %d destroyed", p.roomId)
-			}
-			p.mcu.mu.Lock()
-			delete(p.mcu.remotePublishers, getStreamId(p.publisher, p.streamType))
-			p.mcu.mu.Unlock()
-			p.roomId = 0
-		}
-	}
-
-	p.closeClient(ctx)
-	p.mu.Unlock()
-}
-
 type mcuJanusSubscriber struct {
 	mcuJanusClient
 
@@ -1183,20 +1120,6 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 	return client, nil
 }
 
-type mcuJanusRemoteSubscriber struct {
-	mcuJanusSubscriber
-
-	remote atomic.Pointer[mcuJanusRemotePublisher]
-}
-
-func (s *mcuJanusRemoteSubscriber) Close(ctx context.Context) {
-	s.mcuJanusSubscriber.Close(ctx)
-
-	if remote := s.remote.Swap(nil); remote != nil {
-		remote.Close(context.Background())
-	}
-}
-
 func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller RemotePublisherController, streamType StreamType, bitrate int) (*mcuJanusRemotePublisher, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1261,26 +1184,35 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 	rtcp_port := getPluginIntValue(response.PluginData, pluginVideoRoom, "rtcp_port")
 
 	pub = &mcuJanusRemotePublisher{
-		mcuJanusClient: mcuJanusClient{
-			mcu: m,
+		mcuJanusPublisher: mcuJanusPublisher{
+			mcuJanusClient: mcuJanusClient{
+				mcu: m,
 
-			id:         id,
-			session:    response.Session,
-			roomId:     roomId,
-			sid:        strconv.FormatUint(handle.Id, 10),
-			streamType: streamType,
-			maxBitrate: bitrate,
+				id:         id,
+				session:    response.Session,
+				roomId:     roomId,
+				sid:        strconv.FormatUint(handle.Id, 10),
+				streamType: streamType,
+				maxBitrate: bitrate,
 
-			handle:    handle,
-			handleId:  handle.Id,
-			closeChan: make(chan struct{}, 1),
-			deferred:  make(chan func(), 64),
+				handle:    handle,
+				handleId:  handle.Id,
+				closeChan: make(chan struct{}, 1),
+				deferred:  make(chan func(), 64),
+			},
+
+			id: controller.PublisherId(),
 		},
 
-		publisher: controller.PublisherId(),
-		port:      int(port),
-		rtcpPort:  int(rtcp_port),
+		port:     int(port),
+		rtcpPort: int(rtcp_port),
 	}
+	pub.mcuJanusClient.handleEvent = pub.handleEvent
+	pub.mcuJanusClient.handleHangup = pub.handleHangup
+	pub.mcuJanusClient.handleDetached = pub.handleDetached
+	pub.mcuJanusClient.handleConnected = pub.handleConnected
+	pub.mcuJanusClient.handleSlowLink = pub.handleSlowLink
+	pub.mcuJanusClient.handleMedia = pub.handleMedia
 
 	if err := controller.StartPublishing(ctx, pub); err != nil {
 		go pub.Close(context.Background())
@@ -1326,7 +1258,7 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 		return nil, err
 	}
 
-	log.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, pub.publisher, pluginVideoRoom, session.Id, handle.Id)
+	log.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, pub.id, pluginVideoRoom, session.Id, handle.Id)
 
 	client := &mcuJanusRemoteSubscriber{
 		mcuJanusSubscriber: mcuJanusSubscriber{
@@ -1345,7 +1277,7 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 				closeChan: make(chan struct{}, 1),
 				deferred:  make(chan func(), 64),
 			},
-			publisher: pub.publisher,
+			publisher: pub.id,
 		},
 	}
 	client.remote.Store(pub)
