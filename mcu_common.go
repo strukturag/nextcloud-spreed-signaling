@@ -76,7 +76,18 @@ type Mcu interface {
 	GetStats() interface{}
 
 	NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error)
-	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType) (McuSubscriber, error)
+	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)
+}
+
+type RemotePublisherController interface {
+	PublisherId() string
+
+	StartPublishing(ctx context.Context, publisher McuRemotePublisherProperties) error
+}
+
+type RemoteMcu interface {
+	NewRemotePublisher(ctx context.Context, listener McuListener, controller RemotePublisherController, streamType StreamType) (McuRemotePublisher, error)
+	NewRemoteSubscriber(ctx context.Context, listener McuListener, publisher McuRemotePublisher) (McuRemoteSubscriber, error)
 }
 
 type StreamType string
@@ -116,10 +127,27 @@ type McuPublisher interface {
 
 	HasMedia(MediaType) bool
 	SetMedia(MediaType)
+
+	PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error
 }
 
 type McuSubscriber interface {
 	McuClient
 
 	Publisher() string
+}
+
+type McuRemotePublisherProperties interface {
+	Port() int
+	RtcpPort() int
+}
+
+type McuRemotePublisher interface {
+	McuClient
+
+	McuRemotePublisherProperties
+}
+
+type McuRemoteSubscriber interface {
+	McuSubscriber
 }

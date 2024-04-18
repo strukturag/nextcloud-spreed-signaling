@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -117,7 +118,7 @@ func (m *TestMCU) GetPublisher(id string) *TestMCUPublisher {
 	return m.publishers[id]
 }
 
-func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType) (McuSubscriber, error) {
+func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -220,6 +221,10 @@ func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClie
 			callback(fmt.Errorf("Message type %s is not implemented", data.Type), nil)
 		}
 	}()
+}
+
+func (p *TestMCUPublisher) PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error {
+	return errors.New("remote publishing not supported")
 }
 
 type TestMCUSubscriber struct {

@@ -25,6 +25,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"reflect"
@@ -53,6 +54,8 @@ const (
 )
 
 var (
+	ErrRemoteStreamsNotSupported = errors.New("Need Janus 1.1.0 for remote streams")
+
 	streamTypeUserIds = map[StreamType]uint64{
 		StreamTypeVideo:  videoPublisherUserId,
 		StreamTypeScreen: screenPublisherUserId,
@@ -143,6 +146,7 @@ type mcuJanus struct {
 	gw      *JanusGateway
 	session *JanusSession
 	handle  *JanusHandle
+
 	version int
 
 	closeChan chan struct{}
@@ -154,6 +158,7 @@ type mcuJanus struct {
 	publishers         map[string]*mcuJanusPublisher
 	publisherCreated   Notifier
 	publisherConnected Notifier
+	remotePublishers   map[string]*mcuJanusRemotePublisher
 
 	reconnectTimer    *time.Timer
 	reconnectInterval time.Duration
@@ -189,7 +194,8 @@ func NewMcuJanus(url string, config *goconf.ConfigFile) (Mcu, error) {
 		closeChan:        make(chan struct{}, 1),
 		clients:          make(map[clientInterface]bool),
 
-		publishers: make(map[string]*mcuJanusPublisher),
+		publishers:       make(map[string]*mcuJanusPublisher),
+		remotePublishers: make(map[string]*mcuJanusRemotePublisher),
 
 		reconnectInterval: initialReconnectInterval,
 	}
@@ -286,6 +292,10 @@ func (m *mcuJanus) ConnectionInterrupted() {
 
 func (m *mcuJanus) isMultistream() bool {
 	return m.version >= 1000
+}
+
+func (m *mcuJanus) hasRemotePublisher() bool {
+	return m.version >= 1100
 }
 
 func (m *mcuJanus) Start() error {
@@ -719,17 +729,7 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamTyp
 	}
 }
 
-func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, bitrate int) (*JanusHandle, uint64, uint64, int, error) {
-	session := m.session
-	if session == nil {
-		return nil, 0, 0, 0, ErrNotConnected
-	}
-	handle, err := session.Attach(ctx, pluginVideoRoom)
-	if err != nil {
-		return nil, 0, 0, 0, err
-	}
-
-	log.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
+func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id string, streamType StreamType, bitrate int) (uint64, int, error) {
 	create_msg := map[string]interface{}{
 		"request":     "create",
 		"description": getStreamId(id, streamType),
@@ -756,7 +756,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err2 := handle.Detach(ctx); err2 != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
-		return nil, 0, 0, 0, err
+		return 0, 0, err
 	}
 
 	roomId := getPluginIntValue(create_response.PluginData, pluginVideoRoom, "room")
@@ -764,10 +764,32 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		if _, err := handle.Detach(ctx); err != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err)
 		}
-		return nil, 0, 0, 0, fmt.Errorf("No room id received: %+v", create_response)
+		return 0, 0, fmt.Errorf("No room id received: %+v", create_response)
 	}
 
 	log.Println("Created room", roomId, create_response.PluginData)
+	return roomId, bitrate, nil
+}
+
+func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, bitrate int) (*JanusHandle, uint64, uint64, int, error) {
+	session := m.session
+	if session == nil {
+		return nil, 0, 0, 0, ErrNotConnected
+	}
+	handle, err := session.Attach(ctx, pluginVideoRoom)
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+
+	log.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
+
+	roomId, bitrate, err := m.createPublisherRoom(ctx, handle, id, streamType, bitrate)
+	if err != nil {
+		if _, err2 := handle.Detach(ctx); err2 != nil {
+			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+		}
+		return nil, 0, 0, 0, err
+	}
 
 	msg := map[string]interface{}{
 		"request": "join",
@@ -975,6 +997,97 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 	}
 }
 
+func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error {
+	msg := map[string]interface{}{
+		"request":      "publish_remotely",
+		"room":         p.roomId,
+		"publisher_id": streamTypeUserIds[p.streamType],
+		"remote_id":    p.id,
+		"host":         hostname,
+		"port":         port,
+		"rtcp_port":    rtcpPort,
+	}
+	response, err := p.handle.Request(ctx, msg)
+	if err != nil {
+		return err
+	}
+
+	errorMessage := getPluginStringValue(response.PluginData, pluginVideoRoom, "error")
+	errorCode := getPluginIntValue(response.PluginData, pluginVideoRoom, "error_code")
+	if errorMessage != "" || errorCode != 0 {
+		if errorMessage == "" {
+			errorMessage = "unknown error"
+		}
+		return fmt.Errorf("%s (%d)", errorMessage, errorCode)
+	}
+
+	log.Printf("Publishing %s to %s (port=%d, rtcpPort=%d)", p.id, hostname, port, rtcpPort)
+	return nil
+}
+
+type mcuJanusRemotePublisher struct {
+	mcuJanusClient
+
+	ref       atomic.Int64
+	publisher string
+	port      int
+	rtcpPort  int
+}
+
+func (p *mcuJanusRemotePublisher) addRef() int64 {
+	return p.ref.Add(1)
+}
+
+func (p *mcuJanusRemotePublisher) release() bool {
+	return p.ref.Add(-1) == 0
+}
+
+func (p *mcuJanusRemotePublisher) Port() int {
+	return p.port
+}
+
+func (p *mcuJanusRemotePublisher) RtcpPort() int {
+	return p.rtcpPort
+}
+
+func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
+	if !p.release() {
+		return
+	}
+
+	p.mu.Lock()
+	if handle := p.handle; handle != nil {
+		response, err := p.handle.Request(ctx, map[string]interface{}{
+			"request": "remove_remote_publisher",
+			"room":    p.roomId,
+			"id":      streamTypeUserIds[p.streamType],
+		})
+		if err != nil {
+			log.Printf("Error removing remote publisher %d in room %d: %s", p.id, p.roomId, err)
+		} else {
+			log.Printf("Removed remote publisher: %+v", response)
+		}
+		if p.roomId != 0 {
+			destroy_msg := map[string]interface{}{
+				"request": "destroy",
+				"room":    p.roomId,
+			}
+			if _, err := handle.Request(ctx, destroy_msg); err != nil {
+				log.Printf("Error destroying room %d: %s", p.roomId, err)
+			} else {
+				log.Printf("Room %d destroyed", p.roomId)
+			}
+			p.mcu.mu.Lock()
+			delete(p.mcu.remotePublishers, getStreamId(p.publisher, p.streamType))
+			p.mcu.mu.Unlock()
+			p.roomId = 0
+		}
+	}
+
+	p.closeClient(ctx)
+	p.mu.Unlock()
+}
+
 type mcuJanusSubscriber struct {
 	mcuJanusClient
 
@@ -1029,7 +1142,7 @@ func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher st
 	return handle, pub, nil
 }
 
-func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType) (McuSubscriber, error) {
+func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
 	}
@@ -1067,6 +1180,186 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 	go client.run(handle, client.closeChan)
 	statsSubscribersCurrent.WithLabelValues(string(streamType)).Inc()
 	statsSubscribersTotal.WithLabelValues(string(streamType)).Inc()
+	return client, nil
+}
+
+type mcuJanusRemoteSubscriber struct {
+	mcuJanusSubscriber
+
+	remote atomic.Pointer[mcuJanusRemotePublisher]
+}
+
+func (s *mcuJanusRemoteSubscriber) Close(ctx context.Context) {
+	s.mcuJanusSubscriber.Close(ctx)
+
+	if remote := s.remote.Swap(nil); remote != nil {
+		remote.Close(context.Background())
+	}
+}
+
+func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller RemotePublisherController, streamType StreamType, bitrate int) (*mcuJanusRemotePublisher, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pub, found := m.remotePublishers[getStreamId(controller.PublisherId(), streamType)]
+	if found {
+		return pub, nil
+	}
+
+	session := m.session
+	if session == nil {
+		return nil, ErrNotConnected
+	}
+
+	handle, err := session.Attach(ctx, pluginVideoRoom)
+	if err != nil {
+		return nil, err
+	}
+
+	roomId, bitrate, err := m.createPublisherRoom(ctx, handle, controller.PublisherId(), streamType, bitrate)
+	if err != nil {
+		if _, err2 := handle.Detach(ctx); err2 != nil {
+			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+		}
+		return nil, err
+	}
+
+	response, err := handle.Request(ctx, map[string]interface{}{
+		"request": "add_remote_publisher",
+		"room":    roomId,
+		"id":      streamTypeUserIds[streamType],
+		"streams": []map[string]interface{}{
+			{
+				"mid":    "0",
+				"mindex": 0,
+				"type":   "audio",
+				"codec":  "opus",
+				"fec":    true,
+			},
+			{
+				"mid":       "1",
+				"mindex":    1,
+				"type":      "video",
+				"codec":     "vp8",
+				"simulcast": true,
+			},
+			{
+				"mid":    "2",
+				"mindex": 2,
+				"type":   "data",
+			},
+		},
+	})
+	if err != nil {
+		if _, err2 := handle.Detach(ctx); err2 != nil {
+			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+		}
+		return nil, err
+	}
+
+	id := getPluginIntValue(response.PluginData, pluginVideoRoom, "id")
+	port := getPluginIntValue(response.PluginData, pluginVideoRoom, "port")
+	rtcp_port := getPluginIntValue(response.PluginData, pluginVideoRoom, "rtcp_port")
+
+	pub = &mcuJanusRemotePublisher{
+		mcuJanusClient: mcuJanusClient{
+			mcu: m,
+
+			id:         id,
+			session:    response.Session,
+			roomId:     roomId,
+			sid:        strconv.FormatUint(handle.Id, 10),
+			streamType: streamType,
+			maxBitrate: bitrate,
+
+			handle:    handle,
+			handleId:  handle.Id,
+			closeChan: make(chan struct{}, 1),
+			deferred:  make(chan func(), 64),
+		},
+
+		publisher: controller.PublisherId(),
+		port:      int(port),
+		rtcpPort:  int(rtcp_port),
+	}
+
+	if err := controller.StartPublishing(ctx, pub); err != nil {
+		go pub.Close(context.Background())
+		return nil, err
+	}
+
+	m.remotePublishers[getStreamId(controller.PublisherId(), streamType)] = pub
+
+	return pub, nil
+}
+
+func (m *mcuJanus) NewRemotePublisher(ctx context.Context, listener McuListener, controller RemotePublisherController, streamType StreamType) (McuRemotePublisher, error) {
+	if _, found := streamTypeUserIds[streamType]; !found {
+		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
+	}
+
+	if !m.hasRemotePublisher() {
+		return nil, ErrRemoteStreamsNotSupported
+	}
+
+	pub, err := m.getOrCreateRemotePublisher(ctx, controller, streamType, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	pub.addRef()
+	return pub, nil
+}
+
+func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener, publisher McuRemotePublisher) (McuRemoteSubscriber, error) {
+	pub, ok := publisher.(*mcuJanusRemotePublisher)
+	if !ok {
+		return nil, errors.New("unsupported remote publisher")
+	}
+
+	session := m.session
+	if session == nil {
+		return nil, ErrNotConnected
+	}
+
+	handle, err := session.Attach(ctx, pluginVideoRoom)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, pub.publisher, pluginVideoRoom, session.Id, handle.Id)
+
+	client := &mcuJanusRemoteSubscriber{
+		mcuJanusSubscriber: mcuJanusSubscriber{
+			mcuJanusClient: mcuJanusClient{
+				mcu:      m,
+				listener: listener,
+
+				id:         m.clientId.Add(1),
+				roomId:     pub.roomId,
+				sid:        strconv.FormatUint(handle.Id, 10),
+				streamType: publisher.StreamType(),
+				maxBitrate: pub.MaxBitrate(),
+
+				handle:    handle,
+				handleId:  handle.Id,
+				closeChan: make(chan struct{}, 1),
+				deferred:  make(chan func(), 64),
+			},
+			publisher: pub.publisher,
+		},
+	}
+	client.remote.Store(pub)
+	pub.addRef()
+	client.mcuJanusClient.handleEvent = client.handleEvent
+	client.mcuJanusClient.handleHangup = client.handleHangup
+	client.mcuJanusClient.handleDetached = client.handleDetached
+	client.mcuJanusClient.handleConnected = client.handleConnected
+	client.mcuJanusClient.handleSlowLink = client.handleSlowLink
+	client.mcuJanusClient.handleMedia = client.handleMedia
+	m.registerClient(client)
+	go client.run(handle, client.closeChan)
+	statsSubscribersCurrent.WithLabelValues(string(publisher.StreamType())).Inc()
+	statsSubscribersTotal.WithLabelValues(string(publisher.StreamType())).Inc()
 	return client, nil
 }
 

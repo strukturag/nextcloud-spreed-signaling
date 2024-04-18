@@ -26,6 +26,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -118,5 +119,40 @@ func TestTokenInFuture(t *testing.T) {
 		t.Errorf("should not have created session")
 	} else if err != TokenNotValidYet {
 		t.Errorf("could have failed with TokenNotValidYet, got %s", err)
+	}
+}
+
+func TestPublicIPs(t *testing.T) {
+	public := []string{
+		"8.8.8.8",
+		"172.15.1.2",
+		"172.32.1.2",
+		"192.167.0.1",
+		"192.169.0.1",
+	}
+	private := []string{
+		"127.0.0.1",
+		"10.1.2.3",
+		"172.16.1.2",
+		"172.31.1.2",
+		"192.168.0.1",
+		"192.168.254.254",
+	}
+	for _, s := range public {
+		ip := net.ParseIP(s)
+		if len(ip) == 0 {
+			t.Errorf("invalid IP: %s", s)
+		} else if !IsPublicIP(ip) {
+			t.Errorf("should be public IP: %s", s)
+		}
+	}
+
+	for _, s := range private {
+		ip := net.ParseIP(s)
+		if len(ip) == 0 {
+			t.Errorf("invalid IP: %s", s)
+		} else if IsPublicIP(ip) {
+			t.Errorf("should be private IP: %s", s)
+		}
 	}
 }

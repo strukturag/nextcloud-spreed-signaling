@@ -24,7 +24,9 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -63,6 +65,8 @@ const (
 
 	// Maximum age a token may have to prevent reuse of old tokens.
 	maxTokenAge = 5 * time.Minute
+
+	remotePublisherTimeout = 5 * time.Second
 )
 
 type ContextKey string
@@ -70,22 +74,24 @@ type ContextKey string
 var (
 	ContextKeySession = ContextKey("session")
 
-	TimeoutCreatingPublisher  = signaling.NewError("timeout", "Timeout creating publisher.")
-	TimeoutCreatingSubscriber = signaling.NewError("timeout", "Timeout creating subscriber.")
-	TokenAuthFailed           = signaling.NewError("auth_failed", "The token could not be authenticated.")
-	TokenExpired              = signaling.NewError("token_expired", "The token is expired.")
-	TokenNotValidYet          = signaling.NewError("token_not_valid_yet", "The token is not valid yet.")
-	UnknownClient             = signaling.NewError("unknown_client", "Unknown client id given.")
-	UnsupportedCommand        = signaling.NewError("bad_request", "Unsupported command received.")
-	UnsupportedMessage        = signaling.NewError("bad_request", "Unsupported message received.")
-	UnsupportedPayload        = signaling.NewError("unsupported_payload", "Unsupported payload type.")
-	ShutdownScheduled         = signaling.NewError("shutdown_scheduled", "The server is scheduled to shutdown.")
+	TimeoutCreatingPublisher      = signaling.NewError("timeout", "Timeout creating publisher.")
+	TimeoutCreatingSubscriber     = signaling.NewError("timeout", "Timeout creating subscriber.")
+	TokenAuthFailed               = signaling.NewError("auth_failed", "The token could not be authenticated.")
+	TokenExpired                  = signaling.NewError("token_expired", "The token is expired.")
+	TokenNotValidYet              = signaling.NewError("token_not_valid_yet", "The token is not valid yet.")
+	UnknownClient                 = signaling.NewError("unknown_client", "Unknown client id given.")
+	UnsupportedCommand            = signaling.NewError("bad_request", "Unsupported command received.")
+	UnsupportedMessage            = signaling.NewError("bad_request", "Unsupported message received.")
+	UnsupportedPayload            = signaling.NewError("unsupported_payload", "Unsupported payload type.")
+	ShutdownScheduled             = signaling.NewError("shutdown_scheduled", "The server is scheduled to shutdown.")
+	RemoteSubscribersNotSupported = signaling.NewError("unsupported_subscriber", "Remote subscribers are not supported.")
 )
 
 type ProxyServer struct {
 	version        string
 	country        string
 	welcomeMessage string
+	config         *goconf.ConfigFile
 
 	url     string
 	mcu     signaling.Mcu
@@ -109,6 +115,47 @@ type ProxyServer struct {
 	clients     map[string]signaling.McuClient
 	clientIds   map[string]string
 	clientsLock sync.RWMutex
+
+	tokenId               string
+	tokenKey              *rsa.PrivateKey
+	remoteHostname        string
+	remoteConnections     map[string]*RemoteConnection
+	remoteConnectionsLock sync.Mutex
+}
+
+func IsPublicIP(IP net.IP) bool {
+	if IP.IsLoopback() || IP.IsLinkLocalMulticast() || IP.IsLinkLocalUnicast() {
+		return false
+	}
+	if ip4 := IP.To4(); ip4 != nil {
+		switch {
+		case ip4[0] == 10:
+			return false
+		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
+			return false
+		case ip4[0] == 192 && ip4[1] == 168:
+			return false
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func GetLocalIP() (string, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", err
+	}
+
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && IsPublicIP(ipnet.IP) {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String(), nil
+			}
+		}
+	}
+	return "", nil
 }
 
 func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*ProxyServer, error) {
@@ -187,10 +234,45 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		return nil, err
 	}
 
+	tokenId, _ := config.GetString("app", "token_id")
+	var tokenKey *rsa.PrivateKey
+	var remoteHostname string
+	if tokenId != "" {
+		tokenKeyFilename, _ := config.GetString("app", "token_key")
+		if tokenKeyFilename == "" {
+			return nil, fmt.Errorf("No token key configured")
+		}
+		tokenKeyData, err := os.ReadFile(tokenKeyFilename)
+		if err != nil {
+			return nil, fmt.Errorf("Could not read private key from %s: %s", tokenKeyFilename, err)
+		}
+		tokenKey, err = jwt.ParseRSAPrivateKeyFromPEM(tokenKeyData)
+		if err != nil {
+			return nil, fmt.Errorf("Could not parse private key from %s: %s", tokenKeyFilename, err)
+		}
+		log.Printf("Using \"%s\" as token id for remote streams", tokenId)
+
+		remoteHostname, _ = config.GetString("app", "hostname")
+		if remoteHostname == "" {
+			remoteHostname, err = GetLocalIP()
+			if err != nil {
+				return nil, fmt.Errorf("could not get local ip: %w", err)
+			}
+		}
+		if remoteHostname == "" {
+			log.Printf("WARNING: Could not determine hostname for remote streams, will be disabled. Please configure manually.")
+		} else {
+			log.Printf("Using \"%s\" as hostname for remote streams", remoteHostname)
+		}
+	} else {
+		log.Printf("No token id configured, remote streams will be disabled")
+	}
+
 	result := &ProxyServer{
 		version:        version,
 		country:        country,
 		welcomeMessage: string(welcomeMessage) + "\n",
+		config:         config,
 
 		shutdownChannel: make(chan struct{}),
 
@@ -208,6 +290,11 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 
 		clients:   make(map[string]signaling.McuClient),
 		clientIds: make(map[string]string),
+
+		tokenId:           tokenId,
+		tokenKey:          tokenKey,
+		remoteHostname:    remoteHostname,
+		remoteConnections: make(map[string]*RemoteConnection),
 	}
 
 	result.upgrader.CheckOrigin = result.checkOrigin
@@ -610,6 +697,40 @@ func (i *emptyInitiator) Country() string {
 	return ""
 }
 
+type proxyRemotePublisher struct {
+	proxy     *ProxyServer
+	remoteUrl string
+
+	publisherId string
+}
+
+func (p *proxyRemotePublisher) PublisherId() string {
+	return p.publisherId
+}
+
+func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher signaling.McuRemotePublisherProperties) error {
+	var conn *RemoteConnection
+	conn, err := p.proxy.getRemoteConnection(ctx, p.remoteUrl)
+	if err != nil {
+		return err
+	}
+
+	if _, err := conn.RequestMessage(ctx, &signaling.ProxyClientMessage{
+		Type: "command",
+		Command: &signaling.CommandProxyClientMessage{
+			Type:     "publish-remote",
+			ClientId: p.publisherId,
+			Hostname: p.proxy.remoteHostname,
+			Port:     publisher.Port(),
+			RtcpPort: publisher.RtcpPort(),
+		},
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, session *ProxySession, message *signaling.ProxyClientMessage) {
 	cmd := message.Command
 
@@ -652,18 +773,89 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 	case "create-subscriber":
 		id := uuid.New().String()
 		publisherId := cmd.PublisherId
-		subscriber, err := s.mcu.NewSubscriber(ctx, session, publisherId, cmd.StreamType)
-		if err == context.DeadlineExceeded {
-			log.Printf("Timeout while creating %s subscriber on %s for %s", cmd.StreamType, publisherId, session.PublicId())
-			session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingSubscriber))
-			return
-		} else if err != nil {
+		var subscriber signaling.McuSubscriber
+		var err error
+
+		handleCreateError := func(err error) {
+			if err == context.DeadlineExceeded {
+				log.Printf("Timeout while creating %s subscriber on %s for %s", cmd.StreamType, publisherId, session.PublicId())
+				session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingSubscriber))
+				return
+			} else if errors.Is(err, signaling.ErrRemoteStreamsNotSupported) {
+				session.sendMessage(message.NewErrorServerMessage(RemoteSubscribersNotSupported))
+				return
+			}
+
 			log.Printf("Error while creating %s subscriber on %s for %s: %s", cmd.StreamType, publisherId, session.PublicId(), err)
 			session.sendMessage(message.NewWrappedErrorServerMessage(err))
-			return
 		}
 
-		log.Printf("Created %s subscriber %s as %s for %s", cmd.StreamType, subscriber.Id(), id, session.PublicId())
+		if cmd.RemoteUrl != "" {
+			if s.tokenId == "" || s.tokenKey == nil || s.remoteHostname == "" {
+				session.sendMessage(message.NewErrorServerMessage(RemoteSubscribersNotSupported))
+				return
+			}
+
+			remoteMcu, ok := s.mcu.(signaling.RemoteMcu)
+			if !ok {
+				session.sendMessage(message.NewErrorServerMessage(RemoteSubscribersNotSupported))
+				return
+			}
+
+			claims, _, err := s.parseToken(cmd.RemoteToken)
+			if err != nil {
+				if e, ok := err.(*signaling.Error); ok {
+					client.SendMessage(message.NewErrorServerMessage(e))
+				} else {
+					client.SendMessage(message.NewWrappedErrorServerMessage(err))
+				}
+				return
+			}
+
+			if claims.Subject != publisherId {
+				session.sendMessage(message.NewErrorServerMessage(TokenAuthFailed))
+				return
+			}
+
+			subCtx, cancel := context.WithTimeout(ctx, remotePublisherTimeout)
+			defer cancel()
+
+			log.Printf("Creating remote subscriber for %s on %s", publisherId, cmd.RemoteUrl)
+
+			controller := &proxyRemotePublisher{
+				proxy:       s,
+				remoteUrl:   cmd.RemoteUrl,
+				publisherId: publisherId,
+			}
+
+			var publisher signaling.McuRemotePublisher
+			publisher, err = remoteMcu.NewRemotePublisher(subCtx, session, controller, cmd.StreamType)
+			if err != nil {
+				handleCreateError(err)
+				return
+			}
+
+			defer func() {
+				go publisher.Close(context.Background())
+			}()
+
+			subscriber, err = remoteMcu.NewRemoteSubscriber(subCtx, session, publisher)
+			if err != nil {
+				handleCreateError(err)
+				return
+			}
+
+			log.Printf("Created remote %s subscriber %s as %s for %s on %s", cmd.StreamType, subscriber.Id(), id, session.PublicId(), cmd.RemoteUrl)
+		} else {
+			subscriber, err = s.mcu.NewSubscriber(ctx, session, publisherId, cmd.StreamType, &emptyInitiator{})
+			if err != nil {
+				handleCreateError(err)
+				return
+			}
+
+			log.Printf("Created %s subscriber %s as %s for %s", cmd.StreamType, subscriber.Id(), id, session.PublicId())
+		}
+
 		session.StoreSubscriber(ctx, id, subscriber)
 		s.StoreClient(id, subscriber)
 
@@ -739,6 +931,33 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			log.Printf("Closing %s subscriber %s as %s", client.StreamType(), client.Id(), cmd.ClientId)
 			client.Close(context.Background())
 		}()
+
+		response := &signaling.ProxyServerMessage{
+			Id:   message.Id,
+			Type: "command",
+			Command: &signaling.CommandProxyServerMessage{
+				Id: cmd.ClientId,
+			},
+		}
+		session.sendMessage(response)
+	case "publish-remote":
+		client := s.GetClient(cmd.ClientId)
+		if client == nil {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		publisher, ok := client.(signaling.McuPublisher)
+		if !ok {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		if err := publisher.PublishRemote(ctx, cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
+			log.Printf("Error publishing %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
+			session.sendMessage(message.NewWrappedErrorServerMessage(err))
+			return
+		}
 
 		response := &signaling.ProxyServerMessage{
 			Id:   message.Id,
@@ -830,13 +1049,9 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 	})
 }
 
-func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*ProxySession, error) {
-	if proxyDebugMessages {
-		log.Printf("Hello: %+v", hello)
-	}
-
+func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, string, error) {
 	reason := "auth-failed"
-	token, err := jwt.ParseWithClaims(hello.Token, &signaling.TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenValue, &signaling.TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		// Don't forget to validate the alg is what you expect:
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			log.Printf("Unexpected signing method: %v", token.Header["alg"])
@@ -868,25 +1083,35 @@ func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*Pro
 	})
 	if err, ok := err.(*jwt.ValidationError); ok {
 		if err.Errors&jwt.ValidationErrorIssuedAt == jwt.ValidationErrorIssuedAt {
-			statsTokenErrorsTotal.WithLabelValues("not-valid-yet").Inc()
-			return nil, TokenNotValidYet
+			return nil, "not-valid-yet", TokenNotValidYet
 		}
 	}
 	if err != nil {
-		statsTokenErrorsTotal.WithLabelValues(reason).Inc()
-		return nil, TokenAuthFailed
+		return nil, reason, TokenAuthFailed
 	}
 
 	claims, ok := token.Claims.(*signaling.TokenClaims)
 	if !ok || !token.Valid {
-		statsTokenErrorsTotal.WithLabelValues("auth-failed").Inc()
-		return nil, TokenAuthFailed
+		return nil, "auth-failed", TokenAuthFailed
 	}
 
 	minIssuedAt := time.Now().Add(-maxTokenAge)
 	if issuedAt := claims.IssuedAt; issuedAt != nil && issuedAt.Before(minIssuedAt) {
-		statsTokenErrorsTotal.WithLabelValues("expired").Inc()
-		return nil, TokenExpired
+		return nil, "expired", TokenExpired
+	}
+
+	return claims, "", nil
+}
+
+func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*ProxySession, error) {
+	if proxyDebugMessages {
+		log.Printf("Hello: %+v", hello)
+	}
+
+	claims, reason, err := s.parseToken(hello.Token)
+	if err != nil {
+		statsTokenErrorsTotal.WithLabelValues(reason).Inc()
+		return nil, err
 	}
 
 	sid := s.sid.Add(1)
@@ -999,6 +1224,22 @@ func (s *ProxyServer) GetClient(id string) signaling.McuClient {
 	return s.clients[id]
 }
 
+func (s *ProxyServer) GetPublisher(publisherId string) signaling.McuPublisher {
+	s.clientsLock.RLock()
+	defer s.clientsLock.RUnlock()
+	for _, c := range s.clients {
+		pub, ok := c.(signaling.McuPublisher)
+		if !ok {
+			continue
+		}
+
+		if pub.Id() == publisherId {
+			return pub
+		}
+	}
+	return nil
+}
+
 func (s *ProxyServer) GetClientId(client signaling.McuClient) string {
 	s.clientsLock.RLock()
 	defer s.clientsLock.RUnlock()
@@ -1053,4 +1294,26 @@ func (s *ProxyServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 func (s *ProxyServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	// Expose prometheus metrics at "/metrics".
 	promhttp.Handler().ServeHTTP(w, r)
+}
+
+func (s *ProxyServer) getRemoteConnection(ctx context.Context, url string) (*RemoteConnection, error) {
+	s.remoteConnectionsLock.Lock()
+	defer s.remoteConnectionsLock.Unlock()
+
+	conn, found := s.remoteConnections[url]
+	if found {
+		return conn, nil
+	}
+
+	conn, err := NewRemoteConnection(url, s.tokenId, s.tokenKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := conn.Connect(ctx); err != nil {
+		return nil, err
+	}
+
+	s.remoteConnections[url] = conn
+	return conn, nil
 }

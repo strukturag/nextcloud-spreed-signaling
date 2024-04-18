@@ -100,6 +100,9 @@ The running container can be configured through different environment variables:
 - `CONFIG`: Optional name of configuration file to use.
 - `HTTP_LISTEN`: Address of HTTP listener.
 - `COUNTRY`: Optional ISO 3166 country this proxy is located at.
+- `EXTERNAL_HOSTNAME`: The external hostname for remote streams. Will try to autodetect if omitted.
+- `TOKEN_ID`: Id of the token to use when connecting remote streams.
+- `TOKEN_KEY`: Private key for the configured token id.
 - `JANUS_URL`: Url to Janus server.
 - `MAX_STREAM_BITRATE`: Optional maximum bitrate for audio/video streams.
 - `MAX_SCREEN_BITRATE`: Optional maximum bitrate for screensharing streams.

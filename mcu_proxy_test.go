@@ -195,12 +195,14 @@ type testProxyServerSubscriber struct {
 	id  string
 	sid string
 	pub *testProxyServerPublisher
+
+	remoteUrl string
 }
 
 type testProxyServerClient struct {
 	t *testing.T
 
-	server         *testProxyServerHandler
+	server         *TestProxyServerHandler
 	ws             *websocket.Conn
 	processMessage proxyServerClientHandler
 
@@ -273,7 +275,20 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 			c.server.updateLoad(-1)
 		}
 	case "create-subscriber":
-		pub := c.server.getPublisher(msg.Command.PublisherId)
+		var pub *testProxyServerPublisher
+		if msg.Command.RemoteUrl != "" {
+			for _, server := range c.server.servers {
+				if server.URL != msg.Command.RemoteUrl {
+					continue
+				}
+
+				pub = server.getPublisher(msg.Command.PublisherId)
+				break
+			}
+		} else {
+			pub = c.server.getPublisher(msg.Command.PublisherId)
+		}
+
 		if pub == nil {
 			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("publisher %s not found", msg.Command.PublisherId))
 		} else {
@@ -292,6 +307,11 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 		if sub, found := c.server.deleteSubscriber(msg.Command.ClientId); !found {
 			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("subscriber %s not found", msg.Command.ClientId))
 		} else {
+			if msg.Command.RemoteUrl != sub.remoteUrl {
+				response = msg.NewWrappedErrorServerMessage(fmt.Errorf("remote subscriber %s not found", msg.Command.ClientId))
+				return response, nil
+			}
+
 			response = &ProxyServerMessage{
 				Id:   msg.Id,
 				Type: "command",
@@ -415,9 +435,12 @@ func (c *testProxyServerClient) run() {
 	}
 }
 
-type testProxyServerHandler struct {
+type TestProxyServerHandler struct {
 	t *testing.T
 
+	URL      string
+	server   *httptest.Server
+	servers  []*TestProxyServerHandler
 	upgrader *websocket.Upgrader
 	country  string
 
@@ -428,7 +451,7 @@ type testProxyServerHandler struct {
 	subscribers map[string]*testProxyServerSubscriber
 }
 
-func (h *testProxyServerHandler) createPublisher() *testProxyServerPublisher {
+func (h *TestProxyServerHandler) createPublisher() *testProxyServerPublisher {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	pub := &testProxyServerPublisher{
@@ -446,14 +469,14 @@ func (h *testProxyServerHandler) createPublisher() *testProxyServerPublisher {
 	return pub
 }
 
-func (h *testProxyServerHandler) getPublisher(id string) *testProxyServerPublisher {
+func (h *TestProxyServerHandler) getPublisher(id string) *testProxyServerPublisher {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	return h.publishers[id]
 }
 
-func (h *testProxyServerHandler) deletePublisher(id string) (*testProxyServerPublisher, bool) {
+func (h *TestProxyServerHandler) deletePublisher(id string) (*testProxyServerPublisher, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -466,7 +489,7 @@ func (h *testProxyServerHandler) deletePublisher(id string) (*testProxyServerPub
 	return pub, true
 }
 
-func (h *testProxyServerHandler) createSubscriber(pub *testProxyServerPublisher) *testProxyServerSubscriber {
+func (h *TestProxyServerHandler) createSubscriber(pub *testProxyServerPublisher) *testProxyServerSubscriber {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -487,7 +510,7 @@ func (h *testProxyServerHandler) createSubscriber(pub *testProxyServerPublisher)
 	return sub
 }
 
-func (h *testProxyServerHandler) deleteSubscriber(id string) (*testProxyServerSubscriber, bool) {
+func (h *TestProxyServerHandler) deleteSubscriber(id string) (*testProxyServerSubscriber, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -500,7 +523,7 @@ func (h *testProxyServerHandler) deleteSubscriber(id string) (*testProxyServerSu
 	return sub, true
 }
 
-func (h *testProxyServerHandler) updateLoad(delta int64) {
+func (h *TestProxyServerHandler) updateLoad(delta int64) {
 	if delta == 0 {
 		return
 	}
@@ -522,7 +545,7 @@ func (h *testProxyServerHandler) updateLoad(delta int64) {
 	}
 }
 
-func (h *testProxyServerHandler) sendLoad(c *testProxyServerClient) {
+func (h *TestProxyServerHandler) sendLoad(c *testProxyServerClient) {
 	c.sendMessage(&ProxyServerMessage{
 		Type: "event",
 		Event: &EventProxyServerMessage{
@@ -532,13 +555,13 @@ func (h *testProxyServerHandler) sendLoad(c *testProxyServerClient) {
 	})
 }
 
-func (h *testProxyServerHandler) removeClient(client *testProxyServerClient) {
+func (h *TestProxyServerHandler) removeClient(client *testProxyServerClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.clients, client.sessionId)
 }
 
-func (h *testProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *TestProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ws, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.t.Error(err)
@@ -559,11 +582,11 @@ func (h *testProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	go client.run()
 }
 
-func NewProxyServerForTest(t *testing.T, country string) *httptest.Server {
+func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler {
 	t.Helper()
 
 	upgrader := websocket.Upgrader{}
-	proxyHandler := &testProxyServerHandler{
+	proxyHandler := &TestProxyServerHandler{
 		t:           t,
 		upgrader:    &upgrader,
 		country:     country,
@@ -572,6 +595,8 @@ func NewProxyServerForTest(t *testing.T, country string) *httptest.Server {
 		subscribers: make(map[string]*testProxyServerSubscriber),
 	}
 	server := httptest.NewServer(proxyHandler)
+	proxyHandler.server = server
+	proxyHandler.URL = server.URL
 	t.Cleanup(func() {
 		server.Close()
 		proxyHandler.mu.Lock()
@@ -581,12 +606,12 @@ func NewProxyServerForTest(t *testing.T, country string) *httptest.Server {
 		}
 	})
 
-	return server
+	return proxyHandler
 }
 
 type proxyTestOptions struct {
 	etcd    *embed.Etcd
-	servers []*httptest.Server
+	servers []*TestProxyServerHandler
 }
 
 func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuProxy {
@@ -611,11 +636,12 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuP
 	var urls []string
 	waitingMap := make(map[string]bool)
 	if len(options.servers) == 0 {
-		options.servers = []*httptest.Server{
+		options.servers = []*TestProxyServerHandler{
 			NewProxyServerForTest(t, "DE"),
 		}
 	}
 	for _, s := range options.servers {
+		s.servers = options.servers
 		urls = append(urls, s.URL)
 		waitingMap[s.URL] = true
 	}
@@ -680,7 +706,7 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuP
 	return proxy
 }
 
-func newMcuProxyForTestWithServers(t *testing.T, servers []*httptest.Server) *mcuProxy {
+func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandler) *mcuProxy {
 	t.Helper()
 
 	return newMcuProxyForTestWithOptions(t, proxyTestOptions{
@@ -692,7 +718,7 @@ func newMcuProxyForTest(t *testing.T) *mcuProxy {
 	t.Helper()
 	server := NewProxyServerForTest(t, "DE")
 
-	return newMcuProxyForTestWithServers(t, []*httptest.Server{server})
+	return newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{server})
 }
 
 func Test_ProxyPublisherSubscriber(t *testing.T) {
@@ -722,7 +748,10 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 	subListener := &MockMcuListener{
 		publicId: "subscriber-public",
 	}
-	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo)
+	subInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -750,10 +779,13 @@ func Test_ProxyWaitForPublisher(t *testing.T) {
 	subListener := &MockMcuListener{
 		publicId: "subscriber-public",
 	}
+	subInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo)
+		sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
 		if err != nil {
 			t.Error(err)
 			return
@@ -783,7 +815,7 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 	t.Parallel()
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
-	mcu := newMcuProxyForTestWithServers(t, []*httptest.Server{
+	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		server1,
 		server2,
 	})
@@ -835,7 +867,7 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
-	mcu := newMcuProxyForTestWithServers(t, []*httptest.Server{
+	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		serverDE,
 		serverUS,
 	})
@@ -887,7 +919,7 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
-	mcu := newMcuProxyForTestWithServers(t, []*httptest.Server{
+	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		serverDE,
 		serverUS,
 	})
@@ -931,5 +963,55 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 
 	if pubFR.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
 		t.Errorf("expected server %s, go %s", serverDE.URL, pubFR.(*mcuProxyPublisher).conn.rawUrl)
+	}
+}
+
+func Test_ProxySubscriberCountry(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	serverDE := NewProxyServerForTest(t, "DE")
+	serverUS := NewProxyServerForTest(t, "US")
+	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
+		serverDE,
+		serverUS,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer pub.Close(context.Background())
+
+	if pub.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
+		t.Errorf("expected server %s, go %s", serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
+	}
+
+	subListener := &MockMcuListener{
+		publicId: "subscriber-public",
+	}
+	subInitiator := &MockMcuInitiator{
+		country: "US",
+	}
+	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer sub.Close(context.Background())
+
+	if sub.(*mcuProxySubscriber).conn.rawUrl != serverUS.URL {
+		t.Errorf("expected server %s, go %s", serverUS.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
 	}
 }

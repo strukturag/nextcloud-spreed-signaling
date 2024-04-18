@@ -24,6 +24,7 @@ package signaling
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 
 	"github.com/golang-jwt/jwt/v4"
 )
@@ -201,6 +202,14 @@ type CommandProxyClientMessage struct {
 	ClientId    string     `json:"clientId,omitempty"`
 	Bitrate     int        `json:"bitrate,omitempty"`
 	MediaTypes  MediaType  `json:"mediatypes,omitempty"`
+
+	RemoteUrl   string `json:"remoteUrl,omitempty"`
+	remoteUrl   *url.URL
+	RemoteToken string `json:"remoteToken,omitempty"`
+
+	Hostname string `json:"hostname,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	RtcpPort int    `json:"rtcpPort,omitempty"`
 }
 
 func (m *CommandProxyClientMessage) CheckValid() error {
@@ -217,6 +226,17 @@ func (m *CommandProxyClientMessage) CheckValid() error {
 		}
 		if m.StreamType == "" {
 			return fmt.Errorf("stream type missing")
+		}
+		if m.RemoteUrl != "" {
+			if m.RemoteToken == "" {
+				return fmt.Errorf("remote token missing")
+			}
+
+			remoteUrl, err := url.Parse(m.RemoteUrl)
+			if err != nil {
+				return fmt.Errorf("invalid remote url: %w", err)
+			}
+			m.remoteUrl = remoteUrl
 		}
 	case "delete-publisher":
 		fallthrough
