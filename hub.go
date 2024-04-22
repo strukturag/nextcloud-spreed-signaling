@@ -78,6 +78,9 @@ var (
 	// Anonymous clients have to join a room after 10 seconds.
 	anonmyousJoinRoomTimeout = 10 * time.Second
 
+	// Sessions expire 30 seconds after the connection closed.
+	sessionExpireDuration = 30 * time.Second
+
 	// Run housekeeping jobs once per second
 	housekeepingInterval = time.Second
 
@@ -148,7 +151,7 @@ type Hub struct {
 
 	allowSubscribeAnyStream bool
 
-	expiredSessions    map[Session]bool
+	expiredSessions    map[Session]time.Time
 	anonymousSessions  map[*ClientSession]time.Time
 	expectHelloClients map[*Client]time.Time
 	dialoutSessions    map[*ClientSession]bool
@@ -336,7 +339,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 
 		allowSubscribeAnyStream: allowSubscribeAnyStream,
 
-		expiredSessions:    make(map[Session]bool),
+		expiredSessions:    make(map[Session]time.Time),
 		anonymousSessions:  make(map[*ClientSession]time.Time),
 		expectHelloClients: make(map[*Client]time.Time),
 		dialoutSessions:    make(map[*ClientSession]bool),
@@ -600,14 +603,14 @@ func (h *Hub) GetDialoutSession(roomId string, backend *Backend) *ClientSession 
 }
 
 func (h *Hub) checkExpiredSessions(now time.Time) {
-	for s := range h.expiredSessions {
-		if s.IsExpired(now) {
+	for session, expires := range h.expiredSessions {
+		if now.After(expires) {
 			h.mu.Unlock()
-			log.Printf("Closing expired session %s (private=%s)", s.PublicId(), s.PrivateId())
-			s.Close()
+			log.Printf("Closing expired session %s (private=%s)", session.PublicId(), session.PrivateId())
+			session.Close()
 			h.mu.Lock()
 			// Should already be deleted by the close code, but better be sure.
-			delete(h.expiredSessions, s)
+			delete(h.expiredSessions, session)
 		}
 	}
 }
@@ -848,7 +851,8 @@ func (h *Hub) processUnregister(client *Client) *ClientSession {
 	delete(h.expectHelloClients, client)
 	if session != nil {
 		delete(h.clients, session.Data().Sid)
-		session.StartExpire()
+		now := time.Now()
+		h.expiredSessions[session] = now.Add(sessionExpireDuration)
 	}
 	h.mu.Unlock()
 	if session != nil {
@@ -980,7 +984,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 			prev.SendByeResponseWithReason(nil, "session_resumed")
 		}
 
-		clientSession.StopExpire()
+		delete(h.expiredSessions, clientSession)
 		h.clients[data.Sid] = client
 		delete(h.expectHelloClients, client)
 		h.mu.Unlock()

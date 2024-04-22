@@ -27,7 +27,6 @@ import (
 	"log"
 	"net/url"
 	"sync/atomic"
-	"time"
 )
 
 const (
@@ -158,10 +157,6 @@ func (s *VirtualSession) LeaveRoom(notify bool) *Room {
 	s.SetRoom(nil)
 	room.RemoveSession(s)
 	return room
-}
-
-func (s *VirtualSession) IsExpired(now time.Time) bool {
-	return false
 }
 
 func (s *VirtualSession) Close() {

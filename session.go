@@ -69,7 +69,6 @@ type Session interface {
 	GetRoom() *Room
 	LeaveRoom(notify bool) *Room
 
-	IsExpired(now time.Time) bool
 	Close()
 
 	HasPermission(permission Permission) bool
