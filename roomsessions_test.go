@@ -26,7 +26,6 @@ import (
 	"errors"
 	"net/url"
 	"testing"
-	"time"
 )
 
 type DummySession struct {
@@ -78,10 +77,6 @@ func (s *DummySession) GetRoom() *Room {
 
 func (s *DummySession) LeaveRoom(notify bool) *Room {
 	return nil
-}
-
-func (s *DummySession) IsExpired(now time.Time) bool {
-	return false
 }
 
 func (s *DummySession) Close() {

@@ -36,9 +36,6 @@ import (
 )
 
 var (
-	// Sessions expire 30 seconds after the connection closed.
-	sessionExpireDuration = 30 * time.Second
-
 	// Warn if a session has 32 or more pending messages.
 	warnPendingMessagesCount = 32
 
@@ -67,8 +64,6 @@ type ClientSession struct {
 	backend          *Backend
 	backendUrl       string
 	parsedBackendUrl *url.URL
-
-	expires time.Time
 
 	mu sync.Mutex
 
@@ -311,21 +306,6 @@ func (s *ClientSession) UserId() string {
 
 func (s *ClientSession) UserData() *json.RawMessage {
 	return s.userData
-}
-
-func (s *ClientSession) StartExpire() {
-	// The hub mutex must be held when calling this method.
-	s.expires = time.Now().Add(sessionExpireDuration)
-	s.hub.expiredSessions[s] = true
-}
-
-func (s *ClientSession) StopExpire() {
-	// The hub mutex must be held when calling this method.
-	delete(s.hub.expiredSessions, s)
-}
-
-func (s *ClientSession) IsExpired(now time.Time) bool {
-	return now.After(s.expires)
 }
 
 func (s *ClientSession) SetRoom(room *Room) {
