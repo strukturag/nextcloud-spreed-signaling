@@ -381,16 +381,16 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 	return streams, nil
 }
 
-func getPublisherRemoteId(id string, hostname string) string {
-	return fmt.Sprintf("%s@%s", id, hostname)
+func getPublisherRemoteId(id string, remoteId string) string {
+	return fmt.Sprintf("%s@%s", id, remoteId)
 }
 
-func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error {
+func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
 	msg := map[string]interface{}{
 		"request":      "publish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],
-		"remote_id":    getPublisherRemoteId(p.id, hostname),
+		"remote_id":    getPublisherRemoteId(p.id, remoteId),
 		"host":         hostname,
 		"port":         port,
 		"rtcp_port":    rtcpPort,
@@ -418,16 +418,16 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, hostname string, 
 		}
 	}
 
-	log.Printf("Publishing %s to %s (port=%d, rtcpPort=%d)", p.id, hostname, port, rtcpPort)
+	log.Printf("Publishing %s to %s (port=%d, rtcpPort=%d) for %s", p.id, hostname, port, rtcpPort, remoteId)
 	return nil
 }
 
-func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, hostname string) error {
+func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId string) error {
 	msg := map[string]interface{}{
 		"request":      "unpublish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],
-		"remote_id":    getPublisherRemoteId(p.id, hostname),
+		"remote_id":    getPublisherRemoteId(p.id, remoteId),
 	}
 	response, err := p.handle.Request(ctx, msg)
 	if err != nil {
@@ -452,6 +452,6 @@ func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, hostname string
 		}
 	}
 
-	log.Printf("Unpublished %s to %s", p.id, hostname)
+	log.Printf("Unpublished remote %s for %s", p.id, remoteId)
 	return nil
 }

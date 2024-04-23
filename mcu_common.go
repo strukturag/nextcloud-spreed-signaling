@@ -159,8 +159,8 @@ type McuPublisher interface {
 	SetMedia(MediaType)
 
 	GetStreams(ctx context.Context) ([]PublisherStream, error)
-	PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error
-	UnpublishRemote(ctx context.Context, hostname string) error
+	PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error
+	UnpublishRemote(ctx context.Context, remoteId string) error
 }
 
 type McuSubscriber interface {

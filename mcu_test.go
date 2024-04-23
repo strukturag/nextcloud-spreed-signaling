@@ -227,11 +227,11 @@ func (p *TestMCUPublisher) GetStreams(ctx context.Context) ([]PublisherStream, e
 	return nil, errors.New("not implemented")
 }
 
-func (p *TestMCUPublisher) PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error {
+func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
 	return errors.New("remote publishing not supported")
 }
 
-func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, hostname string) error {
+func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId string) error {
 	return errors.New("remote publishing not supported")
 }
 

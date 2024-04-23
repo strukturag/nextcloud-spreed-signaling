@@ -48,6 +48,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
+	"github.com/notedit/janus-go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
@@ -984,10 +985,25 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		if err := publisher.PublishRemote(ctx, cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
-			log.Printf("Error publishing %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
-			session.sendMessage(message.NewWrappedErrorServerMessage(err))
-			return
+		if err := publisher.PublishRemote(ctx, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
+			var je *janus.ErrorMsg
+			if !errors.As(err, &je) || je.Err.Code != signaling.JANUS_VIDEOROOM_ERROR_ID_EXISTS {
+				log.Printf("Error publishing %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
+				session.sendMessage(message.NewWrappedErrorServerMessage(err))
+				return
+			}
+
+			if err := publisher.UnpublishRemote(ctx, session.PublicId()); err != nil {
+				log.Printf("Error unpublishing old %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
+				session.sendMessage(message.NewWrappedErrorServerMessage(err))
+				return
+			}
+
+			if err := publisher.PublishRemote(ctx, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
+				log.Printf("Error publishing %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
+				session.sendMessage(message.NewWrappedErrorServerMessage(err))
+				return
+			}
 		}
 
 		response := &signaling.ProxyServerMessage{
