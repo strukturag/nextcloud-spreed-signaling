@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"errors"
 	"log"
 	"os"
@@ -54,7 +55,9 @@ type FileWatcher struct {
 	target   string
 	callback FileWatcherCallback
 
-	watcher *fsnotify.Watcher
+	watcher   *fsnotify.Watcher
+	closeCtx  context.Context
+	closeFunc context.CancelFunc
 }
 
 func NewFileWatcher(filename string, callback FileWatcherCallback) (*FileWatcher, error) {
@@ -78,17 +81,23 @@ func NewFileWatcher(filename string, callback FileWatcherCallback) (*FileWatcher
 		return nil, err
 	}
 
+	closeCtx, closeFunc := context.WithCancel(context.Background())
+
 	w := &FileWatcher{
 		filename: filename,
 		target:   realFilename,
 		callback: callback,
 		watcher:  watcher,
+
+		closeCtx:  closeCtx,
+		closeFunc: closeFunc,
 	}
 	go w.run()
 	return w, nil
 }
 
 func (f *FileWatcher) Close() error {
+	f.closeFunc()
 	return f.watcher.Close()
 }
 
@@ -152,6 +161,8 @@ func (f *FileWatcher) run() {
 			}
 
 			log.Printf("Error watching %s: %s", f.filename, err)
+		case <-f.closeCtx.Done():
+			return
 		}
 	}
 }

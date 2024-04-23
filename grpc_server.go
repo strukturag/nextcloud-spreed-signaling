@@ -108,6 +108,9 @@ func (s *GrpcServer) Run() error {
 
 func (s *GrpcServer) Close() {
 	s.conn.GracefulStop()
+	if cr, ok := s.creds.(*reloadableCredentials); ok {
+		cr.Close()
+	}
 }
 
 func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSessionIdRequest) (*LookupSessionIdReply, error) {

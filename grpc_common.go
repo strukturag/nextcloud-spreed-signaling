@@ -125,6 +125,15 @@ func (c *reloadableCredentials) OverrideServerName(serverName string) error {
 	return nil
 }
 
+func (c *reloadableCredentials) Close() {
+	if c.loader != nil {
+		c.loader.Close()
+	}
+	if c.pool != nil {
+		c.pool.Close()
+	}
+}
+
 func NewReloadableCredentials(config *goconf.ConfigFile, server bool) (credentials.TransportCredentials, error) {
 	var prefix string
 	var caPrefix string
