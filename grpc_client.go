@@ -490,6 +490,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 		entry, found := clientsMap[target]
 		if !found {
 			entry = &grpcClientsList{}
+			clientsMap[target] = entry
 		}
 		entry.clients = append(entry.clients, client)
 		clients = append(clients, client)
