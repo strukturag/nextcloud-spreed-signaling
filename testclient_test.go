@@ -311,12 +311,14 @@ func (c *TestClient) WaitForClientRemoved(ctx context.Context) error {
 	for {
 		found := false
 		for _, client := range c.hub.clients {
-			client.mu.Lock()
-			conn := client.conn
-			client.mu.Unlock()
-			if conn != nil && conn.RemoteAddr().String() == c.localAddr.String() {
-				found = true
-				break
+			if cc, ok := client.(*Client); ok {
+				cc.mu.Lock()
+				conn := cc.conn
+				cc.mu.Unlock()
+				if conn != nil && conn.RemoteAddr().String() == c.localAddr.String() {
+					found = true
+					break
+				}
 			}
 		}
 		if !found {

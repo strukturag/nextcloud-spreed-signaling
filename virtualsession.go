@@ -51,7 +51,7 @@ type VirtualSession struct {
 	options   *AddSessionOptions
 }
 
-func GetVirtualSessionId(session *ClientSession, sessionId string) string {
+func GetVirtualSessionId(session Session, sessionId string) string {
 	return session.PublicId() + "|" + sessionId
 }
 
@@ -163,7 +163,7 @@ func (s *VirtualSession) Close() {
 	s.CloseWithFeedback(nil, nil)
 }
 
-func (s *VirtualSession) CloseWithFeedback(session *ClientSession, message *ClientMessage) {
+func (s *VirtualSession) CloseWithFeedback(session Session, message *ClientMessage) {
 	room := s.GetRoom()
 	s.session.RemoveVirtualSession(s)
 	removed := s.session.hub.removeSession(s)
@@ -173,7 +173,7 @@ func (s *VirtualSession) CloseWithFeedback(session *ClientSession, message *Clie
 	s.session.events.UnregisterSessionListener(s.PublicId(), s.session.Backend(), s)
 }
 
-func (s *VirtualSession) notifyBackendRemoved(room *Room, session *ClientSession, message *ClientMessage) {
+func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, message *ClientMessage) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.hub.backendTimeout)
 	defer cancel()
 
@@ -320,4 +320,12 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 			}
 		}
 	}
+}
+
+func (s *VirtualSession) SendError(e *Error) bool {
+	return s.session.SendError(e)
+}
+
+func (s *VirtualSession) SendMessage(message *ServerMessage) bool {
+	return s.session.SendMessage(message)
 }

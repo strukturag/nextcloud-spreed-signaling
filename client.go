@@ -92,14 +92,32 @@ type WritableClientMessage interface {
 	CloseAfterSend(session Session) bool
 }
 
+type HandlerClient interface {
+	RemoteAddr() string
+	Country() string
+	UserAgent() string
+	IsConnected() bool
+	IsAuthenticated() bool
+
+	GetSession() Session
+	SetSession(session Session)
+
+	SendError(e *Error) bool
+	SendByeResponse(message *ClientMessage) bool
+	SendByeResponseWithReason(message *ClientMessage, reason string) bool
+	SendMessage(message WritableClientMessage) bool
+
+	Close()
+}
+
 type ClientHandler interface {
-	OnClosed(*Client)
-	OnMessageReceived(*Client, []byte)
-	OnRTTReceived(*Client, time.Duration)
+	OnClosed(HandlerClient)
+	OnMessageReceived(HandlerClient, []byte)
+	OnRTTReceived(HandlerClient, time.Duration)
 }
 
 type ClientGeoIpHandler interface {
-	OnLookupCountry(*Client) string
+	OnLookupCountry(HandlerClient) string
 }
 
 type Client struct {
@@ -111,7 +129,8 @@ type Client struct {
 	country *string
 	logRTT  bool
 
-	session atomic.Pointer[ClientSession]
+	session   atomic.Pointer[Session]
+	sessionId atomic.Pointer[string]
 
 	mu sync.Mutex
 
@@ -142,10 +161,14 @@ func NewClient(conn *websocket.Conn, remoteAddress string, agent string, handler
 func (c *Client) SetConn(conn *websocket.Conn, remoteAddress string, handler ClientHandler) {
 	c.conn = conn
 	c.addr = remoteAddress
-	c.handler = handler
+	c.SetHandler(handler)
 	c.closer = NewCloser()
 	c.messageChan = make(chan *bytes.Buffer, 16)
 	c.messagesDone = make(chan struct{})
+}
+
+func (c *Client) SetHandler(handler ClientHandler) {
+	c.handler = handler
 }
 
 func (c *Client) IsConnected() bool {
@@ -156,12 +179,39 @@ func (c *Client) IsAuthenticated() bool {
 	return c.GetSession() != nil
 }
 
-func (c *Client) GetSession() *ClientSession {
-	return c.session.Load()
+func (c *Client) GetSession() Session {
+	session := c.session.Load()
+	if session == nil {
+		return nil
+	}
+
+	return *session
 }
 
-func (c *Client) SetSession(session *ClientSession) {
-	c.session.Store(session)
+func (c *Client) SetSession(session Session) {
+	if session == nil {
+		c.session.Store(nil)
+	} else {
+		c.session.Store(&session)
+	}
+}
+
+func (c *Client) SetSessionId(sessionId string) {
+	c.sessionId.Store(&sessionId)
+}
+
+func (c *Client) GetSessionId() string {
+	sessionId := c.sessionId.Load()
+	if sessionId == nil {
+		session := c.GetSession()
+		if session == nil {
+			return ""
+		}
+
+		return session.PublicId()
+	}
+
+	return *sessionId
 }
 
 func (c *Client) RemoteAddr() string {
@@ -234,12 +284,14 @@ func (c *Client) SendByeResponse(message *ClientMessage) bool {
 func (c *Client) SendByeResponseWithReason(message *ClientMessage, reason string) bool {
 	response := &ServerMessage{
 		Type: "bye",
-		Bye:  &ByeServerMessage{},
 	}
 	if message != nil {
 		response.Id = message.Id
 	}
 	if reason != "" {
+		if response.Bye == nil {
+			response.Bye = &ByeServerMessage{}
+		}
 		response.Bye.Reason = reason
 	}
 	return c.SendMessage(response)
@@ -277,8 +329,8 @@ func (c *Client) ReadPump() {
 			rtt := now.Sub(time.Unix(0, ts))
 			if c.logRTT {
 				rtt_ms := rtt.Nanoseconds() / time.Millisecond.Nanoseconds()
-				if session := c.GetSession(); session != nil {
-					log.Printf("Client %s has RTT of %d ms (%s)", session.PublicId(), rtt_ms, rtt)
+				if sessionId := c.GetSessionId(); sessionId != "" {
+					log.Printf("Client %s has RTT of %d ms (%s)", sessionId, rtt_ms, rtt)
 				} else {
 					log.Printf("Client from %s has RTT of %d ms (%s)", addr, rtt_ms, rtt)
 				}
@@ -296,8 +348,8 @@ func (c *Client) ReadPump() {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				if session := c.GetSession(); session != nil {
-					log.Printf("Error reading from client %s: %v", session.PublicId(), err)
+				if sessionId := c.GetSessionId(); sessionId != "" {
+					log.Printf("Error reading from client %s: %v", sessionId, err)
 				} else {
 					log.Printf("Error reading from %s: %v", addr, err)
 				}
@@ -306,8 +358,8 @@ func (c *Client) ReadPump() {
 		}
 
 		if messageType != websocket.TextMessage {
-			if session := c.GetSession(); session != nil {
-				log.Printf("Unsupported message type %v from client %s", messageType, session.PublicId())
+			if sessionId := c.GetSessionId(); sessionId != "" {
+				log.Printf("Unsupported message type %v from client %s", messageType, sessionId)
 			} else {
 				log.Printf("Unsupported message type %v from %s", messageType, addr)
 			}
@@ -319,8 +371,8 @@ func (c *Client) ReadPump() {
 		decodeBuffer.Reset()
 		if _, err := decodeBuffer.ReadFrom(reader); err != nil {
 			bufferPool.Put(decodeBuffer)
-			if session := c.GetSession(); session != nil {
-				log.Printf("Error reading message from client %s: %v", session.PublicId(), err)
+			if sessionId := c.GetSessionId(); sessionId != "" {
+				log.Printf("Error reading message from client %s: %v", sessionId, err)
 			} else {
 				log.Printf("Error reading message from %s: %v", addr, err)
 			}
@@ -373,8 +425,8 @@ func (c *Client) writeInternal(message json.Marshaler) bool {
 			return false
 		}
 
-		if session := c.GetSession(); session != nil {
-			log.Printf("Could not send message %+v to client %s: %v", message, session.PublicId(), err)
+		if sessionId := c.GetSessionId(); sessionId != "" {
+			log.Printf("Could not send message %+v to client %s: %v", message, sessionId, err)
 		} else {
 			log.Printf("Could not send message %+v to %s: %v", message, c.RemoteAddr(), err)
 		}
@@ -386,8 +438,8 @@ func (c *Client) writeInternal(message json.Marshaler) bool {
 close:
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.CloseMessage, closeData); err != nil {
-		if session := c.GetSession(); session != nil {
-			log.Printf("Could not send close message to client %s: %v", session.PublicId(), err)
+		if sessionId := c.GetSessionId(); sessionId != "" {
+			log.Printf("Could not send close message to client %s: %v", sessionId, err)
 		} else {
 			log.Printf("Could not send close message to %s: %v", c.RemoteAddr(), err)
 		}
@@ -413,8 +465,8 @@ func (c *Client) writeError(e error) bool { // nolint
 	closeData := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, e.Error())
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.CloseMessage, closeData); err != nil {
-		if session := c.GetSession(); session != nil {
-			log.Printf("Could not send close message to client %s: %v", session.PublicId(), err)
+		if sessionId := c.GetSessionId(); sessionId != "" {
+			log.Printf("Could not send close message to client %s: %v", sessionId, err)
 		} else {
 			log.Printf("Could not send close message to %s: %v", c.RemoteAddr(), err)
 		}
@@ -462,8 +514,8 @@ func (c *Client) sendPing() bool {
 	msg := strconv.FormatInt(now, 10)
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
-		if session := c.GetSession(); session != nil {
-			log.Printf("Could not send ping to client %s: %v", session.PublicId(), err)
+		if sessionId := c.GetSessionId(); sessionId != "" {
+			log.Printf("Could not send ping to client %s: %v", sessionId, err)
 		} else {
 			log.Printf("Could not send ping to %s: %v", c.RemoteAddr(), err)
 		}

@@ -53,18 +53,18 @@ func (c *ProxyClient) SetSession(session *ProxySession) {
 	c.session.Store(session)
 }
 
-func (c *ProxyClient) OnClosed(client *signaling.Client) {
+func (c *ProxyClient) OnClosed(client signaling.HandlerClient) {
 	if session := c.GetSession(); session != nil {
 		session.MarkUsed()
 	}
 	c.proxy.clientClosed(&c.Client)
 }
 
-func (c *ProxyClient) OnMessageReceived(client *signaling.Client, data []byte) {
+func (c *ProxyClient) OnMessageReceived(client signaling.HandlerClient, data []byte) {
 	c.proxy.processMessage(c, data)
 }
 
-func (c *ProxyClient) OnRTTReceived(client *signaling.Client, rtt time.Duration) {
+func (c *ProxyClient) OnRTTReceived(client signaling.HandlerClient, rtt time.Duration) {
 	if session := c.GetSession(); session != nil {
 		session.MarkUsed()
 	}

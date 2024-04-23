@@ -135,7 +135,7 @@ type Hub struct {
 	ru sync.RWMutex
 
 	sid      atomic.Uint64
-	clients  map[uint64]*Client
+	clients  map[uint64]HandlerClient
 	sessions map[uint64]Session
 	rooms    map[string]*Room
 
@@ -153,7 +153,7 @@ type Hub struct {
 
 	expiredSessions    map[Session]time.Time
 	anonymousSessions  map[*ClientSession]time.Time
-	expectHelloClients map[*Client]time.Time
+	expectHelloClients map[HandlerClient]time.Time
 	dialoutSessions    map[*ClientSession]bool
 
 	backendTimeout time.Duration
@@ -324,7 +324,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		roomInCall:       make(chan *BackendServerRoomRequest),
 		roomParticipants: make(chan *BackendServerRoomRequest),
 
-		clients:  make(map[uint64]*Client),
+		clients:  make(map[uint64]HandlerClient),
 		sessions: make(map[uint64]Session),
 		rooms:    make(map[string]*Room),
 
@@ -341,7 +341,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 
 		expiredSessions:    make(map[Session]time.Time),
 		anonymousSessions:  make(map[*ClientSession]time.Time),
-		expectHelloClients: make(map[*Client]time.Time),
+		expectHelloClients: make(map[HandlerClient]time.Time),
 		dialoutSessions:    make(map[*ClientSession]bool),
 
 		backendTimeout: backendTimeout,
@@ -690,15 +690,13 @@ func (h *Hub) startWaitAnonymousSessionRoomLocked(session *ClientSession) {
 	h.anonymousSessions[session] = now.Add(anonmyousJoinRoomTimeout)
 }
 
-func (h *Hub) startExpectHello(client *Client) {
+func (h *Hub) startExpectHello(client HandlerClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !client.IsConnected() {
 		return
 	}
 
-	client.mu.Lock()
-	defer client.mu.Unlock()
 	if client.IsAuthenticated() {
 		return
 	}
@@ -708,12 +706,12 @@ func (h *Hub) startExpectHello(client *Client) {
 	h.expectHelloClients[client] = now.Add(initialHelloTimeout)
 }
 
-func (h *Hub) processNewClient(client *Client) {
+func (h *Hub) processNewClient(client HandlerClient) {
 	h.startExpectHello(client)
 	h.sendWelcome(client)
 }
 
-func (h *Hub) sendWelcome(client *Client) {
+func (h *Hub) sendWelcome(client HandlerClient) {
 	client.SendMessage(h.getWelcomeMessage())
 }
 
@@ -730,17 +728,24 @@ func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
 	return sessionIdData
 }
 
-func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *Backend, auth *BackendClientResponse) {
-	if !client.IsConnected() {
+func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *Backend, auth *BackendClientResponse) {
+	if !c.IsConnected() {
 		// Client disconnected while waiting for "hello" response.
 		return
 	}
 
 	if auth.Type == "error" {
-		client.SendMessage(message.NewErrorServerMessage(auth.Error))
+		c.SendMessage(message.NewErrorServerMessage(auth.Error))
 		return
 	} else if auth.Type != "auth" {
-		client.SendMessage(message.NewErrorServerMessage(UserAuthFailed))
+		c.SendMessage(message.NewErrorServerMessage(UserAuthFailed))
+		return
+	}
+
+	client, ok := c.(*Client)
+	if !ok {
+		log.Printf("Can't register non-client %T", c)
+		client.SendMessage(message.NewWrappedErrorServerMessage(errors.New("can't register non-client")))
 		return
 	}
 
@@ -844,7 +849,7 @@ func (h *Hub) processRegister(client *Client, message *ClientMessage, backend *B
 	h.sendHelloResponse(session, message)
 }
 
-func (h *Hub) processUnregister(client *Client) *ClientSession {
+func (h *Hub) processUnregister(client HandlerClient) Session {
 	session := client.GetSession()
 
 	h.mu.Lock()
@@ -857,14 +862,18 @@ func (h *Hub) processUnregister(client *Client) *ClientSession {
 	h.mu.Unlock()
 	if session != nil {
 		log.Printf("Unregister %s (private=%s)", session.PublicId(), session.PrivateId())
-		session.ClearClient(client)
+		if c, ok := client.(*Client); ok {
+			if cs, ok := session.(*ClientSession); ok {
+				cs.ClearClient(c)
+			}
+		}
 	}
 
 	client.Close()
 	return session
 }
 
-func (h *Hub) processMessage(client *Client, data []byte) {
+func (h *Hub) processMessage(client HandlerClient, data []byte) {
 	var message ClientMessage
 	if err := message.UnmarshalJSON(data); err != nil {
 		if session := client.GetSession(); session != nil {
@@ -944,7 +953,7 @@ func (h *Hub) sendHelloResponse(session *ClientSession, message *ClientMessage) 
 	return session.SendMessage(response)
 }
 
-func (h *Hub) processHello(client *Client, message *ClientMessage) {
+func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 	resumeId := message.Hello.ResumeId
 	if resumeId != "" {
 		data := h.decodeSessionId(resumeId, privateSessionName)
@@ -1013,7 +1022,7 @@ func (h *Hub) processHello(client *Client, message *ClientMessage) {
 	}
 }
 
-func (h *Hub) processHelloV1(client *Client, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
+func (h *Hub) processHelloV1(client HandlerClient, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
 	url := message.Hello.Auth.parsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
@@ -1035,7 +1044,7 @@ func (h *Hub) processHelloV1(client *Client, message *ClientMessage) (*Backend, 
 	return backend, &auth, nil
 }
 
-func (h *Hub) processHelloV2(client *Client, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
+func (h *Hub) processHelloV2(client HandlerClient, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
 	url := message.Hello.Auth.parsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
@@ -1141,11 +1150,11 @@ func (h *Hub) processHelloV2(client *Client, message *ClientMessage) (*Backend, 
 	return backend, auth, nil
 }
 
-func (h *Hub) processHelloClient(client *Client, message *ClientMessage) {
+func (h *Hub) processHelloClient(client HandlerClient, message *ClientMessage) {
 	// Make sure the client must send another "hello" in case of errors.
 	defer h.startExpectHello(client)
 
-	var authFunc func(*Client, *ClientMessage) (*Backend, *BackendClientResponse, error)
+	var authFunc func(HandlerClient, *ClientMessage) (*Backend, *BackendClientResponse, error)
 	switch message.Hello.Version {
 	case HelloVersionV1:
 		// Auth information contains a ticket that must be validated against the
@@ -1172,7 +1181,7 @@ func (h *Hub) processHelloClient(client *Client, message *ClientMessage) {
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) processHelloInternal(client *Client, message *ClientMessage) {
+func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage) {
 	defer h.startExpectHello(client)
 	if len(h.internalClientsSecret) == 0 {
 		client.SendMessage(message.NewErrorServerMessage(InvalidClientType))
@@ -1261,8 +1270,12 @@ func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Roo
 	return session.SendMessage(response)
 }
 
-func (h *Hub) processRoom(client *Client, message *ClientMessage) {
-	session := client.GetSession()
+func (h *Hub) processRoom(client HandlerClient, message *ClientMessage) {
+	session, ok := client.GetSession().(*ClientSession)
+	if !ok {
+		return
+	}
+
 	roomId := message.Room.RoomId
 	if roomId == "" {
 		if session == nil {
@@ -1281,29 +1294,34 @@ func (h *Hub) processRoom(client *Client, message *ClientMessage) {
 		return
 	}
 
-	if session != nil {
-		if room := h.getRoomForBackend(roomId, session.Backend()); room != nil && room.HasSession(session) {
-			// Session already is in that room, no action needed.
-			roomSessionId := message.Room.SessionId
-			if roomSessionId == "" {
-				// TODO(jojo): Better make the session id required in the request.
-				log.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-				roomSessionId = session.PublicId()
-			}
+	if session == nil {
+		session.SendMessage(message.NewErrorServerMessage(
+			NewError("not_authenticated", "Need to authenticate before joining rooms."),
+		))
+		return
+	}
 
-			if err := session.UpdateRoomSessionId(roomSessionId); err != nil {
-				log.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
-			}
-			session.SendMessage(message.NewErrorServerMessage(
-				NewErrorDetail("already_joined", "Already joined this room.", &RoomErrorDetails{
-					Room: &RoomServerMessage{
-						RoomId:     room.id,
-						Properties: room.properties,
-					},
-				}),
-			))
-			return
+	if room := h.getRoomForBackend(roomId, session.Backend()); room != nil && room.HasSession(session) {
+		// Session already is in that room, no action needed.
+		roomSessionId := message.Room.SessionId
+		if roomSessionId == "" {
+			// TODO(jojo): Better make the session id required in the request.
+			log.Printf("User did not send a room session id, assuming session %s", session.PublicId())
+			roomSessionId = session.PublicId()
 		}
+
+		if err := session.UpdateRoomSessionId(roomSessionId); err != nil {
+			log.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
+		}
+		session.SendMessage(message.NewErrorServerMessage(
+			NewErrorDetail("already_joined", "Already joined this room.", &RoomErrorDetails{
+				Room: &RoomServerMessage{
+					RoomId:     room.id,
+					Properties: room.properties,
+				},
+			}),
+		))
+		return
 	}
 
 	var room BackendClientResponse
@@ -1430,14 +1448,14 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	r.AddSession(session, room.Room.Session)
 }
 
-func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
-	msg := message.Message
-	session := client.GetSession()
-	if session == nil {
+func (h *Hub) processMessageMsg(client HandlerClient, message *ClientMessage) {
+	session, ok := client.GetSession().(*ClientSession)
+	if session == nil || !ok {
 		// Client is not connected yet.
 		return
 	}
 
+	msg := message.Message
 	var recipient *ClientSession
 	var subject string
 	var clientData *MessageClientMessageData
@@ -1484,10 +1502,10 @@ func (h *Hub) processMessageMsg(client *Client, message *ClientMessage) {
 						// User is stopping to share his screen. Firefox doesn't properly clean
 						// up the peer connections in all cases, so make sure to stop publishing
 						// in the MCU.
-						go func(c *Client) {
+						go func(c HandlerClient) {
 							time.Sleep(cleanupScreenPublisherDelay)
-							session := c.GetSession()
-							if session == nil {
+							session, ok := c.GetSession().(*ClientSession)
+							if session == nil || !ok {
 								return
 							}
 
@@ -1700,7 +1718,7 @@ func isAllowedToControl(session Session) bool {
 	return false
 }
 
-func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
+func (h *Hub) processControlMsg(client HandlerClient, message *ClientMessage) {
 	msg := message.Control
 	session := client.GetSession()
 	if session == nil {
@@ -1813,10 +1831,10 @@ func (h *Hub) processControlMsg(client *Client, message *ClientMessage) {
 	}
 }
 
-func (h *Hub) processInternalMsg(client *Client, message *ClientMessage) {
+func (h *Hub) processInternalMsg(client HandlerClient, message *ClientMessage) {
 	msg := message.Internal
-	session := client.GetSession()
-	if session == nil {
+	session, ok := client.GetSession().(*ClientSession)
+	if session == nil || !ok {
 		// Client is not connected yet.
 		return
 	} else if session.ClientType() != HelloClientTypeInternal {
@@ -2030,7 +2048,7 @@ func isAllowedToUpdateTransientData(session Session) bool {
 	return false
 }
 
-func (h *Hub) processTransientMsg(client *Client, message *ClientMessage) {
+func (h *Hub) processTransientMsg(client HandlerClient, message *ClientMessage) {
 	msg := message.TransientData
 	session := client.GetSession()
 	if session == nil {
@@ -2070,17 +2088,17 @@ func (h *Hub) processTransientMsg(client *Client, message *ClientMessage) {
 	}
 }
 
-func sendNotAllowed(session *ClientSession, message *ClientMessage, reason string) {
+func sendNotAllowed(session Session, message *ClientMessage, reason string) {
 	response := message.NewErrorServerMessage(NewError("not_allowed", reason))
 	session.SendMessage(response)
 }
 
-func sendMcuClientNotFound(session *ClientSession, message *ClientMessage) {
+func sendMcuClientNotFound(session Session, message *ClientMessage) {
 	response := message.NewErrorServerMessage(NewError("client_not_found", "No MCU client found to send message to."))
 	session.SendMessage(response)
 }
 
-func sendMcuProcessingFailed(session *ClientSession, message *ClientMessage) {
+func sendMcuProcessingFailed(session Session, message *ClientMessage) {
 	response := message.NewErrorServerMessage(NewError("processing_failed", "Processing of the message failed, please check server logs."))
 	session.SendMessage(response)
 }
@@ -2295,7 +2313,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 	session.SendMessage(response_message)
 }
 
-func (h *Hub) processByeMsg(client *Client, message *ClientMessage) {
+func (h *Hub) processByeMsg(client HandlerClient, message *ClientMessage) {
 	client.SendByeResponse(message)
 	if session := h.processUnregister(client); session != nil {
 		session.Close()
@@ -2412,7 +2430,7 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	}(h)
 }
 
-func (h *Hub) OnLookupCountry(client *Client) string {
+func (h *Hub) OnLookupCountry(client HandlerClient) string {
 	ip := net.ParseIP(client.RemoteAddr())
 	if ip == nil {
 		return noCountry
@@ -2444,14 +2462,14 @@ func (h *Hub) OnLookupCountry(client *Client) string {
 	return country
 }
 
-func (h *Hub) OnClosed(client *Client) {
+func (h *Hub) OnClosed(client HandlerClient) {
 	h.processUnregister(client)
 }
 
-func (h *Hub) OnMessageReceived(client *Client, data []byte) {
+func (h *Hub) OnMessageReceived(client HandlerClient, data []byte) {
 	h.processMessage(client, data)
 }
 
-func (h *Hub) OnRTTReceived(client *Client, rtt time.Duration) {
+func (h *Hub) OnRTTReceived(client HandlerClient, rtt time.Duration) {
 	// Ignore
 }
