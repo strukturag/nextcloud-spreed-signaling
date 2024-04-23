@@ -66,6 +66,11 @@ func NewCertificateReloader(certFile string, keyFile string) (*CertificateReload
 	return reloader, nil
 }
 
+func (r *CertificateReloader) Close() {
+	r.keyWatcher.Close()
+	r.certWatcher.Close()
+}
+
 func (r *CertificateReloader) reload(filename string) {
 	log.Printf("reloading certificate from %s with %s", r.certFile, r.keyFile)
 	pair, err := tls.LoadX509KeyPair(r.certFile, r.keyFile)
@@ -133,6 +138,10 @@ func NewCertPoolReloader(certFile string) (*CertPoolReloader, error) {
 	}
 
 	return reloader, nil
+}
+
+func (r *CertPoolReloader) Close() {
+	r.certWatcher.Close()
 }
 
 func (r *CertPoolReloader) reload(filename string) {

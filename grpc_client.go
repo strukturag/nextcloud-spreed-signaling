@@ -38,6 +38,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/resolver"
 	status "google.golang.org/grpc/status"
 )
@@ -275,6 +276,7 @@ type GrpcClients struct {
 	targetPrefix      string
 	targetInformation map[string]*GrpcTargetInformationEtcd
 	dialOptions       atomic.Value // []grpc.DialOption
+	creds             credentials.TransportCredentials
 
 	initializedCtx       context.Context
 	initializedFunc      context.CancelFunc
@@ -307,6 +309,13 @@ func (c *GrpcClients) load(config *goconf.ConfigFile, fromReload bool) error {
 	if err != nil {
 		return err
 	}
+
+	if c.creds != nil {
+		if cr, ok := c.creds.(*reloadableCredentials); ok {
+			cr.Close()
+		}
+	}
+	c.creds = creds
 
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
 	c.dialOptions.Store(opts)
@@ -490,6 +499,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 		entry, found := clientsMap[target]
 		if !found {
 			entry = &grpcClientsList{}
+			clientsMap[target] = entry
 		}
 		entry.clients = append(entry.clients, client)
 		clients = append(clients, client)
@@ -793,6 +803,11 @@ func (c *GrpcClients) Close() {
 
 	if c.etcdClient != nil {
 		c.etcdClient.RemoveListener(c)
+	}
+	if c.creds != nil {
+		if cr, ok := c.creds.(*reloadableCredentials); ok {
+			cr.Close()
+		}
 	}
 	c.closeFunc()
 }
