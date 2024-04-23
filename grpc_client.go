@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/url"
@@ -39,6 +40,7 @@ import (
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/resolver"
 	status "google.golang.org/grpc/status"
 )
@@ -51,6 +53,8 @@ const (
 )
 
 var (
+	ErrNoSuchResumeId = fmt.Errorf("unknown resume id")
+
 	customResolverPrefix atomic.Uint64
 )
 
@@ -185,6 +189,26 @@ func (c *GrpcClient) GetServerId(ctx context.Context) (string, error) {
 	return response.GetServerId(), nil
 }
 
+func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId string) (*LookupResumeIdReply, error) {
+	statsGrpcClientCalls.WithLabelValues("LookupResumeId").Inc()
+	// TODO: Remove debug logging
+	log.Printf("Lookup resume id %s on %s", resumeId, c.Target())
+	response, err := c.impl.LookupResumeId(ctx, &LookupResumeIdRequest{
+		ResumeId: resumeId,
+	}, grpc.WaitForReady(true))
+	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		return nil, ErrNoSuchResumeId
+	} else if err != nil {
+		return nil, err
+	}
+
+	if sessionId := response.GetSessionId(); sessionId == "" {
+		return nil, ErrNoSuchResumeId
+	}
+
+	return response, nil
+}
+
 func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId string, disconnectReason string) (string, error) {
 	statsGrpcClientCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
@@ -256,6 +280,86 @@ func (c *GrpcClient) GetSessionCount(ctx context.Context, u *url.URL) (uint32, e
 	}
 
 	return response.GetCount(), nil
+}
+
+type ProxySessionReceiver interface {
+	RemoteAddr() string
+	Country() string
+	UserAgent() string
+
+	OnProxyMessage(message *ServerSessionMessage) error
+	OnProxyClose(err error)
+}
+
+type SessionProxy struct {
+	sessionId string
+	receiver  ProxySessionReceiver
+
+	sendMu sync.Mutex
+	client RpcSessions_ProxySessionClient
+}
+
+func (p *SessionProxy) recvPump() {
+	var closeError error
+	defer func() {
+		p.receiver.OnProxyClose(closeError)
+		if err := p.Close(); err != nil {
+			log.Printf("Error closing proxy for session %s: %s", p.sessionId, err)
+		}
+	}()
+
+	for {
+		msg, err := p.client.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			log.Printf("Error receiving message from proxy for session %s: %s", p.sessionId, err)
+			closeError = err
+			break
+		}
+
+		if err := p.receiver.OnProxyMessage(msg); err != nil {
+			log.Printf("Error processing message %+v from proxy for session %s: %s", msg, p.sessionId, err)
+		}
+	}
+}
+
+func (p *SessionProxy) Send(message *ClientSessionMessage) error {
+	p.sendMu.Lock()
+	defer p.sendMu.Unlock()
+	return p.client.Send(message)
+}
+
+func (p *SessionProxy) Close() error {
+	p.sendMu.Lock()
+	defer p.sendMu.Unlock()
+	return p.client.CloseSend()
+}
+
+func (c *GrpcClient) ProxySession(ctx context.Context, sessionId string, receiver ProxySessionReceiver) (*SessionProxy, error) {
+	statsGrpcClientCalls.WithLabelValues("ProxySession").Inc()
+	md := metadata.Pairs(
+		"sessionId", sessionId,
+		"remoteAddr", receiver.RemoteAddr(),
+		"country", receiver.Country(),
+		"userAgent", receiver.UserAgent(),
+	)
+	client, err := c.impl.ProxySession(metadata.NewOutgoingContext(ctx, md), grpc.WaitForReady(true))
+	if err != nil {
+		return nil, err
+	}
+
+	proxy := &SessionProxy{
+		sessionId: sessionId,
+		receiver:  receiver,
+
+		client: client,
+	}
+
+	go proxy.recvPump()
+	return proxy, nil
 }
 
 type grpcClientsList struct {

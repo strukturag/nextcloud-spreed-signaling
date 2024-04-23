@@ -155,6 +155,7 @@ type Hub struct {
 	anonymousSessions  map[*ClientSession]time.Time
 	expectHelloClients map[HandlerClient]time.Time
 	dialoutSessions    map[*ClientSession]bool
+	remoteSessions     map[*RemoteSession]bool
 
 	backendTimeout time.Duration
 	backend        *BackendClient
@@ -343,6 +344,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		anonymousSessions:  make(map[*ClientSession]time.Time),
 		expectHelloClients: make(map[HandlerClient]time.Time),
 		dialoutSessions:    make(map[*ClientSession]bool),
+		remoteSessions:     make(map[*RemoteSession]bool),
 
 		backendTimeout: backendTimeout,
 		backend:        backend,
@@ -584,6 +586,22 @@ func (h *Hub) GetSessionByPublicId(sessionId string) Session {
 	return session
 }
 
+func (h *Hub) GetSessionByResumeId(resumeId string) Session {
+	data := h.decodeSessionId(resumeId, privateSessionName)
+	if data == nil {
+		return nil
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	session := h.sessions[data.Sid]
+	if session != nil && session.PrivateId() != resumeId {
+		// Session was created on different server.
+		return nil
+	}
+	return session
+}
+
 func (h *Hub) GetDialoutSession(roomId string, backend *Backend) *ClientSession {
 	url := backend.Url()
 
@@ -713,6 +731,30 @@ func (h *Hub) processNewClient(client HandlerClient) {
 
 func (h *Hub) sendWelcome(client HandlerClient) {
 	client.SendMessage(h.getWelcomeMessage())
+}
+
+func (h *Hub) registerClient(client HandlerClient) uint64 {
+	sid := h.sid.Add(1)
+	for sid == 0 {
+		sid = h.sid.Add(1)
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clients[sid] = client
+	return sid
+}
+
+func (h *Hub) unregisterClient(sid uint64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.clients, sid)
+}
+
+func (h *Hub) unregisterRemoteSession(session *RemoteSession) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.remoteSessions, session)
 }
 
 func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
@@ -953,12 +995,97 @@ func (h *Hub) sendHelloResponse(session *ClientSession, message *ClientMessage) 
 	return session.SendMessage(response)
 }
 
+type remoteClientInfo struct {
+	client   *GrpcClient
+	response *LookupResumeIdReply
+}
+
+func (h *Hub) tryProxyResume(c HandlerClient, resumeId string, message *ClientMessage) bool {
+	client, ok := c.(*Client)
+	if !ok {
+		return false
+	}
+
+	var clients []*GrpcClient
+	if h.rpcClients != nil {
+		clients = h.rpcClients.GetClients()
+	}
+	if len(clients) == 0 {
+		return false
+	}
+
+	rpcCtx, rpcCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer rpcCancel()
+
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(rpcCtx)
+	defer cancel()
+
+	var remoteClient atomic.Pointer[remoteClientInfo]
+	for _, c := range clients {
+		wg.Add(1)
+		go func(client *GrpcClient) {
+			defer wg.Done()
+
+			if client.IsSelf() {
+				return
+			}
+
+			response, err := client.LookupResumeId(ctx, resumeId)
+			if err != nil {
+				log.Printf("Could not lookup resume id %s on %s: %s", resumeId, client.Target(), err)
+				return
+			}
+
+			cancel()
+			remoteClient.CompareAndSwap(nil, &remoteClientInfo{
+				client:   client,
+				response: response,
+			})
+		}(c)
+	}
+	wg.Wait()
+
+	if !client.IsConnected() {
+		// Client disconnected while checking message.
+		return false
+	}
+
+	info := remoteClient.Load()
+	if info == nil {
+		return false
+	}
+
+	rs, err := NewRemoteSession(h, client, info.client, info.response.SessionId)
+	if err != nil {
+		log.Printf("Could not create remote session %s on %s: %s", info.response.SessionId, info.client.Target(), err)
+		return false
+	}
+
+	if err := rs.Start(message); err != nil {
+		rs.Close()
+		log.Printf("Could not start remote session %s on %s: %s", info.response.SessionId, info.client.Target(), err)
+		return false
+	}
+
+	log.Printf("Proxy session %s to %s", info.response.SessionId, info.client.Target())
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.remoteSessions[rs] = true
+	delete(h.expectHelloClients, client)
+	return true
+}
+
 func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 	resumeId := message.Hello.ResumeId
 	if resumeId != "" {
 		data := h.decodeSessionId(resumeId, privateSessionName)
 		if data == nil {
 			statsHubSessionResumeFailed.Inc()
+			if h.tryProxyResume(client, resumeId, message) {
+				return
+			}
+
 			client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 			return
 		}
@@ -968,6 +1095,10 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 		if !found || resumeId != session.PrivateId() {
 			h.mu.Unlock()
 			statsHubSessionResumeFailed.Inc()
+			if h.tryProxyResume(client, resumeId, message) {
+				return
+			}
+
 			client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 			return
 		}
