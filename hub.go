@@ -126,6 +126,9 @@ type Hub struct {
 	readPumpActive  atomic.Int32
 	writePumpActive atomic.Int32
 
+	shutdown          *Closer
+	shutdownScheduled atomic.Bool
+
 	roomUpdated      chan *BackendServerRoomRequest
 	roomDeleted      chan *BackendServerRoomRequest
 	roomInCall       chan *BackendServerRoomRequest
@@ -318,7 +321,8 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
 		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
 
-		closer: NewCloser(),
+		closer:   NewCloser(),
+		shutdown: NewCloser(),
 
 		roomUpdated:      make(chan *BackendServerRoomRequest),
 		roomDeleted:      make(chan *BackendServerRoomRequest),
@@ -685,8 +689,25 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 		delete(h.anonymousSessions, session)
 		delete(h.dialoutSessions, session)
 	}
+	if h.IsShutdownScheduled() && !h.hasSessionsLocked(false) {
+		go h.shutdown.Close()
+	}
 	h.mu.Unlock()
 	return
+}
+
+func (h *Hub) hasSessionsLocked(withInternal bool) bool {
+	if withInternal {
+		return len(h.sessions) > 0
+	}
+
+	for _, s := range h.sessions {
+		if s.ClientType() != HelloClientTypeInternal {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (h *Hub) startWaitAnonymousSessionRoom(session *ClientSession) {
@@ -2603,4 +2624,24 @@ func (h *Hub) OnMessageReceived(client HandlerClient, data []byte) {
 
 func (h *Hub) OnRTTReceived(client HandlerClient, rtt time.Duration) {
 	// Ignore
+}
+
+func (h *Hub) ShutdownChannel() <-chan struct{} {
+	return h.shutdown.C
+}
+
+func (h *Hub) IsShutdownScheduled() bool {
+	return h.shutdownScheduled.Load()
+}
+
+func (h *Hub) ScheduleShutdown() {
+	if !h.shutdownScheduled.CompareAndSwap(false, true) {
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if !h.hasSessionsLocked(false) {
+		go h.shutdown.Close()
+	}
 }
