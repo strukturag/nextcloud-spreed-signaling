@@ -601,7 +601,7 @@ func main() {
 			Type: "hello",
 			Hello: &signaling.HelloClientMessage{
 				Version: signaling.HelloVersionV1,
-				Auth: signaling.HelloClientMessageAuth{
+				Auth: &signaling.HelloClientMessageAuth{
 					Url:    backendUrl + "/auth",
 					Params: &json.RawMessage{'{', '}'},
 				},

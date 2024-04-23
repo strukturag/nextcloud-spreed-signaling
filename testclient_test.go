@@ -493,7 +493,7 @@ func (c *TestClient) SendHelloParams(url string, version string, clientType stri
 		Hello: &HelloClientMessage{
 			Version:  version,
 			Features: features,
-			Auth: HelloClientMessageAuth{
+			Auth: &HelloClientMessageAuth{
 				Type:   clientType,
 				Url:    url,
 				Params: (*json.RawMessage)(&data),
