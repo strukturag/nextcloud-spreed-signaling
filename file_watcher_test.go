@@ -47,48 +47,50 @@ func TestFileWatcher_NotExist(t *testing.T) {
 }
 
 func TestFileWatcher_File(t *testing.T) {
-	tmpdir := t.TempDir()
-	filename := path.Join(tmpdir, "test.txt")
-	if err := os.WriteFile(filename, []byte("Hello world!"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		tmpdir := t.TempDir()
+		filename := path.Join(tmpdir, "test.txt")
+		if err := os.WriteFile(filename, []byte("Hello world!"), 0644); err != nil {
+			t.Fatal(err)
+		}
 
-	modified := make(chan struct{})
-	w, err := NewFileWatcher(filename, func(filename string) {
-		modified <- struct{}{}
+		modified := make(chan struct{})
+		w, err := NewFileWatcher(filename, func(filename string) {
+			modified <- struct{}{}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer w.Close()
+
+		if err := os.WriteFile(filename, []byte("Updated"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		<-modified
+
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+		defer cancel()
+
+		select {
+		case <-modified:
+			t.Error("should not have received another event")
+		case <-ctxTimeout.Done():
+		}
+
+		if err := os.WriteFile(filename, []byte("Updated"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		<-modified
+
+		ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+		defer cancel()
+
+		select {
+		case <-modified:
+			t.Error("should not have received another event")
+		case <-ctxTimeout.Done():
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer w.Close()
-
-	if err := os.WriteFile(filename, []byte("Updated"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	<-modified
-
-	ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
-	defer cancel()
-
-	select {
-	case <-modified:
-		t.Error("should not have received another event")
-	case <-ctxTimeout.Done():
-	}
-
-	if err := os.WriteFile(filename, []byte("Updated"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	<-modified
-
-	ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
-	defer cancel()
-
-	select {
-	case <-modified:
-		t.Error("should not have received another event")
-	case <-ctxTimeout.Done():
-	}
 }
 
 func TestFileWatcher_Rename(t *testing.T) {

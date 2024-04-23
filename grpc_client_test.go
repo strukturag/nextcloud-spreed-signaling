@@ -112,24 +112,26 @@ func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 }
 
 func Test_GrpcClients_EtcdInitial(t *testing.T) {
-	_, addr1 := NewGrpcServerForTest(t)
-	_, addr2 := NewGrpcServerForTest(t)
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		_, addr1 := NewGrpcServerForTest(t)
+		_, addr2 := NewGrpcServerForTest(t)
 
-	etcd := NewEtcdForTest(t)
+		etcd := NewEtcdForTest(t)
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+		SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+		SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
-	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := client.WaitForInitialized(ctx); err != nil {
-		t.Fatal(err)
-	}
+		client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := client.WaitForInitialized(ctx); err != nil {
+			t.Fatal(err)
+		}
 
-	if clients := client.GetClients(); len(clients) != 2 {
-		t.Errorf("Expected two clients, got %+v", clients)
-	}
+		if clients := client.GetClients(); len(clients) != 2 {
+			t.Errorf("Expected two clients, got %+v", clients)
+		}
+	})
 }
 
 func Test_GrpcClients_EtcdUpdate(t *testing.T) {
@@ -231,57 +233,59 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 }
 
 func Test_GrpcClients_DnsDiscovery(t *testing.T) {
-	lookup := newMockDnsLookupForTest(t)
-	target := "testgrpc:12345"
-	ip1 := net.ParseIP("192.168.0.1")
-	ip2 := net.ParseIP("192.168.0.2")
-	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
-	targetWithIp2 := fmt.Sprintf("%s (%s)", target, ip2)
-	lookup.Set("testgrpc", []net.IP{ip1})
-	client, dnsMonitor := NewGrpcClientsForTest(t, target)
-	ch := client.getWakeupChannelForTesting()
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		lookup := newMockDnsLookupForTest(t)
+		target := "testgrpc:12345"
+		ip1 := net.ParseIP("192.168.0.1")
+		ip2 := net.ParseIP("192.168.0.2")
+		targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
+		targetWithIp2 := fmt.Sprintf("%s (%s)", target, ip2)
+		lookup.Set("testgrpc", []net.IP{ip1})
+		client, dnsMonitor := NewGrpcClientsForTest(t, target)
+		ch := client.getWakeupChannelForTesting()
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
 
-	dnsMonitor.checkHostnames()
-	if clients := client.GetClients(); len(clients) != 1 {
-		t.Errorf("Expected one client, got %+v", clients)
-	} else if clients[0].Target() != targetWithIp1 {
-		t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
-	} else if !clients[0].ip.Equal(ip1) {
-		t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
-	}
+		dnsMonitor.checkHostnames()
+		if clients := client.GetClients(); len(clients) != 1 {
+			t.Errorf("Expected one client, got %+v", clients)
+		} else if clients[0].Target() != targetWithIp1 {
+			t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
+		} else if !clients[0].ip.Equal(ip1) {
+			t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
+		}
 
-	lookup.Set("testgrpc", []net.IP{ip1, ip2})
-	drainWakeupChannel(ch)
-	dnsMonitor.checkHostnames()
-	waitForEvent(ctx, t, ch)
+		lookup.Set("testgrpc", []net.IP{ip1, ip2})
+		drainWakeupChannel(ch)
+		dnsMonitor.checkHostnames()
+		waitForEvent(ctx, t, ch)
 
-	if clients := client.GetClients(); len(clients) != 2 {
-		t.Errorf("Expected two client, got %+v", clients)
-	} else if clients[0].Target() != targetWithIp1 {
-		t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
-	} else if !clients[0].ip.Equal(ip1) {
-		t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
-	} else if clients[1].Target() != targetWithIp2 {
-		t.Errorf("Expected target %s, got %s", targetWithIp2, clients[1].Target())
-	} else if !clients[1].ip.Equal(ip2) {
-		t.Errorf("Expected IP %s, got %s", ip2, clients[1].ip)
-	}
+		if clients := client.GetClients(); len(clients) != 2 {
+			t.Errorf("Expected two client, got %+v", clients)
+		} else if clients[0].Target() != targetWithIp1 {
+			t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
+		} else if !clients[0].ip.Equal(ip1) {
+			t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
+		} else if clients[1].Target() != targetWithIp2 {
+			t.Errorf("Expected target %s, got %s", targetWithIp2, clients[1].Target())
+		} else if !clients[1].ip.Equal(ip2) {
+			t.Errorf("Expected IP %s, got %s", ip2, clients[1].ip)
+		}
 
-	lookup.Set("testgrpc", []net.IP{ip2})
-	drainWakeupChannel(ch)
-	dnsMonitor.checkHostnames()
-	waitForEvent(ctx, t, ch)
+		lookup.Set("testgrpc", []net.IP{ip2})
+		drainWakeupChannel(ch)
+		dnsMonitor.checkHostnames()
+		waitForEvent(ctx, t, ch)
 
-	if clients := client.GetClients(); len(clients) != 1 {
-		t.Errorf("Expected one client, got %+v", clients)
-	} else if clients[0].Target() != targetWithIp2 {
-		t.Errorf("Expected target %s, got %s", targetWithIp2, clients[0].Target())
-	} else if !clients[0].ip.Equal(ip2) {
-		t.Errorf("Expected IP %s, got %s", ip2, clients[0].ip)
-	}
+		if clients := client.GetClients(); len(clients) != 1 {
+			t.Errorf("Expected one client, got %+v", clients)
+		} else if clients[0].Target() != targetWithIp2 {
+			t.Errorf("Expected target %s, got %s", targetWithIp2, clients[0].Target())
+		} else if !clients[0].ip.Equal(ip2) {
+			t.Errorf("Expected IP %s, got %s", ip2, clients[0].ip)
+		}
+	})
 }
 
 func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
@@ -320,55 +324,57 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 }
 
 func Test_GrpcClients_Encryption(t *testing.T) {
-	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
-	clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	serverCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Server cert", serverKey)
-	clientCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Testing client", clientKey)
-
-	dir := t.TempDir()
-	serverPrivkeyFile := path.Join(dir, "server-privkey.pem")
-	serverPubkeyFile := path.Join(dir, "server-pubkey.pem")
-	serverCertFile := path.Join(dir, "server-cert.pem")
-	WritePrivateKey(serverKey, serverPrivkeyFile)          // nolint
-	WritePublicKey(&serverKey.PublicKey, serverPubkeyFile) // nolint
-	os.WriteFile(serverCertFile, serverCert, 0755)         // nolint
-	clientPrivkeyFile := path.Join(dir, "client-privkey.pem")
-	clientPubkeyFile := path.Join(dir, "client-pubkey.pem")
-	clientCertFile := path.Join(dir, "client-cert.pem")
-	WritePrivateKey(clientKey, clientPrivkeyFile)          // nolint
-	WritePublicKey(&clientKey.PublicKey, clientPubkeyFile) // nolint
-	os.WriteFile(clientCertFile, clientCert, 0755)         // nolint
-
-	serverConfig := goconf.NewConfigFile()
-	serverConfig.AddOption("grpc", "servercertificate", serverCertFile)
-	serverConfig.AddOption("grpc", "serverkey", serverPrivkeyFile)
-	serverConfig.AddOption("grpc", "clientca", clientCertFile)
-	_, addr := NewGrpcServerForTestWithConfig(t, serverConfig)
-
-	clientConfig := goconf.NewConfigFile()
-	clientConfig.AddOption("grpc", "targets", addr)
-	clientConfig.AddOption("grpc", "clientcertificate", clientCertFile)
-	clientConfig.AddOption("grpc", "clientkey", clientPrivkeyFile)
-	clientConfig.AddOption("grpc", "serverca", serverCertFile)
-	clients, _ := NewGrpcClientsForTestWithConfig(t, clientConfig, nil)
-
-	ctx, cancel1 := context.WithTimeout(context.Background(), time.Second)
-	defer cancel1()
-
-	if err := clients.WaitForInitialized(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, client := range clients.GetClients() {
-		if _, err := client.GetServerId(ctx); err != nil {
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
+		clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		serverCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Server cert", serverKey)
+		clientCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Testing client", clientKey)
+
+		dir := t.TempDir()
+		serverPrivkeyFile := path.Join(dir, "server-privkey.pem")
+		serverPubkeyFile := path.Join(dir, "server-pubkey.pem")
+		serverCertFile := path.Join(dir, "server-cert.pem")
+		WritePrivateKey(serverKey, serverPrivkeyFile)          // nolint
+		WritePublicKey(&serverKey.PublicKey, serverPubkeyFile) // nolint
+		os.WriteFile(serverCertFile, serverCert, 0755)         // nolint
+		clientPrivkeyFile := path.Join(dir, "client-privkey.pem")
+		clientPubkeyFile := path.Join(dir, "client-pubkey.pem")
+		clientCertFile := path.Join(dir, "client-cert.pem")
+		WritePrivateKey(clientKey, clientPrivkeyFile)          // nolint
+		WritePublicKey(&clientKey.PublicKey, clientPubkeyFile) // nolint
+		os.WriteFile(clientCertFile, clientCert, 0755)         // nolint
+
+		serverConfig := goconf.NewConfigFile()
+		serverConfig.AddOption("grpc", "servercertificate", serverCertFile)
+		serverConfig.AddOption("grpc", "serverkey", serverPrivkeyFile)
+		serverConfig.AddOption("grpc", "clientca", clientCertFile)
+		_, addr := NewGrpcServerForTestWithConfig(t, serverConfig)
+
+		clientConfig := goconf.NewConfigFile()
+		clientConfig.AddOption("grpc", "targets", addr)
+		clientConfig.AddOption("grpc", "clientcertificate", clientCertFile)
+		clientConfig.AddOption("grpc", "clientkey", clientPrivkeyFile)
+		clientConfig.AddOption("grpc", "serverca", serverCertFile)
+		clients, _ := NewGrpcClientsForTestWithConfig(t, clientConfig, nil)
+
+		ctx, cancel1 := context.WithTimeout(context.Background(), time.Second)
+		defer cancel1()
+
+		if err := clients.WaitForInitialized(ctx); err != nil {
+			t.Fatal(err)
+		}
+
+		for _, client := range clients.GetClients() {
+			if _, err := client.GetServerId(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
 }
