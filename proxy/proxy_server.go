@@ -722,7 +722,7 @@ func (p *proxyRemotePublisher) PublisherId() string {
 }
 
 func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher signaling.McuRemotePublisherProperties) error {
-	conn, err := p.proxy.getRemoteConnection(ctx, p.remoteUrl)
+	conn, err := p.proxy.getRemoteConnection(p.remoteUrl)
 	if err != nil {
 		return err
 	}
@@ -744,7 +744,7 @@ func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher si
 }
 
 func (p *proxyRemotePublisher) GetStreams(ctx context.Context) ([]signaling.PublisherStream, error) {
-	conn, err := p.proxy.getRemoteConnection(ctx, p.remoteUrl)
+	conn, err := p.proxy.getRemoteConnection(p.remoteUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -1372,7 +1372,7 @@ func (s *ProxyServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	promhttp.Handler().ServeHTTP(w, r)
 }
 
-func (s *ProxyServer) getRemoteConnection(ctx context.Context, url string) (*RemoteConnection, error) {
+func (s *ProxyServer) getRemoteConnection(url string) (*RemoteConnection, error) {
 	s.remoteConnectionsLock.Lock()
 	defer s.remoteConnectionsLock.Unlock()
 
@@ -1383,10 +1383,6 @@ func (s *ProxyServer) getRemoteConnection(ctx context.Context, url string) (*Rem
 
 	conn, err := NewRemoteConnection(url, s.tokenId, s.tokenKey, s.remoteTlsConfig)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := conn.Connect(ctx); err != nil {
 		return nil, err
 	}
 
