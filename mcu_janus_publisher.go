@@ -381,12 +381,16 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 	return streams, nil
 }
 
+func getPublisherRemoteId(id string, hostname string) string {
+	return fmt.Sprintf("%s@%s", id, hostname)
+}
+
 func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error {
 	msg := map[string]interface{}{
 		"request":      "publish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],
-		"remote_id":    p.id,
+		"remote_id":    getPublisherRemoteId(p.id, hostname),
 		"host":         hostname,
 		"port":         port,
 		"rtcp_port":    rtcpPort,
@@ -399,12 +403,55 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, hostname string, 
 	errorMessage := getPluginStringValue(response.PluginData, pluginVideoRoom, "error")
 	errorCode := getPluginIntValue(response.PluginData, pluginVideoRoom, "error_code")
 	if errorMessage != "" || errorCode != 0 {
+		if errorCode == 0 {
+			errorCode = 500
+		}
 		if errorMessage == "" {
 			errorMessage = "unknown error"
 		}
-		return fmt.Errorf("%s (%d)", errorMessage, errorCode)
+
+		return &janus.ErrorMsg{
+			Err: janus.ErrorData{
+				Code:   int(errorCode),
+				Reason: errorMessage,
+			},
+		}
 	}
 
 	log.Printf("Publishing %s to %s (port=%d, rtcpPort=%d)", p.id, hostname, port, rtcpPort)
+	return nil
+}
+
+func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, hostname string) error {
+	msg := map[string]interface{}{
+		"request":      "unpublish_remotely",
+		"room":         p.roomId,
+		"publisher_id": streamTypeUserIds[p.streamType],
+		"remote_id":    getPublisherRemoteId(p.id, hostname),
+	}
+	response, err := p.handle.Request(ctx, msg)
+	if err != nil {
+		return err
+	}
+
+	errorMessage := getPluginStringValue(response.PluginData, pluginVideoRoom, "error")
+	errorCode := getPluginIntValue(response.PluginData, pluginVideoRoom, "error_code")
+	if errorMessage != "" || errorCode != 0 {
+		if errorCode == 0 {
+			errorCode = 500
+		}
+		if errorMessage == "" {
+			errorMessage = "unknown error"
+		}
+
+		return &janus.ErrorMsg{
+			Err: janus.ErrorData{
+				Code:   int(errorCode),
+				Reason: errorMessage,
+			},
+		}
+	}
+
+	log.Printf("Unpublished %s to %s", p.id, hostname)
 	return nil
 }

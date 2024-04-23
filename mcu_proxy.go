@@ -226,6 +226,10 @@ func (p *mcuProxyPublisher) PublishRemote(ctx context.Context, hostname string, 
 	return errors.New("remote publishing not supported for proxy publishers")
 }
 
+func (p *mcuProxyPublisher) UnpublishRemote(ctx context.Context, hostname string) error {
+	return errors.New("remote publishing not supported for proxy publishers")
+}
+
 type mcuProxySubscriber struct {
 	mcuProxyPubSubCommon
 

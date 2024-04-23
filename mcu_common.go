@@ -160,6 +160,7 @@ type McuPublisher interface {
 
 	GetStreams(ctx context.Context) ([]PublisherStream, error)
 	PublishRemote(ctx context.Context, hostname string, port int, rtcpPort int) error
+	UnpublishRemote(ctx context.Context, hostname string) error
 }
 
 type McuSubscriber interface {

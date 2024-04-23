@@ -231,6 +231,10 @@ func (p *TestMCUPublisher) PublishRemote(ctx context.Context, hostname string, p
 	return errors.New("remote publishing not supported")
 }
 
+func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, hostname string) error {
+	return errors.New("remote publishing not supported")
+}
+
 type TestMCUSubscriber struct {
 	TestMCUClient
 
