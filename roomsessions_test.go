@@ -86,6 +86,14 @@ func (s *DummySession) HasPermission(permission Permission) bool {
 	return false
 }
 
+func (s *DummySession) SendError(e *Error) bool {
+	return false
+}
+
+func (s *DummySession) SendMessage(message *ServerMessage) bool {
+	return false
+}
+
 func checkSession(t *testing.T, sessions RoomSessions, sessionId string, roomSessionId string) Session {
 	session := &DummySession{
 		publicId: sessionId,

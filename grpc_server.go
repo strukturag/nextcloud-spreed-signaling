@@ -113,6 +113,20 @@ func (s *GrpcServer) Close() {
 	}
 }
 
+func (s *GrpcServer) LookupResumeId(ctx context.Context, request *LookupResumeIdRequest) (*LookupResumeIdReply, error) {
+	statsGrpcServerCalls.WithLabelValues("LookupResumeId").Inc()
+	// TODO: Remove debug logging
+	log.Printf("Lookup session for resume id %s", request.ResumeId)
+	session := s.hub.GetSessionByResumeId(request.ResumeId)
+	if session == nil {
+		return nil, status.Error(codes.NotFound, "no such room session id")
+	}
+
+	return &LookupResumeIdReply{
+		SessionId: session.PublicId(),
+	}, nil
+}
+
 func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSessionIdRequest) (*LookupSessionIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
@@ -215,4 +229,17 @@ func (s *GrpcServer) GetSessionCount(ctx context.Context, request *GetSessionCou
 	return &GetSessionCountReply{
 		Count: uint32(backend.Len()),
 	}, nil
+}
+
+func (s *GrpcServer) ProxySession(request RpcSessions_ProxySessionServer) error {
+	statsGrpcServerCalls.WithLabelValues("ProxySession").Inc()
+	client, err := newRemoteGrpcClient(s.hub, request)
+	if err != nil {
+		return err
+	}
+
+	sid := s.hub.registerClient(client)
+	defer s.hub.unregisterClient(sid)
+
+	return client.run()
 }

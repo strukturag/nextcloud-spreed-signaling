@@ -72,4 +72,7 @@ type Session interface {
 	Close()
 
 	HasPermission(permission Permission) bool
+
+	SendError(e *Error) bool
+	SendMessage(message *ServerMessage) bool
 }

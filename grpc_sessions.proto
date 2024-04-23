@@ -26,8 +26,18 @@ option go_package = "github.com/strukturag/nextcloud-spreed-signaling;signaling"
 package signaling;
 
 service RpcSessions {
+  rpc LookupResumeId(LookupResumeIdRequest) returns (LookupResumeIdReply) {}
   rpc LookupSessionId(LookupSessionIdRequest) returns (LookupSessionIdReply) {}
   rpc IsSessionInCall(IsSessionInCallRequest) returns (IsSessionInCallReply) {}
+  rpc ProxySession(stream ClientSessionMessage) returns (stream ServerSessionMessage) {}
+}
+
+message LookupResumeIdRequest {
+  string resumeId = 1;
+}
+
+message LookupResumeIdReply {
+  string sessionId = 1;
 }
 
 message LookupSessionIdRequest {
@@ -48,4 +58,12 @@ message IsSessionInCallRequest {
 
 message IsSessionInCallReply {
   bool inCall = 1;
+}
+
+message ClientSessionMessage {
+  bytes message = 1;
+}
+
+message ServerSessionMessage {
+  bytes message = 1;
 }

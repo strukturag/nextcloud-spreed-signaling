@@ -387,7 +387,7 @@ type HelloClientMessage struct {
 	Features []string `json:"features,omitempty"`
 
 	// The authentication credentials.
-	Auth HelloClientMessageAuth `json:"auth"`
+	Auth *HelloClientMessageAuth `json:"auth,omitempty"`
 }
 
 func (m *HelloClientMessage) CheckValid() error {
@@ -395,7 +395,7 @@ func (m *HelloClientMessage) CheckValid() error {
 		return InvalidHelloVersion
 	}
 	if m.ResumeId == "" {
-		if m.Auth.Params == nil || len(*m.Auth.Params) == 0 {
+		if m.Auth == nil || m.Auth.Params == nil || len(*m.Auth.Params) == 0 {
 			return fmt.Errorf("params missing")
 		}
 		if m.Auth.Type == "" {

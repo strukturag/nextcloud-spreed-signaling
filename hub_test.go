@@ -274,13 +274,19 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 		h.mu.Lock()
 		clients := len(h.clients)
 		sessions := len(h.sessions)
+		remoteSessions := len(h.remoteSessions)
 		h.mu.Unlock()
 		h.ru.Lock()
 		rooms := len(h.rooms)
 		h.ru.Unlock()
 		readActive := h.readPumpActive.Load()
 		writeActive := h.writePumpActive.Load()
-		if clients == 0 && rooms == 0 && sessions == 0 && readActive == 0 && writeActive == 0 {
+		if clients == 0 &&
+			rooms == 0 &&
+			sessions == 0 &&
+			remoteSessions == 0 &&
+			readActive == 0 &&
+			writeActive == 0 {
 			break
 		}
 
@@ -289,7 +295,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 			h.mu.Lock()
 			h.ru.Lock()
 			dumpGoroutines("", os.Stderr)
-			t.Errorf("Error waiting for clients %+v / rooms %+v / sessions %+v / %d read / %d write to terminate: %s", h.clients, h.rooms, h.sessions, readActive, writeActive, ctx.Err())
+			t.Errorf("Error waiting for clients %+v / rooms %+v / sessions %+v / remoteSessions %v / %d read / %d write to terminate: %s", h.clients, h.rooms, h.sessions, h.remoteSessions, readActive, writeActive, ctx.Err())
 			h.ru.Unlock()
 			h.mu.Unlock()
 			return
@@ -1890,6 +1896,307 @@ func TestClientHelloResumeAndJoin(t *testing.T) {
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
 	}
+}
+
+func runGrpcProxyTest(t *testing.T, f func(hub1, hub2 *Hub, server1, server2 *httptest.Server)) {
+	t.Helper()
+
+	var hub1 *Hub
+	var hub2 *Hub
+	var server1 *httptest.Server
+	var server2 *httptest.Server
+	var router1 *mux.Router
+	var router2 *mux.Router
+	hub1, hub2, router1, router2, server1, server2 = CreateClusteredHubsForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+		// Make sure all backends use the same server
+		if server1 == nil {
+			server1 = server
+		} else {
+			server = server1
+		}
+
+		config, err := getTestConfig(server)
+		if err != nil {
+			return nil, err
+		}
+
+		config.RemoveOption("backend", "allowed")
+		config.RemoveOption("backend", "secret")
+		config.AddOption("backend", "backends", "backend1")
+
+		config.AddOption("backend1", "url", server.URL)
+		config.AddOption("backend1", "secret", string(testBackendSecret))
+		config.AddOption("backend1", "sessionlimit", "1")
+		return config, nil
+	})
+
+	registerBackendHandlerUrl(t, router1, "/")
+	registerBackendHandlerUrl(t, router2, "/")
+
+	f(hub1, hub2, server1, server2)
+}
+
+func TestClientHelloResumeProxy(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+
+			if err := client1.SendHello(testDefaultUserId); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			} else {
+				if hello.Hello.UserId != testDefaultUserId {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
+				}
+				if hello.Hello.SessionId == "" {
+					t.Errorf("Expected session id, got %+v", hello.Hello)
+				}
+				if hello.Hello.ResumeId == "" {
+					t.Errorf("Expected resume id, got %+v", hello.Hello)
+				}
+			}
+
+			client1.Close()
+			if err := client1.WaitForClientRemoved(ctx); err != nil {
+				t.Error(err)
+			}
+
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+
+			if err := client2.SendHelloResume(hello.Hello.ResumeId); err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Error(err)
+			} else {
+				if hello2.Hello.UserId != testDefaultUserId {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
+				}
+				if hello2.Hello.SessionId != hello.Hello.SessionId {
+					t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
+				}
+				if hello2.Hello.ResumeId != hello.Hello.ResumeId {
+					t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
+				}
+			}
+
+			// Join room by id.
+			roomId := "test-room"
+			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
+				t.Fatal(err)
+			} else if room.Room.RoomId != roomId {
+				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
+			}
+
+			// We will receive a "joined" event.
+			if err := client2.RunUntilJoined(ctx, hello.Hello); err != nil {
+				t.Error(err)
+			}
+
+			if room := hub1.getRoom(roomId); room == nil {
+				t.Fatalf("Could not find room %s", roomId)
+			}
+			if room := hub2.getRoom(roomId); room != nil {
+				t.Fatalf("Should not have gotten room %s, got %+v", roomId, room)
+			}
+
+			users := []map[string]interface{}{
+				{
+					"sessionId": "the-session-id",
+					"inCall":    1,
+				},
+			}
+			room := hub1.getRoom(roomId)
+			if room == nil {
+				t.Fatalf("Could not find room %s", roomId)
+			}
+			room.PublishUsersInCallChanged(users, users)
+			if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
+				t.Error(err)
+			}
+		})
+	})
+}
+
+func TestClientHelloResumeProxy_Takeover(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+
+			if err := client1.SendHello(testDefaultUserId); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			} else {
+				if hello.Hello.UserId != testDefaultUserId {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
+				}
+				if hello.Hello.SessionId == "" {
+					t.Errorf("Expected session id, got %+v", hello.Hello)
+				}
+				if hello.Hello.ResumeId == "" {
+					t.Errorf("Expected resume id, got %+v", hello.Hello)
+				}
+			}
+
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+
+			if err := client2.SendHelloResume(hello.Hello.ResumeId); err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Error(err)
+			} else {
+				if hello2.Hello.UserId != testDefaultUserId {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
+				}
+				if hello2.Hello.SessionId != hello.Hello.SessionId {
+					t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
+				}
+				if hello2.Hello.ResumeId != hello.Hello.ResumeId {
+					t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
+				}
+			}
+
+			// The first client got disconnected with a reason in a "Bye" message.
+			if msg, err := client1.RunUntilMessage(ctx); err != nil {
+				t.Error(err)
+			} else {
+				if msg.Type != "bye" || msg.Bye == nil {
+					t.Errorf("Expected bye message, got %+v", msg)
+				} else if msg.Bye.Reason != "session_resumed" {
+					t.Errorf("Expected reason \"session_resumed\", got %+v", msg.Bye.Reason)
+				}
+			}
+
+			if msg, err := client1.RunUntilMessage(ctx); err == nil {
+				t.Errorf("Expected error but received %+v", msg)
+			} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
+				t.Errorf("Expected close error but received %+v", err)
+			}
+
+			client3 := NewTestClient(t, server1, hub1)
+			defer client3.CloseWithBye()
+
+			if err := client3.SendHelloResume(hello.Hello.ResumeId); err != nil {
+				t.Fatal(err)
+			}
+			hello3, err := client3.RunUntilHello(ctx)
+			if err != nil {
+				t.Error(err)
+			} else {
+				if hello3.Hello.UserId != testDefaultUserId {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
+				}
+				if hello3.Hello.SessionId != hello.Hello.SessionId {
+					t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
+				}
+				if hello3.Hello.ResumeId != hello.Hello.ResumeId {
+					t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
+				}
+			}
+
+			// The second client got disconnected with a reason in a "Bye" message.
+			if msg, err := client2.RunUntilMessage(ctx); err != nil {
+				t.Error(err)
+			} else {
+				if msg.Type != "bye" || msg.Bye == nil {
+					t.Errorf("Expected bye message, got %+v", msg)
+				} else if msg.Bye.Reason != "session_resumed" {
+					t.Errorf("Expected reason \"session_resumed\", got %+v", msg.Bye.Reason)
+				}
+			}
+
+			if msg, err := client2.RunUntilMessage(ctx); err == nil {
+				t.Errorf("Expected error but received %+v", msg)
+			} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
+				t.Errorf("Expected close error but received %+v", err)
+			}
+		})
+	})
+}
+
+func TestClientHelloResumeProxy_Disconnect(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+
+			if err := client1.SendHello(testDefaultUserId); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello, err := client1.RunUntilHello(ctx)
+			if err != nil {
+				t.Fatal(err)
+			} else {
+				if hello.Hello.UserId != testDefaultUserId {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
+				}
+				if hello.Hello.SessionId == "" {
+					t.Errorf("Expected session id, got %+v", hello.Hello)
+				}
+				if hello.Hello.ResumeId == "" {
+					t.Errorf("Expected resume id, got %+v", hello.Hello)
+				}
+			}
+
+			client1.Close()
+			if err := client1.WaitForClientRemoved(ctx); err != nil {
+				t.Error(err)
+			}
+
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+
+			if err := client2.SendHelloResume(hello.Hello.ResumeId); err != nil {
+				t.Fatal(err)
+			}
+			hello2, err := client2.RunUntilHello(ctx)
+			if err != nil {
+				t.Error(err)
+			} else {
+				if hello2.Hello.UserId != testDefaultUserId {
+					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
+				}
+				if hello2.Hello.SessionId != hello.Hello.SessionId {
+					t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
+				}
+				if hello2.Hello.ResumeId != hello.Hello.ResumeId {
+					t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
+				}
+			}
+
+			// Simulate unclean shutdown of second instance.
+			hub2.rpcServer.conn.Stop()
+
+			if err := client2.WaitForClientRemoved(ctx); err != nil {
+				t.Error(err)
+			}
+		})
+	})
 }
 
 func TestClientHelloClient(t *testing.T) {
