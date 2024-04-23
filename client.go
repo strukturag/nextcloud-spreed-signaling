@@ -497,7 +497,6 @@ func (c *Client) writeMessageLocked(message WritableClientMessage) bool {
 			go session.Close()
 		}
 		go c.Close()
-		return false
 	}
 
 	return true
