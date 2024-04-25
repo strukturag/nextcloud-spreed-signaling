@@ -38,6 +38,8 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/embed"
 	"go.etcd.io/etcd/server/v3/lease"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 )
 
 var (
@@ -88,6 +90,7 @@ func NewEtcdForTest(t *testing.T) *embed.Etcd {
 		cfg.ListenPeerUrls = []url.URL{*peerListener}
 		cfg.AdvertisePeerUrls = []url.URL{*peerListener}
 		cfg.InitialCluster = "default=" + peerListener.String()
+		cfg.ZapLoggerBuilder = embed.NewZapLoggerBuilder(zaptest.NewLogger(t, zaptest.Level(zap.WarnLevel)))
 		etcd, err = embed.StartEtcd(cfg)
 		if isErrorAddressAlreadyInUse(err) {
 			continue
