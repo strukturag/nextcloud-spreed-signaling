@@ -93,6 +93,92 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey) {
 	return server, key
 }
 
+func TestTokenValid(t *testing.T) {
+	signaling.CatchLogForTest(t)
+	server, key := newProxyServerForTest(t)
+
+	claims := &signaling.TokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
+			Issuer:   TokenIdForTest,
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tokenString, err := token.SignedString(key)
+	if err != nil {
+		t.Fatalf("could not create token: %s", err)
+	}
+
+	hello := &signaling.HelloProxyClientMessage{
+		Version: "1.0",
+		Token:   tokenString,
+	}
+	session, err := server.NewSession(hello)
+	if session != nil {
+		defer session.Close()
+	} else if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestTokenNotSigned(t *testing.T) {
+	signaling.CatchLogForTest(t)
+	server, _ := newProxyServerForTest(t)
+
+	claims := &signaling.TokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
+			Issuer:   TokenIdForTest,
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodNone, claims)
+	tokenString, err := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
+	if err != nil {
+		t.Fatalf("could not create token: %s", err)
+	}
+
+	hello := &signaling.HelloProxyClientMessage{
+		Version: "1.0",
+		Token:   tokenString,
+	}
+	session, err := server.NewSession(hello)
+	if session != nil {
+		defer session.Close()
+		t.Errorf("should not have created session")
+	} else if err != TokenAuthFailed {
+		t.Errorf("could have failed with TokenAuthFailed, got %s", err)
+	}
+}
+
+func TestTokenUnknown(t *testing.T) {
+	signaling.CatchLogForTest(t)
+	server, key := newProxyServerForTest(t)
+
+	claims := &signaling.TokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
+			Issuer:   TokenIdForTest + "2",
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tokenString, err := token.SignedString(key)
+	if err != nil {
+		t.Fatalf("could not create token: %s", err)
+	}
+
+	hello := &signaling.HelloProxyClientMessage{
+		Version: "1.0",
+		Token:   tokenString,
+	}
+	session, err := server.NewSession(hello)
+	if session != nil {
+		defer session.Close()
+		t.Errorf("should not have created session")
+	} else if err != TokenAuthFailed {
+		t.Errorf("could have failed with TokenAuthFailed, got %s", err)
+	}
+}
+
 func TestTokenInFuture(t *testing.T) {
 	signaling.CatchLogForTest(t)
 	server, key := newProxyServerForTest(t)
@@ -119,6 +205,35 @@ func TestTokenInFuture(t *testing.T) {
 		t.Errorf("should not have created session")
 	} else if err != TokenNotValidYet {
 		t.Errorf("could have failed with TokenNotValidYet, got %s", err)
+	}
+}
+
+func TestTokenExpired(t *testing.T) {
+	signaling.CatchLogForTest(t)
+	server, key := newProxyServerForTest(t)
+
+	claims := &signaling.TokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge * 2)),
+			Issuer:   TokenIdForTest,
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tokenString, err := token.SignedString(key)
+	if err != nil {
+		t.Fatalf("could not create token: %s", err)
+	}
+
+	hello := &signaling.HelloProxyClientMessage{
+		Version: "1.0",
+		Token:   tokenString,
+	}
+	session, err := server.NewSession(hello)
+	if session != nil {
+		defer session.Close()
+		t.Errorf("should not have created session")
+	} else if err != TokenExpired {
+		t.Errorf("could have failed with TokenExpired, got %s", err)
 	}
 }
 
