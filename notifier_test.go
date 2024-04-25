@@ -118,6 +118,7 @@ func TestNotifierResetWillNotify(t *testing.T) {
 }
 
 func TestNotifierDuplicate(t *testing.T) {
+	t.Parallel()
 	var notifier Notifier
 	var wgStart sync.WaitGroup
 	var wgEnd sync.WaitGroup

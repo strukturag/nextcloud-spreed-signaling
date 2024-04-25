@@ -92,6 +92,7 @@ func testBackends(t *testing.T, config *BackendConfiguration, valid_urls [][]str
 }
 
 func TestIsUrlAllowed_Compat(t *testing.T) {
+	CatchLogForTest(t)
 	// Old-style configuration
 	valid_urls := []string{
 		"http://domain.invalid",
@@ -114,6 +115,7 @@ func TestIsUrlAllowed_Compat(t *testing.T) {
 }
 
 func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
+	CatchLogForTest(t)
 	// Old-style configuration, force HTTPS
 	valid_urls := []string{
 		"https://domain.invalid",
@@ -135,6 +137,7 @@ func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
 }
 
 func TestIsUrlAllowed(t *testing.T) {
+	CatchLogForTest(t)
 	valid_urls := [][]string{
 		{"https://domain.invalid/foo", string(testBackendSecret) + "-foo"},
 		{"https://domain.invalid/foo/", string(testBackendSecret) + "-foo"},
@@ -180,6 +183,7 @@ func TestIsUrlAllowed(t *testing.T) {
 }
 
 func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
+	CatchLogForTest(t)
 	valid_urls := []string{}
 	invalid_urls := []string{
 		"http://domain.invalid",
@@ -197,6 +201,7 @@ func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
 }
 
 func TestIsUrlAllowed_AllowAll(t *testing.T) {
+	CatchLogForTest(t)
 	valid_urls := []string{
 		"http://domain.invalid",
 		"https://domain.invalid",
@@ -222,6 +227,7 @@ type ParseBackendIdsTestcase struct {
 }
 
 func TestParseBackendIds(t *testing.T) {
+	CatchLogForTest(t)
 	testcases := []ParseBackendIdsTestcase{
 		{"", nil},
 		{"backend1", []string{"backend1"}},
@@ -241,6 +247,7 @@ func TestParseBackendIds(t *testing.T) {
 }
 
 func TestBackendReloadNoChange(t *testing.T) {
+	CatchLogForTest(t)
 	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -276,6 +283,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 }
 
 func TestBackendReloadChangeExistingURL(t *testing.T) {
+	CatchLogForTest(t)
 	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -316,6 +324,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 }
 
 func TestBackendReloadChangeSecret(t *testing.T) {
+	CatchLogForTest(t)
 	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -354,6 +363,7 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 }
 
 func TestBackendReloadAddBackend(t *testing.T) {
+	CatchLogForTest(t)
 	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1")
@@ -394,6 +404,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 }
 
 func TestBackendReloadRemoveHost(t *testing.T) {
+	CatchLogForTest(t)
 	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -431,6 +442,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 }
 
 func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
+	CatchLogForTest(t)
 	current := testutil.ToFloat64(statsBackendsCurrent)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -486,6 +498,8 @@ func mustParse(s string) *url.URL {
 }
 
 func TestBackendConfiguration_Etcd(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	etcd, client := NewEtcdClientForTest(t)
 
 	url1 := "https://domain1.invalid/foo"
@@ -619,6 +633,8 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 }
 
 func TestBackendCommonSecret(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	u1, err := url.Parse("http://domain1.invalid")
 	if err != nil {
 		t.Fatal(err)

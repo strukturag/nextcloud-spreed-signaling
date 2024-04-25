@@ -52,6 +52,7 @@ func (tl *testListener) EtcdClientCreated(client *EtcdClient) {
 }
 
 func Test_BackendStorageEtcdNoLeak(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		etcd, client := NewEtcdClientForTest(t)
 		tl := &testListener{

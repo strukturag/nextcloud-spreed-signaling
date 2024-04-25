@@ -93,6 +93,7 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey) {
 }
 
 func TestTokenInFuture(t *testing.T) {
+	signaling.CatchLogForTest(t)
 	server, key := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{

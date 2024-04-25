@@ -112,6 +112,7 @@ func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 }
 
 func Test_GrpcClients_EtcdInitial(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, addr1 := NewGrpcServerForTest(t)
 		_, addr2 := NewGrpcServerForTest(t)
@@ -135,6 +136,8 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) {
 }
 
 func Test_GrpcClients_EtcdUpdate(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	etcd := NewEtcdForTest(t)
 	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 	ch := client.getWakeupChannelForTesting()
@@ -189,6 +192,8 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 }
 
 func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	etcd := NewEtcdForTest(t)
 	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 	ch := client.getWakeupChannelForTesting()
@@ -233,6 +238,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 }
 
 func Test_GrpcClients_DnsDiscovery(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		lookup := newMockDnsLookupForTest(t)
 		target := "testgrpc:12345"
@@ -289,6 +295,8 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 }
 
 func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	lookup := newMockDnsLookupForTest(t)
 	target := "testgrpc:12345"
 	ip1 := net.ParseIP("192.168.0.1")
@@ -324,6 +332,7 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 }
 
 func Test_GrpcClients_Encryption(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
 		if err != nil {

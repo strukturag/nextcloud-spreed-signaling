@@ -30,6 +30,8 @@ import (
 )
 
 func TestVirtualSession(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	roomId := "the-room-id"
@@ -338,6 +340,8 @@ func checkHasEntryWithInCall(message *RoomEventServerMessage, sessionId string, 
 }
 
 func TestVirtualSessionCustomInCall(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	roomId := "the-room-id"
@@ -569,6 +573,8 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 }
 
 func TestVirtualSessionCleanup(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	roomId := "the-room-id"

@@ -143,6 +143,8 @@ func DeleteEtcdValue(etcd *embed.Etcd, key string) {
 }
 
 func Test_EtcdClient_Get(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	etcd, client := NewEtcdClientForTest(t)
 
 	if response, err := client.Get(context.Background(), "foo"); err != nil {
@@ -165,6 +167,8 @@ func Test_EtcdClient_Get(t *testing.T) {
 }
 
 func Test_EtcdClient_GetPrefix(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	etcd, client := NewEtcdClientForTest(t)
 
 	if response, err := client.Get(context.Background(), "foo"); err != nil {
@@ -286,6 +290,8 @@ func (l *EtcdClientTestListener) EtcdKeyDeleted(client *EtcdClient, key string, 
 }
 
 func Test_EtcdClient_Watch(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	etcd, client := NewEtcdClientForTest(t)
 
 	SetEtcdValue(etcd, "foo/a", []byte("1"))

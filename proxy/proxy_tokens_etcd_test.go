@@ -39,6 +39,8 @@ import (
 	"github.com/dlintw/goconf"
 	"go.etcd.io/etcd/server/v3/embed"
 	"go.etcd.io/etcd/server/v3/lease"
+
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 var (
@@ -160,6 +162,7 @@ func generateAndSaveKey(t *testing.T, etcd *embed.Etcd, name string) *rsa.Privat
 }
 
 func TestProxyTokensEtcd(t *testing.T) {
+	signaling.CatchLogForTest(t)
 	tokens, etcd := newTokensEtcdForTesting(t)
 
 	key1 := generateAndSaveKey(t, etcd, "/foo")

@@ -70,6 +70,8 @@ func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
 }
 
 func TestPostOnRedirect(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusTemporaryRedirect)
@@ -125,6 +127,8 @@ func TestPostOnRedirect(t *testing.T) {
 }
 
 func TestPostOnRedirectDifferentHost(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://domain.invalid/ocs/v2.php/two", http.StatusTemporaryRedirect)
@@ -165,6 +169,8 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 }
 
 func TestPostOnRedirectStatusFound(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusFound)
@@ -217,6 +223,8 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 }
 
 func TestHandleThrottled(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
 		returnOCS(t, w, []byte("[]"))

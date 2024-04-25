@@ -27,6 +27,7 @@ import (
 )
 
 func TestBackendChecksum(t *testing.T) {
+	t.Parallel()
 	rnd := newRandomString(32)
 	body := []byte{1, 2, 3, 4, 5}
 	secret := []byte("shared-secret")
@@ -58,6 +59,7 @@ func TestBackendChecksum(t *testing.T) {
 }
 
 func TestValidNumbers(t *testing.T) {
+	t.Parallel()
 	valid := []string{
 		"+12",
 		"+12345",

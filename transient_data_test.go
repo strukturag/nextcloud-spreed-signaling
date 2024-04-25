@@ -133,6 +133,8 @@ func Test_TransientData(t *testing.T) {
 }
 
 func Test_TransientMessages(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)

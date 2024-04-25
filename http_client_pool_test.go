@@ -29,6 +29,7 @@ import (
 )
 
 func TestHttpClientPool(t *testing.T) {
+	t.Parallel()
 	if _, err := NewHttpClientPool(0, false); err == nil {
 		t.Error("should not be possible to create empty pool")
 	}
