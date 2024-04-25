@@ -299,12 +299,41 @@ type PayloadProxyServerMessage struct {
 
 // Type "event"
 
+type EventProxyServerBandwidth struct {
+	// Incoming is the bandwidth utilization for publishers in percent.
+	Incoming *float64 `json:"incoming,omitempty"`
+	// Outgoing is the bandwidth utilization for subscribers in percent.
+	Outgoing *float64 `json:"outgoing,omitempty"`
+}
+
+func (b *EventProxyServerBandwidth) String() string {
+	if b.Incoming != nil && b.Outgoing != nil {
+		return fmt.Sprintf("bandwidth: incoming=%.3f%%, outgoing=%.3f%%", *b.Incoming, *b.Outgoing)
+	} else if b.Incoming != nil {
+		return fmt.Sprintf("bandwidth: incoming=%.3f%%, outgoing=unlimited", *b.Incoming)
+	} else if b.Outgoing != nil {
+		return fmt.Sprintf("bandwidth: incoming=unlimited, outgoing=%.3f%%", *b.Outgoing)
+	} else {
+		return "bandwidth: incoming=unlimited, outgoing=unlimited"
+	}
+}
+
+func (b EventProxyServerBandwidth) AllowIncoming() bool {
+	return b.Incoming == nil || *b.Incoming < 100
+}
+
+func (b EventProxyServerBandwidth) AllowOutgoing() bool {
+	return b.Outgoing == nil || *b.Outgoing < 100
+}
+
 type EventProxyServerMessage struct {
 	Type string `json:"type"`
 
 	ClientId string `json:"clientId,omitempty"`
 	Load     int64  `json:"load,omitempty"`
 	Sid      string `json:"sid,omitempty"`
+
+	Bandwidth *EventProxyServerBandwidth `json:"bandwidth,omitempty"`
 }
 
 // Information on a proxy in the etcd cluster.

@@ -41,6 +41,20 @@ tokentype = static
 # self-signed certificates.
 #skipverify = false
 
+[bandwidth]
+# Target bandwidth limit for incoming streams (in megabits per second).
+# Set to 0 to disable the limit. If the limit is reached, the proxy notifies
+# the signaling servers that another proxy should be used for publishing if
+# possible.
+#incoming = 1024
+
+# Target bandwidth limit for outgoing streams (in megabits per second).
+# Set to 0 to disable the limit. If the limit is reached, the proxy notifies
+# the signaling servers that another proxy should be used for subscribing if
+# possible. Note that this might require additional outgoing bandwidth for the
+# remote streams.
+#outgoing = 1024
+
 [tokens]
 # For token type "static": Mapping of <tokenid> = <publickey> of signaling
 # servers allowed to connect.

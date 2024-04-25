@@ -446,6 +446,8 @@ type TestProxyServerHandler struct {
 
 	mu          sync.Mutex
 	load        atomic.Int64
+	incoming    atomic.Pointer[float64]
+	outgoing    atomic.Pointer[float64]
 	clients     map[string]*testProxyServerClient
 	publishers  map[string]*testProxyServerPublisher
 	subscribers map[string]*testProxyServerSubscriber
@@ -523,36 +525,75 @@ func (h *TestProxyServerHandler) deleteSubscriber(id string) (*testProxyServerSu
 	return sub, true
 }
 
-func (h *TestProxyServerHandler) updateLoad(delta int64) {
-	if delta == 0 {
-		return
+func (h *TestProxyServerHandler) UpdateBandwidth(incoming float64, outgoing float64) {
+	h.incoming.Store(&incoming)
+	h.outgoing.Store(&outgoing)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	msg := h.getLoadMessage(h.load.Load())
+	for _, c := range h.clients {
+		c.sendMessage(msg)
+	}
+}
+
+func (h *TestProxyServerHandler) Clear(incoming bool, outgoing bool) {
+	if incoming {
+		h.incoming.Store(nil)
+	}
+	if outgoing {
+		h.outgoing.Store(nil)
 	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	load := h.load.Add(delta)
+	msg := h.getLoadMessage(h.load.Load())
 	for _, c := range h.clients {
-		go func(c *testProxyServerClient, load int64) {
-			c.sendMessage(&ProxyServerMessage{
-				Type: "event",
-				Event: &EventProxyServerMessage{
-					Type: "update-load",
-					Load: load,
-				},
-			})
-		}(c, load)
+		c.sendMessage(msg)
+	}
+}
+
+func (h *TestProxyServerHandler) getLoadMessage(load int64) *ProxyServerMessage {
+	msg := &ProxyServerMessage{
+		Type: "event",
+		Event: &EventProxyServerMessage{
+			Type: "update-load",
+			Load: load,
+		},
+	}
+
+	incoming := h.incoming.Load()
+	outgoing := h.outgoing.Load()
+	if incoming != nil || outgoing != nil {
+		msg.Event.Bandwidth = &EventProxyServerBandwidth{
+			Incoming: incoming,
+			Outgoing: outgoing,
+		}
+	}
+	return msg
+}
+
+func (h *TestProxyServerHandler) updateLoad(delta int64) {
+	if delta == 0 {
+		return
+	}
+
+	load := h.load.Add(delta)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	msg := h.getLoadMessage(load)
+	for _, c := range h.clients {
+		go c.sendMessage(msg)
 	}
 }
 
 func (h *TestProxyServerHandler) sendLoad(c *testProxyServerClient) {
-	c.sendMessage(&ProxyServerMessage{
-		Type: "event",
-		Event: &EventProxyServerMessage{
-			Type: "update-load",
-			Load: h.load.Load(),
-		},
-	})
+	msg := h.getLoadMessage(h.load.Load())
+	c.sendMessage(msg)
 }
 
 func (h *TestProxyServerHandler) removeClient(client *testProxyServerClient) {
@@ -810,6 +851,153 @@ func Test_ProxyWaitForPublisher(t *testing.T) {
 	defer pub.Close(context.Background())
 }
 
+func Test_ProxyPublisherBandwidth(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	server1 := NewProxyServerForTest(t, "DE")
+	server2 := NewProxyServerForTest(t, "DE")
+	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
+		server1,
+		server2,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pub1Id := "the-publisher-1"
+	pub1Sid := "1234567890"
+	pub1Listener := &MockMcuListener{
+		publicId: pub1Id + "-public",
+	}
+	pub1Initiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub1Initiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer pub1.Close(context.Background())
+
+	if pub1.(*mcuProxyPublisher).conn.rawUrl == server1.URL {
+		server1.UpdateBandwidth(100, 0)
+	} else {
+		server2.UpdateBandwidth(100, 0)
+	}
+
+	// Wait until proxy has been updated
+	for ctx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		connections := mcu.connections
+		mcu.connectionsMu.RUnlock()
+		missing := true
+		for _, c := range connections {
+			if c.Bandwidth() != nil {
+				missing = false
+				break
+			}
+		}
+		if !missing {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	pub2Id := "the-publisher-2"
+	pub2id := "1234567890"
+	pub2Listener := &MockMcuListener{
+		publicId: pub2Id + "-public",
+	}
+	pub2Initiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub2Initiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer pub2.Close(context.Background())
+
+	if pub1.(*mcuProxyPublisher).conn.rawUrl == pub2.(*mcuProxyPublisher).conn.rawUrl {
+		t.Errorf("servers should be different, got %s", pub1.(*mcuProxyPublisher).conn.rawUrl)
+	}
+}
+
+func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	server1 := NewProxyServerForTest(t, "DE")
+	server2 := NewProxyServerForTest(t, "DE")
+	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
+		server1,
+		server2,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pub1Id := "the-publisher-1"
+	pub1Sid := "1234567890"
+	pub1Listener := &MockMcuListener{
+		publicId: pub1Id + "-public",
+	}
+	pub1Initiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub1Initiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer pub1.Close(context.Background())
+
+	// If all servers are bandwidth loaded, select the one with the least usage.
+	if pub1.(*mcuProxyPublisher).conn.rawUrl == server1.URL {
+		server1.UpdateBandwidth(100, 0)
+		server2.UpdateBandwidth(102, 0)
+	} else {
+		server1.UpdateBandwidth(102, 0)
+		server2.UpdateBandwidth(100, 0)
+	}
+
+	// Wait until proxy has been updated
+	for ctx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		connections := mcu.connections
+		mcu.connectionsMu.RUnlock()
+		missing := false
+		for _, c := range connections {
+			if c.Bandwidth() == nil {
+				missing = true
+				break
+			}
+		}
+		if !missing {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	pub2Id := "the-publisher-2"
+	pub2id := "1234567890"
+	pub2Listener := &MockMcuListener{
+		publicId: pub2Id + "-public",
+	}
+	pub2Initiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub2Initiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer pub2.Close(context.Background())
+
+	if pub1.(*mcuProxyPublisher).conn.rawUrl != pub2.(*mcuProxyPublisher).conn.rawUrl {
+		t.Errorf("servers should be the same, got %s / %s", pub1.(*mcuProxyPublisher).conn.rawUrl, pub2.(*mcuProxyPublisher).conn.rawUrl)
+	}
+}
+
 func Test_ProxyPublisherLoad(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()
@@ -1013,5 +1201,146 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 
 	if sub.(*mcuProxySubscriber).conn.rawUrl != serverUS.URL {
 		t.Errorf("expected server %s, go %s", serverUS.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
+	}
+}
+
+func Test_ProxySubscriberBandwidth(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	serverDE := NewProxyServerForTest(t, "DE")
+	serverUS := NewProxyServerForTest(t, "US")
+	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
+		serverDE,
+		serverUS,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer pub.Close(context.Background())
+
+	if pub.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
+		t.Errorf("expected server %s, go %s", serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
+	}
+
+	serverDE.UpdateBandwidth(0, 100)
+
+	// Wait until proxy has been updated
+	for ctx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		connections := mcu.connections
+		mcu.connectionsMu.RUnlock()
+		missing := true
+		for _, c := range connections {
+			if c.Bandwidth() != nil {
+				missing = false
+				break
+			}
+		}
+		if !missing {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	subListener := &MockMcuListener{
+		publicId: "subscriber-public",
+	}
+	subInitiator := &MockMcuInitiator{
+		country: "US",
+	}
+	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer sub.Close(context.Background())
+
+	if sub.(*mcuProxySubscriber).conn.rawUrl != serverUS.URL {
+		t.Errorf("expected server %s, go %s", serverUS.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
+	}
+}
+
+func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	serverDE := NewProxyServerForTest(t, "DE")
+	serverUS := NewProxyServerForTest(t, "US")
+	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
+		serverDE,
+		serverUS,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer pub.Close(context.Background())
+
+	if pub.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
+		t.Errorf("expected server %s, go %s", serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
+	}
+
+	serverDE.UpdateBandwidth(0, 100)
+	serverUS.UpdateBandwidth(0, 102)
+
+	// Wait until proxy has been updated
+	for ctx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		connections := mcu.connections
+		mcu.connectionsMu.RUnlock()
+		missing := false
+		for _, c := range connections {
+			if c.Bandwidth() == nil {
+				missing = true
+				break
+			}
+		}
+		if !missing {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	subListener := &MockMcuListener{
+		publicId: "subscriber-public",
+	}
+	subInitiator := &MockMcuInitiator{
+		country: "US",
+	}
+	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer sub.Close(context.Background())
+
+	if sub.(*mcuProxySubscriber).conn.rawUrl != serverDE.URL {
+		t.Errorf("expected server %s, go %s", serverDE.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
 	}
 }

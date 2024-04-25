@@ -103,6 +103,8 @@ The running container can be configured through different environment variables:
 - `EXTERNAL_HOSTNAME`: The external hostname for remote streams. Will try to autodetect if omitted.
 - `TOKEN_ID`: Id of the token to use when connecting remote streams.
 - `TOKEN_KEY`: Private key for the configured token id.
+- `BANDWIDTH_INCOMING`: Optional incoming target bandwidth (in megabits per second).
+- `BANDWIDTH_OUTGOING`: Optional outgoing target bandwidth (in megabits per second).
 - `JANUS_URL`: Url to Janus server.
 - `MAX_STREAM_BITRATE`: Optional maximum bitrate for audio/video streams.
 - `MAX_SCREEN_BITRATE`: Optional maximum bitrate for screensharing streams.
