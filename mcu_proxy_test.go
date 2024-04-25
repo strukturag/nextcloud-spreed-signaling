@@ -1204,6 +1204,56 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 	}
 }
 
+func Test_ProxySubscriberContinent(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	serverDE := NewProxyServerForTest(t, "DE")
+	serverUS := NewProxyServerForTest(t, "US")
+	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
+		serverDE,
+		serverUS,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer pub.Close(context.Background())
+
+	if pub.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
+		t.Errorf("expected server %s, go %s", serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
+	}
+
+	subListener := &MockMcuListener{
+		publicId: "subscriber-public",
+	}
+	subInitiator := &MockMcuInitiator{
+		country: "FR",
+	}
+	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer sub.Close(context.Background())
+
+	if sub.(*mcuProxySubscriber).conn.rawUrl != serverDE.URL {
+		t.Errorf("expected server %s, go %s", serverDE.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
+	}
+}
+
 func Test_ProxySubscriberBandwidth(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()
