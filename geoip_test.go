@@ -78,6 +78,7 @@ func GetGeoIpUrlForTest(t *testing.T) string {
 }
 
 func TestGeoLookup(t *testing.T) {
+	CatchLogForTest(t)
 	reader, err := NewGeoLookupFromUrl(GetGeoIpUrlForTest(t))
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +93,7 @@ func TestGeoLookup(t *testing.T) {
 }
 
 func TestGeoLookupCaching(t *testing.T) {
+	CatchLogForTest(t)
 	reader, err := NewGeoLookupFromUrl(GetGeoIpUrlForTest(t))
 	if err != nil {
 		t.Fatal(err)
@@ -138,6 +140,7 @@ func TestGeoLookupContinent(t *testing.T) {
 }
 
 func TestGeoLookupCloseEmpty(t *testing.T) {
+	CatchLogForTest(t)
 	reader, err := NewGeoLookupFromUrl("ignore-url")
 	if err != nil {
 		t.Fatal(err)
@@ -146,6 +149,7 @@ func TestGeoLookupCloseEmpty(t *testing.T) {
 }
 
 func TestGeoLookupFromFile(t *testing.T) {
+	CatchLogForTest(t)
 	geoIpUrl := GetGeoIpUrlForTest(t)
 
 	resp, err := http.Get(geoIpUrl)
