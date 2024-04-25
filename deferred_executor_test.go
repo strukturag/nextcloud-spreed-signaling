@@ -35,6 +35,7 @@ func TestDeferredExecutor_MultiClose(t *testing.T) {
 }
 
 func TestDeferredExecutor_QueueSize(t *testing.T) {
+	t.Parallel()
 	e := NewDeferredExecutor(0)
 	defer e.waitForStop()
 	defer e.Close()
@@ -100,6 +101,7 @@ func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
 }
 
 func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
+	CatchLogForTest(t)
 	e := NewDeferredExecutor(64)
 	defer e.waitForStop()
 

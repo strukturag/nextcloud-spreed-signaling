@@ -62,6 +62,8 @@ func SetEtcdProxy(t *testing.T, etcd *embed.Etcd, path string, proxy *TestProxyI
 }
 
 func TestProxyConfigEtcd(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	proxy := newMcuProxyForConfig(t)
 	etcd, config := newProxyConfigEtcd(t, proxy)
 

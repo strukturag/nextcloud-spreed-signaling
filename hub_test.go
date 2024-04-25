@@ -794,6 +794,8 @@ func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {
 }
 
 func TestInitialWelcome(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -817,6 +819,8 @@ func TestInitialWelcome(t *testing.T) {
 }
 
 func TestExpectClientHello(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	// The server will send an error and close the connection if no "Hello"
@@ -851,6 +855,8 @@ func TestExpectClientHello(t *testing.T) {
 }
 
 func TestExpectClientHelloUnsupportedVersion(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -879,6 +885,8 @@ func TestExpectClientHelloUnsupportedVersion(t *testing.T) {
 }
 
 func TestClientHelloV1(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -904,6 +912,7 @@ func TestClientHelloV1(t *testing.T) {
 }
 
 func TestClientHelloV2(t *testing.T) {
+	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
 			hub, _, _, server := CreateHubForTest(t)
@@ -954,6 +963,7 @@ func TestClientHelloV2(t *testing.T) {
 }
 
 func TestClientHelloV2_IssuedInFuture(t *testing.T) {
+	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
 			hub, _, _, server := CreateHubForTest(t)
@@ -985,6 +995,7 @@ func TestClientHelloV2_IssuedInFuture(t *testing.T) {
 }
 
 func TestClientHelloV2_Expired(t *testing.T) {
+	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
 			hub, _, _, server := CreateHubForTest(t)
@@ -1015,6 +1026,7 @@ func TestClientHelloV2_Expired(t *testing.T) {
 }
 
 func TestClientHelloV2_IssuedAtMissing(t *testing.T) {
+	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
 			hub, _, _, server := CreateHubForTest(t)
@@ -1046,6 +1058,7 @@ func TestClientHelloV2_IssuedAtMissing(t *testing.T) {
 }
 
 func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
+	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
 			hub, _, _, server := CreateHubForTest(t)
@@ -1077,6 +1090,7 @@ func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
 }
 
 func TestClientHelloV2_CachedCapabilities(t *testing.T) {
+	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
 			hub, _, _, server := CreateHubForTest(t)
@@ -1130,6 +1144,8 @@ func TestClientHelloV2_CachedCapabilities(t *testing.T) {
 }
 
 func TestClientHelloWithSpaces(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1156,6 +1172,8 @@ func TestClientHelloWithSpaces(t *testing.T) {
 }
 
 func TestClientHelloAllowAll(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
 		config, err := getTestConfig(server)
 		if err != nil {
@@ -1190,8 +1208,10 @@ func TestClientHelloAllowAll(t *testing.T) {
 }
 
 func TestClientHelloSessionLimit(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -1352,6 +1372,8 @@ func TestClientHelloSessionLimit(t *testing.T) {
 }
 
 func TestSessionIdsUnordered(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	publicSessionIds := make([]string, 0)
@@ -1425,6 +1447,8 @@ func TestSessionIdsUnordered(t *testing.T) {
 }
 
 func TestClientHelloResume(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1480,6 +1504,8 @@ func TestClientHelloResume(t *testing.T) {
 }
 
 func TestClientHelloResumeExpired(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1535,6 +1561,8 @@ func TestClientHelloResumeExpired(t *testing.T) {
 }
 
 func TestClientHelloResumeTakeover(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -1603,6 +1631,8 @@ func TestClientHelloResumeTakeover(t *testing.T) {
 }
 
 func TestClientHelloResumeOtherHub(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1697,6 +1727,8 @@ func TestClientHelloResumeOtherHub(t *testing.T) {
 }
 
 func TestClientHelloResumePublicId(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	// Test that a client can't resume a "public" session of another user.
 	hub, _, _, server := CreateHubForTest(t)
 
@@ -1771,6 +1803,8 @@ func TestClientHelloResumePublicId(t *testing.T) {
 }
 
 func TestClientHelloByeResume(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1836,6 +1870,8 @@ func TestClientHelloByeResume(t *testing.T) {
 }
 
 func TestClientHelloResumeAndJoin(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1937,6 +1973,7 @@ func runGrpcProxyTest(t *testing.T, f func(hub1, hub2 *Hub, server1, server2 *ht
 }
 
 func TestClientHelloResumeProxy(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			client1 := NewTestClient(t, server1, hub1)
@@ -2029,6 +2066,7 @@ func TestClientHelloResumeProxy(t *testing.T) {
 }
 
 func TestClientHelloResumeProxy_Takeover(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			client1 := NewTestClient(t, server1, hub1)
@@ -2136,6 +2174,7 @@ func TestClientHelloResumeProxy_Takeover(t *testing.T) {
 }
 
 func TestClientHelloResumeProxy_Disconnect(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			client1 := NewTestClient(t, server1, hub1)
@@ -2200,6 +2239,8 @@ func TestClientHelloResumeProxy_Disconnect(t *testing.T) {
 }
 
 func TestClientHelloClient(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -2228,6 +2269,8 @@ func TestClientHelloClient(t *testing.T) {
 }
 
 func TestClientHelloClient_V3Api(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -2261,6 +2304,8 @@ func TestClientHelloClient_V3Api(t *testing.T) {
 }
 
 func TestClientHelloInternal(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -2289,8 +2334,10 @@ func TestClientHelloInternal(t *testing.T) {
 }
 
 func TestClientMessageToSessionId(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -2362,8 +2409,10 @@ func TestClientMessageToSessionId(t *testing.T) {
 }
 
 func TestClientControlToSessionId(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -2435,6 +2484,8 @@ func TestClientControlToSessionId(t *testing.T) {
 }
 
 func TestClientControlMissingPermissions(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -2519,6 +2570,8 @@ func TestClientControlMissingPermissions(t *testing.T) {
 }
 
 func TestClientMessageToUserId(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -2579,6 +2632,8 @@ func TestClientMessageToUserId(t *testing.T) {
 }
 
 func TestClientControlToUserId(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -2639,6 +2694,8 @@ func TestClientControlToUserId(t *testing.T) {
 }
 
 func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -2722,8 +2779,10 @@ func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, 
 }
 
 func TestClientMessageToRoom(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -2812,8 +2871,10 @@ func TestClientMessageToRoom(t *testing.T) {
 }
 
 func TestClientControlToRoom(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -2902,6 +2963,8 @@ func TestClientControlToRoom(t *testing.T) {
 }
 
 func TestJoinRoom(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -2941,6 +3004,8 @@ func TestJoinRoom(t *testing.T) {
 }
 
 func TestJoinRoomTwice(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -3018,6 +3083,8 @@ func TestJoinRoomTwice(t *testing.T) {
 }
 
 func TestExpectAnonymousJoinRoom(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -3070,6 +3137,8 @@ func TestExpectAnonymousJoinRoom(t *testing.T) {
 }
 
 func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -3156,6 +3225,8 @@ func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
 }
 
 func TestJoinRoomChange(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -3208,6 +3279,8 @@ func TestJoinRoomChange(t *testing.T) {
 }
 
 func TestJoinMultiple(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -3286,6 +3359,8 @@ func TestJoinMultiple(t *testing.T) {
 }
 
 func TestJoinDisplaynamesPermission(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -3368,6 +3443,8 @@ func TestJoinDisplaynamesPermission(t *testing.T) {
 }
 
 func TestInitialRoomPermissions(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -3411,6 +3488,8 @@ func TestInitialRoomPermissions(t *testing.T) {
 }
 
 func TestJoinRoomSwitchClient(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -3536,6 +3615,8 @@ func TestGetRealUserIP(t *testing.T) {
 }
 
 func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -3627,6 +3708,8 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 }
 
 func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -3759,8 +3842,10 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 }
 
 func TestClientTakeoverRoomSession(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			RunTestClientTakeoverRoomSession(t)
 		})
 	}
@@ -3902,6 +3987,8 @@ func RunTestClientTakeoverRoomSession(t *testing.T) {
 }
 
 func TestClientSendOfferPermissions(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
@@ -4041,6 +4128,8 @@ func TestClientSendOfferPermissions(t *testing.T) {
 }
 
 func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
@@ -4132,6 +4221,8 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 }
 
 func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
@@ -4259,6 +4350,8 @@ loop:
 }
 
 func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
@@ -4391,8 +4484,10 @@ loop:
 }
 
 func TestClientRequestOfferNotInRoom(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -4607,6 +4702,8 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 }
 
 func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	// Clients can't send messages to sessions connected from other backends.
 	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
@@ -4678,6 +4775,8 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 }
 
 func TestNoSameRoomOnDifferentBackends(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -4787,8 +4886,10 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 }
 
 func TestClientSendOffer(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -4906,6 +5007,8 @@ func TestClientSendOffer(t *testing.T) {
 }
 
 func TestClientUnshareScreen(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
@@ -5000,8 +5103,10 @@ func TestClientUnshareScreen(t *testing.T) {
 }
 
 func TestVirtualClientSessions(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -5337,8 +5442,10 @@ func TestVirtualClientSessions(t *testing.T) {
 }
 
 func DoTestSwitchToOne(t *testing.T, details map[string]interface{}) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -5474,8 +5581,10 @@ func TestSwitchToOneList(t *testing.T) {
 }
 
 func DoTestSwitchToMultiple(t *testing.T, details1 map[string]interface{}, details2 map[string]interface{}) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -5620,6 +5729,8 @@ func TestSwitchToMultipleMixed(t *testing.T) {
 }
 
 func TestGeoipOverrides(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	country1 := "DE"
 	country2 := "IT"
 	country3 := "site1"
@@ -5657,6 +5768,8 @@ func TestGeoipOverrides(t *testing.T) {
 }
 
 func TestDialoutStatus(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	internalClient := NewTestClient(t, server, hub)
@@ -5868,6 +5981,8 @@ func TestDialoutStatus(t *testing.T) {
 }
 
 func TestGracefulShutdownInitial(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, _ := CreateHubForTest(t)
 
 	hub.ScheduleShutdown()
@@ -5875,6 +5990,8 @@ func TestGracefulShutdownInitial(t *testing.T) {
 }
 
 func TestGracefulShutdownOnBye(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -5908,6 +6025,8 @@ func TestGracefulShutdownOnBye(t *testing.T) {
 }
 
 func TestGracefulShutdownOnExpiration(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)

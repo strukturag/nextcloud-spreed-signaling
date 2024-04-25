@@ -130,6 +130,8 @@ func SetCapabilitiesGetNow(t *testing.T, f func() time.Time) {
 }
 
 func TestCapabilities(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	url, capabilities := NewCapabilitiesForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -192,6 +194,8 @@ func TestCapabilities(t *testing.T) {
 }
 
 func TestInvalidateCapabilities(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse) {
 		called.Add(1)

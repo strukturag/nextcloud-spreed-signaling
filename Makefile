@@ -52,6 +52,14 @@ ifneq ($(COUNT),)
 TESTARGS := $(TESTARGS) -count $(COUNT)
 endif
 
+ifneq ($(PARALLEL),)
+TESTARGS := $(TESTARGS) -parallel $(PARALLEL)
+endif
+
+ifneq ($(VERBOSE),)
+TESTARGS := $(TESTARGS) -v
+endif
+
 ifeq ($(GOARCH), amd64)
 GOPATHBIN := $(GOPATH)/bin
 else
@@ -93,18 +101,18 @@ vet: common
 	$(GO) vet $(ALL_PACKAGES)
 
 test: vet common
-	$(GO) test -v -timeout $(TIMEOUT) $(TESTARGS) $(ALL_PACKAGES)
+	$(GO) test -timeout $(TIMEOUT) $(TESTARGS) $(ALL_PACKAGES)
 
 cover: vet common
 	rm -f cover.out && \
-	$(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
+	$(GO) test -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
 	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -func=cover.out
 
 coverhtml: vet common
 	rm -f cover.out && \
-	$(GO) test -v -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
+	$(GO) test -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
 	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -html=cover.out -o coverage.html

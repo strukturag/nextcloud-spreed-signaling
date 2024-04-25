@@ -73,6 +73,8 @@ func TestRoom_InCall(t *testing.T) {
 }
 
 func TestRoom_Update(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
@@ -210,6 +212,8 @@ loop:
 }
 
 func TestRoom_Delete(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
@@ -352,6 +356,8 @@ loop:
 }
 
 func TestRoom_RoomSessionData(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
@@ -421,6 +427,8 @@ func TestRoom_RoomSessionData(t *testing.T) {
 }
 
 func TestRoom_InCallAll(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)

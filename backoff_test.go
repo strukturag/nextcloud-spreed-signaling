@@ -28,6 +28,7 @@ import (
 )
 
 func TestBackoff_Exponential(t *testing.T) {
+	t.Parallel()
 	backoff, err := NewExponentialBackoff(100*time.Millisecond, 500*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)

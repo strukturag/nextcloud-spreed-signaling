@@ -117,6 +117,7 @@ func Test_permissionsEqual(t *testing.T) {
 	for idx, test := range tests {
 		test := test
 		t.Run(strconv.Itoa(idx), func(t *testing.T) {
+			t.Parallel()
 			equal := permissionsEqual(test.a, test.b)
 			if equal != test.equal {
 				t.Errorf("Expected %+v to be %s to %+v but was %s", test.a, equalStrings[test.equal], test.b, equalStrings[equal])
@@ -126,6 +127,8 @@ func Test_permissionsEqual(t *testing.T) {
 }
 
 func TestBandwidth_Client(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	mcu, err := NewTestMCU()
@@ -198,6 +201,8 @@ func TestBandwidth_Client(t *testing.T) {
 }
 
 func TestBandwidth_Backend(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
 	u, err := url.Parse(server.URL + "/one")

@@ -97,6 +97,7 @@ func runConcurrentFlags(t *testing.T, count int, f func()) {
 }
 
 func TestFlagsConcurrentAdd(t *testing.T) {
+	t.Parallel()
 	var flags Flags
 
 	var added atomic.Int32
@@ -111,6 +112,7 @@ func TestFlagsConcurrentAdd(t *testing.T) {
 }
 
 func TestFlagsConcurrentRemove(t *testing.T) {
+	t.Parallel()
 	var flags Flags
 	flags.Set(1)
 
@@ -126,6 +128,7 @@ func TestFlagsConcurrentRemove(t *testing.T) {
 }
 
 func TestFlagsConcurrentSet(t *testing.T) {
+	t.Parallel()
 	var flags Flags
 
 	var set atomic.Int32

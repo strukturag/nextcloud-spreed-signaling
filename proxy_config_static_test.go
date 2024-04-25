@@ -59,6 +59,7 @@ func updateProxyConfigStatic(t *testing.T, config ProxyConfig, dns bool, urls ..
 }
 
 func TestProxyConfigStaticSimple(t *testing.T) {
+	CatchLogForTest(t)
 	proxy := newMcuProxyForConfig(t)
 	config, _ := newProxyConfigStatic(t, proxy, false, "https://foo/")
 	proxy.Expect("add", "https://foo/")
@@ -77,6 +78,7 @@ func TestProxyConfigStaticSimple(t *testing.T) {
 }
 
 func TestProxyConfigStaticDNS(t *testing.T) {
+	CatchLogForTest(t)
 	lookup := newMockDnsLookupForTest(t)
 	proxy := newMcuProxyForConfig(t)
 	config, dnsMonitor := newProxyConfigStatic(t, proxy, true, "https://foo/")

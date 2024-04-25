@@ -275,6 +275,8 @@ func expectRoomlistEvent(ch chan *AsyncMessage, msgType string) (*EventServerMes
 }
 
 func TestBackendServer_NoAuth(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	roomId := "the-room-id"
@@ -301,6 +303,8 @@ func TestBackendServer_NoAuth(t *testing.T) {
 }
 
 func TestBackendServer_InvalidAuth(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	roomId := "the-room-id"
@@ -329,6 +333,8 @@ func TestBackendServer_InvalidAuth(t *testing.T) {
 }
 
 func TestBackendServer_OldCompatAuth(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	roomId := "the-room-id"
@@ -378,6 +384,8 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 }
 
 func TestBackendServer_InvalidBody(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	roomId := "the-room-id"
@@ -397,6 +405,8 @@ func TestBackendServer_InvalidBody(t *testing.T) {
 }
 
 func TestBackendServer_UnsupportedRequest(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
 	msg := &BackendServerRoomRequest{
@@ -423,8 +433,10 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 }
 
 func TestBackendServer_RoomInvite(t *testing.T) {
+	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
+			t.Parallel()
 			RunTestBackendServer_RoomInvite(t)
 		})
 	}
@@ -503,8 +515,10 @@ func RunTestBackendServer_RoomInvite(t *testing.T) {
 }
 
 func TestBackendServer_RoomDisinvite(t *testing.T) {
+	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
+			t.Parallel()
 			RunTestBackendServer_RoomDisinvite(t)
 		})
 	}
@@ -616,6 +630,8 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 }
 
 func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -741,8 +757,10 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 }
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
+	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
+			t.Parallel()
 			RunTestBackendServer_RoomUpdate(t)
 		})
 	}
@@ -831,8 +849,10 @@ func RunTestBackendServer_RoomUpdate(t *testing.T) {
 }
 
 func TestBackendServer_RoomDelete(t *testing.T) {
+	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
+			t.Parallel()
 			RunTestBackendServer_RoomDelete(t)
 		})
 	}
@@ -916,8 +936,10 @@ func RunTestBackendServer_RoomDelete(t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -1047,6 +1069,8 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1132,6 +1156,8 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
@@ -1345,8 +1371,10 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 }
 
 func TestBackendServer_InCallAll(t *testing.T) {
+	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -1595,6 +1623,8 @@ func TestBackendServer_InCallAll(t *testing.T) {
 }
 
 func TestBackendServer_RoomMessage(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1660,6 +1690,8 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 }
 
 func TestBackendServer_TurnCredentials(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, _, _, server := CreateBackendServerForTestWithTurn(t)
 
 	q := make(url.Values)
@@ -1703,6 +1735,7 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 }
 
 func TestBackendServer_StatsAllowedIps(t *testing.T) {
+	CatchLogForTest(t)
 	config := goconf.NewConfigFile()
 	config.AddOption("stats", "allowed_ips", "127.0.0.1, 192.168.0.1, 192.168.1.1/24")
 	_, backend, _, _, _, _ := CreateBackendServerForTestFromConfig(t, config)
@@ -1720,7 +1753,9 @@ func TestBackendServer_StatsAllowedIps(t *testing.T) {
 	}
 
 	for _, addr := range allowed {
+		addr := addr
 		t.Run(addr, func(t *testing.T) {
+			t.Parallel()
 			r1 := &http.Request{
 				RemoteAddr: addr,
 			}
@@ -1761,7 +1796,9 @@ func TestBackendServer_StatsAllowedIps(t *testing.T) {
 	}
 
 	for _, addr := range notAllowed {
+		addr := addr
 		t.Run(addr, func(t *testing.T) {
+			t.Parallel()
 			r := &http.Request{
 				RemoteAddr: addr,
 			}
@@ -1773,6 +1810,7 @@ func TestBackendServer_StatsAllowedIps(t *testing.T) {
 }
 
 func Test_IsNumeric(t *testing.T) {
+	t.Parallel()
 	numeric := []string{
 		"0",
 		"1",
@@ -1802,6 +1840,8 @@ func Test_IsNumeric(t *testing.T) {
 }
 
 func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1860,6 +1900,8 @@ func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 }
 
 func TestBackendServer_DialoutAccepted(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -1966,6 +2008,8 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 }
 
 func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -2072,6 +2116,8 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 }
 
 func TestBackendServer_DialoutRejected(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	client := NewTestClient(t, server, hub)

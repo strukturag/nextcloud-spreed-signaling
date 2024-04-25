@@ -81,6 +81,7 @@ func testMessages(t *testing.T, messageType string, valid_messages []testCheckVa
 }
 
 func TestClientMessage(t *testing.T) {
+	t.Parallel()
 	// The message needs a type.
 	msg := ClientMessage{}
 	if err := msg.CheckValid(); err == nil {
@@ -89,6 +90,7 @@ func TestClientMessage(t *testing.T) {
 }
 
 func TestHelloClientMessage(t *testing.T) {
+	t.Parallel()
 	internalAuthParams := []byte("{\"backend\":\"https://domain.invalid\"}")
 	tokenAuthParams := []byte("{\"token\":\"invalid-token\"}")
 	valid_messages := []testCheckValid{
@@ -233,6 +235,7 @@ func TestHelloClientMessage(t *testing.T) {
 }
 
 func TestMessageClientMessage(t *testing.T) {
+	t.Parallel()
 	valid_messages := []testCheckValid{
 		&MessageClientMessage{
 			Recipient: MessageClientMessageRecipient{
@@ -314,6 +317,7 @@ func TestMessageClientMessage(t *testing.T) {
 }
 
 func TestByeClientMessage(t *testing.T) {
+	t.Parallel()
 	// Any "bye" message is valid.
 	valid_messages := []testCheckValid{
 		&ByeClientMessage{},
@@ -332,6 +336,7 @@ func TestByeClientMessage(t *testing.T) {
 }
 
 func TestRoomClientMessage(t *testing.T) {
+	t.Parallel()
 	// Any "room" message is valid.
 	valid_messages := []testCheckValid{
 		&RoomClientMessage{},
@@ -350,6 +355,7 @@ func TestRoomClientMessage(t *testing.T) {
 }
 
 func TestErrorMessages(t *testing.T) {
+	t.Parallel()
 	id := "request-id"
 	msg := ClientMessage{
 		Id: id,
@@ -382,6 +388,7 @@ func TestErrorMessages(t *testing.T) {
 }
 
 func TestIsChatRefresh(t *testing.T) {
+	t.Parallel()
 	var msg ServerMessage
 	data_true := []byte("{\"type\":\"chat\",\"chat\":{\"refresh\":true}}")
 	msg = ServerMessage{
@@ -426,6 +433,7 @@ func assertEqualStrings(t *testing.T, expected, result []string) {
 }
 
 func Test_Welcome_AddRemoveFeature(t *testing.T) {
+	t.Parallel()
 	var msg WelcomeServerMessage
 	assertEqualStrings(t, []string{}, msg.Features)
 

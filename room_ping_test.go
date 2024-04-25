@@ -63,6 +63,7 @@ func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
 }
 
 func TestSingleRoomPing(t *testing.T) {
+	CatchLogForTest(t)
 	u, ping := NewRoomPingForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -113,6 +114,7 @@ func TestSingleRoomPing(t *testing.T) {
 }
 
 func TestMultiRoomPing(t *testing.T) {
+	CatchLogForTest(t)
 	u, ping := NewRoomPingForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -159,6 +161,7 @@ func TestMultiRoomPing(t *testing.T) {
 }
 
 func TestMultiRoomPing_Separate(t *testing.T) {
+	CatchLogForTest(t)
 	u, ping := NewRoomPingForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -201,6 +204,7 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 }
 
 func TestMultiRoomPing_DeleteRoom(t *testing.T) {
+	CatchLogForTest(t)
 	u, ping := NewRoomPingForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)

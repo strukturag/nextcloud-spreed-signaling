@@ -104,6 +104,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_Subscribe(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		client := CreateLocalNatsClientForTest(t)
 
@@ -120,6 +121,7 @@ func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_PublishAfterClose(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		client := CreateLocalNatsClientForTest(t)
 
@@ -137,6 +139,7 @@ func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_SubscribeAfterClose(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		client := CreateLocalNatsClientForTest(t)
 
@@ -159,6 +162,7 @@ func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_BadSubjects(t *testing.T) {
+	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		client := CreateLocalNatsClientForTest(t)
 
