@@ -19,9 +19,12 @@ RUN adduser -D spreedbackend && \
 COPY --from=builder /workdir/bin/signaling /usr/bin/nextcloud-spreed-signaling
 COPY ./server.conf.in /config/server.conf.in
 COPY ./docker/server/entrypoint.sh /
+COPY ./docker/server/stop.sh /
+COPY ./docker/server/wait.sh /
 RUN chown spreedbackend /config
 RUN /usr/bin/nextcloud-spreed-signaling -version
 
 USER spreedbackend
 
+STOPSIGNAL SIGUSR1
 ENTRYPOINT [ "/entrypoint.sh" ]
