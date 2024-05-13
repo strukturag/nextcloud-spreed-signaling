@@ -120,13 +120,20 @@ func NewCapabilitiesForTest(t *testing.T) (*url.URL, *Capabilities) {
 	return NewCapabilitiesForTestWithCallback(t, nil)
 }
 
-func SetCapabilitiesGetNow(t *testing.T, f func() time.Time) {
-	old := getCapabilitiesNow
+func SetCapabilitiesGetNow(t *testing.T, capabilities *Capabilities, f func() time.Time) {
+	capabilities.mu.Lock()
+	defer capabilities.mu.Unlock()
+
+	old := capabilities.getNow
+
 	t.Cleanup(func() {
-		getCapabilitiesNow = old
+		capabilities.mu.Lock()
+		defer capabilities.mu.Unlock()
+
+		capabilities.getNow = old
 	})
 
-	getCapabilitiesNow = f
+	capabilities.getNow = f
 }
 
 func TestCapabilities(t *testing.T) {
@@ -248,7 +255,7 @@ func TestInvalidateCapabilities(t *testing.T) {
 	}
 
 	// At a later time, invalidating can be done again.
-	SetCapabilitiesGetNow(t, func() time.Time {
+	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
 		return time.Now().Add(2 * time.Minute)
 	})
 
