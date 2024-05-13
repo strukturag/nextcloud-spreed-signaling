@@ -48,9 +48,6 @@ const (
 	maxInvalidateInterval = time.Minute
 )
 
-// Can be overwritten by tests.
-var getCapabilitiesNow = time.Now
-
 type capabilitiesEntry struct {
 	nextUpdate   time.Time
 	capabilities map[string]interface{}
@@ -58,6 +55,9 @@ type capabilitiesEntry struct {
 
 type Capabilities struct {
 	mu sync.RWMutex
+
+	// Can be overwritten by tests.
+	getNow func() time.Time
 
 	version        string
 	pool           *HttpClientPool
@@ -67,6 +67,8 @@ type Capabilities struct {
 
 func NewCapabilities(version string, pool *HttpClientPool) (*Capabilities, error) {
 	result := &Capabilities{
+		getNow: time.Now,
+
 		version:        version,
 		pool:           pool,
 		entries:        make(map[string]*capabilitiesEntry),
@@ -94,7 +96,7 @@ func (c *Capabilities) getCapabilities(key string) (map[string]interface{}, bool
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	now := getCapabilitiesNow()
+	now := c.getNow()
 	if entry, found := c.entries[key]; found && entry.nextUpdate.After(now) {
 		return entry.capabilities, true
 	}
@@ -103,14 +105,15 @@ func (c *Capabilities) getCapabilities(key string) (map[string]interface{}, bool
 }
 
 func (c *Capabilities) setCapabilities(key string, capabilities map[string]interface{}) {
-	now := getCapabilitiesNow()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := c.getNow()
 	entry := &capabilitiesEntry{
 		nextUpdate:   now.Add(CapabilitiesCacheDuration),
 		capabilities: capabilities,
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.entries[key] = entry
 }
 
@@ -118,7 +121,7 @@ func (c *Capabilities) invalidateCapabilities(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	now := getCapabilitiesNow()
+	now := c.getNow()
 	if entry, found := c.nextInvalidate[key]; found && entry.After(now) {
 		return
 	}
