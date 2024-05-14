@@ -173,6 +173,8 @@ type Hub struct {
 
 	rpcServer  *GrpcServer
 	rpcClients *GrpcClients
+
+	throttler Throttler
 }
 
 func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
@@ -328,6 +330,11 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		}
 	}
 
+	throttler, err := NewMemoryThrottler()
+	if err != nil {
+		return nil, err
+	}
+
 	hub := &Hub{
 		events: events,
 		upgrader: websocket.Upgrader{
@@ -376,6 +383,8 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 
 		rpcServer:  rpcServer,
 		rpcClients: rpcClients,
+
+		throttler: throttler,
 	}
 	hub.setWelcomeMessage(&ServerMessage{
 		Type:    "welcome",
@@ -498,6 +507,7 @@ loop:
 
 func (h *Hub) Stop() {
 	h.closer.Close()
+	h.throttler.Close()
 }
 
 func (h *Hub) Reload(config *goconf.ConfigFile) {
