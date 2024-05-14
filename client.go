@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log"
 	"strconv"
@@ -93,6 +94,7 @@ type WritableClientMessage interface {
 }
 
 type HandlerClient interface {
+	Context() context.Context
 	RemoteAddr() string
 	Country() string
 	UserAgent() string
@@ -121,6 +123,7 @@ type ClientGeoIpHandler interface {
 }
 
 type Client struct {
+	ctx     context.Context
 	conn    *websocket.Conn
 	addr    string
 	agent   string
@@ -142,7 +145,7 @@ type Client struct {
 	messageChan  chan *bytes.Buffer
 }
 
-func NewClient(conn *websocket.Conn, remoteAddress string, agent string, handler ClientHandler) (*Client, error) {
+func NewClient(ctx context.Context, conn *websocket.Conn, remoteAddress string, agent string, handler ClientHandler) (*Client, error) {
 	remoteAddress = strings.TrimSpace(remoteAddress)
 	if remoteAddress == "" {
 		remoteAddress = "unknown remote address"
@@ -153,6 +156,7 @@ func NewClient(conn *websocket.Conn, remoteAddress string, agent string, handler
 	}
 
 	client := &Client{
+		ctx:    ctx,
 		agent:  agent,
 		logRTT: true,
 	}
@@ -179,6 +183,10 @@ func (c *Client) getHandler() ClientHandler {
 	c.handlerMu.RLock()
 	defer c.handlerMu.RUnlock()
 	return c.handler
+}
+
+func (c *Client) Context() context.Context {
+	return c.ctx
 }
 
 func (c *Client) IsConnected() bool {

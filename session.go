@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"encoding/json"
 	"net/url"
 	"time"
@@ -53,6 +54,7 @@ type SessionIdData struct {
 }
 
 type Session interface {
+	Context() context.Context
 	PrivateId() string
 	PublicId() string
 	ClientType() string

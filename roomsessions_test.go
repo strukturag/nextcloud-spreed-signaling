@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -30,6 +31,10 @@ import (
 
 type DummySession struct {
 	publicId string
+}
+
+func (s *DummySession) Context() context.Context {
+	return context.Background()
 }
 
 func (s *DummySession) PrivateId() string {
