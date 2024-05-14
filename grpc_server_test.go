@@ -98,7 +98,6 @@ func NewGrpcServerForTest(t *testing.T) (server *GrpcServer, addr string) {
 }
 
 func Test_GrpcServer_ReloadCerts(t *testing.T) {
-	t.Parallel()
 	CatchLogForTest(t)
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
@@ -180,7 +179,6 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 }
 
 func Test_GrpcServer_ReloadCA(t *testing.T) {
-	t.Parallel()
 	CatchLogForTest(t)
 	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {

@@ -36,6 +36,8 @@ var listenSignalOnce sync.Once
 
 func ensureNoGoroutinesLeak(t *testing.T, f func(t *testing.T)) {
 	t.Helper()
+	// Make sure test is not executed with "t.Parallel()"
+	t.Setenv("PARALLEL_CHECK", "1")
 
 	// The signal package will start a goroutine the first time "signal.Notify"
 	// is called. Do so outside the function under test so the signal goroutine

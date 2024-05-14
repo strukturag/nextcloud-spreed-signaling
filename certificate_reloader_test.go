@@ -28,6 +28,9 @@ import (
 )
 
 func UpdateCertificateCheckIntervalForTest(t *testing.T, interval time.Duration) {
+	t.Helper()
+	// Make sure test is not executed with "t.Parallel()"
+	t.Setenv("PARALLEL_CHECK", "1")
 	old := deduplicateWatchEvents.Load()
 	t.Cleanup(func() {
 		deduplicateWatchEvents.Store(old)
