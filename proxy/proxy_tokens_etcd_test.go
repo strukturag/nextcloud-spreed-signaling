@@ -102,6 +102,7 @@ func newEtcdForTesting(t *testing.T) *embed.Etcd {
 
 	t.Cleanup(func() {
 		etcd.Close()
+		<-etcd.Server.StopNotify()
 	})
 	// Wait for server to be ready.
 	<-etcd.Server.ReadyNotify()
