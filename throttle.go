@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -53,6 +54,10 @@ const (
 var (
 	ErrBruteforceDetected = errors.New("bruteforce detected")
 )
+
+func init() {
+	RegisterThrottleStats()
+}
 
 type ThrottleFunc func(ctx context.Context)
 
@@ -248,6 +253,7 @@ func (t *memoryThrottler) CheckBruteforce(ctx context.Context, client string, ac
 		delta := now.Sub(entries[l-maxBruteforceAttempts].ts)
 		if delta <= maxBruteforceDurationThreshold {
 			log.Printf("Detected bruteforce attempt on \"%s\" from %s", action, client)
+			statsThrottleBruteforceTotal.WithLabelValues(action).Inc()
 			return doThrottle, ErrBruteforceDetected
 		}
 	}
@@ -271,6 +277,7 @@ func (t *memoryThrottler) throttle(ctx context.Context, client string, action st
 	count := t.addEntry(client, action, entry)
 	delay := t.getDelay(count - 1)
 	log.Printf("Failed attempt on \"%s\" from %s, throttling by %s", action, client, delay)
+	statsThrottleDelayedTotal.WithLabelValues(action, strconv.FormatInt(delay.Milliseconds(), 10)).Inc()
 	t.doDelay(ctx, delay)
 }
 
