@@ -22,9 +22,20 @@
 package signaling
 
 import (
+	"io"
 	"log"
 	"testing"
 )
+
+var (
+	prevWriter io.Writer
+	prevFlags  int
+)
+
+func init() {
+	prevWriter = log.Writer()
+	prevFlags = log.Flags()
+}
 
 type testLogWriter struct {
 	t testing.TB
@@ -37,8 +48,6 @@ func (w *testLogWriter) Write(b []byte) (int, error) {
 }
 
 func CatchLogForTest(t testing.TB) {
-	prevWriter := log.Writer()
-	prevFlags := log.Flags()
 	t.Cleanup(func() {
 		log.SetOutput(prevWriter)
 		log.SetFlags(prevFlags)
