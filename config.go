@@ -23,9 +23,39 @@ package signaling
 
 import (
 	"errors"
+	"os"
+	"regexp"
 
 	"github.com/dlintw/goconf"
 )
+
+var (
+	searchVarsRegexp = regexp.MustCompile(`\$\([A-Za-z][A-Za-z0-9_]*\)`)
+)
+
+func replaceEnvVars(s string) string {
+	return searchVarsRegexp.ReplaceAllStringFunc(s, func(name string) string {
+		name = name[2 : len(name)-1]
+		value, found := os.LookupEnv(name)
+		if !found {
+			return name
+		}
+
+		return value
+	})
+}
+
+// GetStringOptionWithEnv will get the string option and resolve any environment
+// variable references in the form "$(VAR)".
+func GetStringOptionWithEnv(config *goconf.ConfigFile, section string, option string) (string, error) {
+	value, err := config.GetString(section, option)
+	if err != nil {
+		return "", err
+	}
+
+	value = replaceEnvVars(value)
+	return value, nil
+}
 
 func GetStringOptions(config *goconf.ConfigFile, section string, ignoreErrors bool) (map[string]string, error) {
 	options, _ := config.GetOptions(section)
@@ -35,7 +65,7 @@ func GetStringOptions(config *goconf.ConfigFile, section string, ignoreErrors bo
 
 	result := make(map[string]string)
 	for _, option := range options {
-		value, err := config.GetString(section, option)
+		value, err := GetStringOptionWithEnv(config, section, option)
 		if err != nil {
 			if ignoreErrors {
 				continue

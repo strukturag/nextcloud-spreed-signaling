@@ -223,7 +223,7 @@ func (s *ProxyServer) checkOrigin(r *http.Request) bool {
 }
 
 func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
-	s.url, _ = config.GetString("mcu", "url")
+	s.url, _ = signaling.GetStringOptionWithEnv(config, "mcu", "url")
 	if s.url == "" {
 		return fmt.Errorf("No MCU server url configured")
 	}

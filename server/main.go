@@ -171,7 +171,7 @@ func main() {
 
 	signaling.RegisterStats()
 
-	natsUrl, _ := config.GetString("nats", "url")
+	natsUrl, _ := signaling.GetStringOptionWithEnv(config, "nats", "url")
 	if natsUrl == "" {
 		natsUrl = nats.DefaultURL
 	}
@@ -224,7 +224,7 @@ func main() {
 		log.Fatal("Could not create hub: ", err)
 	}
 
-	mcuUrl, _ := config.GetString("mcu", "url")
+	mcuUrl, _ := signaling.GetStringOptionWithEnv(config, "mcu", "url")
 	mcuType, _ := config.GetString("mcu", "type")
 	if mcuType == "" && mcuUrl != "" {
 		log.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
@@ -274,7 +274,7 @@ func main() {
 					if config, err = goconf.ReadConfigFile(*configFlag); err != nil {
 						log.Printf("Could not read configuration from %s: %s", *configFlag, err)
 					} else {
-						mcuUrl, _ = config.GetString("mcu", "url")
+						mcuUrl, _ = signaling.GetStringOptionWithEnv(config, "mcu", "url")
 						mcuType, _ = config.GetString("mcu", "type")
 						if mcuType == "" && mcuUrl != "" {
 							log.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
@@ -328,7 +328,7 @@ func main() {
 
 	var listeners Listeners
 
-	if saddr, _ := config.GetString("https", "listen"); saddr != "" {
+	if saddr, _ := signaling.GetStringOptionWithEnv(config, "https", "listen"); saddr != "" {
 		cert, _ := config.GetString("https", "certificate")
 		key, _ := config.GetString("https", "key")
 		if cert == "" || key == "" {
@@ -366,7 +366,7 @@ func main() {
 		}
 	}
 
-	if addr, _ := config.GetString("http", "listen"); addr != "" {
+	if addr, _ := signaling.GetStringOptionWithEnv(config, "http", "listen"); addr != "" {
 		readTimeout, _ := config.GetInt("http", "readtimeout")
 		if readTimeout <= 0 {
 			readTimeout = defaultReadTimeout

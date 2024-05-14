@@ -86,7 +86,7 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 		remove[u] = ips
 	}
 
-	mcuUrl, _ := config.GetString("mcu", "url")
+	mcuUrl, _ := GetStringOptionWithEnv(config, "mcu", "url")
 	for _, u := range strings.Split(mcuUrl, " ") {
 		u = strings.TrimSpace(u)
 		if u == "" {

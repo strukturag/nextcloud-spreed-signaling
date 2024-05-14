@@ -36,6 +36,8 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
+
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 var (
@@ -90,7 +92,7 @@ func main() {
 	}
 	defer proxy.Stop()
 
-	if addr, _ := config.GetString("http", "listen"); addr != "" {
+	if addr, _ := signaling.GetStringOptionWithEnv(config, "http", "listen"); addr != "" {
 		readTimeout, _ := config.GetInt("http", "readtimeout")
 		if readTimeout <= 0 {
 			readTimeout = defaultReadTimeout
