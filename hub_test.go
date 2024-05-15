@@ -2352,6 +2352,20 @@ func TestClientMessageToSessionId(t *testing.T) {
 				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
 			}
 
+			mcu1, err := NewTestMCU()
+			if err != nil {
+				t.Fatal(err)
+			}
+			hub1.SetMcu(mcu1)
+
+			if hub1 != hub2 {
+				mcu2, err := NewTestMCU()
+				if err != nil {
+					t.Fatal(err)
+				}
+				hub2.SetMcu(mcu2)
+			}
+
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
 			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
@@ -2388,21 +2402,25 @@ func TestClientMessageToSessionId(t *testing.T) {
 				SessionId: hello2.Hello.SessionId,
 			}
 
-			data1 := "from-1-to-2"
+			data1 := map[string]interface{}{
+				"type":    "test",
+				"message": "from-1-to-2",
+			}
 			client1.SendMessage(recipient2, data1) // nolint
 			data2 := "from-2-to-1"
 			client2.SendMessage(recipient1, data2) // nolint
 
-			var payload string
-			if err := checkReceiveClientMessage(ctx, client1, "session", hello2.Hello, &payload); err != nil {
+			var payload1 string
+			if err := checkReceiveClientMessage(ctx, client1, "session", hello2.Hello, &payload1); err != nil {
 				t.Error(err)
-			} else if payload != data2 {
-				t.Errorf("Expected payload %s, got %s", data2, payload)
+			} else if payload1 != data2 {
+				t.Errorf("Expected payload %s, got %s", data2, payload1)
 			}
-			if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload); err != nil {
+			var payload2 map[string]interface{}
+			if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload2); err != nil {
 				t.Error(err)
-			} else if payload != data1 {
-				t.Errorf("Expected payload %s, got %s", data1, payload)
+			} else if !reflect.DeepEqual(data1, payload2) {
+				t.Errorf("Expected payload %+v, got %+v", data1, payload2)
 			}
 		})
 	}
