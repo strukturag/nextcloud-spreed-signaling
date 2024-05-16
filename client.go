@@ -24,7 +24,9 @@ package signaling
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -354,7 +356,10 @@ func (c *Client) ReadPump() {
 		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
-			if _, ok := err.(*websocket.CloseError); !ok || websocket.IsUnexpectedCloseError(err,
+			// Gorilla websocket hides the original net.Error, so also compare error messages
+			if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), net.ErrClosed.Error()) {
+				break
+			} else if _, ok := err.(*websocket.CloseError); !ok || websocket.IsUnexpectedCloseError(err,
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
