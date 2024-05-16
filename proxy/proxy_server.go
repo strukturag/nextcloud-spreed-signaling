@@ -99,6 +99,7 @@ type ProxyServer struct {
 
 	tokens          ProxyTokens
 	statsAllowedIps *signaling.AllowedIps
+	trustedProxies  *signaling.AllowedIps
 
 	sid          atomic.Uint64
 	cookie       *securecookie.SecureCookie
@@ -153,6 +154,19 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		statsAllowedIps = signaling.DefaultAllowedIps()
 	}
 
+	trustedProxies, _ := config.GetString("app", "trustedproxies")
+	trustedProxiesIps, err := signaling.ParseAllowedIps(trustedProxies)
+	if err != nil {
+		return nil, err
+	}
+
+	if !trustedProxiesIps.Empty() {
+		log.Printf("Trusted proxies: %s", trustedProxiesIps)
+	} else {
+		trustedProxiesIps = signaling.DefaultTrustedProxies
+		log.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
+	}
+
 	country, _ := config.GetString("app", "country")
 	country = strings.ToUpper(country)
 	if signaling.IsValidCountry(country) {
@@ -187,6 +201,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 
 		tokens:          tokens,
 		statsAllowedIps: statsAllowedIps,
+		trustedProxies:  trustedProxiesIps,
 
 		cookie:   securecookie.New(hashKey, blockKey).MaxAge(0),
 		sessions: make(map[uint64]*ProxySession),
@@ -398,24 +413,6 @@ func (s *ProxyServer) setCommonHeaders(f func(http.ResponseWriter, *http.Request
 	}
 }
 
-func getRealUserIP(r *http.Request) string {
-	// Note this function assumes it is running behind a trusted proxy, so
-	// the headers can be trusted.
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
-	}
-
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		// Result could be a list "clientip, proxy1, proxy2", so only use first element.
-		if pos := strings.Index(ip, ","); pos >= 0 {
-			ip = strings.TrimSpace(ip[:pos])
-		}
-		return ip
-	}
-
-	return r.RemoteAddr
-}
-
 func (s *ProxyServer) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -423,7 +420,7 @@ func (s *ProxyServer) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
-	addr := getRealUserIP(r)
+	addr := signaling.GetRealUserIP(r, s.trustedProxies)
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Could not upgrade request from %s: %s", addr, err)
@@ -1018,15 +1015,9 @@ func (s *ProxyServer) getStats() map[string]interface{} {
 }
 
 func (s *ProxyServer) allowStatsAccess(r *http.Request) bool {
-	addr := getRealUserIP(r)
-	if strings.Contains(addr, ":") {
-		if host, _, err := net.SplitHostPort(addr); err == nil {
-			addr = host
-		}
-	}
-
+	addr := signaling.GetRealUserIP(r, s.trustedProxies)
 	ip := net.ParseIP(addr)
-	if ip == nil {
+	if len(ip) == 0 {
 		return false
 	}
 

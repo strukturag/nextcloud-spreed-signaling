@@ -881,15 +881,9 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 }
 
 func (b *BackendServer) allowStatsAccess(r *http.Request) bool {
-	addr := getRealUserIP(r)
-	if strings.Contains(addr, ":") {
-		if host, _, err := net.SplitHostPort(addr); err == nil {
-			addr = host
-		}
-	}
-
+	addr := b.hub.getRealUserIP(r)
 	ip := net.ParseIP(addr)
-	if ip == nil {
+	if len(ip) == 0 {
 		return false
 	}
 

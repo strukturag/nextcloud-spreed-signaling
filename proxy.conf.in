@@ -8,6 +8,11 @@
 # See "https://golang.org/pkg/net/http/pprof/" for further information.
 #debug = false
 
+# Comma separated list of trusted proxies (IPs or CIDR networks) that may set
+# the "X-Real-Ip" or "X-Forwarded-For" headers.
+# Leave empty to allow loopback and local addresses.
+#trustedproxies =
+
 # ISO 3166 country this proxy is located at. This will be used by the signaling
 # servers to determine the closest proxy for publishers.
 #country = DE
