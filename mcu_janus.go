@@ -719,14 +719,6 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamTyp
 	}
 }
 
-func min(a, b int) int {
-	if a <= b {
-		return a
-	}
-
-	return b
-}
-
 func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, bitrate int) (*JanusHandle, uint64, uint64, int, error) {
 	session := m.session
 	if session == nil {
