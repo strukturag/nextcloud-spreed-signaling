@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/pion/sdp/v3"
 )
 
 const (
@@ -40,6 +41,11 @@ const (
 
 	// Version 2.0 validates auth params encoded as JWT.
 	HelloVersionV2 = "2.0"
+)
+
+var (
+	ErrNoSdp      = NewError("no_sdp", "Payload does not contain a SDP.")
+	ErrInvalidSdp = NewError("invalid_sdp", "Payload does not contain a valid SDP.")
 )
 
 // ClientMessage is a message that is sent from a client to the server.
@@ -563,11 +569,38 @@ type MessageClientMessageData struct {
 	RoomType string                 `json:"roomType"`
 	Bitrate  int                    `json:"bitrate,omitempty"`
 	Payload  map[string]interface{} `json:"payload"`
+
+	offerSdp  *sdp.SessionDescription // Only set if Type == "offer"
+	answerSdp *sdp.SessionDescription // Only set if Type == "answer"
 }
 
 func (m *MessageClientMessageData) CheckValid() error {
 	if !IsValidStreamType(m.RoomType) {
 		return fmt.Errorf("invalid room type: %s", m.RoomType)
+	}
+	if m.Type == "offer" || m.Type == "answer" {
+		sdpValue, found := m.Payload["sdp"]
+		if !found {
+			return ErrNoSdp
+		}
+		sdpText, ok := sdpValue.(string)
+		if !ok {
+			return ErrInvalidSdp
+		}
+
+		var sdp sdp.SessionDescription
+		if err := sdp.Unmarshal([]byte(sdpText)); err != nil {
+			return NewErrorDetail("invalid_sdp", "Error parsing SDP from payload.", map[string]interface{}{
+				"error": err.Error(),
+			})
+		}
+
+		switch m.Type {
+		case "offer":
+			m.offerSdp = &sdp
+		case "answer":
+			m.answerSdp = &sdp
+		}
 	}
 	return nil
 }
