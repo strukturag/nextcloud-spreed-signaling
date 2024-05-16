@@ -98,7 +98,7 @@ func TestHelloClientMessage(t *testing.T) {
 		&HelloClientMessage{
 			Version: HelloVersionV1,
 			Auth: &HelloClientMessageAuth{
-				Params: &json.RawMessage{'{', '}'},
+				Params: json.RawMessage("{}"),
 				Url:    "https://domain.invalid",
 			},
 		},
@@ -106,7 +106,7 @@ func TestHelloClientMessage(t *testing.T) {
 			Version: HelloVersionV1,
 			Auth: &HelloClientMessageAuth{
 				Type:   "client",
-				Params: &json.RawMessage{'{', '}'},
+				Params: json.RawMessage("{}"),
 				Url:    "https://domain.invalid",
 			},
 		},
@@ -114,7 +114,7 @@ func TestHelloClientMessage(t *testing.T) {
 			Version: HelloVersionV1,
 			Auth: &HelloClientMessageAuth{
 				Type:   "internal",
-				Params: (*json.RawMessage)(&internalAuthParams),
+				Params: internalAuthParams,
 			},
 		},
 		&HelloClientMessage{
@@ -125,7 +125,7 @@ func TestHelloClientMessage(t *testing.T) {
 		&HelloClientMessage{
 			Version: HelloVersionV2,
 			Auth: &HelloClientMessageAuth{
-				Params: (*json.RawMessage)(&tokenAuthParams),
+				Params: tokenAuthParams,
 				Url:    "https://domain.invalid",
 			},
 		},
@@ -133,7 +133,7 @@ func TestHelloClientMessage(t *testing.T) {
 			Version: HelloVersionV2,
 			Auth: &HelloClientMessageAuth{
 				Type:   "client",
-				Params: (*json.RawMessage)(&tokenAuthParams),
+				Params: tokenAuthParams,
 				Url:    "https://domain.invalid",
 			},
 		},
@@ -150,7 +150,7 @@ func TestHelloClientMessage(t *testing.T) {
 		&HelloClientMessage{
 			Version: HelloVersionV1,
 			Auth: &HelloClientMessageAuth{
-				Params: &json.RawMessage{'{', '}'},
+				Params: json.RawMessage("{}"),
 				Type:   "invalid-type",
 			},
 		},
@@ -163,13 +163,13 @@ func TestHelloClientMessage(t *testing.T) {
 		&HelloClientMessage{
 			Version: HelloVersionV1,
 			Auth: &HelloClientMessageAuth{
-				Params: &json.RawMessage{'{', '}'},
+				Params: json.RawMessage("{}"),
 			},
 		},
 		&HelloClientMessage{
 			Version: HelloVersionV1,
 			Auth: &HelloClientMessageAuth{
-				Params: &json.RawMessage{'{', '}'},
+				Params: json.RawMessage("{}"),
 				Url:    "invalid-url",
 			},
 		},
@@ -177,14 +177,14 @@ func TestHelloClientMessage(t *testing.T) {
 			Version: HelloVersionV1,
 			Auth: &HelloClientMessageAuth{
 				Type:   "internal",
-				Params: &json.RawMessage{'{', '}'},
+				Params: json.RawMessage("{}"),
 			},
 		},
 		&HelloClientMessage{
 			Version: HelloVersionV1,
 			Auth: &HelloClientMessageAuth{
 				Type:   "internal",
-				Params: &json.RawMessage{'x', 'y', 'z'}, // Invalid JSON.
+				Params: json.RawMessage("xyz"), // Invalid JSON.
 			},
 		},
 		// Hello version 2
@@ -197,27 +197,27 @@ func TestHelloClientMessage(t *testing.T) {
 		&HelloClientMessage{
 			Version: HelloVersionV2,
 			Auth: &HelloClientMessageAuth{
-				Params: (*json.RawMessage)(&tokenAuthParams),
+				Params: tokenAuthParams,
 			},
 		},
 		&HelloClientMessage{
 			Version: HelloVersionV2,
 			Auth: &HelloClientMessageAuth{
-				Params: (*json.RawMessage)(&tokenAuthParams),
+				Params: tokenAuthParams,
 				Url:    "invalid-url",
 			},
 		},
 		&HelloClientMessage{
 			Version: HelloVersionV2,
 			Auth: &HelloClientMessageAuth{
-				Params: (*json.RawMessage)(&internalAuthParams),
+				Params: internalAuthParams,
 				Url:    "https://domain.invalid",
 			},
 		},
 		&HelloClientMessage{
 			Version: HelloVersionV2,
 			Auth: &HelloClientMessageAuth{
-				Params: &json.RawMessage{'x', 'y', 'z'}, // Invalid JSON.
+				Params: json.RawMessage("xyz"), // Invalid JSON.
 				Url:    "https://domain.invalid",
 			},
 		},
@@ -242,20 +242,20 @@ func TestMessageClientMessage(t *testing.T) {
 				Type:      "session",
 				SessionId: "the-session-id",
 			},
-			Data: &json.RawMessage{'{', '}'},
+			Data: json.RawMessage("{}"),
 		},
 		&MessageClientMessage{
 			Recipient: MessageClientMessageRecipient{
 				Type:   "user",
 				UserId: "the-user-id",
 			},
-			Data: &json.RawMessage{'{', '}'},
+			Data: json.RawMessage("{}"),
 		},
 		&MessageClientMessage{
 			Recipient: MessageClientMessageRecipient{
 				Type: "room",
 			},
-			Data: &json.RawMessage{'{', '}'},
+			Data: json.RawMessage("{}"),
 		},
 	}
 	invalid_messages := []testCheckValid{
@@ -270,20 +270,20 @@ func TestMessageClientMessage(t *testing.T) {
 			Recipient: MessageClientMessageRecipient{
 				Type: "session",
 			},
-			Data: &json.RawMessage{'{', '}'},
+			Data: json.RawMessage("{}"),
 		},
 		&MessageClientMessage{
 			Recipient: MessageClientMessageRecipient{
 				Type:   "session",
 				UserId: "the-user-id",
 			},
-			Data: &json.RawMessage{'{', '}'},
+			Data: json.RawMessage("{}"),
 		},
 		&MessageClientMessage{
 			Recipient: MessageClientMessageRecipient{
 				Type: "user",
 			},
-			Data: &json.RawMessage{'{', '}'},
+			Data: json.RawMessage("{}"),
 		},
 		&MessageClientMessage{
 			Recipient: MessageClientMessageRecipient{
@@ -296,13 +296,13 @@ func TestMessageClientMessage(t *testing.T) {
 				Type:      "user",
 				SessionId: "the-user-id",
 			},
-			Data: &json.RawMessage{'{', '}'},
+			Data: json.RawMessage("{}"),
 		},
 		&MessageClientMessage{
 			Recipient: MessageClientMessageRecipient{
 				Type: "unknown-type",
 			},
-			Data: &json.RawMessage{'{', '}'},
+			Data: json.RawMessage("{}"),
 		},
 	}
 	testMessages(t, "message", valid_messages, invalid_messages)
@@ -394,7 +394,7 @@ func TestIsChatRefresh(t *testing.T) {
 	msg = ServerMessage{
 		Type: "message",
 		Message: &MessageServerMessage{
-			Data: (*json.RawMessage)(&data_true),
+			Data: data_true,
 		},
 	}
 	if !msg.IsChatRefresh() {
@@ -405,7 +405,7 @@ func TestIsChatRefresh(t *testing.T) {
 	msg = ServerMessage{
 		Type: "message",
 		Message: &MessageServerMessage{
-			Data: (*json.RawMessage)(&data_false),
+			Data: data_false,
 		},
 	}
 	if msg.IsChatRefresh() {

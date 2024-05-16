@@ -198,12 +198,12 @@ func (r *ServerMessage) CloseAfterSend(session Session) bool {
 }
 
 func (r *ServerMessage) IsChatRefresh() bool {
-	if r.Type != "message" || r.Message == nil || r.Message.Data == nil || len(*r.Message.Data) == 0 {
+	if r.Type != "message" || r.Message == nil || len(r.Message.Data) == 0 {
 		return false
 	}
 
 	var data MessageServerMessageData
-	if err := json.Unmarshal(*r.Message.Data, &data); err != nil {
+	if err := json.Unmarshal(r.Message.Data, &data); err != nil {
 		return false
 	}
 
@@ -366,7 +366,7 @@ func (p *HelloV2AuthParams) CheckValid() error {
 type HelloV2TokenClaims struct {
 	jwt.RegisteredClaims
 
-	UserData *json.RawMessage `json:"userdata,omitempty"`
+	UserData json.RawMessage `json:"userdata,omitempty"`
 }
 
 type HelloClientMessageAuth struct {
@@ -374,7 +374,7 @@ type HelloClientMessageAuth struct {
 	// "HelloClientTypeClient"
 	Type string `json:"type,omitempty"`
 
-	Params *json.RawMessage `json:"params"`
+	Params json.RawMessage `json:"params"`
 
 	Url       string `json:"url"`
 	parsedUrl *url.URL
@@ -401,7 +401,7 @@ func (m *HelloClientMessage) CheckValid() error {
 		return InvalidHelloVersion
 	}
 	if m.ResumeId == "" {
-		if m.Auth == nil || m.Auth.Params == nil || len(*m.Auth.Params) == 0 {
+		if m.Auth == nil || len(m.Auth.Params) == 0 {
 			return fmt.Errorf("params missing")
 		}
 		if m.Auth.Type == "" {
@@ -425,14 +425,14 @@ func (m *HelloClientMessage) CheckValid() error {
 			case HelloVersionV1:
 				// No additional validation necessary.
 			case HelloVersionV2:
-				if err := json.Unmarshal(*m.Auth.Params, &m.Auth.helloV2Params); err != nil {
+				if err := json.Unmarshal(m.Auth.Params, &m.Auth.helloV2Params); err != nil {
 					return err
 				} else if err := m.Auth.helloV2Params.CheckValid(); err != nil {
 					return err
 				}
 			}
 		case HelloClientTypeInternal:
-			if err := json.Unmarshal(*m.Auth.Params, &m.Auth.internalParams); err != nil {
+			if err := json.Unmarshal(m.Auth.Params, &m.Auth.internalParams); err != nil {
 				return err
 			} else if err := m.Auth.internalParams.CheckValid(); err != nil {
 				return err
@@ -534,8 +534,8 @@ func (m *RoomClientMessage) CheckValid() error {
 }
 
 type RoomServerMessage struct {
-	RoomId     string           `json:"roomid"`
-	Properties *json.RawMessage `json:"properties,omitempty"`
+	RoomId     string          `json:"roomid"`
+	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 type RoomErrorDetails struct {
@@ -560,7 +560,7 @@ type MessageClientMessageRecipient struct {
 type MessageClientMessage struct {
 	Recipient MessageClientMessageRecipient `json:"recipient"`
 
-	Data *json.RawMessage `json:"data"`
+	Data json.RawMessage `json:"data"`
 }
 
 type MessageClientMessageData struct {
@@ -606,7 +606,7 @@ func (m *MessageClientMessageData) CheckValid() error {
 }
 
 func (m *MessageClientMessage) CheckValid() error {
-	if m.Data == nil || len(*m.Data) == 0 {
+	if len(m.Data) == 0 {
 		return fmt.Errorf("message empty")
 	}
 	switch m.Recipient.Type {
@@ -647,7 +647,7 @@ type MessageServerMessage struct {
 	Sender    *MessageServerMessageSender    `json:"sender"`
 	Recipient *MessageClientMessageRecipient `json:"recipient,omitempty"`
 
-	Data *json.RawMessage `json:"data"`
+	Data json.RawMessage `json:"data"`
 }
 
 // Type "control"
@@ -664,7 +664,7 @@ type ControlServerMessage struct {
 	Sender    *MessageServerMessageSender    `json:"sender"`
 	Recipient *MessageClientMessageRecipient `json:"recipient,omitempty"`
 
-	Data *json.RawMessage `json:"data"`
+	Data json.RawMessage `json:"data"`
 }
 
 // Type "internal"
@@ -693,10 +693,10 @@ type AddSessionOptions struct {
 type AddSessionInternalClientMessage struct {
 	CommonSessionInternalClientMessage
 
-	UserId string           `json:"userid,omitempty"`
-	User   *json.RawMessage `json:"user,omitempty"`
-	Flags  uint32           `json:"flags,omitempty"`
-	InCall *int             `json:"incall,omitempty"`
+	UserId string          `json:"userid,omitempty"`
+	User   json.RawMessage `json:"user,omitempty"`
+	Flags  uint32          `json:"flags,omitempty"`
+	InCall *int            `json:"incall,omitempty"`
 
 	Options *AddSessionOptions `json:"options,omitempty"`
 }
@@ -848,10 +848,10 @@ type InternalServerMessage struct {
 // Type "event"
 
 type RoomEventServerMessage struct {
-	RoomId     string           `json:"roomid"`
-	Properties *json.RawMessage `json:"properties,omitempty"`
+	RoomId     string          `json:"roomid"`
+	Properties json.RawMessage `json:"properties,omitempty"`
 	// TODO(jojo): Change "InCall" to "int" when #914 has landed in NC Talk.
-	InCall  *json.RawMessage         `json:"incall,omitempty"`
+	InCall  json.RawMessage          `json:"incall,omitempty"`
 	Changed []map[string]interface{} `json:"changed,omitempty"`
 	Users   []map[string]interface{} `json:"users,omitempty"`
 
@@ -878,8 +878,8 @@ type RoomDisinviteEventServerMessage struct {
 }
 
 type RoomEventMessage struct {
-	RoomId string           `json:"roomid"`
-	Data   *json.RawMessage `json:"data,omitempty"`
+	RoomId string          `json:"roomid"`
+	Data   json.RawMessage `json:"data,omitempty"`
 }
 
 type RoomFlagsServerMessage struct {
@@ -929,10 +929,10 @@ func (m *EventServerMessage) String() string {
 }
 
 type EventServerMessageSessionEntry struct {
-	SessionId     string           `json:"sessionid"`
-	UserId        string           `json:"userid"`
-	User          *json.RawMessage `json:"user,omitempty"`
-	RoomSessionId string           `json:"roomsessionid,omitempty"`
+	SessionId     string          `json:"sessionid"`
+	UserId        string          `json:"userid"`
+	User          json.RawMessage `json:"user,omitempty"`
+	RoomSessionId string          `json:"roomsessionid,omitempty"`
 }
 
 func (e *EventServerMessageSessionEntry) Clone() *EventServerMessageSessionEntry {
@@ -965,9 +965,9 @@ type AnswerOfferMessage struct {
 type TransientDataClientMessage struct {
 	Type string `json:"type"`
 
-	Key   string           `json:"key,omitempty"`
-	Value *json.RawMessage `json:"value,omitempty"`
-	TTL   time.Duration    `json:"ttl,omitempty"`
+	Key   string          `json:"key,omitempty"`
+	Value json.RawMessage `json:"value,omitempty"`
+	TTL   time.Duration   `json:"ttl,omitempty"`
 }
 
 func (m *TransientDataClientMessage) CheckValid() error {

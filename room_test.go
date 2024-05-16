@@ -125,7 +125,7 @@ func TestRoom_Update(t *testing.T) {
 			UserIds: []string{
 				testDefaultUserId,
 			},
-			Properties: &roomProperties,
+			Properties: roomProperties,
 		},
 	}
 
@@ -166,13 +166,13 @@ func TestRoom_Update(t *testing.T) {
 			t.Error(err)
 		} else if msg.RoomId != roomId {
 			t.Errorf("Expected room id %s, got %+v", roomId, msg)
-		} else if msg.Properties == nil || !bytes.Equal(*msg.Properties, roomProperties) {
+		} else if len(msg.Properties) == 0 || !bytes.Equal(msg.Properties, roomProperties) {
 			t.Errorf("Expected room properties %s, got %+v", string(roomProperties), msg)
 		}
 	} else {
 		if msg.RoomId != roomId {
 			t.Errorf("Expected room id %s, got %+v", roomId, msg)
-		} else if msg.Properties == nil || !bytes.Equal(*msg.Properties, roomProperties) {
+		} else if len(msg.Properties) == 0 || !bytes.Equal(msg.Properties, roomProperties) {
 			t.Errorf("Expected room properties %s, got %+v", string(roomProperties), msg)
 		}
 		if err := checkMessageRoomId(message2, roomId); err != nil {
@@ -193,7 +193,7 @@ loop:
 			// The internal room has been updated with the new properties.
 			if room := hub.getRoom(roomId); room == nil {
 				err = fmt.Errorf("Room %s not found in hub", roomId)
-			} else if room.Properties() == nil || !bytes.Equal(*room.Properties(), roomProperties) {
+			} else if len(room.Properties()) == 0 || !bytes.Equal(room.Properties(), roomProperties) {
 				err = fmt.Errorf("Expected room properties %s, got %+v", string(roomProperties), room.Properties())
 			} else {
 				err = nil

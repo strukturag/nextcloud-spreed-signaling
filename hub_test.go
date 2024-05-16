@@ -346,7 +346,7 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 					StatusCode: http.StatusOK,
 					Message:    http.StatusText(http.StatusOK),
 				},
-				Data: (*json.RawMessage)(&data),
+				Data: data,
 			}
 			if data, err = json.Marshal(ocs); err != nil {
 				t.Fatal(err)
@@ -365,8 +365,8 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	}
 
 	var params TestBackendClientAuthParams
-	if request.Auth.Params != nil && len(*request.Auth.Params) > 0 {
-		if err := json.Unmarshal(*request.Auth.Params, &params); err != nil {
+	if len(request.Auth.Params) > 0 {
+		if err := json.Unmarshal(request.Auth.Params, &params); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -389,7 +389,7 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	if data, err := json.Marshal(userdata); err != nil {
 		t.Fatal(err)
 	} else {
-		response.Auth.User = (*json.RawMessage)(&data)
+		response.Auth.User = data
 	}
 	return response
 }
@@ -415,7 +415,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		Room: &BackendClientRoomResponse{
 			Version:    BackendVersion,
 			RoomId:     request.Room.RoomId,
-			Properties: (*json.RawMessage)(&testRoomProperties),
+			Properties: testRoomProperties,
 		},
 	}
 	switch request.Room.RoomId {
@@ -427,7 +427,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		if err != nil {
 			t.Fatalf("Could not marshal %+v: %s", data, err)
 		}
-		response.Room.Session = (*json.RawMessage)(&tmp)
+		response.Room.Session = tmp
 	case "test-room-initial-permissions":
 		permissions := []Permission{PERMISSION_MAY_PUBLISH_AUDIO}
 		response.Room.Permissions = &permissions
@@ -748,8 +748,8 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			Version: CapabilitiesVersion{
 				Major: 20,
 			},
-			Capabilities: map[string]*json.RawMessage{
-				"spreed": (*json.RawMessage)(&spreedCapa),
+			Capabilities: map[string]json.RawMessage{
+				"spreed": spreedCapa,
 			},
 		}
 
@@ -765,7 +765,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 				StatusCode: http.StatusOK,
 				Message:    http.StatusText(http.StatusOK),
 			},
-			Data: (*json.RawMessage)(&data),
+			Data: data,
 		}
 		if data, err = json.Marshal(ocs); err != nil {
 			t.Fatal(err)
@@ -951,7 +951,7 @@ func TestClientHelloV2(t *testing.T) {
 			}
 
 			var userdata map[string]string
-			if err := json.Unmarshal(*session.UserData(), &userdata); err != nil {
+			if err := json.Unmarshal(session.UserData(), &userdata); err != nil {
 				t.Fatal(err)
 			}
 
@@ -3029,8 +3029,8 @@ func TestJoinRoomTwice(t *testing.T) {
 		t.Fatal(err)
 	} else if room.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	} else if !bytes.Equal(testRoomProperties, *room.Room.Properties) {
-		t.Fatalf("Expected room properties %s, got %s", string(testRoomProperties), string(*room.Room.Properties))
+	} else if !bytes.Equal(testRoomProperties, room.Room.Properties) {
+		t.Fatalf("Expected room properties %s, got %s", string(testRoomProperties), string(room.Room.Properties))
 	}
 
 	// We will receive a "joined" event.
@@ -3077,8 +3077,8 @@ func TestJoinRoomTwice(t *testing.T) {
 
 	if roomMsg.Room.RoomId != roomId {
 		t.Fatalf("Expected room %s, got %+v", roomId, roomMsg.Room)
-	} else if !bytes.Equal(testRoomProperties, *roomMsg.Room.Properties) {
-		t.Fatalf("Expected room properties %s, got %s", string(testRoomProperties), string(*roomMsg.Room.Properties))
+	} else if !bytes.Equal(testRoomProperties, roomMsg.Room.Properties) {
+		t.Fatalf("Expected room properties %s, got %s", string(testRoomProperties), string(roomMsg.Room.Properties))
 	}
 }
 
@@ -5570,7 +5570,7 @@ func DoTestSwitchToOne(t *testing.T, details map[string]interface{}) {
 				Type: "switchto",
 				SwitchTo: &BackendRoomSwitchToMessageRequest{
 					RoomId:   roomId2,
-					Sessions: &sessions,
+					Sessions: sessions,
 				},
 			}
 
@@ -5710,7 +5710,7 @@ func DoTestSwitchToMultiple(t *testing.T, details1 map[string]interface{}, detai
 				Type: "switchto",
 				SwitchTo: &BackendRoomSwitchToMessageRequest{
 					RoomId:   roomId2,
-					Sessions: &sessions,
+					Sessions: sessions,
 				},
 			}
 

@@ -248,7 +248,7 @@ func (c *SignalingClient) PublicSessionId() string {
 
 func (c *SignalingClient) processMessageMessage(message *signaling.ServerMessage) {
 	var msg MessagePayload
-	if err := json.Unmarshal(*message.Message.Data, &msg); err != nil {
+	if err := json.Unmarshal(message.Message.Data, &msg); err != nil {
 		log.Println("Error in unmarshal", err)
 		return
 	}
@@ -404,7 +404,7 @@ func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
 					Type:      "session",
 					SessionId: sessionIds[recipient],
 				},
-				Data: (*json.RawMessage)(&data),
+				Data: data,
 			},
 		}
 		sender.Send(msg)
@@ -461,7 +461,7 @@ func registerAuthHandler(router *mux.Router) {
 					StatusCode: http.StatusOK,
 					Message:    http.StatusText(http.StatusOK),
 				},
-				Data: &rawdata,
+				Data: rawdata,
 			},
 		}
 
@@ -603,7 +603,7 @@ func main() {
 				Version: signaling.HelloVersionV1,
 				Auth: &signaling.HelloClientMessageAuth{
 					Url:    backendUrl + "/auth",
-					Params: &json.RawMessage{'{', '}'},
+					Params: json.RawMessage("{}"),
 				},
 			},
 		}

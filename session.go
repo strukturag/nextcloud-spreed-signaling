@@ -61,7 +61,7 @@ type Session interface {
 	Data() *SessionIdData
 
 	UserId() string
-	UserData() *json.RawMessage
+	UserData() json.RawMessage
 
 	Backend() *Backend
 	BackendUrl() string

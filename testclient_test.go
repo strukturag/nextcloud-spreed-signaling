@@ -98,7 +98,7 @@ func checkMessageType(message *ServerMessage, expectedType string) error {
 	case "message":
 		if message.Message == nil {
 			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
-		} else if message.Message.Data == nil || len(*message.Message.Data) == 0 {
+		} else if len(message.Message.Data) == 0 {
 			return fmt.Errorf("Received message without data")
 		}
 	case "room":
@@ -140,7 +140,7 @@ func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, client
 	} else if err := checkMessageSender(client.hub, message.Message.Sender, senderType, hello); err != nil {
 		return err
 	} else {
-		if err := json.Unmarshal(*message.Message.Data, payload); err != nil {
+		if err := json.Unmarshal(message.Message.Data, payload); err != nil {
 			return err
 		}
 	}
@@ -170,7 +170,7 @@ func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, client
 	} else if err := checkMessageSender(client.hub, message.Control.Sender, senderType, hello); err != nil {
 		return err
 	} else {
-		if err := json.Unmarshal(*message.Control.Data, payload); err != nil {
+		if err := json.Unmarshal(message.Control.Data, payload); err != nil {
 			return err
 		}
 	}
@@ -416,7 +416,7 @@ func (c *TestClient) SendHelloV2WithTimes(userid string, issuedAt time.Time, exp
 			Issuer:  c.server.URL,
 			Subject: userid,
 		},
-		UserData: (*json.RawMessage)(&data),
+		UserData: data,
 	}
 	if !issuedAt.IsZero() {
 		claims.IssuedAt = jwt.NewNumericDate(issuedAt)
@@ -498,7 +498,7 @@ func (c *TestClient) SendHelloParams(url string, version string, clientType stri
 			Auth: &HelloClientMessageAuth{
 				Type:   clientType,
 				Url:    url,
-				Params: (*json.RawMessage)(&data),
+				Params: data,
 			},
 		},
 	}
@@ -525,7 +525,7 @@ func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data i
 		Type: "message",
 		Message: &MessageClientMessage{
 			Recipient: recipient,
-			Data:      (*json.RawMessage)(&payload),
+			Data:      payload,
 		},
 	}
 	return c.WriteJSON(message)
@@ -543,7 +543,7 @@ func (c *TestClient) SendControl(recipient MessageClientMessageRecipient, data i
 		Control: &ControlClientMessage{
 			MessageClientMessage: MessageClientMessage{
 				Recipient: recipient,
-				Data:      (*json.RawMessage)(&payload),
+				Data:      payload,
 			},
 		},
 	}
@@ -610,7 +610,7 @@ func (c *TestClient) SetTransientData(key string, value interface{}, ttl time.Du
 		TransientData: &TransientDataClientMessage{
 			Type:  "set",
 			Key:   key,
-			Value: (*json.RawMessage)(&payload),
+			Value: payload,
 			TTL:   ttl,
 		},
 	}
@@ -973,7 +973,7 @@ func (c *TestClient) RunUntilOffer(ctx context.Context, offer string) error {
 	}
 
 	var data map[string]interface{}
-	if err := json.Unmarshal(*message.Message.Data, &data); err != nil {
+	if err := json.Unmarshal(message.Message.Data, &data); err != nil {
 		return err
 	}
 
@@ -1004,7 +1004,7 @@ func (c *TestClient) RunUntilAnswer(ctx context.Context, answer string) error {
 	}
 
 	var data map[string]interface{}
-	if err := json.Unmarshal(*message.Message.Data, &data); err != nil {
+	if err := json.Unmarshal(message.Message.Data, &data); err != nil {
 		return err
 	}
 
@@ -1076,7 +1076,7 @@ func checkMessageInCallAll(message *ServerMessage, roomId string, inCall int) er
 		return fmt.Errorf("Expected participants update event for room %s, got %+v", roomId, message.Event.Update)
 	} else if !message.Event.Update.All {
 		return fmt.Errorf("Expected participants update event for all, got %+v", message.Event.Update)
-	} else if !bytes.Equal(*message.Event.Update.InCall, []byte(strconv.FormatInt(int64(inCall), 10))) {
+	} else if !bytes.Equal(message.Event.Update.InCall, []byte(strconv.FormatInt(int64(inCall), 10))) {
 		return fmt.Errorf("Expected incall flags %d, got %+v", inCall, message.Event.Update)
 	}
 	return nil

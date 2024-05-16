@@ -45,7 +45,7 @@ type VirtualSession struct {
 
 	sessionId string
 	userId    string
-	userData  *json.RawMessage
+	userData  json.RawMessage
 	inCall    Flags
 	flags     Flags
 	options   *AddSessionOptions
@@ -133,7 +133,7 @@ func (s *VirtualSession) UserId() string {
 	return s.userId
 }
 
-func (s *VirtualSession) UserData() *json.RawMessage {
+func (s *VirtualSession) UserData() json.RawMessage {
 	return s.userData
 }
 
@@ -304,7 +304,7 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 								SessionId: s.SessionId(),
 								UserId:    s.UserId(),
 							},
-							Data: (*json.RawMessage)(&data),
+							Data: data,
 						},
 					},
 				})

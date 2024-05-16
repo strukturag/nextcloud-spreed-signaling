@@ -88,8 +88,8 @@ type CapabilitiesVersion struct {
 }
 
 type CapabilitiesResponse struct {
-	Version      CapabilitiesVersion         `json:"version"`
-	Capabilities map[string]*json.RawMessage `json:"capabilities"`
+	Version      CapabilitiesVersion        `json:"version"`
+	Capabilities map[string]json.RawMessage `json:"capabilities"`
 }
 
 func (c *Capabilities) getCapabilities(key string) (map[string]interface{}, bool) {
@@ -191,25 +191,25 @@ func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (map[st
 	if err := json.Unmarshal(body, &ocs); err != nil {
 		log.Printf("Could not decode OCS response %s from %s: %s", string(body), capUrl.String(), err)
 		return nil, false, err
-	} else if ocs.Ocs == nil || ocs.Ocs.Data == nil {
+	} else if ocs.Ocs == nil || len(ocs.Ocs.Data) == 0 {
 		log.Printf("Incomplete OCS response %s from %s", string(body), u)
 		return nil, false, fmt.Errorf("incomplete OCS response")
 	}
 
 	var response CapabilitiesResponse
-	if err := json.Unmarshal(*ocs.Ocs.Data, &response); err != nil {
-		log.Printf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), capUrl.String(), err)
+	if err := json.Unmarshal(ocs.Ocs.Data, &response); err != nil {
+		log.Printf("Could not decode OCS response body %s from %s: %s", string(ocs.Ocs.Data), capUrl.String(), err)
 		return nil, false, err
 	}
 
 	capaObj, found := response.Capabilities[AppNameSpreed]
-	if !found || capaObj == nil {
+	if !found || len(capaObj) == 0 {
 		log.Printf("No capabilities received for app spreed from %s: %+v", capUrl.String(), response)
 		return nil, false, nil
 	}
 
 	var capa map[string]interface{}
-	if err := json.Unmarshal(*capaObj, &capa); err != nil {
+	if err := json.Unmarshal(capaObj, &capa); err != nil {
 		log.Printf("Unsupported capabilities received for app spreed from %s: %+v", capUrl.String(), response)
 		return nil, false, nil
 	}

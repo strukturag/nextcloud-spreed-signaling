@@ -65,7 +65,7 @@ type Room struct {
 	events  AsyncEvents
 	backend *Backend
 
-	properties *json.RawMessage
+	properties json.RawMessage
 
 	closer   *Closer
 	mu       *sync.RWMutex
@@ -95,7 +95,7 @@ func getRoomIdForBackend(id string, backend *Backend) string {
 	return backend.Id() + "|" + id
 }
 
-func NewRoom(roomId string, properties *json.RawMessage, hub *Hub, events AsyncEvents, backend *Backend) (*Room, error) {
+func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEvents, backend *Backend) (*Room, error) {
 	room := &Room{
 		id:      roomId,
 		hub:     hub,
@@ -136,7 +136,7 @@ func (r *Room) Id() string {
 	return r.id
 }
 
-func (r *Room) Properties() *json.RawMessage {
+func (r *Room) Properties() json.RawMessage {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.properties
@@ -270,12 +270,12 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *AsyncRoomMessage) {
 	}
 }
 
-func (r *Room) AddSession(session Session, sessionData *json.RawMessage) {
+func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 	var roomSessionData *RoomSessionData
-	if sessionData != nil && len(*sessionData) > 0 {
+	if len(sessionData) > 0 {
 		roomSessionData = &RoomSessionData{}
-		if err := json.Unmarshal(*sessionData, roomSessionData); err != nil {
-			log.Printf("Error decoding room session data \"%s\": %s", string(*sessionData), err)
+		if err := json.Unmarshal(sessionData, roomSessionData); err != nil {
+			log.Printf("Error decoding room session data \"%s\": %s", string(sessionData), err)
 			roomSessionData = nil
 		}
 	}
@@ -480,11 +480,11 @@ func (r *Room) publish(message *ServerMessage) error {
 	})
 }
 
-func (r *Room) UpdateProperties(properties *json.RawMessage) {
+func (r *Room) UpdateProperties(properties json.RawMessage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if (r.properties == nil && properties == nil) ||
-		(r.properties != nil && properties != nil && bytes.Equal(*r.properties, *properties)) {
+	if (len(r.properties) == 0 && len(properties) == 0) ||
+		(len(r.properties) > 0 && len(properties) > 0 && bytes.Equal(r.properties, properties)) {
 		// Don't notify if properties didn't change.
 		return
 	}
@@ -769,7 +769,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 			Type:   "update",
 			Update: &RoomEventServerMessage{
 				RoomId: r.id,
-				InCall: &inCallMsg,
+				InCall: inCallMsg,
 				All:    true,
 			},
 		},

@@ -80,9 +80,9 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 			Version: CapabilitiesVersion{
 				Major: 20,
 			},
-			Capabilities: map[string]*json.RawMessage{
-				"anotherApp": (*json.RawMessage)(&emptyArray),
-				"spreed":     (*json.RawMessage)(&spreedCapa),
+			Capabilities: map[string]json.RawMessage{
+				"anotherApp": emptyArray,
+				"spreed":     spreedCapa,
 			},
 		}
 
@@ -102,7 +102,7 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 				StatusCode: http.StatusOK,
 				Message:    http.StatusText(http.StatusOK),
 			},
-			Data: (*json.RawMessage)(&data),
+			Data: data,
 		}
 		if data, err = json.Marshal(ocs); err != nil {
 			t.Fatal(err)
