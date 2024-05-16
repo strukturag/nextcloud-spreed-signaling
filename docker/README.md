@@ -55,6 +55,7 @@ The running container can be configured through different environment variables:
 - `GEOIP_OVERRIDES`: Optional space-separated list of overrides for GeoIP lookups.
 - `CONTINENT_OVERRIDES`: Optional space-separated list of overrides for continent mappings.
 - `STATS_IPS`: Comma-separated list of IP addresses that are allowed to access the stats endpoint.
+- `TRUSTED_PROXIES`: Comma-separated list of IPs / networks that are trusted proxies.
 - `GRPC_LISTEN`: IP and port to listen on for GRPC requests.
 - `GRPC_SERVER_CERTIFICATE`: Certificate to use for the GRPC server.
 - `GRPC_SERVER_KEY`: Private key to use for the GRPC server.
@@ -102,6 +103,8 @@ The running container can be configured through different environment variables:
 - `JANUS_URL`: Url to Janus server.
 - `MAX_STREAM_BITRATE`: Optional maximum bitrate for audio/video streams.
 - `MAX_SCREEN_BITRATE`: Optional maximum bitrate for screensharing streams.
+- `STATS_IPS`: Comma-separated list of IP addresses that are allowed to access the stats endpoint.
+- `TRUSTED_PROXIES`: Comma-separated list of IPs / networks that are trusted proxies.
 - `ETCD_ENDPOINTS`: Static list of etcd endpoints (if etcd should be used).
 - `ETCD_DISCOVERY_SRV`: Alternative domain to use for DNS SRV configuration of etcd endpoints (if etcd should be used).
 - `ETCD_DISCOVERY_SERVICE`: Optional service name for DNS SRV configuration of etcd..

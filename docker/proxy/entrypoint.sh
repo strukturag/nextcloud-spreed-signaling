@@ -109,6 +109,10 @@ if [ ! -f "$CONFIG" ]; then
   if [ -n "$STATS_IPS" ]; then
     sed -i "s|#allowed_ips =.*|allowed_ips = $STATS_IPS|" "$CONFIG"
   fi
+
+  if [ -n "$TRUSTED_PROXIES" ]; then
+    sed -i "s|#trustedproxies =.*|trustedproxies = $TRUSTED_PROXIES|" "$CONFIG"
+  fi
 fi
 
 echo "Starting signaling proxy with $CONFIG ..."

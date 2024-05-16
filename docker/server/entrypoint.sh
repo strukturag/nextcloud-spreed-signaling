@@ -157,6 +157,10 @@ if [ ! -f "$CONFIG" ]; then
     sed -i "s|#allowed_ips =.*|allowed_ips = $STATS_IPS|" "$CONFIG"
   fi
 
+  if [ -n "$TRUSTED_PROXIES" ]; then
+    sed -i "s|#trustedproxies =.*|trustedproxies = $TRUSTED_PROXIES|" "$CONFIG"
+  fi
+
   if [ -n "$GRPC_LISTEN" ]; then
     sed -i "s|#listen = 0.0.0.0:9090|listen = $GRPC_LISTEN|" "$CONFIG"
 
