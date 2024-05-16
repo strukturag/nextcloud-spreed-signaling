@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
@@ -1737,6 +1738,7 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 func TestBackendServer_StatsAllowedIps(t *testing.T) {
 	CatchLogForTest(t)
 	config := goconf.NewConfigFile()
+	config.AddOption("app", "trustedproxies", "1.2.3.4")
 	config.AddOption("stats", "allowed_ips", "127.0.0.1, 192.168.0.1, 192.168.1.1/24")
 	_, backend, _, _, _, _ := CreateBackendServerForTestFromConfig(t, config)
 
@@ -1761,6 +1763,10 @@ func TestBackendServer_StatsAllowedIps(t *testing.T) {
 			}
 			if !backend.allowStatsAccess(r1) {
 				t.Errorf("should allow %s", addr)
+			}
+
+			if host, _, err := net.SplitHostPort(addr); err == nil {
+				addr = host
 			}
 
 			r2 := &http.Request{
