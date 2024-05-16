@@ -162,6 +162,7 @@ func (p *mcuProxyPublisher) SetMedia(mt MediaType) {
 }
 
 func (p *mcuProxyPublisher) NotifyClosed() {
+	log.Printf("Publisher %s at %s was closed", p.proxyId, p.conn)
 	p.listener.PublisherClosed(p)
 	p.conn.removePublisher(p)
 }
@@ -185,7 +186,7 @@ func (p *mcuProxyPublisher) Close(ctx context.Context) {
 		return
 	}
 
-	log.Printf("Delete publisher %s at %s", p.proxyId, p.conn)
+	log.Printf("Deleted publisher %s at %s", p.proxyId, p.conn)
 }
 
 func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
@@ -243,6 +244,7 @@ func (s *mcuProxySubscriber) Publisher() string {
 }
 
 func (s *mcuProxySubscriber) NotifyClosed() {
+	log.Printf("Subscriber %s at %s was closed", s.proxyId, s.conn)
 	s.listener.SubscriberClosed(s)
 	s.conn.removeSubscriber(s)
 }
@@ -266,7 +268,7 @@ func (s *mcuProxySubscriber) Close(ctx context.Context) {
 		return
 	}
 
-	log.Printf("Delete subscriber %s at %s", s.proxyId, s.conn)
+	log.Printf("Deleted subscriber %s at %s", s.proxyId, s.conn)
 }
 
 func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
