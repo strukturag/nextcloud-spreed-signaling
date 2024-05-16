@@ -50,7 +50,7 @@ func NewTestMCU() (*TestMCU, error) {
 	}, nil
 }
 
-func (m *TestMCU) Start() error {
+func (m *TestMCU) Start(ctx context.Context) error {
 	return nil
 }
 

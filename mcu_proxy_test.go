@@ -713,13 +713,14 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuP
 		mcu.Stop()
 	})
 
-	if err := mcu.Start(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	if err := mcu.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	proxy := mcu.(*mcuProxy)
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
 
 	if err := proxy.WaitForConnections(ctx); err != nil {
 		t.Fatal(err)

@@ -66,7 +66,7 @@ type McuInitiator interface {
 }
 
 type Mcu interface {
-	Start() error
+	Start(ctx context.Context) error
 	Stop()
 	Reload(config *goconf.ConfigFile)
 

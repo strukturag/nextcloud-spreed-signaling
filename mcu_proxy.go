@@ -1395,7 +1395,7 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 	return nil
 }
 
-func (m *mcuProxy) Start() error {
+func (m *mcuProxy) Start(ctx context.Context) error {
 	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate)
 	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate)
 

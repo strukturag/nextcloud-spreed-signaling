@@ -258,8 +258,8 @@ type JanusGateway struct {
 // 	return gateway, nil
 // }
 
-func NewJanusGateway(wsURL string, listener GatewayListener) (*JanusGateway, error) {
-	conn, _, err := janusDialer.Dial(wsURL, nil)
+func NewJanusGateway(ctx context.Context, wsURL string, listener GatewayListener) (*JanusGateway, error) {
+	conn, _, err := janusDialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
 		return nil, err
 	}

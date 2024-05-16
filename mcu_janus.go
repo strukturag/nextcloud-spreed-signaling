@@ -169,7 +169,7 @@ type mcuJanus struct {
 func emptyOnConnected()    {}
 func emptyOnDisconnected() {}
 
-func NewMcuJanus(url string, config *goconf.ConfigFile) (Mcu, error) {
+func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mcu, error) {
 	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
 	if maxStreamBitrate <= 0 {
 		maxStreamBitrate = defaultMaxStreamBitrate
@@ -200,9 +200,11 @@ func NewMcuJanus(url string, config *goconf.ConfigFile) (Mcu, error) {
 	mcu.onConnected.Store(emptyOnConnected)
 	mcu.onDisconnected.Store(emptyOnDisconnected)
 
-	mcu.reconnectTimer = time.AfterFunc(mcu.reconnectInterval, mcu.doReconnect)
+	mcu.reconnectTimer = time.AfterFunc(mcu.reconnectInterval, func() {
+		mcu.doReconnect(context.Background())
+	})
 	mcu.reconnectTimer.Stop()
-	if err := mcu.reconnect(); err != nil {
+	if err := mcu.reconnect(ctx); err != nil {
 		return nil, err
 	}
 	return mcu, nil
@@ -230,9 +232,9 @@ func (m *mcuJanus) disconnect() {
 	}
 }
 
-func (m *mcuJanus) reconnect() error {
+func (m *mcuJanus) reconnect(ctx context.Context) error {
 	m.disconnect()
-	gw, err := NewJanusGateway(m.url, m)
+	gw, err := NewJanusGateway(ctx, m.url, m)
 	if err != nil {
 		return err
 	}
@@ -242,12 +244,12 @@ func (m *mcuJanus) reconnect() error {
 	return nil
 }
 
-func (m *mcuJanus) doReconnect() {
-	if err := m.reconnect(); err != nil {
+func (m *mcuJanus) doReconnect(ctx context.Context) {
+	if err := m.reconnect(ctx); err != nil {
 		m.scheduleReconnect(err)
 		return
 	}
-	if err := m.Start(); err != nil {
+	if err := m.Start(ctx); err != nil {
 		m.scheduleReconnect(err)
 		return
 	}
@@ -296,8 +298,7 @@ func (m *mcuJanus) hasRemotePublisher() bool {
 	return m.version >= 1100
 }
 
-func (m *mcuJanus) Start() error {
-	ctx := context.TODO()
+func (m *mcuJanus) Start(ctx context.Context) error {
 	info, err := m.gw.Info(ctx)
 	if err != nil {
 		return err
@@ -364,7 +365,7 @@ loop:
 	for {
 		select {
 		case <-ticker.C:
-			m.sendKeepalive()
+			m.sendKeepalive(context.Background())
 		case <-m.closeChan:
 			break loop
 		}
@@ -430,8 +431,7 @@ func (m *mcuJanus) GetStats() interface{} {
 	return result
 }
 
-func (m *mcuJanus) sendKeepalive() {
-	ctx := context.TODO()
+func (m *mcuJanus) sendKeepalive(ctx context.Context) {
 	if _, err := m.session.KeepAlive(ctx); err != nil {
 		log.Println("Could not send keepalive request", err)
 		if e, ok := err.(*janus.ErrorMsg); ok {

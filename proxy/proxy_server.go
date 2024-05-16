@@ -386,7 +386,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 	for {
 		switch mcuType {
 		case signaling.McuTypeJanus:
-			mcu, err = signaling.NewMcuJanus(s.url, config)
+			mcu, err = signaling.NewMcuJanus(ctx, s.url, config)
 			if err == nil {
 				signaling.RegisterJanusMcuStats()
 			}
@@ -396,7 +396,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 		if err == nil {
 			mcu.SetOnConnected(s.onMcuConnected)
 			mcu.SetOnDisconnected(s.onMcuDisconnected)
-			err = mcu.Start()
+			err = mcu.Start(ctx)
 			if err != nil {
 				log.Printf("Could not create %s MCU at %s: %s", mcuType, s.url, err)
 			}
