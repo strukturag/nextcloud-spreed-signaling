@@ -299,8 +299,9 @@ func (s *ProxySession) clearPublishers() {
 			publisher.Close(context.Background())
 		}
 	}(s.publishers)
+	// Can't use clear(...) here as the map is processed by the goroutine above.
 	s.publishers = make(map[string]signaling.McuPublisher)
-	s.publisherIds = make(map[signaling.McuPublisher]string)
+	clear(s.publisherIds)
 }
 
 func (s *ProxySession) clearSubscribers() {
@@ -315,8 +316,9 @@ func (s *ProxySession) clearSubscribers() {
 			subscriber.Close(context.Background())
 		}
 	}(s.subscribers)
+	// Can't use clear(...) here as the map is processed by the goroutine above.
 	s.subscribers = make(map[string]signaling.McuSubscriber)
-	s.subscriberIds = make(map[signaling.McuSubscriber]string)
+	clear(s.subscriberIds)
 }
 
 func (s *ProxySession) NotifyDisconnected() {

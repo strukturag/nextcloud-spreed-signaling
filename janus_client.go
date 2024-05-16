@@ -310,7 +310,7 @@ func (gateway *JanusGateway) cancelTransactions() {
 			t.quit()
 		}(t)
 	}
-	gateway.transactions = make(map[uint64]*transaction)
+	clear(gateway.transactions)
 	gateway.Unlock()
 }
 

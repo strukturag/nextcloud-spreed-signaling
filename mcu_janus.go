@@ -250,7 +250,7 @@ func (m *mcuJanus) doReconnect() {
 
 	log.Println("Reconnection to Janus gateway successful")
 	m.mu.Lock()
-	m.publishers = make(map[string]*mcuJanusPublisher)
+	clear(m.publishers)
 	m.publisherCreated.Reset()
 	m.publisherConnected.Reset()
 	m.reconnectInterval = initialReconnectInterval
@@ -717,14 +717,6 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamTyp
 	if p, found := m.publishers[getStreamId(publisher, streamType)]; found {
 		p.stats.RemoveSubscriber(id)
 	}
-}
-
-func min(a, b int) int {
-	if a <= b {
-		return a
-	}
-
-	return b
 }
 
 func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, bitrate int) (*JanusHandle, uint64, uint64, int, error) {

@@ -280,6 +280,8 @@ func (e *asyncEventsNats) Close() {
 			sub.close()
 		}
 	}(e.sessionSubscriptions)
+	// Can't use clear(...) here as the maps are processed asynchronously by the
+	// goroutines above.
 	e.backendRoomSubscriptions = make(map[string]*asyncBackendRoomSubscriberNats)
 	e.roomSubscriptions = make(map[string]*asyncRoomSubscriberNats)
 	e.userSubscriptions = make(map[string]*asyncUserSubscriberNats)
