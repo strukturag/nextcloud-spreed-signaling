@@ -250,7 +250,7 @@ func (m *mcuJanus) doReconnect() {
 
 	log.Println("Reconnection to Janus gateway successful")
 	m.mu.Lock()
-	m.publishers = make(map[string]*mcuJanusPublisher)
+	clear(m.publishers)
 	m.publisherCreated.Reset()
 	m.publisherConnected.Reset()
 	m.reconnectInterval = initialReconnectInterval

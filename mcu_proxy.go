@@ -746,8 +746,9 @@ func (c *mcuProxyConnection) clearPublishers() {
 			publisher.NotifyClosed()
 		}
 	}(c.publishers)
+	// Can't use clear(...) here as the map is processed by the goroutine above.
 	c.publishers = make(map[string]*mcuProxyPublisher)
-	c.publisherIds = make(map[string]string)
+	clear(c.publisherIds)
 
 	if c.closeScheduled.Load() || c.IsTemporary() {
 		go c.closeIfEmpty()
@@ -777,6 +778,7 @@ func (c *mcuProxyConnection) clearSubscribers() {
 			subscriber.NotifyClosed()
 		}
 	}(c.subscribers)
+	// Can't use clear(...) here as the map is processed by the goroutine above.
 	c.subscribers = make(map[string]*mcuProxySubscriber)
 
 	if c.closeScheduled.Load() || c.IsTemporary() {
@@ -788,7 +790,7 @@ func (c *mcuProxyConnection) clearCallbacks() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.callbacks = make(map[string]func(*ProxyServerMessage))
+	clear(c.callbacks)
 }
 
 func (c *mcuProxyConnection) getCallback(id string) func(*ProxyServerMessage) {
