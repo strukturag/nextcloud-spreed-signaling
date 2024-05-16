@@ -103,6 +103,8 @@ var (
 
 	// Delay after which a "cleared" / "rejected" dialout status should be removed.
 	removeCallStatusTTL = 5 * time.Second
+
+	DefaultTrustedProxies = DefaultPrivateIps()
 )
 
 const (
@@ -163,6 +165,7 @@ type Hub struct {
 	backendTimeout time.Duration
 	backend        *BackendClient
 
+	trustedProxies *AllowedIps
 	geoip          *GeoLookup
 	geoipOverrides map[*net.IPNet]string
 	geoipUpdating  atomic.Bool
@@ -224,6 +227,19 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 	allowSubscribeAnyStream, _ := config.GetBool("app", "allowsubscribeany")
 	if allowSubscribeAnyStream {
 		log.Printf("WARNING: Allow subscribing any streams, this is insecure and should only be enabled for testing")
+	}
+
+	trustedProxies, _ := config.GetString("app", "trustedproxies")
+	trustedProxiesIps, err := ParseAllowedIps(trustedProxies)
+	if err != nil {
+		return nil, err
+	}
+
+	if !trustedProxiesIps.Empty() {
+		log.Printf("Trusted proxies: %s", trustedProxiesIps)
+	} else {
+		trustedProxiesIps = DefaultTrustedProxies
+		log.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 	}
 
 	decodeCaches := make([]*LruCache, 0, numDecodeCaches)
@@ -353,6 +369,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		backendTimeout: backendTimeout,
 		backend:        backend,
 
+		trustedProxies: trustedProxiesIps,
 		geoip:          geoip,
 		geoipOverrides: geoipOverrides,
 
@@ -2512,9 +2529,21 @@ func (h *Hub) GetStats() map[string]interface{} {
 	return result
 }
 
-func getRealUserIP(r *http.Request) string {
-	// Note this function assumes it is running behind a trusted proxy, so
-	// the headers can be trusted.
+func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
+	addr := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		addr = host
+	}
+
+	ip := net.ParseIP(addr)
+	if len(ip) == 0 {
+		return addr
+	}
+
+	if trusted == nil || !trusted.Allowed(ip) {
+		return addr
+	}
+
 	if ip := r.Header.Get("X-Real-IP"); ip != "" {
 		return ip
 	}
@@ -2524,14 +2553,22 @@ func getRealUserIP(r *http.Request) string {
 		if pos := strings.Index(ip, ","); pos >= 0 {
 			ip = strings.TrimSpace(ip[:pos])
 		}
+		// Make sure to remove any port.
+		if host, _, err := net.SplitHostPort(ip); err == nil {
+			ip = host
+		}
 		return ip
 	}
 
-	return r.RemoteAddr
+	return addr
+}
+
+func (h *Hub) getRealUserIP(r *http.Request) string {
+	return GetRealUserIP(r, h.trustedProxies)
 }
 
 func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
-	addr := getRealUserIP(r)
+	addr := h.getRealUserIP(r)
 	agent := r.Header.Get("User-Agent")
 
 	conn, err := h.upgrader.Upgrade(w, r, nil)

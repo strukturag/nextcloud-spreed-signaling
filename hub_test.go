@@ -3580,10 +3580,15 @@ func TestJoinRoomSwitchClient(t *testing.T) {
 func TestGetRealUserIP(t *testing.T) {
 	REMOTE_ATTR := "192.168.1.2"
 
-	request := &http.Request{
-		RemoteAddr: REMOTE_ATTR,
+	trustedProxies, err := ParseAllowedIps("192.168.0.0/16")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if ip := getRealUserIP(request); ip != REMOTE_ATTR {
+
+	request := &http.Request{
+		RemoteAddr: REMOTE_ATTR + ":23456",
+	}
+	if ip := GetRealUserIP(request, trustedProxies); ip != REMOTE_ATTR {
 		t.Errorf("Expected %s but got %s", REMOTE_ATTR, ip)
 	}
 
@@ -3591,26 +3596,41 @@ func TestGetRealUserIP(t *testing.T) {
 	request.Header = http.Header{
 		http.CanonicalHeaderKey("x-real-ip"): []string{X_REAL_IP},
 	}
-	if ip := getRealUserIP(request); ip != X_REAL_IP {
+	if ip := GetRealUserIP(request, trustedProxies); ip != X_REAL_IP {
 		t.Errorf("Expected %s but got %s", X_REAL_IP, ip)
 	}
 
 	// "X-Real-IP" has preference before "X-Forwarded-For"
 	X_FORWARDED_FOR_IP := "192.168.20.21"
-	X_FORWARDED_FOR := X_FORWARDED_FOR_IP + ", 192.168.30.32"
+	X_FORWARDED_FOR := X_FORWARDED_FOR_IP + ":12345, 192.168.30.32"
 	request.Header = http.Header{
 		http.CanonicalHeaderKey("x-real-ip"):       []string{X_REAL_IP},
 		http.CanonicalHeaderKey("x-forwarded-for"): []string{X_FORWARDED_FOR},
 	}
-	if ip := getRealUserIP(request); ip != X_REAL_IP {
+	if ip := GetRealUserIP(request, trustedProxies); ip != X_REAL_IP {
 		t.Errorf("Expected %s but got %s", X_REAL_IP, ip)
 	}
 
 	request.Header = http.Header{
 		http.CanonicalHeaderKey("x-forwarded-for"): []string{X_FORWARDED_FOR},
 	}
-	if ip := getRealUserIP(request); ip != X_FORWARDED_FOR_IP {
+	if ip := GetRealUserIP(request, trustedProxies); ip != X_FORWARDED_FOR_IP {
 		t.Errorf("Expected %s but got %s", X_FORWARDED_FOR_IP, ip)
+	}
+
+	PUBLIC_IP := "1.2.3.4"
+	request.RemoteAddr = PUBLIC_IP + ":1234"
+	request.Header = http.Header{
+		http.CanonicalHeaderKey("x-real-ip"): []string{X_REAL_IP},
+	}
+	if ip := GetRealUserIP(request, trustedProxies); ip != PUBLIC_IP {
+		t.Errorf("Expected %s but got %s", PUBLIC_IP, ip)
+	}
+	request.Header = http.Header{
+		http.CanonicalHeaderKey("x-forwarded-for"): []string{X_FORWARDED_FOR},
+	}
+	if ip := GetRealUserIP(request, trustedProxies); ip != PUBLIC_IP {
+		t.Errorf("Expected %s but got %s", PUBLIC_IP, ip)
 	}
 }
 

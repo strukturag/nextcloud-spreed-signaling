@@ -34,6 +34,9 @@ func TestAllowedIps(t *testing.T) {
 	if a.Empty() {
 		t.Fatal("should not be empty")
 	}
+	if expected := `[127.0.0.1/32, 192.168.0.1/32, 192.168.1.0/24]`; a.String() != expected {
+		t.Errorf("expected %s, got %s", expected, a.String())
+	}
 
 	allowed := []string{
 		"127.0.0.1",

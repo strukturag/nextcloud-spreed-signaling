@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"strings"
@@ -29,6 +30,19 @@ import (
 
 type AllowedIps struct {
 	allowed []*net.IPNet
+}
+
+func (a *AllowedIps) String() string {
+	var b bytes.Buffer
+	b.WriteString("[")
+	for idx, n := range a.allowed {
+		if idx > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(n.String())
+	}
+	b.WriteString("]")
+	return b.String()
 }
 
 func (a *AllowedIps) Empty() bool {
@@ -98,4 +112,23 @@ func DefaultAllowedIps() *AllowedIps {
 		allowed: allowedIps,
 	}
 	return result
+}
+
+var (
+	privateIpNets = []string{
+		// Loopback addresses.
+		"127.0.0.0/8",
+		// Private addresses.
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+	}
+)
+
+func DefaultPrivateIps() *AllowedIps {
+	allowed, err := ParseAllowedIps(strings.Join(privateIpNets, ","))
+	if err != nil {
+		panic(fmt.Errorf("could not parse private ips %+v: %w", privateIpNets, err))
+	}
+	return allowed
 }
