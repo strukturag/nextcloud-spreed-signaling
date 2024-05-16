@@ -51,6 +51,8 @@ type ClientSession struct {
 	privateId string
 	publicId  string
 	data      *SessionIdData
+	ctx       context.Context
+	closeFunc context.CancelFunc
 
 	clientType string
 	features   []string
@@ -91,12 +93,15 @@ type ClientSession struct {
 }
 
 func NewClientSession(hub *Hub, privateId string, publicId string, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
+	ctx, closeFunc := context.WithCancel(context.Background())
 	s := &ClientSession{
 		hub:       hub,
 		events:    hub.events,
 		privateId: privateId,
 		publicId:  publicId,
 		data:      data,
+		ctx:       ctx,
+		closeFunc: closeFunc,
 
 		clientType: hello.Auth.Type,
 		features:   hello.Features,
@@ -138,6 +143,10 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 		return nil, err
 	}
 	return s, nil
+}
+
+func (s *ClientSession) Context() context.Context {
+	return s.ctx
 }
 
 func (s *ClientSession) PrivateId() string {
@@ -337,7 +346,7 @@ func (s *ClientSession) getRoomJoinTime() time.Time {
 func (s *ClientSession) releaseMcuObjects() {
 	if len(s.publishers) > 0 {
 		go func(publishers map[StreamType]McuPublisher) {
-			ctx := context.TODO()
+			ctx := context.Background()
 			for _, publisher := range publishers {
 				publisher.Close(ctx)
 			}
@@ -346,7 +355,7 @@ func (s *ClientSession) releaseMcuObjects() {
 	}
 	if len(s.subscribers) > 0 {
 		go func(subscribers map[string]McuSubscriber) {
-			ctx := context.TODO()
+			ctx := context.Background()
 			for _, subscriber := range subscribers {
 				subscriber.Close(ctx)
 			}
@@ -360,6 +369,7 @@ func (s *ClientSession) Close() {
 }
 
 func (s *ClientSession) closeAndWait(wait bool) {
+	s.closeFunc()
 	s.hub.removeSession(s)
 
 	s.mu.Lock()
@@ -885,7 +895,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		if prev, found := s.publishers[streamType]; found {
 			// Another thread created the publisher while we were waiting.
 			go func(pub McuPublisher) {
-				closeCtx := context.TODO()
+				closeCtx := context.Background()
 				pub.Close(closeCtx)
 			}(publisher)
 			publisher = prev
@@ -962,7 +972,7 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id s
 		if prev, found := s.subscribers[getStreamId(id, streamType)]; found {
 			// Another thread created the subscriber while we were waiting.
 			go func(sub McuSubscriber) {
-				closeCtx := context.TODO()
+				closeCtx := context.Background()
 				sub.Close(closeCtx)
 			}(subscriber)
 			subscriber = prev
@@ -1036,7 +1046,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 	case "sendoffer":
 		// Process asynchronously to not block other messages received.
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), s.hub.mcuTimeout)
+			ctx, cancel := context.WithTimeout(s.Context(), s.hub.mcuTimeout)
 			defer cancel()
 
 			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, StreamType(message.SendOffer.Data.RoomType))
@@ -1068,7 +1078,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 				return
 			}
 
-			mc.SendMessage(context.TODO(), nil, message.SendOffer.Data, func(err error, response map[string]interface{}) {
+			mc.SendMessage(s.Context(), nil, message.SendOffer.Data, func(err error, response map[string]interface{}) {
 				if err != nil {
 					log.Printf("Could not send MCU message %+v for session %s to %s: %s", message.SendOffer.Data, message.SendOffer.SessionId, s.PublicId(), err)
 					if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{

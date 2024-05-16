@@ -85,6 +85,10 @@ func NewVirtualSession(session *ClientSession, privateId string, publicId string
 	return result, nil
 }
 
+func (s *VirtualSession) Context() context.Context {
+	return s.session.Context()
+}
+
 func (s *VirtualSession) PrivateId() string {
 	return s.privateId
 }

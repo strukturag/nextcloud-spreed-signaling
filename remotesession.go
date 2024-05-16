@@ -51,6 +51,8 @@ func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessio
 	client.SetSessionId(sessionId)
 	client.SetHandler(remoteSession)
 
+	// Don't use "client.Context()" here as it could close the proxy connection
+	// before any final messages are forwarded to the remote end.
 	proxy, err := remoteClient.ProxySession(context.Background(), sessionId, remoteSession)
 	if err != nil {
 		return nil, err

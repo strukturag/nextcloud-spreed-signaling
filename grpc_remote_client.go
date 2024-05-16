@@ -115,6 +115,10 @@ func (c *remoteGrpcClient) readPump() {
 	}
 }
 
+func (c *remoteGrpcClient) Context() context.Context {
+	return c.client.Context()
+}
+
 func (c *remoteGrpcClient) RemoteAddr() string {
 	return c.remoteAddr
 }
