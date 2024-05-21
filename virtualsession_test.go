@@ -40,7 +40,7 @@ func TestVirtualSession(t *testing.T) {
 		id:     "compat",
 		compat: true,
 	}
-	room, err := hub.createRoom(roomId, &emptyProperties, backend)
+	room, err := hub.createRoom(roomId, emptyProperties, backend)
 	if err != nil {
 		t.Fatalf("Could not create room: %s", err)
 	}
@@ -285,7 +285,7 @@ func TestVirtualSession(t *testing.T) {
 	}
 
 	var payload string
-	if err := json.Unmarshal(*msg2.Message.Data, &payload); err != nil {
+	if err := json.Unmarshal(msg2.Message.Data, &payload); err != nil {
 		t.Error(err)
 	} else if payload != data {
 		t.Errorf("Expected payload %s, got %s", data, payload)
@@ -350,7 +350,7 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 		id:     "compat",
 		compat: true,
 	}
-	room, err := hub.createRoom(roomId, &emptyProperties, backend)
+	room, err := hub.createRoom(roomId, emptyProperties, backend)
 	if err != nil {
 		t.Fatalf("Could not create room: %s", err)
 	}
@@ -583,7 +583,7 @@ func TestVirtualSessionCleanup(t *testing.T) {
 		id:     "compat",
 		compat: true,
 	}
-	room, err := hub.createRoom(roomId, &emptyProperties, backend)
+	room, err := hub.createRoom(roomId, emptyProperties, backend)
 	if err != nil {
 		t.Fatalf("Could not create room: %s", err)
 	}

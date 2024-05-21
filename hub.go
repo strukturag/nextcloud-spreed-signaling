@@ -1542,7 +1542,7 @@ func (h *Hub) removeRoom(room *Room) {
 	h.roomPing.DeleteRoom(room)
 }
 
-func (h *Hub) createRoom(id string, properties *json.RawMessage, backend *Backend) (*Room, error) {
+func (h *Hub) createRoom(id string, properties json.RawMessage, backend *Backend) (*Room, error) {
 	// Note the write lock must be held.
 	room, err := NewRoom(id, properties, h, h.events, backend)
 	if err != nil {
@@ -1625,7 +1625,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 		if h.mcu != nil {
 			// Maybe this is a message to be processed by the MCU.
 			var data MessageClientMessageData
-			if err := json.Unmarshal(*msg.Data, &data); err == nil {
+			if err := json.Unmarshal(msg.Data, &data); err == nil {
 				if err := data.CheckValid(); err != nil {
 					log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
 					if err, ok := err.(*Error); ok {
@@ -1740,7 +1740,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 
 				if h.mcu != nil {
 					var data MessageClientMessageData
-					if err := json.Unmarshal(*msg.Data, &data); err == nil {
+					if err := json.Unmarshal(msg.Data, &data); err == nil {
 						if err := data.CheckValid(); err != nil {
 							log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
 							if err, ok := err.(*Error); ok {
@@ -2224,7 +2224,7 @@ func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
 		if msg.Value == nil {
 			room.SetTransientDataTTL(msg.Key, nil, msg.TTL)
 		} else {
-			room.SetTransientDataTTL(msg.Key, *msg.Value, msg.TTL)
+			room.SetTransientDataTTL(msg.Key, msg.Value, msg.TTL)
 		}
 	case "remove":
 		if !isAllowedToUpdateTransientData(session) {
@@ -2423,7 +2423,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 					SessionId: session.PublicId(),
 					UserId:    session.UserId(),
 				},
-				Data: (*json.RawMessage)(&answer_data),
+				Data: answer_data,
 			},
 		}
 	case "offer":
@@ -2448,7 +2448,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 					SessionId: message.Recipient.SessionId,
 					// TODO(jojo): Set "UserId" field if known user.
 				},
-				Data: (*json.RawMessage)(&offer_data),
+				Data: offer_data,
 			},
 		}
 	default:

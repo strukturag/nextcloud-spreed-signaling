@@ -118,8 +118,8 @@ type BackendRoomInviteRequest struct {
 	UserIds []string `json:"userids,omitempty"`
 	// TODO(jojo): We should get rid of "AllUserIds" and find a better way to
 	// notify existing users the room has changed and they need to update it.
-	AllUserIds []string         `json:"alluserids,omitempty"`
-	Properties *json.RawMessage `json:"properties,omitempty"`
+	AllUserIds []string        `json:"alluserids,omitempty"`
+	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 type BackendRoomDisinviteRequest struct {
@@ -127,13 +127,13 @@ type BackendRoomDisinviteRequest struct {
 	SessionIds []string `json:"sessionids,omitempty"`
 	// TODO(jojo): We should get rid of "AllUserIds" and find a better way to
 	// notify existing users the room has changed and they need to update it.
-	AllUserIds []string         `json:"alluserids,omitempty"`
-	Properties *json.RawMessage `json:"properties,omitempty"`
+	AllUserIds []string        `json:"alluserids,omitempty"`
+	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 type BackendRoomUpdateRequest struct {
-	UserIds    []string         `json:"userids,omitempty"`
-	Properties *json.RawMessage `json:"properties,omitempty"`
+	UserIds    []string        `json:"userids,omitempty"`
+	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 type BackendRoomDeleteRequest struct {
@@ -154,7 +154,7 @@ type BackendRoomParticipantsRequest struct {
 }
 
 type BackendRoomMessageRequest struct {
-	Data *json.RawMessage `json:"data,omitempty"`
+	Data json.RawMessage `json:"data,omitempty"`
 }
 
 type BackendRoomSwitchToSessionsList []string
@@ -169,7 +169,7 @@ type BackendRoomSwitchToMessageRequest struct {
 	// In the map, the key is the session id, the value additional details
 	// (or null) for the session. The details will be included in the request
 	// to the connected client.
-	Sessions *json.RawMessage `json:"sessions,omitempty"`
+	Sessions json.RawMessage `json:"sessions,omitempty"`
 
 	// Internal properties
 	SessionsList BackendRoomSwitchToSessionsList `json:"sessionslist,omitempty"`
@@ -237,8 +237,8 @@ type BackendRoomDialoutResponse struct {
 // Requests from the signaling server to the Nextcloud backend.
 
 type BackendClientAuthRequest struct {
-	Version string           `json:"version"`
-	Params  *json.RawMessage `json:"params"`
+	Version string          `json:"version"`
+	Params  json.RawMessage `json:"params"`
 }
 
 type BackendClientRequest struct {
@@ -256,7 +256,7 @@ type BackendClientRequest struct {
 	Session *BackendClientSessionRequest `json:"session,omitempty"`
 }
 
-func NewBackendClientAuthRequest(params *json.RawMessage) *BackendClientRequest {
+func NewBackendClientAuthRequest(params json.RawMessage) *BackendClientRequest {
 	return &BackendClientRequest{
 		Type: "auth",
 		Auth: &BackendClientAuthRequest{
@@ -284,9 +284,9 @@ type BackendClientResponse struct {
 }
 
 type BackendClientAuthResponse struct {
-	Version string           `json:"version"`
-	UserId  string           `json:"userid"`
-	User    *json.RawMessage `json:"user"`
+	Version string          `json:"version"`
+	UserId  string          `json:"userid"`
+	User    json.RawMessage `json:"user"`
 }
 
 type BackendClientRoomRequest struct {
@@ -315,14 +315,14 @@ func NewBackendClientRoomRequest(roomid string, userid string, sessionid string)
 }
 
 type BackendClientRoomResponse struct {
-	Version    string           `json:"version"`
-	RoomId     string           `json:"roomid"`
-	Properties *json.RawMessage `json:"properties"`
+	Version    string          `json:"version"`
+	RoomId     string          `json:"roomid"`
+	Properties json.RawMessage `json:"properties"`
 
 	// Optional information about the Nextcloud Talk session. Can be used for
 	// example to define a "userid" for otherwise anonymous users.
 	// See "RoomSessionData" for a possible content.
-	Session *json.RawMessage `json:"session,omitempty"`
+	Session json.RawMessage `json:"session,omitempty"`
 
 	Permissions *[]Permission `json:"permissions,omitempty"`
 }
@@ -359,12 +359,12 @@ type BackendClientRingResponse struct {
 }
 
 type BackendClientSessionRequest struct {
-	Version   string           `json:"version"`
-	RoomId    string           `json:"roomid"`
-	Action    string           `json:"action"`
-	SessionId string           `json:"sessionid"`
-	UserId    string           `json:"userid,omitempty"`
-	User      *json.RawMessage `json:"user,omitempty"`
+	Version   string          `json:"version"`
+	RoomId    string          `json:"roomid"`
+	Action    string          `json:"action"`
+	SessionId string          `json:"sessionid"`
+	UserId    string          `json:"userid,omitempty"`
+	User      json.RawMessage `json:"user,omitempty"`
 }
 
 type BackendClientSessionResponse struct {
@@ -396,8 +396,8 @@ type OcsMeta struct {
 }
 
 type OcsBody struct {
-	Meta OcsMeta          `json:"meta"`
-	Data *json.RawMessage `json:"data"`
+	Meta OcsMeta         `json:"meta"`
+	Data json.RawMessage `json:"data"`
 }
 
 type OcsResponse struct {

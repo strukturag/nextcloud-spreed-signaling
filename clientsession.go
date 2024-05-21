@@ -57,7 +57,7 @@ type ClientSession struct {
 	clientType string
 	features   []string
 	userId     string
-	userData   *json.RawMessage
+	userData   json.RawMessage
 
 	inCall              Flags
 	supportsPermissions bool
@@ -315,7 +315,7 @@ func (s *ClientSession) UserId() string {
 	return userId
 }
 
-func (s *ClientSession) UserData() *json.RawMessage {
+func (s *ClientSession) UserData() json.RawMessage {
 	return s.userData
 }
 
@@ -589,7 +589,7 @@ func (s *ClientSession) sendOffer(client McuClient, sender string, streamType St
 				Type:      "session",
 				SessionId: sender,
 			},
-			Data: (*json.RawMessage)(&offer_data),
+			Data: offer_data,
 		},
 	}
 
@@ -619,7 +619,7 @@ func (s *ClientSession) sendCandidate(client McuClient, sender string, streamTyp
 				Type:      "session",
 				SessionId: sender,
 			},
-			Data: (*json.RawMessage)(&candidate_data),
+			Data: candidate_data,
 		},
 	}
 
@@ -1111,13 +1111,13 @@ func (s *ClientSession) storePendingMessage(message *ServerMessage) {
 func filterDisplayNames(events []*EventServerMessageSessionEntry) []*EventServerMessageSessionEntry {
 	result := make([]*EventServerMessageSessionEntry, 0, len(events))
 	for _, event := range events {
-		if event.User == nil {
+		if len(event.User) == 0 {
 			result = append(result, event)
 			continue
 		}
 
 		var userdata map[string]interface{}
-		if err := json.Unmarshal(*event.User, &userdata); err != nil {
+		if err := json.Unmarshal(event.User, &userdata); err != nil {
 			result = append(result, event)
 			continue
 		}
@@ -1143,7 +1143,7 @@ func filterDisplayNames(events []*EventServerMessageSessionEntry) []*EventServer
 		}
 
 		e := event.Clone()
-		e.User = (*json.RawMessage)(&data)
+		e.User = data
 		result = append(result, e)
 	}
 	return result
@@ -1238,12 +1238,12 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 					delete(s.seenJoinedEvents, e)
 				}
 			case "message":
-				if message.Event.Message == nil || message.Event.Message.Data == nil || len(*message.Event.Message.Data) == 0 || !s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+				if message.Event.Message == nil || len(message.Event.Message.Data) == 0 || !s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
 					return message
 				}
 
 				var data RoomEventMessageData
-				if err := json.Unmarshal(*message.Event.Message.Data, &data); err != nil {
+				if err := json.Unmarshal(message.Event.Message.Data, &data); err != nil {
 					return message
 				}
 
@@ -1260,7 +1260,7 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 									Target: message.Event.Target,
 									Message: &RoomEventMessage{
 										RoomId: message.Event.Message.RoomId,
-										Data:   (*json.RawMessage)(&encoded),
+										Data:   encoded,
 									},
 								},
 							}
@@ -1270,9 +1270,9 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 			}
 		}
 	case "message":
-		if message.Message != nil && message.Message.Data != nil && len(*message.Message.Data) > 0 && s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+		if message.Message != nil && len(message.Message.Data) > 0 && s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
 			var data MessageServerMessageData
-			if err := json.Unmarshal(*message.Message.Data, &data); err != nil {
+			if err := json.Unmarshal(message.Message.Data, &data); err != nil {
 				return message
 			}
 

@@ -277,7 +277,7 @@ func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Reque
 	}
 }
 
-func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids []string, properties *json.RawMessage) {
+func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids []string, properties json.RawMessage) {
 	msg := &AsyncMessage{
 		Type: "message",
 		Message: &ServerMessage{
@@ -347,7 +347,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 	wg.Wait()
 }
 
-func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified_userids []string, all_userids []string, properties *json.RawMessage) {
+func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified_userids []string, all_userids []string, properties json.RawMessage) {
 	msg := &AsyncMessage{
 		Type: "message",
 		Message: &ServerMessage{
@@ -553,11 +553,11 @@ func (b *BackendServer) sendRoomSwitchTo(roomid string, backend *Backend, reques
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	if request.SwitchTo.Sessions != nil {
+	if len(request.SwitchTo.Sessions) > 0 {
 		// We support both a list of sessions or a map with additional details per session.
-		if (*request.SwitchTo.Sessions)[0] == '[' {
+		if request.SwitchTo.Sessions[0] == '[' {
 			var sessionsList BackendRoomSwitchToSessionsList
-			if err := json.Unmarshal(*request.SwitchTo.Sessions, &sessionsList); err != nil {
+			if err := json.Unmarshal(request.SwitchTo.Sessions, &sessionsList); err != nil {
 				return err
 			}
 
@@ -595,7 +595,7 @@ func (b *BackendServer) sendRoomSwitchTo(roomid string, backend *Backend, reques
 			request.SwitchTo.SessionsMap = nil
 		} else {
 			var sessionsMap BackendRoomSwitchToSessionsMap
-			if err := json.Unmarshal(*request.SwitchTo.Sessions, &sessionsMap); err != nil {
+			if err := json.Unmarshal(request.SwitchTo.Sessions, &sessionsMap); err != nil {
 				return err
 			}
 

@@ -194,7 +194,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		if err := json.Unmarshal(body, &ocs); err != nil {
 			log.Printf("Could not decode OCS response %s from %s: %s", string(body), req.URL, err)
 			return err
-		} else if ocs.Ocs == nil || ocs.Ocs.Data == nil {
+		} else if ocs.Ocs == nil || len(ocs.Ocs.Data) == 0 {
 			log.Printf("Incomplete OCS response %s from %s", string(body), req.URL)
 			return ErrIncompleteResponse
 		}
@@ -205,8 +205,8 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 			return ErrThrottledResponse
 		}
 
-		if err := json.Unmarshal(*ocs.Ocs.Data, response); err != nil {
-			log.Printf("Could not decode OCS response body %s from %s: %s", string(*ocs.Ocs.Data), req.URL, err)
+		if err := json.Unmarshal(ocs.Ocs.Data, response); err != nil {
+			log.Printf("Could not decode OCS response body %s from %s: %s", string(ocs.Ocs.Data), req.URL, err)
 			return err
 		}
 	} else if err := json.Unmarshal(body, response); err != nil {

@@ -45,7 +45,7 @@ func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
 				StatusCode: http.StatusOK,
 				Message:    "OK",
 			},
-			Data: (*json.RawMessage)(&body),
+			Data: body,
 		},
 	}
 	if strings.Contains(t.Name(), "Throttled") {

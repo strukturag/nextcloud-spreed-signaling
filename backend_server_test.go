@@ -350,7 +350,7 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 			AllUserIds: []string{
 				userid,
 			},
-			Properties: &roomProperties,
+			Properties: roomProperties,
 		},
 	}
 
@@ -481,7 +481,7 @@ func RunTestBackendServer_RoomInvite(t *testing.T) {
 			AllUserIds: []string{
 				userid,
 			},
-			Properties: &roomProperties,
+			Properties: roomProperties,
 		},
 	}
 
@@ -510,8 +510,8 @@ func RunTestBackendServer_RoomInvite(t *testing.T) {
 		t.Errorf("Expected invite, got %+v", event)
 	} else if event.Invite.RoomId != roomId {
 		t.Errorf("Expected room %s, got %+v", roomId, event)
-	} else if event.Invite.Properties == nil || !bytes.Equal(*event.Invite.Properties, roomProperties) {
-		t.Errorf("Room properties don't match: expected %s, got %s", string(roomProperties), string(*event.Invite.Properties))
+	} else if !bytes.Equal(event.Invite.Properties, roomProperties) {
+		t.Errorf("Room properties don't match: expected %s, got %s", string(roomProperties), string(event.Invite.Properties))
 	}
 }
 
@@ -583,7 +583,7 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 				roomId + "-" + hello.Hello.SessionId,
 			},
 			AllUserIds: []string{},
-			Properties: &roomProperties,
+			Properties: roomProperties,
 		},
 	}
 
@@ -611,8 +611,8 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 		t.Errorf("Expected disinvite, got %+v", event)
 	} else if event.Disinvite.RoomId != roomId {
 		t.Errorf("Expected room %s, got %+v", roomId, event)
-	} else if event.Disinvite.Properties != nil {
-		t.Errorf("Room properties should be omitted, got %s", string(*event.Disinvite.Properties))
+	} else if len(event.Disinvite.Properties) > 0 {
+		t.Errorf("Room properties should be omitted, got %s", string(event.Disinvite.Properties))
 	} else if event.Disinvite.Reason != "disinvited" {
 		t.Errorf("Reason should be disinvited, got %s", event.Disinvite.Reason)
 	}
@@ -729,7 +729,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 			UserIds: []string{
 				testDefaultUserId,
 			},
-			Properties: (*json.RawMessage)(&testRoomProperties),
+			Properties: testRoomProperties,
 		},
 	}
 
@@ -781,7 +781,7 @@ func RunTestBackendServer_RoomUpdate(t *testing.T) {
 	if backend == nil {
 		t.Fatalf("Did not find backend")
 	}
-	room, err := hub.createRoom(roomId, &emptyProperties, backend)
+	room, err := hub.createRoom(roomId, emptyProperties, backend)
 	if err != nil {
 		t.Fatalf("Could not create room: %s", err)
 	}
@@ -805,7 +805,7 @@ func RunTestBackendServer_RoomUpdate(t *testing.T) {
 			UserIds: []string{
 				userid,
 			},
-			Properties: &roomProperties,
+			Properties: roomProperties,
 		},
 	}
 
@@ -833,8 +833,8 @@ func RunTestBackendServer_RoomUpdate(t *testing.T) {
 		t.Errorf("Expected update, got %+v", event)
 	} else if event.Update.RoomId != roomId {
 		t.Errorf("Expected room %s, got %+v", roomId, event)
-	} else if event.Update.Properties == nil || !bytes.Equal(*event.Update.Properties, roomProperties) {
-		t.Errorf("Room properties don't match: expected %s, got %s", string(roomProperties), string(*event.Update.Properties))
+	} else if !bytes.Equal(event.Update.Properties, roomProperties) {
+		t.Errorf("Room properties don't match: expected %s, got %s", string(roomProperties), string(event.Update.Properties))
 	}
 
 	// TODO: Use event to wait for asynchronous messages.
@@ -844,8 +844,8 @@ func RunTestBackendServer_RoomUpdate(t *testing.T) {
 	if room == nil {
 		t.Fatalf("Room %s does not exist", roomId)
 	}
-	if string(*room.Properties()) != string(roomProperties) {
-		t.Errorf("Expected properties %s for room %s, got %s", string(roomProperties), room.Id(), string(*room.Properties()))
+	if string(room.Properties()) != string(roomProperties) {
+		t.Errorf("Expected properties %s for room %s, got %s", string(roomProperties), room.Id(), string(room.Properties()))
 	}
 }
 
@@ -873,7 +873,7 @@ func RunTestBackendServer_RoomDelete(t *testing.T) {
 	if backend == nil {
 		t.Fatalf("Did not find backend")
 	}
-	if _, err := hub.createRoom(roomId, &emptyProperties, backend); err != nil {
+	if _, err := hub.createRoom(roomId, emptyProperties, backend); err != nil {
 		t.Fatalf("Could not create room: %s", err)
 	}
 
@@ -921,8 +921,8 @@ func RunTestBackendServer_RoomDelete(t *testing.T) {
 		t.Errorf("Expected disinvite, got %+v", event)
 	} else if event.Disinvite.RoomId != roomId {
 		t.Errorf("Expected room %s, got %+v", roomId, event)
-	} else if event.Disinvite.Properties != nil {
-		t.Errorf("Room properties should be omitted, got %s", string(*event.Disinvite.Properties))
+	} else if len(event.Disinvite.Properties) > 0 {
+		t.Errorf("Room properties should be omitted, got %s", string(event.Disinvite.Properties))
 	} else if event.Disinvite.Reason != "deleted" {
 		t.Errorf("Reason should be deleted, got %s", event.Disinvite.Reason)
 	}
@@ -1500,8 +1500,8 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				t.Error(err)
 			} else if !in_call_1.All {
 				t.Errorf("All flag not set in message %+v", in_call_1)
-			} else if !bytes.Equal(*in_call_1.InCall, []byte("7")) {
-				t.Errorf("Expected inCall flag 7, got %s", string(*in_call_1.InCall))
+			} else if !bytes.Equal(in_call_1.InCall, []byte("7")) {
+				t.Errorf("Expected inCall flag 7, got %s", string(in_call_1.InCall))
 			}
 
 			if msg2_a, err := client2.RunUntilMessage(ctx); err != nil {
@@ -1510,8 +1510,8 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				t.Error(err)
 			} else if !in_call_1.All {
 				t.Errorf("All flag not set in message %+v", in_call_1)
-			} else if !bytes.Equal(*in_call_1.InCall, []byte("7")) {
-				t.Errorf("Expected inCall flag 7, got %s", string(*in_call_1.InCall))
+			} else if !bytes.Equal(in_call_1.InCall, []byte("7")) {
+				t.Errorf("Expected inCall flag 7, got %s", string(in_call_1.InCall))
 			}
 
 			if !room1.IsSessionInCall(session1) {
@@ -1581,8 +1581,8 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				t.Error(err)
 			} else if !in_call_1.All {
 				t.Errorf("All flag not set in message %+v", in_call_1)
-			} else if !bytes.Equal(*in_call_1.InCall, []byte("0")) {
-				t.Errorf("Expected inCall flag 0, got %s", string(*in_call_1.InCall))
+			} else if !bytes.Equal(in_call_1.InCall, []byte("0")) {
+				t.Errorf("Expected inCall flag 0, got %s", string(in_call_1.InCall))
 			}
 
 			if msg2_a, err := client2.RunUntilMessage(ctx); err != nil {
@@ -1591,8 +1591,8 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				t.Error(err)
 			} else if !in_call_1.All {
 				t.Errorf("All flag not set in message %+v", in_call_1)
-			} else if !bytes.Equal(*in_call_1.InCall, []byte("0")) {
-				t.Errorf("Expected inCall flag 0, got %s", string(*in_call_1.InCall))
+			} else if !bytes.Equal(in_call_1.InCall, []byte("0")) {
+				t.Errorf("Expected inCall flag 0, got %s", string(in_call_1.InCall))
 			}
 
 			if room1.IsSessionInCall(session1) {
@@ -1659,7 +1659,7 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 	msg := &BackendServerRoomRequest{
 		Type: "message",
 		Message: &BackendRoomMessageRequest{
-			Data: &messageData,
+			Data: messageData,
 		},
 	}
 
@@ -1685,8 +1685,8 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 		t.Error(err)
 	} else if message.RoomId != roomId {
 		t.Errorf("Expected message for room %s, got %s", roomId, message.RoomId)
-	} else if !bytes.Equal(messageData, *message.Data) {
-		t.Errorf("Expected message data %s, got %s", string(messageData), string(*message.Data))
+	} else if !bytes.Equal(messageData, message.Data) {
+		t.Errorf("Expected message data %s, got %s", string(messageData), string(message.Data))
 	}
 }
 

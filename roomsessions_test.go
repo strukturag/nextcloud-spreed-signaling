@@ -57,7 +57,7 @@ func (s *DummySession) UserId() string {
 	return ""
 }
 
-func (s *DummySession) UserData() *json.RawMessage {
+func (s *DummySession) UserData() json.RawMessage {
 	return nil
 }
 
