@@ -575,7 +575,7 @@ type MessageClientMessageData struct {
 }
 
 func (m *MessageClientMessageData) CheckValid() error {
-	if !IsValidStreamType(m.RoomType) {
+	if m.RoomType != "" && !IsValidStreamType(m.RoomType) {
 		return fmt.Errorf("invalid room type: %s", m.RoomType)
 	}
 	if m.Type == "offer" || m.Type == "answer" {
