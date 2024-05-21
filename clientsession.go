@@ -69,10 +69,12 @@ type ClientSession struct {
 
 	mu sync.Mutex
 
-	client        HandlerClient
-	room          atomic.Pointer[Room]
-	roomJoinTime  atomic.Int64
-	roomSessionId string
+	client       HandlerClient
+	room         atomic.Pointer[Room]
+	roomJoinTime atomic.Int64
+
+	roomSessionIdLock sync.RWMutex
+	roomSessionId     string
 
 	publisherWaiters ChannelWaiters
 
@@ -158,8 +160,8 @@ func (s *ClientSession) PublicId() string {
 }
 
 func (s *ClientSession) RoomSessionId() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.roomSessionIdLock.RLock()
+	defer s.roomSessionIdLock.RUnlock()
 	return s.roomSessionId
 }
 
@@ -403,8 +405,8 @@ func (s *ClientSession) SubscribeEvents() error {
 }
 
 func (s *ClientSession) UpdateRoomSessionId(roomSessionId string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.roomSessionIdLock.Lock()
+	defer s.roomSessionIdLock.Unlock()
 
 	if s.roomSessionId == roomSessionId {
 		return nil
@@ -433,8 +435,8 @@ func (s *ClientSession) UpdateRoomSessionId(roomSessionId string) error {
 }
 
 func (s *ClientSession) SubscribeRoomEvents(roomid string, roomSessionId string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.roomSessionIdLock.Lock()
+	defer s.roomSessionIdLock.Unlock()
 
 	if err := s.events.RegisterRoomListener(roomid, s.backend, s); err != nil {
 		return err
@@ -493,6 +495,9 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 		s.events.UnregisterRoomListener(room.Id(), s.Backend(), s)
 	}
 	s.hub.roomSessions.DeleteRoomSession(s)
+
+	s.roomSessionIdLock.Lock()
+	defer s.roomSessionIdLock.Unlock()
 	if notify && room != nil && s.roomSessionId != "" {
 		// Notify
 		go func(sid string) {
