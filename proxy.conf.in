@@ -25,6 +25,36 @@
 # - etcd: Token information are retrieved from an etcd cluster (see below).
 tokentype = static
 
+# The external hostname for remote streams. Leaving this empty will autodetect
+# and use the first public IP found on the available network interfaces.
+#hostname =
+
+# The token id to use when connecting remote stream.
+#token_id = server1
+
+# The private key for the configured token id to use when connecting remote
+# streams.
+#token_key = privkey.pem
+
+# If set to "true", certificate validation of remote stream requests will be
+# skipped. This should only be enabled during development, e.g. to work with
+# self-signed certificates.
+#skipverify = false
+
+[bandwidth]
+# Target bandwidth limit for incoming streams (in megabits per second).
+# Set to 0 to disable the limit. If the limit is reached, the proxy notifies
+# the signaling servers that another proxy should be used for publishing if
+# possible.
+#incoming = 1024
+
+# Target bandwidth limit for outgoing streams (in megabits per second).
+# Set to 0 to disable the limit. If the limit is reached, the proxy notifies
+# the signaling servers that another proxy should be used for subscribing if
+# possible. Note that this might require additional outgoing bandwidth for the
+# remote streams.
+#outgoing = 1024
+
 [tokens]
 # For token type "static": Mapping of <tokenid> = <publickey> of signaling
 # servers allowed to connect.

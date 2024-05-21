@@ -24,6 +24,7 @@ package signaling
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 
 	"github.com/golang-jwt/jwt/v4"
 )
@@ -46,6 +47,14 @@ type ProxyClientMessage struct {
 	Command *CommandProxyClientMessage `json:"command,omitempty"`
 
 	Payload *PayloadProxyClientMessage `json:"payload,omitempty"`
+}
+
+func (m *ProxyClientMessage) String() string {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", m, err)
+	}
+	return string(data)
 }
 
 func (m *ProxyClientMessage) CheckValid() error {
@@ -113,6 +122,14 @@ type ProxyServerMessage struct {
 	Payload *PayloadProxyServerMessage `json:"payload,omitempty"`
 
 	Event *EventProxyServerMessage `json:"event,omitempty"`
+}
+
+func (r *ProxyServerMessage) String() string {
+	data, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", r, err)
+	}
+	return string(data)
 }
 
 func (r *ProxyServerMessage) CloseAfterSend(session Session) bool {
@@ -185,6 +202,14 @@ type CommandProxyClientMessage struct {
 	ClientId    string     `json:"clientId,omitempty"`
 	Bitrate     int        `json:"bitrate,omitempty"`
 	MediaTypes  MediaType  `json:"mediatypes,omitempty"`
+
+	RemoteUrl   string `json:"remoteUrl,omitempty"`
+	remoteUrl   *url.URL
+	RemoteToken string `json:"remoteToken,omitempty"`
+
+	Hostname string `json:"hostname,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	RtcpPort int    `json:"rtcpPort,omitempty"`
 }
 
 func (m *CommandProxyClientMessage) CheckValid() error {
@@ -202,6 +227,17 @@ func (m *CommandProxyClientMessage) CheckValid() error {
 		if m.StreamType == "" {
 			return fmt.Errorf("stream type missing")
 		}
+		if m.RemoteUrl != "" {
+			if m.RemoteToken == "" {
+				return fmt.Errorf("remote token missing")
+			}
+
+			remoteUrl, err := url.Parse(m.RemoteUrl)
+			if err != nil {
+				return fmt.Errorf("invalid remote url: %w", err)
+			}
+			m.remoteUrl = remoteUrl
+		}
 	case "delete-publisher":
 		fallthrough
 	case "delete-subscriber":
@@ -217,6 +253,8 @@ type CommandProxyServerMessage struct {
 	Sid string `json:"sid,omitempty"`
 
 	Bitrate int `json:"bitrate,omitempty"`
+
+	Streams []PublisherStream `json:"streams,omitempty"`
 }
 
 // Type "payload"
@@ -261,12 +299,41 @@ type PayloadProxyServerMessage struct {
 
 // Type "event"
 
+type EventProxyServerBandwidth struct {
+	// Incoming is the bandwidth utilization for publishers in percent.
+	Incoming *float64 `json:"incoming,omitempty"`
+	// Outgoing is the bandwidth utilization for subscribers in percent.
+	Outgoing *float64 `json:"outgoing,omitempty"`
+}
+
+func (b *EventProxyServerBandwidth) String() string {
+	if b.Incoming != nil && b.Outgoing != nil {
+		return fmt.Sprintf("bandwidth: incoming=%.3f%%, outgoing=%.3f%%", *b.Incoming, *b.Outgoing)
+	} else if b.Incoming != nil {
+		return fmt.Sprintf("bandwidth: incoming=%.3f%%, outgoing=unlimited", *b.Incoming)
+	} else if b.Outgoing != nil {
+		return fmt.Sprintf("bandwidth: incoming=unlimited, outgoing=%.3f%%", *b.Outgoing)
+	} else {
+		return "bandwidth: incoming=unlimited, outgoing=unlimited"
+	}
+}
+
+func (b EventProxyServerBandwidth) AllowIncoming() bool {
+	return b.Incoming == nil || *b.Incoming < 100
+}
+
+func (b EventProxyServerBandwidth) AllowOutgoing() bool {
+	return b.Outgoing == nil || *b.Outgoing < 100
+}
+
 type EventProxyServerMessage struct {
 	Type string `json:"type"`
 
 	ClientId string `json:"clientId,omitempty"`
 	Load     int64  `json:"load,omitempty"`
 	Sid      string `json:"sid,omitempty"`
+
+	Bandwidth *EventProxyServerBandwidth `json:"bandwidth,omitempty"`
 }
 
 // Information on a proxy in the etcd cluster.

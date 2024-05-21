@@ -131,10 +131,13 @@ func TestBandwidth_Client(t *testing.T) {
 	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
 	mcu, err := NewTestMCU()
 	if err != nil {
 		t.Fatal(err)
-	} else if err := mcu.Start(); err != nil {
+	} else if err := mcu.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer mcu.Stop()
@@ -147,9 +150,6 @@ func TestBandwidth_Client(t *testing.T) {
 	if err := client.SendHello(testDefaultUserId); err != nil {
 		t.Fatal(err)
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
 	if err != nil {
@@ -217,10 +217,13 @@ func TestBandwidth_Backend(t *testing.T) {
 	backend.maxScreenBitrate = 1000
 	backend.maxStreamBitrate = 2000
 
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
 	mcu, err := NewTestMCU()
 	if err != nil {
 		t.Fatal(err)
-	} else if err := mcu.Start(); err != nil {
+	} else if err := mcu.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer mcu.Stop()
@@ -231,9 +234,6 @@ func TestBandwidth_Backend(t *testing.T) {
 		StreamTypeVideo,
 		StreamTypeScreen,
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
 
 	for _, streamType := range streamTypes {
 		t.Run(string(streamType), func(t *testing.T) {

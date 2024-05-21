@@ -4029,18 +4029,18 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
 	mcu, err := NewTestMCU()
 	if err != nil {
 		t.Fatal(err)
-	} else if err := mcu.Start(); err != nil {
+	} else if err := mcu.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -4170,18 +4170,18 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
 	mcu, err := NewTestMCU()
 	if err != nil {
 		t.Fatal(err)
-	} else if err := mcu.Start(); err != nil {
+	} else if err := mcu.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -4263,18 +4263,18 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
 	mcu, err := NewTestMCU()
 	if err != nil {
 		t.Fatal(err)
-	} else if err := mcu.Start(); err != nil {
+	} else if err := mcu.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -4392,18 +4392,18 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
 	mcu, err := NewTestMCU()
 	if err != nil {
 		t.Fatal(err)
-	} else if err := mcu.Start(); err != nil {
+	} else if err := mcu.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
@@ -4539,19 +4539,19 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
 			}
 
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
 			mcu, err := NewTestMCU()
 			if err != nil {
 				t.Fatal(err)
-			} else if err := mcu.Start(); err != nil {
+			} else if err := mcu.Start(ctx); err != nil {
 				t.Fatal(err)
 			}
 			defer mcu.Stop()
 
 			hub1.SetMcu(mcu)
 			hub2.SetMcu(mcu)
-
-			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-			defer cancel()
 
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
@@ -4965,19 +4965,19 @@ func TestClientSendOffer(t *testing.T) {
 				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
 			}
 
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
 			mcu, err := NewTestMCU()
 			if err != nil {
 				t.Fatal(err)
-			} else if err := mcu.Start(); err != nil {
+			} else if err := mcu.Start(ctx); err != nil {
 				t.Fatal(err)
 			}
 			defer mcu.Stop()
 
 			hub1.SetMcu(mcu)
 			hub2.SetMcu(mcu)
-
-			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-			defer cancel()
 
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
@@ -5073,18 +5073,18 @@ func TestClientUnshareScreen(t *testing.T) {
 	CatchLogForTest(t)
 	hub, _, _, server := CreateHubForTest(t)
 
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
 	mcu, err := NewTestMCU()
 	if err != nil {
 		t.Fatal(err)
-	} else if err := mcu.Start(); err != nil {
+	} else if err := mcu.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()

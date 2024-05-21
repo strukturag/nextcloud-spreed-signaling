@@ -218,13 +218,26 @@ func (p *mcuProxyPublisher) ProcessEvent(msg *EventProxyServerMessage) {
 	}
 }
 
+func (p *mcuProxyPublisher) GetStreams(ctx context.Context) ([]PublisherStream, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (p *mcuProxyPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+	return errors.New("remote publishing not supported for proxy publishers")
+}
+
+func (p *mcuProxyPublisher) UnpublishRemote(ctx context.Context, remoteId string) error {
+	return errors.New("remote publishing not supported for proxy publishers")
+}
+
 type mcuProxySubscriber struct {
 	mcuProxyPubSubCommon
 
-	publisherId string
+	publisherId   string
+	publisherConn *mcuProxyConnection
 }
 
-func newMcuProxySubscriber(publisherId string, sid string, streamType StreamType, maxBitrate int, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxySubscriber {
+func newMcuProxySubscriber(publisherId string, sid string, streamType StreamType, maxBitrate int, proxyId string, conn *mcuProxyConnection, listener McuListener, publisherConn *mcuProxyConnection) *mcuProxySubscriber {
 	return &mcuProxySubscriber{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			sid:        sid,
@@ -235,7 +248,8 @@ func newMcuProxySubscriber(publisherId string, sid string, streamType StreamType
 			listener:   listener,
 		},
 
-		publisherId: publisherId,
+		publisherId:   publisherId,
+		publisherConn: publisherConn,
 	}
 }
 
@@ -244,7 +258,11 @@ func (s *mcuProxySubscriber) Publisher() string {
 }
 
 func (s *mcuProxySubscriber) NotifyClosed() {
-	log.Printf("Subscriber %s at %s was closed", s.proxyId, s.conn)
+	if s.publisherConn != nil {
+		log.Printf("Remote subscriber %s at %s (forwarded to %s) was closed", s.proxyId, s.conn, s.publisherConn)
+	} else {
+		log.Printf("Subscriber %s at %s was closed", s.proxyId, s.conn)
+	}
 	s.listener.SubscriberClosed(s)
 	s.conn.removeSubscriber(s)
 }
@@ -261,14 +279,26 @@ func (s *mcuProxySubscriber) Close(ctx context.Context) {
 	}
 
 	if response, err := s.conn.performSyncRequest(ctx, msg); err != nil {
-		log.Printf("Could not delete subscriber %s at %s: %s", s.proxyId, s.conn, err)
+		if s.publisherConn != nil {
+			log.Printf("Could not delete remote subscriber %s at %s (forwarded to %s): %s", s.proxyId, s.conn, s.publisherConn, err)
+		} else {
+			log.Printf("Could not delete subscriber %s at %s: %s", s.proxyId, s.conn, err)
+		}
 		return
 	} else if response.Type == "error" {
-		log.Printf("Could not delete subscriber %s at %s: %s", s.proxyId, s.conn, response.Error)
+		if s.publisherConn != nil {
+			log.Printf("Could not delete remote subscriber %s at %s (forwarded to %s): %s", s.proxyId, s.conn, s.publisherConn, response.Error)
+		} else {
+			log.Printf("Could not delete subscriber %s at %s: %s", s.proxyId, s.conn, response.Error)
+		}
 		return
 	}
 
-	log.Printf("Deleted subscriber %s at %s", s.proxyId, s.conn)
+	if s.publisherConn != nil {
+		log.Printf("Deleted remote subscriber %s at %s (forwarded to %s)", s.proxyId, s.conn, s.publisherConn)
+	} else {
+		log.Printf("Deleted subscriber %s at %s", s.proxyId, s.conn)
+	}
 }
 
 func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
@@ -310,6 +340,7 @@ type mcuProxyConnection struct {
 	ip     net.IP
 
 	load       atomic.Int64
+	bandwidth  atomic.Pointer[EventProxyServerBandwidth]
 	mu         sync.Mutex
 	closer     *Closer
 	closedDone *Closer
@@ -328,7 +359,7 @@ type mcuProxyConnection struct {
 
 	msgId      atomic.Int64
 	helloMsgId string
-	sessionId  string
+	sessionId  atomic.Value
 	country    atomic.Value
 
 	callbacks map[string]func(*ProxyServerMessage)
@@ -361,6 +392,7 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP) (*mcuProx
 	}
 	conn.reconnectInterval.Store(int64(initialReconnectInterval))
 	conn.load.Store(loadNotConnected)
+	conn.bandwidth.Store(nil)
 	conn.country.Store("")
 	return conn, nil
 }
@@ -371,6 +403,54 @@ func (c *mcuProxyConnection) String() string {
 	}
 
 	return c.rawUrl
+}
+
+func (c *mcuProxyConnection) IsSameCountry(initiator McuInitiator) bool {
+	if initiator == nil {
+		return true
+	}
+
+	initiatorCountry := initiator.Country()
+	if initiatorCountry == "" {
+		return true
+	}
+
+	connCountry := c.Country()
+	if connCountry == "" {
+		return true
+	}
+
+	return initiatorCountry == connCountry
+}
+
+func (c *mcuProxyConnection) IsSameContinent(initiator McuInitiator) bool {
+	if initiator == nil {
+		return true
+	}
+
+	initiatorCountry := initiator.Country()
+	if initiatorCountry == "" {
+		return true
+	}
+
+	connCountry := c.Country()
+	if connCountry == "" {
+		return true
+	}
+
+	initiatorContinents, found := ContinentMap[initiatorCountry]
+	if found {
+		m := c.proxy.getContinentsMap()
+		// Map continents to other continents (e.g. use Europe for Africa).
+		for _, continent := range initiatorContinents {
+			if toAdd, found := m[continent]; found {
+				initiatorContinents = append(initiatorContinents, toAdd...)
+			}
+		}
+
+	}
+	connContinents := ContinentMap[connCountry]
+	return ContinentsOverlap(initiatorContinents, connContinents)
 }
 
 type mcuProxyConnectionStats struct {
@@ -416,8 +496,27 @@ func (c *mcuProxyConnection) Load() int64 {
 	return c.load.Load()
 }
 
+func (c *mcuProxyConnection) Bandwidth() *EventProxyServerBandwidth {
+	return c.bandwidth.Load()
+}
+
 func (c *mcuProxyConnection) Country() string {
 	return c.country.Load().(string)
+}
+
+func (c *mcuProxyConnection) SessionId() string {
+	sid := c.sessionId.Load()
+	if sid == nil {
+		return ""
+	}
+
+	return sid.(string)
+}
+
+func (c *mcuProxyConnection) IsConnected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn != nil && c.SessionId() != ""
 }
 
 func (c *mcuProxyConnection) IsTemporary() bool {
@@ -445,7 +544,10 @@ func (c *mcuProxyConnection) readPump() {
 		}
 	}()
 	defer c.close()
-	defer c.load.Store(loadNotConnected)
+	defer func() {
+		c.load.Store(loadNotConnected)
+		c.bandwidth.Store(nil)
+	}()
 
 	c.mu.Lock()
 	conn := c.conn
@@ -810,11 +912,11 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 		switch msg.Type {
 		case "error":
 			if msg.Error.Code == "no_such_session" {
-				log.Printf("Session %s could not be resumed on %s, registering new", c.sessionId, c)
+				log.Printf("Session %s could not be resumed on %s, registering new", c.SessionId(), c)
 				c.clearPublishers()
 				c.clearSubscribers()
 				c.clearCallbacks()
-				c.sessionId = ""
+				c.sessionId.Store("")
 				if err := c.sendHello(); err != nil {
 					log.Printf("Could not send hello request to %s: %s", c, err)
 					c.scheduleReconnect()
@@ -825,8 +927,8 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			log.Printf("Hello connection to %s failed with %+v, reconnecting", c, msg.Error)
 			c.scheduleReconnect()
 		case "hello":
-			resumed := c.sessionId == msg.Hello.SessionId
-			c.sessionId = msg.Hello.SessionId
+			resumed := c.SessionId() == msg.Hello.SessionId
+			c.sessionId.Store(msg.Hello.SessionId)
 			country := ""
 			if msg.Hello.Server != nil {
 				if country = msg.Hello.Server.Country; country != "" && !IsValidCountry(country) {
@@ -836,11 +938,11 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			}
 			c.country.Store(country)
 			if resumed {
-				log.Printf("Resumed session %s on %s", c.sessionId, c)
+				log.Printf("Resumed session %s on %s", c.SessionId(), c)
 			} else if country != "" {
-				log.Printf("Received session %s from %s (in %s)", c.sessionId, c, country)
+				log.Printf("Received session %s from %s (in %s)", c.SessionId(), c, country)
 			} else {
-				log.Printf("Received session %s from %s", c.sessionId, c)
+				log.Printf("Received session %s from %s", c.SessionId(), c)
 			}
 			if c.trackClose.CompareAndSwap(false, true) {
 				statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Inc()
@@ -911,9 +1013,10 @@ func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 		return
 	case "update-load":
 		if proxyDebugMessages {
-			log.Printf("Load of %s now at %d", c, event.Load)
+			log.Printf("Load of %s now at %d (%s)", c, event.Load, event.Bandwidth)
 		}
 		c.load.Store(event.Load)
+		c.bandwidth.Store(event.Bandwidth)
 		statsProxyBackendLoadCurrent.WithLabelValues(c.url.String()).Set(float64(event.Load))
 		return
 	case "shutdown-scheduled":
@@ -948,8 +1051,8 @@ func (c *mcuProxyConnection) processBye(msg *ProxyServerMessage) {
 	bye := msg.Bye
 	switch bye.Reason {
 	case "session_resumed":
-		log.Printf("Session %s on %s was resumed by other client, resetting", c.sessionId, c)
-		c.sessionId = ""
+		log.Printf("Session %s on %s was resumed by other client, resetting", c.SessionId(), c)
+		c.sessionId.Store("")
 	default:
 		log.Printf("Received bye with unsupported reason from %s %+v", c, bye)
 	}
@@ -964,17 +1067,10 @@ func (c *mcuProxyConnection) sendHello() error {
 			Version: "1.0",
 		},
 	}
-	if c.sessionId != "" {
-		msg.Hello.ResumeId = c.sessionId
+	if sessionId := c.SessionId(); sessionId != "" {
+		msg.Hello.ResumeId = sessionId
 	} else {
-		claims := &TokenClaims{
-			jwt.RegisteredClaims{
-				IssuedAt: jwt.NewNumericDate(time.Now()),
-				Issuer:   c.proxy.tokenId,
-			},
-		}
-		token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-		tokenString, err := token.SignedString(c.proxy.tokenKey)
+		tokenString, err := c.proxy.createToken("")
 		if err != nil {
 			return err
 		}
@@ -1095,7 +1191,48 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 
 	proxyId := response.Command.Id
 	log.Printf("Created %s subscriber %s on %s for %s", streamType, proxyId, c, publisherSessionId)
-	subscriber := newMcuProxySubscriber(publisherSessionId, response.Command.Sid, streamType, response.Command.Bitrate, proxyId, c, listener)
+	subscriber := newMcuProxySubscriber(publisherSessionId, response.Command.Sid, streamType, response.Command.Bitrate, proxyId, c, listener, nil)
+	c.subscribersLock.Lock()
+	c.subscribers[proxyId] = subscriber
+	c.subscribersLock.Unlock()
+	statsSubscribersCurrent.WithLabelValues(string(streamType)).Inc()
+	statsSubscribersTotal.WithLabelValues(string(streamType)).Inc()
+	return subscriber, nil
+}
+
+func (c *mcuProxyConnection) newRemoteSubscriber(ctx context.Context, listener McuListener, publisherId string, publisherSessionId string, streamType StreamType, publisherConn *mcuProxyConnection) (McuSubscriber, error) {
+	if c == publisherConn {
+		return c.newSubscriber(ctx, listener, publisherId, publisherSessionId, streamType)
+	}
+
+	remoteToken, err := c.proxy.createToken(publisherId)
+	if err != nil {
+		return nil, err
+	}
+
+	msg := &ProxyClientMessage{
+		Type: "command",
+		Command: &CommandProxyClientMessage{
+			Type:        "create-subscriber",
+			StreamType:  streamType,
+			PublisherId: publisherId,
+
+			RemoteUrl:   publisherConn.rawUrl,
+			RemoteToken: remoteToken,
+		},
+	}
+
+	response, err := c.performSyncRequest(ctx, msg)
+	if err != nil {
+		// TODO: Cancel request
+		return nil, err
+	} else if response.Type == "error" {
+		return nil, fmt.Errorf("Error creating remote %s subscriber for %s on %s (forwarded to %s): %+v", streamType, publisherSessionId, c, publisherConn, response.Error)
+	}
+
+	proxyId := response.Command.Id
+	log.Printf("Created remote %s subscriber %s on %s for %s (forwarded to %s)", streamType, proxyId, c, publisherSessionId, publisherConn)
+	subscriber := newMcuProxySubscriber(publisherSessionId, response.Command.Sid, streamType, response.Command.Bitrate, proxyId, c, listener, publisherConn)
 	c.subscribersLock.Lock()
 	c.subscribers[proxyId] = subscriber
 	c.subscribersLock.Unlock()
@@ -1258,7 +1395,7 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 	return nil
 }
 
-func (m *mcuProxy) Start() error {
+func (m *mcuProxy) Start(ctx context.Context) error {
 	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate)
 	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate)
 
@@ -1276,6 +1413,48 @@ func (m *mcuProxy) Stop() {
 	}
 
 	m.config.Stop()
+}
+
+func (m *mcuProxy) createToken(subject string) (string, error) {
+	claims := &TokenClaims{
+		jwt.RegisteredClaims{
+			IssuedAt: jwt.NewNumericDate(time.Now()),
+			Issuer:   m.tokenId,
+			Subject:  subject,
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tokenString, err := token.SignedString(m.tokenKey)
+	if err != nil {
+		return "", err
+	}
+
+	return tokenString, nil
+}
+
+func (m *mcuProxy) hasConnections() bool {
+	m.connectionsMu.RLock()
+	defer m.connectionsMu.RUnlock()
+	for _, conn := range m.connections {
+		if conn.IsConnected() {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *mcuProxy) WaitForConnections(ctx context.Context) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for !m.hasConnections() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	return nil
 }
 
 func (m *mcuProxy) AddConnection(ignoreErrors bool, url string, ips ...net.IP) error {
@@ -1569,27 +1748,27 @@ func (m *mcuProxy) removePublisher(publisher *mcuProxyPublisher) {
 	delete(m.publishers, getStreamId(publisher.id, publisher.StreamType()))
 }
 
-func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
-	connections := m.getSortedConnections(initiator)
+func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuPublisher {
+	var maxBitrate int
+	if streamType == StreamTypeScreen {
+		maxBitrate = m.maxScreenBitrate
+	} else {
+		maxBitrate = m.maxStreamBitrate
+	}
+	if bitrate <= 0 {
+		bitrate = maxBitrate
+	} else {
+		bitrate = min(bitrate, maxBitrate)
+	}
+
 	for _, conn := range connections {
-		if conn.IsShutdownScheduled() || conn.IsTemporary() {
+		if !isAllowed(conn) || conn.IsShutdownScheduled() || conn.IsTemporary() {
 			continue
 		}
 
 		subctx, cancel := context.WithTimeout(ctx, m.proxyTimeout)
 		defer cancel()
 
-		var maxBitrate int
-		if streamType == StreamTypeScreen {
-			maxBitrate = m.maxScreenBitrate
-		} else {
-			maxBitrate = m.maxStreamBitrate
-		}
-		if bitrate <= 0 {
-			bitrate = maxBitrate
-		} else {
-			bitrate = min(bitrate, maxBitrate)
-		}
 		publisher, err := conn.newPublisher(subctx, listener, id, sid, streamType, bitrate, mediaTypes)
 		if err != nil {
 			log.Printf("Could not create %s publisher for %s on %s: %s", streamType, id, conn, err)
@@ -1600,11 +1779,61 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 		m.publishers[getStreamId(id, streamType)] = conn
 		m.mu.Unlock()
 		m.publisherWaiters.Wakeup()
-		return publisher, nil
+		return publisher
 	}
 
-	statsProxyNobackendAvailableTotal.WithLabelValues(string(streamType)).Inc()
-	return nil, fmt.Errorf("No MCU connection available")
+	return nil
+}
+
+func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
+	connections := m.getSortedConnections(initiator)
+	publisher := m.createPublisher(ctx, listener, id, sid, streamType, bitrate, mediaTypes, initiator, connections, func(c *mcuProxyConnection) bool {
+		bw := c.Bandwidth()
+		return bw == nil || bw.AllowIncoming()
+	})
+	if publisher == nil {
+		// No proxy has available bandwidth, select one with the lowest currently used bandwidth.
+		connections2 := make([]*mcuProxyConnection, 0, len(connections))
+		for _, c := range connections {
+			if c.Bandwidth() != nil {
+				connections2 = append(connections2, c)
+			}
+		}
+		SlicesSortFunc(connections2, func(a *mcuProxyConnection, b *mcuProxyConnection) int {
+			var incoming_a *float64
+			if bw := a.Bandwidth(); bw != nil {
+				incoming_a = bw.Incoming
+			}
+
+			var incoming_b *float64
+			if bw := b.Bandwidth(); bw != nil {
+				incoming_b = bw.Incoming
+			}
+
+			if incoming_a == nil && incoming_b == nil {
+				return 0
+			} else if incoming_a == nil && incoming_b != nil {
+				return -1
+			} else if incoming_a != nil && incoming_b == nil {
+				return -1
+			} else if *incoming_a < *incoming_b {
+				return -1
+			} else if *incoming_a > *incoming_b {
+				return 1
+			}
+			return 0
+		})
+		publisher = m.createPublisher(ctx, listener, id, sid, streamType, bitrate, mediaTypes, initiator, connections2, func(c *mcuProxyConnection) bool {
+			return true
+		})
+	}
+
+	if publisher == nil {
+		statsProxyNobackendAvailableTotal.WithLabelValues(string(streamType)).Inc()
+		return nil, fmt.Errorf("No MCU connection available")
+	}
+
+	return publisher, nil
 }
 
 func (m *mcuProxy) getPublisherConnection(publisher string, streamType StreamType) *mcuProxyConnection {
@@ -1645,7 +1874,38 @@ func (m *mcuProxy) waitForPublisherConnection(ctx context.Context, publisher str
 	}
 }
 
-func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType) (McuSubscriber, error) {
+type proxyPublisherInfo struct {
+	id   string
+	conn *mcuProxyConnection
+	err  error
+}
+
+func (m *mcuProxy) createSubscriber(ctx context.Context, listener McuListener, id string, publisher string, streamType StreamType, publisherConn *mcuProxyConnection, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuSubscriber {
+	for _, conn := range connections {
+		if !isAllowed(conn) || conn.IsShutdownScheduled() || conn.IsTemporary() {
+			continue
+		}
+
+		var subscriber McuSubscriber
+		var err error
+		if conn == publisherConn {
+			subscriber, err = conn.newSubscriber(ctx, listener, id, publisher, streamType)
+		} else {
+			subscriber, err = conn.newRemoteSubscriber(ctx, listener, id, publisher, streamType, publisherConn)
+		}
+		if err != nil {
+			log.Printf("Could not create subscriber for %s publisher %s on %s: %s", streamType, publisher, conn, err)
+			continue
+		}
+
+		return subscriber
+	}
+
+	return nil
+}
+
+func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
+	var publisherInfo *proxyPublisherInfo
 	if conn := m.getPublisherConnection(publisher, streamType); conn != nil {
 		// Fast common path: publisher is available locally.
 		conn.publishersLock.Lock()
@@ -1655,113 +1915,190 @@ func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publ
 			return nil, fmt.Errorf("Unknown publisher %s", publisher)
 		}
 
-		return conn.newSubscriber(ctx, listener, id, publisher, streamType)
-	}
-
-	log.Printf("No %s publisher %s found yet, deferring", streamType, publisher)
-	ch := make(chan McuSubscriber)
-	getctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Wait for publisher to be created locally.
-	go func() {
-		if conn := m.waitForPublisherConnection(getctx, publisher, streamType); conn != nil {
-			cancel() // Cancel pending RPC calls.
-
-			conn.publishersLock.Lock()
-			id, found := conn.publisherIds[getStreamId(publisher, streamType)]
-			conn.publishersLock.Unlock()
-			if !found {
-				log.Printf("Unknown id for local %s publisher %s", streamType, publisher)
-				return
-			}
-
-			subscriber, err := conn.newSubscriber(ctx, listener, id, publisher, streamType)
-			if subscriber != nil {
-				ch <- subscriber
-			} else if err != nil {
-				log.Printf("Error creating local subscriber for %s publisher %s: %s", streamType, publisher, err)
-			}
+		publisherInfo = &proxyPublisherInfo{
+			id:   id,
+			conn: conn,
 		}
-	}()
+	} else {
+		log.Printf("No %s publisher %s found yet, deferring", streamType, publisher)
+		ch := make(chan *proxyPublisherInfo, 1)
+		getctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 
-	// Wait for publisher to be created on one of the other servers in the cluster.
-	if clients := m.rpcClients.GetClients(); len(clients) > 0 {
-		for _, client := range clients {
-			go func(client *GrpcClient) {
-				id, url, ip, err := client.GetPublisherId(getctx, publisher, streamType)
-				if errors.Is(err, context.Canceled) {
-					return
-				} else if err != nil {
-					log.Printf("Error getting %s publisher id %s from %s: %s", streamType, publisher, client.Target(), err)
-					return
-				} else if id == "" {
-					// Publisher not found on other server
-					return
-				}
+		var wg sync.WaitGroup
 
+		// Wait for publisher to be created locally.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if conn := m.waitForPublisherConnection(getctx, publisher, streamType); conn != nil {
 				cancel() // Cancel pending RPC calls.
-				log.Printf("Found publisher id %s through %s on proxy %s", id, client.Target(), url)
 
-				m.connectionsMu.RLock()
-				connections := m.connections
-				m.connectionsMu.RUnlock()
-				var publisherConn *mcuProxyConnection
-				for _, conn := range connections {
-					if conn.rawUrl != url || !ip.Equal(conn.ip) {
-						continue
+				conn.publishersLock.Lock()
+				id, found := conn.publisherIds[getStreamId(publisher, streamType)]
+				conn.publishersLock.Unlock()
+				if !found {
+					ch <- &proxyPublisherInfo{
+						err: fmt.Errorf("Unknown id for local %s publisher %s", streamType, publisher),
 					}
-
-					// Simple case, signaling server has a connection to the same endpoint
-					publisherConn = conn
-					break
-				}
-
-				if publisherConn == nil {
-					publisherConn, err = newMcuProxyConnection(m, url, ip)
-					if err != nil {
-						log.Printf("Could not create temporary connection to %s for %s publisher %s: %s", url, streamType, publisher, err)
-						return
-					}
-
-					publisherConn.setTemporary()
-					publisherConn.start()
-					if err := publisherConn.waitUntilConnected(ctx); err != nil {
-						log.Printf("Could not establish new connection to %s: %s", publisherConn, err)
-						publisherConn.closeIfEmpty()
-						return
-					}
-
-					m.connectionsMu.Lock()
-					m.connections = append(m.connections, publisherConn)
-					conns, found := m.connectionsMap[url]
-					if found {
-						conns = append(conns, publisherConn)
-					} else {
-						conns = []*mcuProxyConnection{publisherConn}
-					}
-					m.connectionsMap[url] = conns
-					m.connectionsMu.Unlock()
-				}
-
-				subscriber, err := publisherConn.newSubscriber(ctx, listener, id, publisher, streamType)
-				if err != nil {
-					if publisherConn.IsTemporary() {
-						publisherConn.closeIfEmpty()
-					}
-					log.Printf("Could not create subscriber for %s publisher %s: %s", streamType, publisher, err)
 					return
 				}
 
-				ch <- subscriber
-			}(client)
+				ch <- &proxyPublisherInfo{
+					id:   id,
+					conn: conn,
+				}
+			}
+		}()
+
+		// Wait for publisher to be created on one of the other servers in the cluster.
+		if clients := m.rpcClients.GetClients(); len(clients) > 0 {
+			for _, client := range clients {
+				wg.Add(1)
+				go func(client *GrpcClient) {
+					defer wg.Done()
+					id, url, ip, err := client.GetPublisherId(getctx, publisher, streamType)
+					if errors.Is(err, context.Canceled) {
+						return
+					} else if err != nil {
+						log.Printf("Error getting %s publisher id %s from %s: %s", streamType, publisher, client.Target(), err)
+						return
+					} else if id == "" {
+						// Publisher not found on other server
+						return
+					}
+
+					cancel() // Cancel pending RPC calls.
+					log.Printf("Found publisher id %s through %s on proxy %s", id, client.Target(), url)
+
+					m.connectionsMu.RLock()
+					connections := m.connections
+					m.connectionsMu.RUnlock()
+					var publisherConn *mcuProxyConnection
+					for _, conn := range connections {
+						if conn.rawUrl != url || !ip.Equal(conn.ip) {
+							continue
+						}
+
+						// Simple case, signaling server has a connection to the same endpoint
+						publisherConn = conn
+						break
+					}
+
+					if publisherConn == nil {
+						publisherConn, err = newMcuProxyConnection(m, url, ip)
+						if err != nil {
+							log.Printf("Could not create temporary connection to %s for %s publisher %s: %s", url, streamType, publisher, err)
+							return
+						}
+
+						publisherConn.setTemporary()
+						publisherConn.start()
+						if err := publisherConn.waitUntilConnected(ctx); err != nil {
+							log.Printf("Could not establish new connection to %s: %s", publisherConn, err)
+							publisherConn.closeIfEmpty()
+							return
+						}
+
+						m.connectionsMu.Lock()
+						m.connections = append(m.connections, publisherConn)
+						conns, found := m.connectionsMap[url]
+						if found {
+							conns = append(conns, publisherConn)
+						} else {
+							conns = []*mcuProxyConnection{publisherConn}
+						}
+						m.connectionsMap[url] = conns
+						m.connectionsMu.Unlock()
+					}
+
+					ch <- &proxyPublisherInfo{
+						id:   id,
+						conn: publisherConn,
+					}
+				}(client)
+			}
+		}
+
+		wg.Wait()
+		select {
+		case ch <- &proxyPublisherInfo{
+			err: fmt.Errorf("No %s publisher %s found", streamType, publisher),
+		}:
+		default:
+		}
+
+		select {
+		case info := <-ch:
+			publisherInfo = info
+		case <-ctx.Done():
+			return nil, fmt.Errorf("No %s publisher %s found", streamType, publisher)
 		}
 	}
 
-	select {
-	case subscriber := <-ch:
-		return subscriber, nil
-	case <-ctx.Done():
-		return nil, fmt.Errorf("No %s publisher %s found", streamType, publisher)
+	if publisherInfo.err != nil {
+		return nil, publisherInfo.err
 	}
+
+	bw := publisherInfo.conn.Bandwidth()
+	allowOutgoing := bw == nil || bw.AllowOutgoing()
+	if !allowOutgoing || !publisherInfo.conn.IsSameCountry(initiator) {
+		connections := m.getSortedConnections(initiator)
+		if !allowOutgoing || len(connections) > 0 && !connections[0].IsSameCountry(publisherInfo.conn) {
+			// Connect to remote publisher through "closer" gateway.
+			subscriber := m.createSubscriber(ctx, listener, publisherInfo.id, publisher, streamType, publisherInfo.conn, connections, func(c *mcuProxyConnection) bool {
+				bw := c.Bandwidth()
+				return bw == nil || bw.AllowOutgoing()
+			})
+			if subscriber == nil {
+				connections2 := make([]*mcuProxyConnection, 0, len(connections))
+				for _, c := range connections {
+					if c.Bandwidth() != nil {
+						connections2 = append(connections2, c)
+					}
+				}
+				SlicesSortFunc(connections2, func(a *mcuProxyConnection, b *mcuProxyConnection) int {
+					var outgoing_a *float64
+					if bw := a.Bandwidth(); bw != nil {
+						outgoing_a = bw.Outgoing
+					}
+
+					var outgoing_b *float64
+					if bw := b.Bandwidth(); bw != nil {
+						outgoing_b = bw.Outgoing
+					}
+
+					if outgoing_a == nil && outgoing_b == nil {
+						return 0
+					} else if outgoing_a == nil && outgoing_b != nil {
+						return -1
+					} else if outgoing_a != nil && outgoing_b == nil {
+						return -1
+					} else if *outgoing_a < *outgoing_b {
+						return -1
+					} else if *outgoing_a > *outgoing_b {
+						return 1
+					}
+					return 0
+				})
+				subscriber = m.createSubscriber(ctx, listener, publisherInfo.id, publisher, streamType, publisherInfo.conn, connections2, func(c *mcuProxyConnection) bool {
+					return true
+				})
+			}
+			if subscriber != nil {
+				return subscriber, nil
+			}
+		}
+	}
+
+	subscriber, err := publisherInfo.conn.newSubscriber(ctx, listener, publisherInfo.id, publisher, streamType)
+	if err != nil {
+		if publisherInfo.conn.IsTemporary() {
+			publisherInfo.conn.closeIfEmpty()
+		}
+		log.Printf("Could not create subscriber for %s publisher %s on %s: %s", streamType, publisher, publisherInfo.conn, err)
+		return nil, err
+	}
+
+	return subscriber, nil
 }

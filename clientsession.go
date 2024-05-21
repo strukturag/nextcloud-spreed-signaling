@@ -934,9 +934,10 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id s
 
 	subscriber, found := s.subscribers[getStreamId(id, streamType)]
 	if !found {
+		client := s.getClientUnlocked()
 		s.mu.Unlock()
 		var err error
-		subscriber, err = mcu.NewSubscriber(ctx, s, id, streamType)
+		subscriber, err = mcu.NewSubscriber(ctx, s, id, streamType, client)
 		s.mu.Lock()
 		if err != nil {
 			return nil, err

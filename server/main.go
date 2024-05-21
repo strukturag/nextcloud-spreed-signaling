@@ -22,6 +22,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -240,9 +241,11 @@ func main() {
 		mcuRetryTimer := time.NewTimer(mcuRetry)
 	mcuTypeLoop:
 		for {
+			// Context should be cancelled on signals but need a way to differentiate later.
+			ctx := context.TODO()
 			switch mcuType {
 			case signaling.McuTypeJanus:
-				mcu, err = signaling.NewMcuJanus(mcuUrl, config)
+				mcu, err = signaling.NewMcuJanus(ctx, mcuUrl, config)
 				signaling.UnregisterProxyMcuStats()
 				signaling.RegisterJanusMcuStats()
 			case signaling.McuTypeProxy:
@@ -253,7 +256,7 @@ func main() {
 				log.Fatal("Unsupported MCU type: ", mcuType)
 			}
 			if err == nil {
-				err = mcu.Start()
+				err = mcu.Start(ctx)
 				if err != nil {
 					log.Printf("Could not create %s MCU: %s", mcuType, err)
 				}

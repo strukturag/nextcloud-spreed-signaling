@@ -38,6 +38,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -623,6 +624,10 @@ func (h *Hub) GetSessionByResumeId(resumeId string) Session {
 	return session
 }
 
+func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId string) (string, error) {
+	return h.roomSessions.GetSessionId(roomSessionId)
+}
+
 func (h *Hub) GetDialoutSession(roomId string, backend *Backend) *ClientSession {
 	url := backend.Url()
 
@@ -639,6 +644,10 @@ func (h *Hub) GetDialoutSession(roomId string, backend *Backend) *ClientSession 
 	}
 
 	return nil
+}
+
+func (h *Hub) GetBackend(u *url.URL) *Backend {
+	return h.backend.GetBackend(u)
 }
 
 func (h *Hub) checkExpiredSessions(now time.Time) {
