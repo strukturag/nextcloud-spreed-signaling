@@ -61,7 +61,7 @@ var (
 
 const (
 	defaultReadTimeout  = 15
-	defaultWriteTimeout = 15
+	defaultWriteTimeout = 30
 
 	initialMcuRetry = time.Second
 	maxMcuRetry     = time.Second * 16

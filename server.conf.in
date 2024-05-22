@@ -7,7 +7,7 @@
 #readtimeout = 15
 
 # HTTP socket write timeout in seconds.
-#writetimeout = 15
+#writetimeout = 30
 
 [https]
 # IP and port to listen on for HTTPS requests.
@@ -18,7 +18,7 @@
 #readtimeout = 15
 
 # HTTPS socket write timeout in seconds.
-#writetimeout = 15
+#writetimeout = 30
 
 # Certificate / private key to use for the HTTPS server.
 certificate = /etc/nginx/ssl/server.crt

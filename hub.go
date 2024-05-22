@@ -63,6 +63,7 @@ var (
 	NoSuchSession       = NewError("no_such_session", "The session to resume does not exist.")
 	TokenNotValidYet    = NewError("token_not_valid_yet", "The token is not valid yet.")
 	TokenExpired        = NewError("token_expired", "The token is expired.")
+	TooManyRequests     = NewError("too_many_requests", "Too many requests.")
 
 	// Maximum number of concurrent requests to a backend.
 	defaultMaxConcurrentRequestsPerHost = 8
@@ -173,6 +174,8 @@ type Hub struct {
 
 	rpcServer  *GrpcServer
 	rpcClients *GrpcClients
+
+	throttler Throttler
 }
 
 func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
@@ -328,6 +331,11 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		}
 	}
 
+	throttler, err := NewMemoryThrottler()
+	if err != nil {
+		return nil, err
+	}
+
 	hub := &Hub{
 		events: events,
 		upgrader: websocket.Upgrader{
@@ -376,6 +384,8 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 
 		rpcServer:  rpcServer,
 		rpcClients: rpcClients,
+
+		throttler: throttler,
 	}
 	hub.setWelcomeMessage(&ServerMessage{
 		Type:    "welcome",
@@ -498,6 +508,7 @@ loop:
 
 func (h *Hub) Stop() {
 	h.closer.Close()
+	h.throttler.Close()
 }
 
 func (h *Hub) Reload(config *goconf.ConfigFile) {
@@ -1124,8 +1135,19 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId string, message *ClientMe
 }
 
 func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
+	ctx := context.TODO()
 	resumeId := message.Hello.ResumeId
 	if resumeId != "" {
+		throttle, err := h.throttler.CheckBruteforce(ctx, client.RemoteAddr(), "HelloResume")
+		if err == ErrBruteforceDetected {
+			client.SendMessage(message.NewErrorServerMessage(TooManyRequests))
+			return
+		} else if err != nil {
+			log.Printf("Error checking for bruteforce: %s", err)
+			client.SendMessage(message.NewWrappedErrorServerMessage(err))
+			return
+		}
+
 		data := h.decodeSessionId(resumeId, privateSessionName)
 		if data == nil {
 			statsHubSessionResumeFailed.Inc()
@@ -1133,6 +1155,7 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 				return
 			}
 
+			throttle(ctx)
 			client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 			return
 		}
@@ -1146,6 +1169,7 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 				return
 			}
 
+			throttle(ctx)
 			client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 			return
 		}
@@ -1366,18 +1390,31 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage)
 		return
 	}
 
+	ctx := context.TODO()
+	throttle, err := h.throttler.CheckBruteforce(ctx, client.RemoteAddr(), "HelloInternal")
+	if err == ErrBruteforceDetected {
+		client.SendMessage(message.NewErrorServerMessage(TooManyRequests))
+		return
+	} else if err != nil {
+		log.Printf("Error checking for bruteforce: %s", err)
+		client.SendMessage(message.NewWrappedErrorServerMessage(err))
+		return
+	}
+
 	// Validate internal connection.
 	rnd := message.Hello.Auth.internalParams.Random
 	mac := hmac.New(sha256.New, h.internalClientsSecret)
 	mac.Write([]byte(rnd)) // nolint
 	check := hex.EncodeToString(mac.Sum(nil))
 	if len(rnd) < minTokenRandomLength || check != message.Hello.Auth.internalParams.Token {
+		throttle(ctx)
 		client.SendMessage(message.NewErrorServerMessage(InvalidToken))
 		return
 	}
 
 	backend := h.backend.GetBackend(message.Hello.Auth.internalParams.parsedBackend)
 	if backend == nil {
+		throttle(ctx)
 		client.SendMessage(message.NewErrorServerMessage(InvalidBackendUrl))
 		return
 	}

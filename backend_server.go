@@ -761,6 +761,16 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, backendUrl
 }
 
 func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body []byte) {
+	throttle, err := b.hub.throttler.CheckBruteforce(r.Context(), b.hub.getRealUserIP(r), "BackendRoomAuth")
+	if err == ErrBruteforceDetected {
+		http.Error(w, "Too many requests", http.StatusTooManyRequests)
+		return
+	} else if err != nil {
+		log.Printf("Error checking for bruteforce: %s", err)
+		http.Error(w, "Could not check for bruteforce", http.StatusInternalServerError)
+		return
+	}
+
 	v := mux.Vars(r)
 	roomid := v["roomid"]
 
@@ -773,6 +783,7 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 
 		if backend == nil {
 			// Unknown backend URL passed, return immediately.
+			throttle(r.Context())
 			http.Error(w, "Authentication check failed", http.StatusForbidden)
 			return
 		}
@@ -794,12 +805,14 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 		}
 
 		if backend == nil {
+			throttle(r.Context())
 			http.Error(w, "Authentication check failed", http.StatusForbidden)
 			return
 		}
 	}
 
 	if !ValidateBackendChecksum(r, body, backend.Secret()) {
+		throttle(r.Context())
 		http.Error(w, "Authentication check failed", http.StatusForbidden)
 		return
 	}
@@ -814,7 +827,6 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 	request.ReceivedTime = time.Now().UnixNano()
 
 	var response any
-	var err error
 	switch request.Type {
 	case "invite":
 		b.sendRoomInvite(roomid, backend, request.Invite.UserIds, request.Invite.Properties)
