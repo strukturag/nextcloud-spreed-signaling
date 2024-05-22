@@ -171,7 +171,17 @@ proxy process gracefully after all clients have been disconnected. No new
 publishers will be accepted in this case.
 
 
-### Clustering
+### Remote streams (preview)
+
+With Janus 1.1.0 or newer, remote streams are supported, i.e. a subscriber can
+receive a published stream from any server. For this, you need to configure
+`hostname`, `token_id` and `token_key` in the proxy configuration. Each proxy
+server also supports configuring maximum `incoming` and `outgoing` bandwidth
+settings, which will also be used to select remote streams.
+See `proxy.conf.in` in section `app` for details.
+
+
+## Clustering
 
 The signaling server supports a clustering mode where multiple running servers
 can be interconnected to form a single "virtual" server. This can be used to
