@@ -52,6 +52,7 @@ if [ ! -f "$CONFIG" ]; then
   fi
   if [ -n "$TOKEN_KEY" ]; then
     sed -i "s|#token_key =.*|token_key = $TOKEN_KEY|" "$CONFIG"
+  fi
   if [ -n "$BANDWIDTH_INCOMING" ]; then
     sed -i "s|#incoming =.*|incoming = $BANDWIDTH_INCOMING|" "$CONFIG"
   fi
