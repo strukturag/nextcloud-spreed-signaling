@@ -2,6 +2,105 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.3.0 - 2024-05-22
+
+### Added
+- Support resuming remote sessions
+  [#715](https://github.com/strukturag/nextcloud-spreed-signaling/pull/715)
+- Gracefully shut down signaling server on SIGUSR1.
+  [#706](https://github.com/strukturag/nextcloud-spreed-signaling/pull/706)
+- docker: Add helper scripts to gracefully stop / wait for server.
+  [#722](https://github.com/strukturag/nextcloud-spreed-signaling/pull/722)
+- Support environment variables in some configuration.
+  [#721](https://github.com/strukturag/nextcloud-spreed-signaling/pull/721)
+- Add Context to clients / sessions.
+  [#732](https://github.com/strukturag/nextcloud-spreed-signaling/pull/732)
+- Drop support for Golang 1.20
+  [#737](https://github.com/strukturag/nextcloud-spreed-signaling/pull/737)
+- CI: Run "govulncheck".
+  [#694](https://github.com/strukturag/nextcloud-spreed-signaling/pull/694)
+- Make trusted proxies configurable and default to loopback / private IPs.
+  [#738](https://github.com/strukturag/nextcloud-spreed-signaling/pull/738)
+- Add support for remote streams (preview)
+  [#708](https://github.com/strukturag/nextcloud-spreed-signaling/pull/708)
+- Add throttler for backend requests
+  [#744](https://github.com/strukturag/nextcloud-spreed-signaling/pull/744)
+
+### Changed
+- build(deps): Bump github.com/nats-io/nats.go from 1.34.0 to 1.34.1
+  [#697](https://github.com/strukturag/nextcloud-spreed-signaling/pull/697)
+- build(deps): Bump google.golang.org/grpc from 1.62.1 to 1.63.0
+  [#699](https://github.com/strukturag/nextcloud-spreed-signaling/pull/699)
+- build(deps): Bump google.golang.org/grpc from 1.63.0 to 1.63.2
+  [#700](https://github.com/strukturag/nextcloud-spreed-signaling/pull/700)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.12 to 2.10.14
+  [#702](https://github.com/strukturag/nextcloud-spreed-signaling/pull/702)
+- Include previous value with etcd watch events.
+  [#704](https://github.com/strukturag/nextcloud-spreed-signaling/pull/704)
+- build(deps): Bump go.uber.org/zap from 1.17.0 to 1.27.0
+  [#705](https://github.com/strukturag/nextcloud-spreed-signaling/pull/705)
+- Improve support for Janus 1.x
+  [#669](https://github.com/strukturag/nextcloud-spreed-signaling/pull/669)
+- build(deps): Bump sphinx from 7.2.6 to 7.3.5 in /docs
+  [#709](https://github.com/strukturag/nextcloud-spreed-signaling/pull/709)
+- build(deps): Bump sphinx from 7.3.5 to 7.3.7 in /docs
+  [#712](https://github.com/strukturag/nextcloud-spreed-signaling/pull/712)
+- build(deps): Bump golang.org/x/net from 0.21.0 to 0.23.0
+  [#711](https://github.com/strukturag/nextcloud-spreed-signaling/pull/711)
+- Don't keep expiration timestamp in each session.
+  [#713](https://github.com/strukturag/nextcloud-spreed-signaling/pull/713)
+- build(deps): Bump mkdocs from 1.5.3 to 1.6.0 in /docs
+  [#714](https://github.com/strukturag/nextcloud-spreed-signaling/pull/714)
+- Speedup tests by running in parallel
+  [#718](https://github.com/strukturag/nextcloud-spreed-signaling/pull/718)
+- build(deps): Bump golangci/golangci-lint-action from 4.0.0 to 5.0.0
+  [#719](https://github.com/strukturag/nextcloud-spreed-signaling/pull/719)
+- build(deps): Bump golangci/golangci-lint-action from 5.0.0 to 5.1.0
+  [#720](https://github.com/strukturag/nextcloud-spreed-signaling/pull/720)
+- build(deps): Bump coverallsapp/github-action from 2.2.3 to 2.3.0
+  [#728](https://github.com/strukturag/nextcloud-spreed-signaling/pull/728)
+- build(deps): Bump jinja2 from 3.1.3 to 3.1.4 in /docs
+  [#726](https://github.com/strukturag/nextcloud-spreed-signaling/pull/726)
+- build(deps): Bump google.golang.org/protobuf from 1.33.0 to 1.34.1
+  [#725](https://github.com/strukturag/nextcloud-spreed-signaling/pull/725)
+- build(deps): Bump github.com/prometheus/client_golang from 1.19.0 to 1.19.1
+  [#730](https://github.com/strukturag/nextcloud-spreed-signaling/pull/730)
+- build(deps): Bump golangci/golangci-lint-action from 5.1.0 to 6.0.1
+  [#729](https://github.com/strukturag/nextcloud-spreed-signaling/pull/729)
+- build(deps): Bump google.golang.org/grpc from 1.63.2 to 1.64.0
+  [#734](https://github.com/strukturag/nextcloud-spreed-signaling/pull/734)
+- Validate received SDP earlier.
+  [#707](https://github.com/strukturag/nextcloud-spreed-signaling/pull/707)
+- Log something if mcu publisher / subscriber was closed.
+  [#736](https://github.com/strukturag/nextcloud-spreed-signaling/pull/736)
+- build(deps): Bump the etcd group with 4 updates
+  [#693](https://github.com/strukturag/nextcloud-spreed-signaling/pull/693)
+- build(deps): Bump github.com/nats-io/nats.go from 1.34.1 to 1.35.0
+  [#740](https://github.com/strukturag/nextcloud-spreed-signaling/pull/740)
+- Don't use unnecessary pointer to "json.RawMessage".
+  [#739](https://github.com/strukturag/nextcloud-spreed-signaling/pull/739)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.14 to 2.10.15
+  [#741](https://github.com/strukturag/nextcloud-spreed-signaling/pull/741)
+- build(deps): Bump github.com/nats-io/nats-server/v2 from 2.10.15 to 2.10.16
+  [#743](https://github.com/strukturag/nextcloud-spreed-signaling/pull/743)
+
+### Fixed
+- Improve detecting renames in file watcher.
+  [#698](https://github.com/strukturag/nextcloud-spreed-signaling/pull/698)
+- Update etcd watch handling.
+  [#701](https://github.com/strukturag/nextcloud-spreed-signaling/pull/701)
+- Prevent goroutine leaks in GRPC tests.
+  [#716](https://github.com/strukturag/nextcloud-spreed-signaling/pull/716)
+- Fix potential race in capabilities test.
+  [#731](https://github.com/strukturag/nextcloud-spreed-signaling/pull/731)
+- Don't log read error after we closed the connection.
+  [#735](https://github.com/strukturag/nextcloud-spreed-signaling/pull/735)
+- Fix lock order inversion when leaving room / publishing room sessions.
+  [#742](https://github.com/strukturag/nextcloud-spreed-signaling/pull/742)
+- Relax "MessageClientMessageData" validation.
+  [#733](https://github.com/strukturag/nextcloud-spreed-signaling/pull/733)
+
+
 ## 1.2.4 - 2024-04-03
 
 ### Added
