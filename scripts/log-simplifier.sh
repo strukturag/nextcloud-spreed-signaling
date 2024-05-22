@@ -30,36 +30,40 @@
 # Afterwards the script also creates a file per user and session
 #
 
-LOG_CONTENT="`cat $1`"
-USER_SESSIONS=$(echo "$LOG_CONTENT" | egrep -o '[-a-zA-Z0-9_]{294,}==' | sort | uniq)
+if [ -z "$1" ]; then
+  echo "USAGE: $0 <filename.log>"
+  exit 1
+fi
+
+LOG_CONTENT=$(cat "$1")
+USER_SESSIONS=$(echo "$LOG_CONTENT" | grep -E -o '[-a-zA-Z0-9_]{294,}==' | sort | uniq)
 NUM_USER_SESSIONS=$(echo "$USER_SESSIONS" | wc -l)
 echo "User sessions found: $NUM_USER_SESSIONS"
 
-for i in $(seq 1 $NUM_USER_SESSIONS);
+for i in $(seq 1 "$NUM_USER_SESSIONS");
 do
-  SESSION_NAME=$(echo "$USER_SESSIONS" | head -n $i | tail -n 1)
-  LOG_CONTENT=$(echo "${LOG_CONTENT//$SESSION_NAME/user$i}")
+  SESSION_NAME=$(echo "$USER_SESSIONS" | head -n "$i" | tail -n 1)
+  LOG_CONTENT="${LOG_CONTENT//$SESSION_NAME/user$i}"
 done
 
-ROOM_SESSIONS=$(echo "$LOG_CONTENT" | egrep -o '[-a-zA-Z0-9_+\/]{255}( |$)' | sort | uniq)
+ROOM_SESSIONS=$(echo "$LOG_CONTENT" | grep -E -o '[-a-zA-Z0-9_+\/]{255}( |$)' | sort | uniq)
 NUM_ROOM_SESSIONS=$(echo "$ROOM_SESSIONS" | wc -l)
 echo "Room sessions found: $NUM_ROOM_SESSIONS"
 
-for i in $(seq 1 $NUM_ROOM_SESSIONS);
+for i in $(seq 1 "$NUM_ROOM_SESSIONS");
 do
-  SESSION_NAME=$(echo "$ROOM_SESSIONS" | head -n $i | tail -n 1)
-  LOG_CONTENT=$(echo "${LOG_CONTENT//$SESSION_NAME/session$i}")
+  SESSION_NAME=$(echo "$ROOM_SESSIONS" | head -n "$i" | tail -n 1)
+  LOG_CONTENT="${LOG_CONTENT//$SESSION_NAME/session$i}"
 done
 
 echo "$LOG_CONTENT" > simple.log
 
-for i in $(seq 1 $NUM_USER_SESSIONS);
+for i in $(seq 1 "$NUM_USER_SESSIONS");
 do
-  echo "$LOG_CONTENT" | egrep "user$i( |$)" > user$i.log
+  echo "$LOG_CONTENT" | grep -E "user$i( |$)" > "user$i.log"
 done
 
-for i in $(seq 1 $NUM_ROOM_SESSIONS);
+for i in $(seq 1 "$NUM_ROOM_SESSIONS");
 do
-  echo "$LOG_CONTENT" | egrep "session$i( |$)" > session$i.log
+  echo "$LOG_CONTENT" | grep -E "session$i( |$)" > "session$i.log"
 done
-
