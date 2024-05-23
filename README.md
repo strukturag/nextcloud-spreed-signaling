@@ -309,6 +309,8 @@ interface on port `8080` below):
         # Enable proxying Websocket requests to the standalone signaling server.
         ProxyPass "/standalone-signaling/"  "ws://127.0.0.1:8080/"
 
+        RequestHeader set X-Real-IP %{REMOTE_ADDR}s
+
         RewriteEngine On
         # Websocket connections from the clients.
         RewriteRule ^/standalone-signaling/spreed/$ - [L]
@@ -344,6 +346,7 @@ myserver.domain.invalid {
   route /standalone-signaling/* {
     uri strip_prefix /standalone-signaling
     reverse_proxy http://127.0.0.1:8080
+    header_up X-Real-IP {remote_host}
   }
 }
 ```
