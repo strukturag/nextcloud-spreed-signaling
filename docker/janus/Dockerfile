@@ -15,7 +15,7 @@ RUN cd /tmp && \
     git checkout $USRSCTP_VERSION && \
     ./bootstrap && \
     ./configure --prefix=/usr && \
-    make && make install
+    make -j$(nproc) && make install
 
 # libsrtp
 ARG LIBSRTP_VERSION=2.6.0
@@ -24,7 +24,7 @@ RUN cd /tmp && \
     tar xfv v$LIBSRTP_VERSION.tar.gz && \
     cd libsrtp-$LIBSRTP_VERSION && \
     ./configure --prefix=/usr --enable-openssl && \
-    make shared_library && \
+    make shared_library -j$(nproc) && \
     make install && \
     rm -fr /libsrtp-$LIBSRTP_VERSION && \
     rm -f /v$LIBSRTP_VERSION.tar.gz
@@ -38,7 +38,7 @@ RUN mkdir -p /usr/src/janus && \
     cd /usr/src/janus/janus-gateway-$JANUS_VERSION && \
     ./autogen.sh && \
     ./configure --disable-rabbitmq --disable-mqtt --disable-boringssl && \
-    make && \
+    make -j$(nproc) && \
     make install && \
     make configs
 
