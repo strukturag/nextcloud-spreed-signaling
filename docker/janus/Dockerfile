@@ -31,7 +31,7 @@ RUN cd /tmp && \
 
 # JANUS
 
-ARG JANUS_VERSION=0.14.1
+ARG JANUS_VERSION=1.2.2
 RUN mkdir -p /usr/src/janus && \
     cd /usr/src/janus && \
     curl -L https://github.com/meetecho/janus-gateway/archive/v$JANUS_VERSION.tar.gz | tar -xz && \
