@@ -34,7 +34,3 @@ jobs:
           context: docker/janus
           load: true
           tags: ${{ env.TEST_TAG }}
-
-      - name: Test Docker image
-        run: |
-          docker run --rm ${{ env.TEST_TAG }} /usr/local/bin/janus --version

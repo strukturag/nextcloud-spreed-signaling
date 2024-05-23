@@ -15,30 +15,30 @@ RUN cd /tmp && \
     git checkout $USRSCTP_VERSION && \
     ./bootstrap && \
     ./configure --prefix=/usr && \
-    make && make install
+    make -j$(nproc) && make install
 
 # libsrtp
-ARG LIBSRTP_VERSION=2.4.2
+ARG LIBSRTP_VERSION=2.6.0
 RUN cd /tmp && \
     wget https://github.com/cisco/libsrtp/archive/v$LIBSRTP_VERSION.tar.gz && \
     tar xfv v$LIBSRTP_VERSION.tar.gz && \
     cd libsrtp-$LIBSRTP_VERSION && \
     ./configure --prefix=/usr --enable-openssl && \
-    make shared_library && \
+    make shared_library -j$(nproc) && \
     make install && \
     rm -fr /libsrtp-$LIBSRTP_VERSION && \
     rm -f /v$LIBSRTP_VERSION.tar.gz
 
 # JANUS
 
-ARG JANUS_VERSION=0.14.1
+ARG JANUS_VERSION=1.2.2
 RUN mkdir -p /usr/src/janus && \
     cd /usr/src/janus && \
     curl -L https://github.com/meetecho/janus-gateway/archive/v$JANUS_VERSION.tar.gz | tar -xz && \
     cd /usr/src/janus/janus-gateway-$JANUS_VERSION && \
     ./autogen.sh && \
     ./configure --disable-rabbitmq --disable-mqtt --disable-boringssl && \
-    make && \
+    make -j$(nproc) && \
     make install && \
     make configs
 
