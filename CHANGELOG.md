@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.3.1 - 2024-05-23
+
+### Changed
+- Bump alpine from 3.19 to 3.20 in /docker/janus
+  [#746](https://github.com/strukturag/nextcloud-spreed-signaling/pull/746)
+- CI: Remove deprecated options from lint workflow.
+  [#748](https://github.com/strukturag/nextcloud-spreed-signaling/pull/748)
+- docker: Update Janus in example image to 1.2.2
+  [#749](https://github.com/strukturag/nextcloud-spreed-signaling/pull/749)
+- Improve detection of actual client IP.
+  [#747](https://github.com/strukturag/nextcloud-spreed-signaling/pull/747)
+
+### Fixed
+- docker: Fix proxy entrypoint.
+  [#745](https://github.com/strukturag/nextcloud-spreed-signaling/pull/745)
+
+
 ## 1.3.0 - 2024-05-22
 
 ### Added
