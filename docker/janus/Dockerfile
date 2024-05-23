@@ -18,7 +18,7 @@ RUN cd /tmp && \
     make && make install
 
 # libsrtp
-ARG LIBSRTP_VERSION=2.4.2
+ARG LIBSRTP_VERSION=2.6.0
 RUN cd /tmp && \
     wget https://github.com/cisco/libsrtp/archive/v$LIBSRTP_VERSION.tar.gz && \
     tar xfv v$LIBSRTP_VERSION.tar.gz && \
