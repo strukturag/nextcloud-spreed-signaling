@@ -39,6 +39,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2586,24 +2587,48 @@ func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
 		return addr
 	}
 
+	// Don't check any headers if the server can be reached by untrusted clients directly.
 	if trusted == nil || !trusted.Allowed(ip) {
 		return addr
 	}
 
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		if ip := net.ParseIP(realIP); len(ip) > 0 {
+			return realIP
+		}
 	}
 
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		// Result could be a list "clientip, proxy1, proxy2", so only use first element.
-		if pos := strings.Index(ip, ","); pos >= 0 {
-			ip = strings.TrimSpace(ip[:pos])
+	// See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-For#selecting_an_ip_address
+	forwarded := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
+	if len(forwarded) > 0 {
+		slices.Reverse(forwarded)
+		var lastTrusted string
+		for _, hop := range forwarded {
+			hop = strings.TrimSpace(hop)
+			// Make sure to remove any port.
+			if host, _, err := net.SplitHostPort(hop); err == nil {
+				hop = host
+			}
+
+			ip := net.ParseIP(hop)
+			if len(ip) == 0 {
+				continue
+			}
+
+			if trusted.Allowed(ip) {
+				lastTrusted = hop
+				continue
+			}
+
+			return hop
 		}
-		// Make sure to remove any port.
-		if host, _, err := net.SplitHostPort(ip); err == nil {
-			ip = host
+
+		// If all entries in the "X-Forwarded-For" list are trusted, the left-most
+		// will be the client IP. This can happen if a subnet is trusted and the
+		// client also has an IP from this subnet.
+		if lastTrusted != "" {
+			return lastTrusted
 		}
-		return ip
 	}
 
 	return addr
