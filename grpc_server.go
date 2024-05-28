@@ -79,7 +79,7 @@ type GrpcServer struct {
 
 func NewGrpcServer(config *goconf.ConfigFile) (*GrpcServer, error) {
 	var listener net.Listener
-	if addr, _ := config.GetString("grpc", "listen"); addr != "" {
+	if addr, _ := GetStringOptionWithEnv(config, "grpc", "listen"); addr != "" {
 		var err error
 		listener, err = net.Listen("tcp", addr)
 		if err != nil {
