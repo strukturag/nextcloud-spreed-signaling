@@ -111,7 +111,7 @@ type ProxyServer struct {
 	upgrader websocket.Upgrader
 
 	tokens          ProxyTokens
-	statsAllowedIps *signaling.AllowedIps
+	statsAllowedIps atomic.Pointer[signaling.AllowedIps]
 	trustedProxies  atomic.Pointer[signaling.AllowedIps]
 
 	sid          atomic.Uint64
@@ -319,8 +319,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 			WriteBufferSize: websocketWriteBufferSize,
 		},
 
-		tokens:          tokens,
-		statsAllowedIps: statsAllowedIps,
+		tokens: tokens,
 
 		cookie:   securecookie.New(hashKey, blockKey).MaxAge(0),
 		sessions: make(map[uint64]*ProxySession),
@@ -335,6 +334,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		remoteConnections: make(map[string]*RemoteConnection),
 	}
 
+	result.statsAllowedIps.Store(statsAllowedIps)
 	result.trustedProxies.Store(trustedProxiesIps)
 	result.upgrader.CheckOrigin = result.checkOrigin
 
@@ -548,6 +548,19 @@ func (s *ProxyServer) ScheduleShutdown() {
 }
 
 func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
+	statsAllowed, _ := config.GetString("stats", "allowed_ips")
+	if statsAllowedIps, err := signaling.ParseAllowedIps(statsAllowed); err == nil {
+		if !statsAllowedIps.Empty() {
+			log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
+		} else {
+			log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
+			statsAllowedIps = signaling.DefaultAllowedIps()
+		}
+		s.statsAllowedIps.Store(statsAllowedIps)
+	} else {
+		log.Printf("Error parsing allowed stats ips from \"%s\": %s", statsAllowedIps, err)
+	}
+
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
 	if trustedProxiesIps, err := signaling.ParseAllowedIps(trustedProxies); err == nil {
 		if !trustedProxiesIps.Empty() {
@@ -1396,7 +1409,8 @@ func (s *ProxyServer) allowStatsAccess(r *http.Request) bool {
 		return false
 	}
 
-	return s.statsAllowedIps.Allowed(ip)
+	allowed := s.statsAllowedIps.Load()
+	return allowed != nil && allowed.Allowed(ip)
 }
 
 func (s *ProxyServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {

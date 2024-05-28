@@ -68,7 +68,7 @@ type BackendServer struct {
 	turnvalid   time.Duration
 	turnservers []string
 
-	statsAllowedIps *AllowedIps
+	statsAllowedIps atomic.Pointer[AllowedIps]
 	invalidSecret   []byte
 }
 
@@ -120,7 +120,7 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 		return nil, err
 	}
 
-	return &BackendServer{
+	result := &BackendServer{
 		hub:          hub,
 		events:       hub.events,
 		roomSessions: hub.roomSessions,
@@ -131,9 +131,27 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 		turnvalid:   turnvalid,
 		turnservers: turnserverslist,
 
-		statsAllowedIps: statsAllowedIps,
-		invalidSecret:   invalidSecret,
-	}, nil
+		invalidSecret: invalidSecret,
+	}
+
+	result.statsAllowedIps.Store(statsAllowedIps)
+
+	return result, nil
+}
+
+func (b *BackendServer) Reload(config *goconf.ConfigFile) {
+	statsAllowed, _ := config.GetString("stats", "allowed_ips")
+	if statsAllowedIps, err := ParseAllowedIps(statsAllowed); err == nil {
+		if !statsAllowedIps.Empty() {
+			log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
+		} else {
+			log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
+			statsAllowedIps = DefaultAllowedIps()
+		}
+		b.statsAllowedIps.Store(statsAllowedIps)
+	} else {
+		log.Printf("Error parsing allowed stats ips from \"%s\": %s", statsAllowedIps, err)
+	}
 }
 
 func (b *BackendServer) Start(r *mux.Router) error {
@@ -899,7 +917,8 @@ func (b *BackendServer) allowStatsAccess(r *http.Request) bool {
 		return false
 	}
 
-	return b.statsAllowedIps.Allowed(ip)
+	allowed := b.statsAllowedIps.Load()
+	return allowed != nil && allowed.Allowed(ip)
 }
 
 func (b *BackendServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {

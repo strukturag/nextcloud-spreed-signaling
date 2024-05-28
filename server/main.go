@@ -417,6 +417,7 @@ loop:
 					log.Printf("Could not read configuration from %s: %s", *configFlag, err)
 				} else {
 					hub.Reload(config)
+					server.Reload(config)
 				}
 			case syscall.SIGUSR1:
 				log.Printf("Received SIGUSR1, scheduling server to shutdown")
