@@ -35,6 +35,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dlintw/goconf"
 	"github.com/oschwald/maxminddb-golang"
 )
 
@@ -275,4 +276,64 @@ func IsValidContinent(continent string) bool {
 	default:
 		return false
 	}
+}
+
+func LoadGeoIPOverrides(config *goconf.ConfigFile, ignoreErrors bool) (map[*net.IPNet]string, error) {
+	options, _ := GetStringOptions(config, "geoip-overrides", true)
+	if len(options) == 0 {
+		return nil, nil
+	}
+
+	var err error
+	geoipOverrides := make(map[*net.IPNet]string, len(options))
+	for option, value := range options {
+		var ip net.IP
+		var ipNet *net.IPNet
+		if strings.Contains(option, "/") {
+			_, ipNet, err = net.ParseCIDR(option)
+			if err != nil {
+				if ignoreErrors {
+					log.Printf("could not parse CIDR %s (%s), skipping", option, err)
+					continue
+				}
+
+				return nil, fmt.Errorf("could not parse CIDR %s: %s", option, err)
+			}
+		} else {
+			ip = net.ParseIP(option)
+			if ip == nil {
+				if ignoreErrors {
+					log.Printf("could not parse IP %s, skipping", option)
+					continue
+				}
+
+				return nil, fmt.Errorf("could not parse IP %s", option)
+			}
+
+			var mask net.IPMask
+			if ipv4 := ip.To4(); ipv4 != nil {
+				mask = net.CIDRMask(32, 32)
+			} else {
+				mask = net.CIDRMask(128, 128)
+			}
+			ipNet = &net.IPNet{
+				IP:   ip,
+				Mask: mask,
+			}
+		}
+
+		value = strings.ToUpper(strings.TrimSpace(value))
+		if value == "" {
+			log.Printf("IP %s doesn't have a country assigned, skipping", option)
+			continue
+		} else if !IsValidCountry(value) {
+			log.Printf("Country %s for IP %s is invalid, skipping", value, option)
+			continue
+		}
+
+		log.Printf("Using country %s for %s", value, ipNet)
+		geoipOverrides[ipNet] = value
+	}
+
+	return geoipOverrides, nil
 }
