@@ -575,6 +575,7 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 	}
 
 	s.tokens.Reload(config)
+	s.mcu.Reload(config)
 }
 
 func (s *ProxyServer) setCommonHeaders(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
