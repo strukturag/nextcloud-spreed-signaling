@@ -102,6 +102,52 @@ func TestThrottler(t *testing.T) {
 	throttle4(ctx)
 }
 
+func TestThrottlerIPv6(t *testing.T) {
+	timing := &throttlerTiming{
+		t:   t,
+		now: time.Now(),
+	}
+	th := newMemoryThrottlerForTest(t)
+	th.getNow = timing.getNow
+	th.doDelay = timing.doDelay
+
+	ctx := context.Background()
+
+	// Make sure full /64 subnets are throttled for IPv6.
+	throttle1, err := th.CheckBruteforce(ctx, "2001:db8:abcd:0012::1", "action1")
+	if err != nil {
+		t.Error(err)
+	}
+	timing.expectedSleep = 100 * time.Millisecond
+	throttle1(ctx)
+
+	timing.now = timing.now.Add(time.Millisecond)
+	throttle2, err := th.CheckBruteforce(ctx, "2001:db8:abcd:0012::2", "action1")
+	if err != nil {
+		t.Error(err)
+	}
+	timing.expectedSleep = 200 * time.Millisecond
+	throttle2(ctx)
+
+	// A diffent /64 subnet is not throttled yet.
+	timing.now = timing.now.Add(time.Millisecond)
+	throttle3, err := th.CheckBruteforce(ctx, "2001:db8:abcd:0013::1", "action1")
+	if err != nil {
+		t.Error(err)
+	}
+	timing.expectedSleep = 100 * time.Millisecond
+	throttle3(ctx)
+
+	// A different action is not throttled.
+	timing.now = timing.now.Add(time.Millisecond)
+	throttle4, err := th.CheckBruteforce(ctx, "2001:db8:abcd:0012::1", "action2")
+	if err != nil {
+		t.Error(err)
+	}
+	timing.expectedSleep = 100 * time.Millisecond
+	throttle4(ctx)
+}
+
 func TestThrottler_Bruteforce(t *testing.T) {
 	timing := &throttlerTiming{
 		t:   t,

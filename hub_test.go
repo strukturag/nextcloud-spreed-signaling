@@ -3623,12 +3623,68 @@ func TestGetRealUserIP(t *testing.T) {
 			"192.168.1.2:23456",
 		},
 		{
+			"2002:db8::1",
+			http.Header{
+				http.CanonicalHeaderKey("x-real-ip"): []string{"2002:db8::1"},
+			},
+			"192.168.0.0/16",
+			"192.168.1.2:23456",
+		},
+		{
 			"11.12.13.14",
 			http.Header{
 				http.CanonicalHeaderKey("x-forwarded-for"): []string{"11.12.13.14, 192.168.30.32"},
 			},
 			"192.168.0.0/16",
 			"192.168.1.2:23456",
+		},
+		{
+			"10.11.12.13",
+			http.Header{
+				http.CanonicalHeaderKey("x-real-ip"): []string{"10.11.12.13"},
+			},
+			"2001:db8::/48",
+			"[2001:db8::1]:23456",
+		},
+		{
+			"2002:db8::1",
+			http.Header{
+				http.CanonicalHeaderKey("x-real-ip"): []string{"2002:db8::1"},
+			},
+			"2001:db8::/48",
+			"[2001:db8::1]:23456",
+		},
+		{
+			"2002:db8::1",
+			http.Header{
+				http.CanonicalHeaderKey("x-forwarded-for"): []string{"2002:db8::1, 192.168.30.32"},
+			},
+			"192.168.0.0/16",
+			"192.168.1.2:23456",
+		},
+		{
+			"2002:db8::1",
+			http.Header{
+				http.CanonicalHeaderKey("x-forwarded-for"): []string{"2002:db8::1, 2001:db8::1"},
+			},
+			"192.168.0.0/16, 2001:db8::/48",
+			"192.168.1.2:23456",
+		},
+		{
+			"2002:db8::1",
+			http.Header{
+				http.CanonicalHeaderKey("x-forwarded-for"): []string{"2002:db8::1, 192.168.30.32"},
+			},
+			"192.168.0.0/16, 2001:db8::/48",
+			"[2001:db8::1]:23456",
+		},
+		{
+			"2002:db8::1",
+			http.Header{
+				http.CanonicalHeaderKey("x-forwarded-for"): []string{"2002:db8::1, 2001:db8::2"},
+			},
+			"2001:db8::/48",
+			"[2001:db8::1]:23456",
 		},
 		// "X-Real-IP" has preference before "X-Forwarded-For"
 		{
@@ -3645,6 +3701,22 @@ func TestGetRealUserIP(t *testing.T) {
 			"11.12.13.14",
 			http.Header{
 				http.CanonicalHeaderKey("x-forwarded-for"): []string{"11.12.13.14", "192.168.30.32"},
+			},
+			"192.168.0.0/16",
+			"192.168.1.2:23456",
+		},
+		{
+			"11.12.13.14",
+			http.Header{
+				http.CanonicalHeaderKey("x-forwarded-for"): []string{"1.2.3.4", "11.12.13.14", "192.168.30.32"},
+			},
+			"192.168.0.0/16",
+			"192.168.1.2:23456",
+		},
+		{
+			"11.12.13.14",
+			http.Header{
+				http.CanonicalHeaderKey("x-forwarded-for"): []string{"1.2.3.4", "2.3.4.5", "11.12.13.14", "192.168.31.32", "192.168.30.32"},
 			},
 			"192.168.0.0/16",
 			"192.168.1.2:23456",

@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"strconv"
 	"sync"
 	"time"
@@ -53,6 +54,9 @@ const (
 
 var (
 	ErrBruteforceDetected = errors.New("bruteforce detected")
+
+	// subnet64 is the /64 subnet for IPv6 addresses.
+	subnet64 = net.CIDRMask(64, 128)
 )
 
 func init() {
@@ -65,6 +69,21 @@ type Throttler interface {
 	Close()
 
 	CheckBruteforce(ctx context.Context, client string, action string) (ThrottleFunc, error)
+}
+
+func getThrottleIp(ipString string) string {
+	ip := net.ParseIP(ipString)
+	// Throttle full IPv4 address.
+	if l := len(ip); l == 0 || l == net.IPv4len {
+		return ipString
+	}
+
+	if i := ip.To4(); len(i) == net.IPv4len {
+		return ipString
+	}
+
+	// Throttle /64 subnet of IPv6 addresses.
+	return ip.Mask(subnet64).String()
 }
 
 type throttleEntry struct {
@@ -110,7 +129,8 @@ func (t *memoryThrottler) getEntries(client string, action string) []throttleEnt
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	actions := t.clients[client]
+	toThrottle := getThrottleIp(client)
+	actions := t.clients[toThrottle]
 	if len(actions) == 0 {
 		return nil
 	}
@@ -123,14 +143,15 @@ func (t *memoryThrottler) setEntries(client string, action string, entries []thr
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	actions := t.clients[client]
+	toThrottle := getThrottleIp(client)
+	actions := t.clients[toThrottle]
 	if len(actions) == 0 {
 		if len(entries) == 0 {
 			return
 		}
 
 		actions = make(map[string][]throttleEntry)
-		t.clients[client] = actions
+		t.clients[toThrottle] = actions
 	}
 
 	if len(entries) > 0 {
@@ -138,7 +159,7 @@ func (t *memoryThrottler) setEntries(client string, action string, entries []thr
 	} else {
 		delete(actions, action)
 		if len(actions) == 0 {
-			delete(t.clients, client)
+			delete(t.clients, toThrottle)
 		}
 	}
 }
@@ -147,9 +168,10 @@ func (t *memoryThrottler) addEntry(client string, action string, entry throttleE
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	actions, found := t.clients[client]
+	toThrottle := getThrottleIp(client)
+	actions, found := t.clients[toThrottle]
 	if !found {
-		t.clients[client] = map[string][]throttleEntry{
+		t.clients[toThrottle] = map[string][]throttleEntry{
 			action: {
 				entry,
 			},
