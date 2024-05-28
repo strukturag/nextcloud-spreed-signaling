@@ -137,8 +137,8 @@ type mcuJanus struct {
 	url string
 	mu  sync.Mutex
 
-	maxStreamBitrate int
-	maxScreenBitrate int
+	maxStreamBitrate atomic.Int32
+	maxScreenBitrate atomic.Int32
 	mcuTimeout       time.Duration
 
 	gw      *JanusGateway
@@ -185,18 +185,18 @@ func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mc
 	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
 
 	mcu := &mcuJanus{
-		url:              url,
-		maxStreamBitrate: maxStreamBitrate,
-		maxScreenBitrate: maxScreenBitrate,
-		mcuTimeout:       mcuTimeout,
-		closeChan:        make(chan struct{}, 1),
-		clients:          make(map[clientInterface]bool),
+		url:        url,
+		mcuTimeout: mcuTimeout,
+		closeChan:  make(chan struct{}, 1),
+		clients:    make(map[clientInterface]bool),
 
 		publishers:       make(map[string]*mcuJanusPublisher),
 		remotePublishers: make(map[string]*mcuJanusRemotePublisher),
 
 		reconnectInterval: initialReconnectInterval,
 	}
+	mcu.maxStreamBitrate.Store(int32(maxStreamBitrate))
+	mcu.maxScreenBitrate.Store(int32(maxScreenBitrate))
 	mcu.onConnected.Store(emptyOnConnected)
 	mcu.onDisconnected.Store(emptyOnDisconnected)
 
@@ -323,8 +323,8 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 	} else {
 		log.Println("Full-Trickle is enabled")
 	}
-	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate)
-	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate)
+	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate.Load())
+	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate.Load())
 
 	if m.session, err = m.gw.Create(ctx); err != nil {
 		m.disconnect()
@@ -378,6 +378,19 @@ func (m *mcuJanus) Stop() {
 }
 
 func (m *mcuJanus) Reload(config *goconf.ConfigFile) {
+	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
+	if maxStreamBitrate <= 0 {
+		maxStreamBitrate = defaultMaxStreamBitrate
+	}
+	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate.Load())
+	m.maxStreamBitrate.Store(int32(maxStreamBitrate))
+
+	maxScreenBitrate, _ := config.GetInt("mcu", "maxscreenbitrate")
+	if maxScreenBitrate <= 0 {
+		maxScreenBitrate = defaultMaxScreenBitrate
+	}
+	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate.Load())
+	m.maxScreenBitrate.Store(int32(maxScreenBitrate))
 }
 
 func (m *mcuJanus) SetOnConnected(f func()) {
@@ -473,9 +486,9 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	}
 	var maxBitrate int
 	if streamType == StreamTypeScreen {
-		maxBitrate = m.maxScreenBitrate
+		maxBitrate = int(m.maxScreenBitrate.Load())
 	} else {
-		maxBitrate = m.maxStreamBitrate
+		maxBitrate = int(m.maxStreamBitrate.Load())
 	}
 	if bitrate <= 0 {
 		bitrate = maxBitrate

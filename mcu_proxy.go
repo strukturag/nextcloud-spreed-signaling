@@ -1255,8 +1255,8 @@ type mcuProxy struct {
 	connRequests   atomic.Int64
 	nextSort       atomic.Int64
 
-	maxStreamBitrate int
-	maxScreenBitrate int
+	maxStreamBitrate atomic.Int32
+	maxScreenBitrate atomic.Int32
 
 	mu         sync.RWMutex
 	publishers map[string]*mcuProxyConnection
@@ -1319,13 +1319,13 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 		connectionsMap: make(map[string][]*mcuProxyConnection),
 		proxyTimeout:   proxyTimeout,
 
-		maxStreamBitrate: maxStreamBitrate,
-		maxScreenBitrate: maxScreenBitrate,
-
 		publishers: make(map[string]*mcuProxyConnection),
 
 		rpcClients: rpcClients,
 	}
+
+	mcu.maxStreamBitrate.Store(int32(maxStreamBitrate))
+	mcu.maxScreenBitrate.Store(int32(maxScreenBitrate))
 
 	if err := mcu.loadContinentsMap(config); err != nil {
 		return nil, err
@@ -1396,8 +1396,8 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 }
 
 func (m *mcuProxy) Start(ctx context.Context) error {
-	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate)
-	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate)
+	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate.Load())
+	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate.Load())
 
 	return m.config.Start()
 }
@@ -1556,6 +1556,20 @@ func (m *mcuProxy) KeepConnection(url string, ips ...net.IP) {
 }
 
 func (m *mcuProxy) Reload(config *goconf.ConfigFile) {
+	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
+	if maxStreamBitrate <= 0 {
+		maxStreamBitrate = defaultMaxStreamBitrate
+	}
+	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate.Load())
+	m.maxStreamBitrate.Store(int32(maxStreamBitrate))
+
+	maxScreenBitrate, _ := config.GetInt("mcu", "maxscreenbitrate")
+	if maxScreenBitrate <= 0 {
+		maxScreenBitrate = defaultMaxScreenBitrate
+	}
+	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate.Load())
+	m.maxScreenBitrate.Store(int32(maxScreenBitrate))
+
 	if err := m.loadContinentsMap(config); err != nil {
 		log.Printf("Error loading continents map: %s", err)
 	}
@@ -1751,9 +1765,9 @@ func (m *mcuProxy) removePublisher(publisher *mcuProxyPublisher) {
 func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuPublisher {
 	var maxBitrate int
 	if streamType == StreamTypeScreen {
-		maxBitrate = m.maxScreenBitrate
+		maxBitrate = int(m.maxScreenBitrate.Load())
 	} else {
-		maxBitrate = m.maxStreamBitrate
+		maxBitrate = int(m.maxStreamBitrate.Load())
 	}
 	if bitrate <= 0 {
 		bitrate = maxBitrate

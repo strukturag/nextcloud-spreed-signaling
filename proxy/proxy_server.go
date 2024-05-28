@@ -100,9 +100,9 @@ type ProxyServer struct {
 	stopped atomic.Bool
 	load    atomic.Int64
 
-	maxIncoming     int64
+	maxIncoming     atomic.Int64
 	currentIncoming atomic.Int64
-	maxOutgoing     int64
+	maxOutgoing     atomic.Int64
 	currentOutgoing atomic.Int64
 
 	shutdownChannel   chan struct{}
@@ -111,8 +111,8 @@ type ProxyServer struct {
 	upgrader websocket.Upgrader
 
 	tokens          ProxyTokens
-	statsAllowedIps *signaling.AllowedIps
-	trustedProxies  *signaling.AllowedIps
+	statsAllowedIps atomic.Pointer[signaling.AllowedIps]
+	trustedProxies  atomic.Pointer[signaling.AllowedIps]
 
 	sid          atomic.Uint64
 	cookie       *securecookie.SecureCookie
@@ -164,6 +164,29 @@ func GetLocalIP() (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func getTargetBandwidths(config *goconf.ConfigFile) (int, int) {
+	maxIncoming, _ := config.GetInt("bandwidth", "incoming")
+	if maxIncoming < 0 {
+		maxIncoming = 0
+	}
+	if maxIncoming > 0 {
+		log.Printf("Target bandwidth for incoming streams: %d MBit/s", maxIncoming)
+	} else {
+		log.Printf("Target bandwidth for incoming streams: unlimited")
+	}
+	maxOutgoing, _ := config.GetInt("bandwidth", "outgoing")
+	if maxOutgoing < 0 {
+		maxOutgoing = 0
+	}
+	if maxIncoming > 0 {
+		log.Printf("Target bandwidth for outgoing streams: %d MBit/s", maxOutgoing)
+	} else {
+		log.Printf("Target bandwidth for outgoing streams: unlimited")
+	}
+
+	return maxIncoming, maxOutgoing
 }
 
 func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*ProxyServer, error) {
@@ -285,32 +308,13 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		log.Printf("No token id configured, remote streams will be disabled")
 	}
 
-	maxIncoming, _ := config.GetInt("bandwidth", "incoming")
-	if maxIncoming < 0 {
-		maxIncoming = 0
-	}
-	if maxIncoming > 0 {
-		log.Printf("Target bandwidth for incoming streams: %d MBit/s", maxIncoming)
-	} else {
-		log.Printf("Target bandwidth for incoming streams: unlimited")
-	}
-	maxOutgoing, _ := config.GetInt("bandwidth", "outgoing")
-	if maxOutgoing < 0 {
-		maxOutgoing = 0
-	}
-	if maxIncoming > 0 {
-		log.Printf("Target bandwidth for outgoing streams: %d MBit/s", maxOutgoing)
-	} else {
-		log.Printf("Target bandwidth for outgoing streams: unlimited")
-	}
+	maxIncoming, maxOutgoing := getTargetBandwidths(config)
 
 	result := &ProxyServer{
 		version:        version,
 		country:        country,
 		welcomeMessage: string(welcomeMessage) + "\n",
 		config:         config,
-		maxIncoming:    int64(maxIncoming) * 1024 * 1024,
-		maxOutgoing:    int64(maxOutgoing) * 1024 * 1024,
 
 		shutdownChannel: make(chan struct{}),
 
@@ -319,9 +323,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 			WriteBufferSize: websocketWriteBufferSize,
 		},
 
-		tokens:          tokens,
-		statsAllowedIps: statsAllowedIps,
-		trustedProxies:  trustedProxiesIps,
+		tokens: tokens,
 
 		cookie:   securecookie.New(hashKey, blockKey).MaxAge(0),
 		sessions: make(map[uint64]*ProxySession),
@@ -336,6 +338,10 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		remoteConnections: make(map[string]*RemoteConnection),
 	}
 
+	result.maxIncoming.Store(int64(maxIncoming) * 1024 * 1024)
+	result.maxOutgoing.Store(int64(maxOutgoing) * 1024 * 1024)
+	result.statsAllowedIps.Store(statsAllowedIps)
+	result.trustedProxies.Store(trustedProxiesIps)
 	result.upgrader.CheckOrigin = result.checkOrigin
 
 	if debug, _ := config.GetBool("app", "debug"); debug {
@@ -447,14 +453,16 @@ func (s *ProxyServer) newLoadEvent(load int64, incoming int64, outgoing int64) *
 			Load: load,
 		},
 	}
-	if s.maxIncoming > 0 || s.maxOutgoing > 0 {
+	maxIncoming := s.maxIncoming.Load()
+	maxOutgoing := s.maxOutgoing.Load()
+	if maxIncoming > 0 || maxOutgoing > 0 {
 		msg.Event.Bandwidth = &signaling.EventProxyServerBandwidth{}
-		if s.maxIncoming > 0 {
-			value := float64(incoming) / float64(s.maxIncoming) * 100
+		if maxIncoming > 0 {
+			value := float64(incoming) / float64(maxIncoming) * 100
 			msg.Event.Bandwidth.Incoming = &value
 		}
-		if s.maxOutgoing > 0 {
-			value := float64(outgoing) / float64(s.maxOutgoing) * 100
+		if maxOutgoing > 0 {
+			value := float64(outgoing) / float64(maxOutgoing) * 100
 			msg.Event.Bandwidth.Outgoing = &value
 		}
 	}
@@ -463,15 +471,17 @@ func (s *ProxyServer) newLoadEvent(load int64, incoming int64, outgoing int64) *
 
 func (s *ProxyServer) updateLoad() {
 	load, incoming, outgoing := s.GetClientsLoad()
-	if load == s.load.Load() &&
-		incoming == s.currentIncoming.Load() &&
-		outgoing == s.currentOutgoing.Load() {
+	oldLoad := s.load.Swap(load)
+	oldIncoming := s.currentIncoming.Swap(incoming)
+	oldOutgoing := s.currentOutgoing.Swap(outgoing)
+	if oldLoad == load && oldIncoming == incoming && oldOutgoing == outgoing {
 		return
 	}
 
-	s.load.Store(load)
-	s.currentIncoming.Store(incoming)
-	s.currentOutgoing.Store(outgoing)
+	s.sendLoadToAll(load, incoming, outgoing)
+}
+
+func (s *ProxyServer) sendLoadToAll(load int64, incoming int64, outgoing int64) {
 	if s.shutdownScheduled.Load() {
 		// Server is scheduled to shutdown, no need to update clients with current load.
 		return
@@ -548,7 +558,42 @@ func (s *ProxyServer) ScheduleShutdown() {
 }
 
 func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
+	statsAllowed, _ := config.GetString("stats", "allowed_ips")
+	if statsAllowedIps, err := signaling.ParseAllowedIps(statsAllowed); err == nil {
+		if !statsAllowedIps.Empty() {
+			log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
+		} else {
+			log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
+			statsAllowedIps = signaling.DefaultAllowedIps()
+		}
+		s.statsAllowedIps.Store(statsAllowedIps)
+	} else {
+		log.Printf("Error parsing allowed stats ips from \"%s\": %s", statsAllowedIps, err)
+	}
+
+	trustedProxies, _ := config.GetString("app", "trustedproxies")
+	if trustedProxiesIps, err := signaling.ParseAllowedIps(trustedProxies); err == nil {
+		if !trustedProxiesIps.Empty() {
+			log.Printf("Trusted proxies: %s", trustedProxiesIps)
+		} else {
+			trustedProxiesIps = signaling.DefaultTrustedProxies
+			log.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
+		}
+		s.trustedProxies.Store(trustedProxiesIps)
+	} else {
+		log.Printf("Error parsing trusted proxies from \"%s\": %s", trustedProxies, err)
+	}
+
+	maxIncoming, maxOutgoing := getTargetBandwidths(config)
+	oldIncoming := s.maxIncoming.Swap(int64(maxIncoming))
+	oldOutgoing := s.maxOutgoing.Swap(int64(maxOutgoing))
+	if oldIncoming != int64(maxIncoming) || oldOutgoing != int64(maxOutgoing) {
+		// Notify sessions about updated load / bandwidth usage.
+		go s.sendLoadToAll(s.load.Load(), s.currentIncoming.Load(), s.currentOutgoing.Load())
+	}
+
 	s.tokens.Reload(config)
+	s.mcu.Reload(config)
 }
 
 func (s *ProxyServer) setCommonHeaders(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
@@ -565,7 +610,7 @@ func (s *ProxyServer) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
-	addr := signaling.GetRealUserIP(r, s.trustedProxies)
+	addr := signaling.GetRealUserIP(r, s.trustedProxies.Load())
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Could not upgrade request from %s: %s", addr, err)
@@ -1377,13 +1422,14 @@ func (s *ProxyServer) getStats() map[string]interface{} {
 }
 
 func (s *ProxyServer) allowStatsAccess(r *http.Request) bool {
-	addr := signaling.GetRealUserIP(r, s.trustedProxies)
+	addr := signaling.GetRealUserIP(r, s.trustedProxies.Load())
 	ip := net.ParseIP(addr)
 	if len(ip) == 0 {
 		return false
 	}
 
-	return s.statsAllowedIps.Allowed(ip)
+	allowed := s.statsAllowedIps.Load()
+	return allowed != nil && allowed.Allowed(ip)
 }
 
 func (s *ProxyServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
