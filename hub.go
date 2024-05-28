@@ -168,7 +168,7 @@ type Hub struct {
 	backendTimeout time.Duration
 	backend        *BackendClient
 
-	trustedProxies *AllowedIps
+	trustedProxies atomic.Pointer[AllowedIps]
 	geoip          *GeoLookup
 	geoipOverrides map[*net.IPNet]string
 	geoipUpdating  atomic.Bool
@@ -379,7 +379,6 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		backendTimeout: backendTimeout,
 		backend:        backend,
 
-		trustedProxies: trustedProxiesIps,
 		geoip:          geoip,
 		geoipOverrides: geoipOverrides,
 
@@ -388,6 +387,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 
 		throttler: throttler,
 	}
+	hub.trustedProxies.Store(trustedProxiesIps)
 	hub.setWelcomeMessage(&ServerMessage{
 		Type:    "welcome",
 		Welcome: NewWelcomeServerMessage(version, DefaultWelcomeFeatures...),
@@ -513,6 +513,19 @@ func (h *Hub) Stop() {
 }
 
 func (h *Hub) Reload(config *goconf.ConfigFile) {
+	trustedProxies, _ := config.GetString("app", "trustedproxies")
+	if trustedProxiesIps, err := ParseAllowedIps(trustedProxies); err == nil {
+		if !trustedProxiesIps.Empty() {
+			log.Printf("Trusted proxies: %s", trustedProxiesIps)
+		} else {
+			trustedProxiesIps = DefaultTrustedProxies
+			log.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
+		}
+		h.trustedProxies.Store(trustedProxiesIps)
+	} else {
+		log.Printf("Error parsing trusted proxies from \"%s\": %s", trustedProxies, err)
+	}
+
 	if h.mcu != nil {
 		h.mcu.Reload(config)
 	}
@@ -2635,7 +2648,7 @@ func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
 }
 
 func (h *Hub) getRealUserIP(r *http.Request) string {
-	return GetRealUserIP(r, h.trustedProxies)
+	return GetRealUserIP(r, h.trustedProxies.Load())
 }
 
 func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {

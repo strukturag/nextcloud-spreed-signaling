@@ -112,7 +112,7 @@ type ProxyServer struct {
 
 	tokens          ProxyTokens
 	statsAllowedIps *signaling.AllowedIps
-	trustedProxies  *signaling.AllowedIps
+	trustedProxies  atomic.Pointer[signaling.AllowedIps]
 
 	sid          atomic.Uint64
 	cookie       *securecookie.SecureCookie
@@ -321,7 +321,6 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 
 		tokens:          tokens,
 		statsAllowedIps: statsAllowedIps,
-		trustedProxies:  trustedProxiesIps,
 
 		cookie:   securecookie.New(hashKey, blockKey).MaxAge(0),
 		sessions: make(map[uint64]*ProxySession),
@@ -336,6 +335,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		remoteConnections: make(map[string]*RemoteConnection),
 	}
 
+	result.trustedProxies.Store(trustedProxiesIps)
 	result.upgrader.CheckOrigin = result.checkOrigin
 
 	if debug, _ := config.GetBool("app", "debug"); debug {
@@ -548,6 +548,19 @@ func (s *ProxyServer) ScheduleShutdown() {
 }
 
 func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
+	trustedProxies, _ := config.GetString("app", "trustedproxies")
+	if trustedProxiesIps, err := signaling.ParseAllowedIps(trustedProxies); err == nil {
+		if !trustedProxiesIps.Empty() {
+			log.Printf("Trusted proxies: %s", trustedProxiesIps)
+		} else {
+			trustedProxiesIps = signaling.DefaultTrustedProxies
+			log.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
+		}
+		s.trustedProxies.Store(trustedProxiesIps)
+	} else {
+		log.Printf("Error parsing trusted proxies from \"%s\": %s", trustedProxies, err)
+	}
+
 	s.tokens.Reload(config)
 }
 
@@ -565,7 +578,7 @@ func (s *ProxyServer) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
-	addr := signaling.GetRealUserIP(r, s.trustedProxies)
+	addr := signaling.GetRealUserIP(r, s.trustedProxies.Load())
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Could not upgrade request from %s: %s", addr, err)
@@ -1377,7 +1390,7 @@ func (s *ProxyServer) getStats() map[string]interface{} {
 }
 
 func (s *ProxyServer) allowStatsAccess(r *http.Request) bool {
-	addr := signaling.GetRealUserIP(r, s.trustedProxies)
+	addr := signaling.GetRealUserIP(r, s.trustedProxies.Load())
 	ip := net.ParseIP(addr)
 	if len(ip) == 0 {
 		return false
