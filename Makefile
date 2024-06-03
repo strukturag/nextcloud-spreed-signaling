@@ -153,7 +153,6 @@ build: server proxy
 vendor: go.mod go.sum common
 	set -e ;\
 	rm -rf $(VENDORDIR)
-	$(GO) mod tidy; \
 	$(GO) mod vendor
 
 tarball: vendor
