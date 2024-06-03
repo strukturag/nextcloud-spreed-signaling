@@ -70,14 +70,12 @@ hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
 $(GOPATHBIN)/easyjson: go.mod go.sum
-	[ "$(GOPROXY)" = "off" ] || $(GO) get -d github.com/mailru/easyjson/...
 	$(GO) install github.com/mailru/easyjson/...
 
 $(GOPATHBIN)/protoc-gen-go: go.mod go.sum
 	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go
 
 $(GOPATHBIN)/protoc-gen-go-grpc: go.mod go.sum
-	[ "$(GOPROXY)" = "off" ] || $(GO) get -d google.golang.org/grpc/cmd/protoc-gen-go-grpc
 	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc
 
 continentmap.go:
@@ -155,7 +153,6 @@ build: server proxy
 vendor: go.mod go.sum common
 	set -e ;\
 	rm -rf $(VENDORDIR)
-	$(GO) mod tidy; \
 	$(GO) mod vendor
 
 tarball: vendor

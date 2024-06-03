@@ -77,15 +77,12 @@ jobs:
         [ -d "tmp/vendor" ] || exit 1
 
     - name: Build
-      env:
-        GOPROXY: off
       run: |
         echo "Building with $(nproc) threads"
         make -C tmp build -j$(nproc)
 
     - name: Run tests
       env:
-        GOPROXY: off
         USE_DB_IP_GEOIP_DATABASE: "1"
       run: |
         make -C tmp test TIMEOUT=120s
