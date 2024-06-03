@@ -7,8 +7,7 @@ WORKDIR /workdir
 COPY . .
 RUN touch /.dockerenv && \
     apk add --no-cache bash git build-base protobuf && \
-    if [ -d "vendor" ]; then GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=off make server; else \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make server; fi
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make server
 
 FROM alpine:3
 
