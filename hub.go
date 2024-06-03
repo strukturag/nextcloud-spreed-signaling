@@ -120,6 +120,7 @@ func init() {
 }
 
 type Hub struct {
+	version      string
 	events       AsyncEvents
 	upgrader     websocket.Upgrader
 	cookie       *securecookie.SecureCookie
@@ -300,7 +301,8 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 	}
 
 	hub := &Hub{
-		events: events,
+		version: version,
+		events:  events,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  websocketReadBufferSize,
 			WriteBufferSize: websocketWriteBufferSize,
@@ -2626,7 +2628,11 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	addr := h.getRealUserIP(r)
 	agent := r.Header.Get("User-Agent")
 
-	conn, err := h.upgrader.Upgrade(w, r, nil)
+	header := http.Header{}
+	header.Set("Server", "nextcloud-spreed-signaling/"+h.version)
+	header.Set("X-Spreed-Signaling-Features", strings.Join(h.info.Features, ", "))
+
+	conn, err := h.upgrader.Upgrade(w, r, header)
 	if err != nil {
 		log.Printf("Could not upgrade request from %s: %s", addr, err)
 		return
