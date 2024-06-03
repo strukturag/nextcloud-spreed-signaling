@@ -793,6 +793,46 @@ func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {
 	return &wg
 }
 
+func TestWebsocketFeatures(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	_, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	conn, response, err := websocket.DefaultDialer.DialContext(ctx, getWebsocketUrl(server.URL), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close() // nolint
+
+	if server := response.Header.Get("Server"); !strings.HasPrefix(server, "nextcloud-spreed-signaling/") {
+		t.Errorf("expected valid server header, got \"%s\"", server)
+	}
+	features := response.Header.Get("X-Spreed-Signaling-Features")
+	featuresList := make(map[string]bool)
+	for _, f := range strings.Split(features, ",") {
+		f = strings.TrimSpace(f)
+		if f != "" {
+			if _, found := featuresList[f]; found {
+				t.Errorf("duplicate feature id \"%s\" in \"%s\"", f, features)
+			}
+			featuresList[f] = true
+		}
+	}
+	if len(featuresList) <= 1 {
+		t.Errorf("expected valid features header, got \"%s\"", features)
+	}
+	if _, found := featuresList["hello-v2"]; !found {
+		t.Errorf("expected feature \"hello-v2\", got \"%s\"", features)
+	}
+
+	if err := conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}); err != nil {
+		t.Errorf("could not write close message: %s", err)
+	}
+}
+
 func TestInitialWelcome(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)

@@ -22,18 +22,22 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"net"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
@@ -42,12 +46,22 @@ const (
 	TokenIdForTest     = "foo"
 )
 
-func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey) {
+func getWebsocketUrl(url string) string {
+	if strings.HasPrefix(url, "http://") {
+		return "ws://" + url[7:] + "/proxy"
+	} else if strings.HasPrefix(url, "https://") {
+		return "wss://" + url[8:] + "/proxy"
+	} else {
+		panic("Unsupported URL: " + url)
+	}
+}
+
+func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httptest.Server) {
 	tempdir := t.TempDir()
-	var server *ProxyServer
+	var proxy *ProxyServer
 	t.Cleanup(func() {
-		if server != nil {
-			server.Stop()
+		if proxy != nil {
+			proxy.Stop()
 		}
 	})
 
@@ -87,15 +101,21 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey) {
 	config := goconf.NewConfigFile()
 	config.AddOption("tokens", TokenIdForTest, pubkey.Name())
 
-	if server, err = NewProxyServer(r, "0.0", config); err != nil {
-		t.Fatalf("could not create server: %s", err)
+	if proxy, err = NewProxyServer(r, "0.0", config); err != nil {
+		t.Fatalf("could not create proxy server: %s", err)
 	}
-	return server, key
+
+	server := httptest.NewServer(r)
+	t.Cleanup(func() {
+		server.Close()
+	})
+
+	return proxy, key, server
 }
 
 func TestTokenValid(t *testing.T) {
 	signaling.CatchLogForTest(t)
-	server, key := newProxyServerForTest(t)
+	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -113,7 +133,7 @@ func TestTokenValid(t *testing.T) {
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := server.NewSession(hello)
+	session, err := proxy.NewSession(hello)
 	if session != nil {
 		defer session.Close()
 	} else if err != nil {
@@ -123,7 +143,7 @@ func TestTokenValid(t *testing.T) {
 
 func TestTokenNotSigned(t *testing.T) {
 	signaling.CatchLogForTest(t)
-	server, _ := newProxyServerForTest(t)
+	proxy, _, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -141,7 +161,7 @@ func TestTokenNotSigned(t *testing.T) {
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := server.NewSession(hello)
+	session, err := proxy.NewSession(hello)
 	if session != nil {
 		defer session.Close()
 		t.Errorf("should not have created session")
@@ -152,7 +172,7 @@ func TestTokenNotSigned(t *testing.T) {
 
 func TestTokenUnknown(t *testing.T) {
 	signaling.CatchLogForTest(t)
-	server, key := newProxyServerForTest(t)
+	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -170,7 +190,7 @@ func TestTokenUnknown(t *testing.T) {
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := server.NewSession(hello)
+	session, err := proxy.NewSession(hello)
 	if session != nil {
 		defer session.Close()
 		t.Errorf("should not have created session")
@@ -181,7 +201,7 @@ func TestTokenUnknown(t *testing.T) {
 
 func TestTokenInFuture(t *testing.T) {
 	signaling.CatchLogForTest(t)
-	server, key := newProxyServerForTest(t)
+	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -199,7 +219,7 @@ func TestTokenInFuture(t *testing.T) {
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := server.NewSession(hello)
+	session, err := proxy.NewSession(hello)
 	if session != nil {
 		defer session.Close()
 		t.Errorf("should not have created session")
@@ -210,7 +230,7 @@ func TestTokenInFuture(t *testing.T) {
 
 func TestTokenExpired(t *testing.T) {
 	signaling.CatchLogForTest(t)
-	server, key := newProxyServerForTest(t)
+	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -228,7 +248,7 @@ func TestTokenExpired(t *testing.T) {
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := server.NewSession(hello)
+	session, err := proxy.NewSession(hello)
 	if session != nil {
 		defer session.Close()
 		t.Errorf("should not have created session")
@@ -269,5 +289,41 @@ func TestPublicIPs(t *testing.T) {
 		} else if IsPublicIP(ip) {
 			t.Errorf("should be private IP: %s", s)
 		}
+	}
+}
+
+func TestWebsocketFeatures(t *testing.T) {
+	signaling.CatchLogForTest(t)
+	_, _, server := newProxyServerForTest(t)
+
+	conn, response, err := websocket.DefaultDialer.DialContext(context.Background(), getWebsocketUrl(server.URL), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close() // nolint
+
+	if server := response.Header.Get("Server"); !strings.HasPrefix(server, "nextcloud-spreed-signaling-proxy/") {
+		t.Errorf("expected valid server header, got \"%s\"", server)
+	}
+	features := response.Header.Get("X-Spreed-Signaling-Features")
+	featuresList := make(map[string]bool)
+	for _, f := range strings.Split(features, ",") {
+		f = strings.TrimSpace(f)
+		if f != "" {
+			if _, found := featuresList[f]; found {
+				t.Errorf("duplicate feature id \"%s\" in \"%s\"", f, features)
+			}
+			featuresList[f] = true
+		}
+	}
+	if len(featuresList) == 0 {
+		t.Errorf("expected valid features header, got \"%s\"", features)
+	}
+	if _, found := featuresList["remote-streams"]; !found {
+		t.Errorf("expected feature \"remote-streams\", got \"%s\"", features)
+	}
+
+	if err := conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}); err != nil {
+		t.Errorf("could not write close message: %s", err)
 	}
 }

@@ -69,6 +69,14 @@ const (
 	maxTokenAge = 5 * time.Minute
 
 	remotePublisherTimeout = 5 * time.Second
+
+	ProxyFeatureRemoteStreams = "remote-streams"
+)
+
+var (
+	defaultProxyFeatures = []string{
+		ProxyFeatureRemoteStreams,
+	}
 )
 
 type ContextKey string
@@ -93,6 +101,7 @@ type ProxyServer struct {
 	version        string
 	country        string
 	welcomeMessage string
+	welcomeMsg     *signaling.WelcomeServerMessage
 	config         *goconf.ConfigFile
 
 	url     string
@@ -314,7 +323,12 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		version:        version,
 		country:        country,
 		welcomeMessage: string(welcomeMessage) + "\n",
-		config:         config,
+		welcomeMsg: &signaling.WelcomeServerMessage{
+			Version:  version,
+			Country:  country,
+			Features: defaultProxyFeatures,
+		},
+		config: config,
 
 		shutdownChannel: make(chan struct{}),
 
@@ -611,7 +625,10 @@ func (s *ProxyServer) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	addr := signaling.GetRealUserIP(r, s.trustedProxies.Load())
-	conn, err := s.upgrader.Upgrade(w, r, nil)
+	header := http.Header{}
+	header.Set("Server", "nextcloud-spreed-signaling-proxy/"+s.version)
+	header.Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Features, ", "))
+	conn, err := s.upgrader.Upgrade(w, r, header)
 	if err != nil {
 		log.Printf("Could not upgrade request from %s: %s", addr, err)
 		return
@@ -760,10 +777,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			Hello: &signaling.HelloProxyServerMessage{
 				Version:   signaling.HelloVersionV1,
 				SessionId: session.PublicId(),
-				Server: &signaling.WelcomeServerMessage{
-					Version: s.version,
-					Country: s.country,
-				},
+				Server:    s.welcomeMsg,
 			},
 		}
 		client.SendMessage(response)
