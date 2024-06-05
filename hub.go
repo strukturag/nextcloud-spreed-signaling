@@ -1005,6 +1005,16 @@ func (h *Hub) processMessage(client HandlerClient, data []byte) {
 		return
 	}
 
+	isLocalMessage := message.Type == "room" ||
+		message.Type == "hello" ||
+		message.Type == "bye"
+	if cs, ok := session.(*ClientSession); ok && !isLocalMessage {
+		if federated := cs.GetFederationClient(); federated != nil {
+			federated.ProxyMessage(&message)
+			return
+		}
+	}
+
 	switch message.Type {
 	case "room":
 		h.processRoom(session, &message)
@@ -1202,6 +1212,8 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 
 	switch message.Hello.Auth.Type {
 	case HelloClientTypeClient:
+		fallthrough
+	case HelloClientTypeFederation:
 		h.processHelloClient(client, message)
 	case HelloClientTypeInternal:
 		h.processHelloInternal(client, message)
@@ -1240,7 +1252,19 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		return nil, nil, InvalidBackendUrl
 	}
 
-	token, err := jwt.ParseWithClaims(message.Hello.Auth.helloV2Params.Token, &HelloV2TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+	var tokenString string
+	var tokenClaims jwt.Claims
+	switch message.Hello.Auth.Type {
+	case HelloClientTypeClient:
+		tokenString = message.Hello.Auth.helloV2Params.Token
+		tokenClaims = &HelloV2TokenClaims{}
+	case HelloClientTypeFederation:
+		tokenString = message.Hello.Auth.federationParams.Token
+		tokenClaims = &FederationTokenClaims{}
+	default:
+		return nil, nil, InvalidClientType
+	}
+	token, err := jwt.ParseWithClaims(tokenString, tokenClaims, func(token *jwt.Token) (interface{}, error) {
 		// Only public-private-key algorithms are supported.
 		var loadKeyFunc func([]byte) (interface{}, error)
 		switch token.Method.(type) {
@@ -1316,15 +1340,26 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		return nil, nil, InvalidToken
 	}
 
-	claims, ok := token.Claims.(*HelloV2TokenClaims)
-	if !ok || !token.Valid {
-		return nil, nil, InvalidToken
+	var authTokenClaims AuthTokenClaims
+	switch message.Hello.Auth.Type {
+	case HelloClientTypeClient:
+		claims, ok := token.Claims.(*HelloV2TokenClaims)
+		if !ok || !token.Valid {
+			return nil, nil, InvalidToken
+		}
+		authTokenClaims = claims
+	case HelloClientTypeFederation:
+		claims, ok := token.Claims.(*FederationTokenClaims)
+		if !ok || !token.Valid {
+			return nil, nil, InvalidToken
+		}
+		authTokenClaims = claims
 	}
 	now := time.Now()
-	if !claims.VerifyIssuedAt(now, true) {
+	if !authTokenClaims.VerifyIssuedAt(now, true) {
 		return nil, nil, TokenNotValidYet
 	}
-	if !claims.VerifyExpiresAt(now, true) {
+	if !authTokenClaims.VerifyExpiresAt(now, true) {
 		return nil, nil, TokenExpired
 	}
 
@@ -1332,8 +1367,8 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		Type: "auth",
 		Auth: &BackendClientAuthResponse{
 			Version: message.Hello.Version,
-			UserId:  claims.Subject,
-			User:    claims.UserData,
+			UserId:  authTokenClaims.TokenSubject(),
+			User:    authTokenClaims.TokenUserData(),
 		},
 	}
 	return backend, auth, nil
@@ -1489,6 +1524,25 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 			}
 		}
 
+		return
+	}
+
+	if federation := message.Room.Federation; federation != nil {
+		// TODO: Handle case where session already is in a federated room on the same server.
+		client, err := NewFederationClient(session.Context(), session, message.Room)
+		if err != nil {
+			log.Printf("Error creating federation client for %s to join room %s: %s", session.PublicId(), roomId, err)
+			session.SendMessage(message.NewErrorServerMessage(
+				NewErrorDetail("federation_error", "Failed to create federation client.", nil),
+			))
+			return
+		}
+
+		session.SetFederationClient(client)
+		h.mu.Lock()
+		// The session now joined a room, don't expire if it is anonymous.
+		delete(h.anonymousSessions, session)
+		h.mu.Unlock()
 		return
 	}
 

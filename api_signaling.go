@@ -121,7 +121,7 @@ func (m *ClientMessage) CheckValid() error {
 	return nil
 }
 
-func (m *ClientMessage) String() string {
+func (m ClientMessage) String() string {
 	data, err := json.Marshal(m)
 	if err != nil {
 		return fmt.Sprintf("Could not serialize %#v: %s", m, err)
@@ -311,9 +311,21 @@ func (m *WelcomeServerMessage) RemoveFeature(feature ...string) {
 	m.Features = newFeatures
 }
 
+func (m *WelcomeServerMessage) HasFeature(feature string) bool {
+	for _, f := range m.Features {
+		f = strings.TrimSpace(f)
+		if f == feature {
+			return true
+		}
+	}
+
+	return false
+}
+
 const (
-	HelloClientTypeClient   = "client"
-	HelloClientTypeInternal = "internal"
+	HelloClientTypeClient     = "client"
+	HelloClientTypeInternal   = "internal"
+	HelloClientTypeFederation = "federation"
 
 	HelloClientTypeVirtual = "virtual"
 )
@@ -363,10 +375,51 @@ func (p *HelloV2AuthParams) CheckValid() error {
 	return nil
 }
 
+type AuthTokenClaims interface {
+	TokenSubject() string
+	TokenUserData() json.RawMessage
+
+	VerifyIssuedAt(cmp time.Time, req bool) bool
+	VerifyExpiresAt(cmp time.Time, req bool) bool
+}
+
 type HelloV2TokenClaims struct {
 	jwt.RegisteredClaims
 
 	UserData json.RawMessage `json:"userdata,omitempty"`
+}
+
+func (c *HelloV2TokenClaims) TokenSubject() string {
+	return c.Subject
+}
+
+func (c *HelloV2TokenClaims) TokenUserData() json.RawMessage {
+	return c.UserData
+}
+
+type FederationAuthParams struct {
+	Token string `json:"token"`
+}
+
+func (p *FederationAuthParams) CheckValid() error {
+	if p.Token == "" {
+		return fmt.Errorf("token missing")
+	}
+	return nil
+}
+
+type FederationTokenClaims struct {
+	jwt.RegisteredClaims
+
+	UserData json.RawMessage `json:"userdata,omitempty"`
+}
+
+func (c *FederationTokenClaims) TokenSubject() string {
+	return c.Subject
+}
+
+func (c *FederationTokenClaims) TokenUserData() json.RawMessage {
+	return c.UserData
 }
 
 type HelloClientMessageAuth struct {
@@ -379,8 +432,9 @@ type HelloClientMessageAuth struct {
 	Url       string `json:"url"`
 	parsedUrl *url.URL
 
-	internalParams ClientTypeInternalAuthParams
-	helloV2Params  HelloV2AuthParams
+	internalParams   ClientTypeInternalAuthParams
+	helloV2Params    HelloV2AuthParams
+	federationParams FederationAuthParams
 }
 
 // Type "hello"
@@ -409,6 +463,8 @@ func (m *HelloClientMessage) CheckValid() error {
 		}
 		switch m.Auth.Type {
 		case HelloClientTypeClient:
+			fallthrough
+		case HelloClientTypeFederation:
 			if m.Auth.Url == "" {
 				return fmt.Errorf("url missing")
 			} else if u, err := url.ParseRequestURI(m.Auth.Url); err != nil {
@@ -425,10 +481,19 @@ func (m *HelloClientMessage) CheckValid() error {
 			case HelloVersionV1:
 				// No additional validation necessary.
 			case HelloVersionV2:
-				if err := json.Unmarshal(m.Auth.Params, &m.Auth.helloV2Params); err != nil {
-					return err
-				} else if err := m.Auth.helloV2Params.CheckValid(); err != nil {
-					return err
+				switch m.Auth.Type {
+				case HelloClientTypeClient:
+					if err := json.Unmarshal(m.Auth.Params, &m.Auth.helloV2Params); err != nil {
+						return err
+					} else if err := m.Auth.helloV2Params.CheckValid(); err != nil {
+						return err
+					}
+				case HelloClientTypeFederation:
+					if err := json.Unmarshal(m.Auth.Params, &m.Auth.federationParams); err != nil {
+						return err
+					} else if err := m.Auth.federationParams.CheckValid(); err != nil {
+						return err
+					}
 				}
 			}
 		case HelloClientTypeInternal:
@@ -456,6 +521,7 @@ const (
 	ServerFeatureHelloV2               = "hello-v2"
 	ServerFeatureSwitchTo              = "switchto"
 	ServerFeatureDialout               = "dialout"
+	ServerFeatureFederation            = "federation"
 
 	// Features to send to internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -474,6 +540,7 @@ var (
 		ServerFeatureHelloV2,
 		ServerFeatureSwitchTo,
 		ServerFeatureDialout,
+		ServerFeatureFederation,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
@@ -483,6 +550,7 @@ var (
 		ServerFeatureHelloV2,
 		ServerFeatureSwitchTo,
 		ServerFeatureDialout,
+		ServerFeatureFederation,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -493,6 +561,7 @@ var (
 		ServerFeatureHelloV2,
 		ServerFeatureSwitchTo,
 		ServerFeatureDialout,
+		ServerFeatureFederation,
 	}
 )
 
@@ -526,10 +595,50 @@ type ByeServerMessage struct {
 type RoomClientMessage struct {
 	RoomId    string `json:"roomid"`
 	SessionId string `json:"sessionid,omitempty"`
+
+	Federation *RoomFederationMessage `json:"federation,omitempty"`
 }
 
 func (m *RoomClientMessage) CheckValid() error {
 	// No additional validation required.
+	if m.Federation != nil {
+		if err := m.Federation.CheckValid(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type RoomFederationMessage struct {
+	SignalingUrl       string `json:"signaling"`
+	parsedSignalingUrl *url.URL
+
+	NextcloudUrl       string `json:"url"`
+	parsedNextcloudUrl *url.URL
+
+	Token string `json:"token"`
+}
+
+func (m *RoomFederationMessage) CheckValid() error {
+	if m.SignalingUrl == "" {
+		return errors.New("signaling url missing")
+	} else if u, err := url.Parse(m.SignalingUrl); err != nil {
+		return fmt.Errorf("invalid signaling url: %w", err)
+	} else {
+		m.parsedSignalingUrl = u
+	}
+	if m.NextcloudUrl == "" {
+		return errors.New("nextcloud url missing")
+	} else if u, err := url.Parse(m.NextcloudUrl); err != nil {
+		return fmt.Errorf("invalid nextcloud url: %w", err)
+	} else {
+		m.parsedNextcloudUrl = u
+	}
+	if m.Token == "" {
+		return errors.New("token missing")
+	}
+
 	return nil
 }
 
