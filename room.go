@@ -709,7 +709,8 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 				continue
 			}
 
-			if session.ClientType() == HelloClientTypeInternal {
+			if session.ClientType() == HelloClientTypeInternal ||
+				session.ClientType() == HelloClientTypeFederation {
 				continue
 			}
 

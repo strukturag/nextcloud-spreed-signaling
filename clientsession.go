@@ -72,6 +72,7 @@ type ClientSession struct {
 	client       HandlerClient
 	room         atomic.Pointer[Room]
 	roomJoinTime atomic.Int64
+	federation   atomic.Pointer[FederationClient]
 
 	roomSessionIdLock sync.RWMutex
 	roomSessionId     string
@@ -332,6 +333,21 @@ func (s *ClientSession) SetRoom(room *Room) {
 	s.seenJoinedEvents = nil
 }
 
+func (s *ClientSession) GetFederationClient() *FederationClient {
+	return s.federation.Load()
+}
+
+func (s *ClientSession) SetFederationClient(federation *FederationClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.doLeaveRoom(true)
+
+	if prev := s.federation.Swap(federation); prev != nil {
+		prev.Close()
+	}
+}
+
 func (s *ClientSession) GetRoom() *Room {
 	return s.room.Load()
 }
@@ -373,6 +389,10 @@ func (s *ClientSession) Close() {
 func (s *ClientSession) closeAndWait(wait bool) {
 	s.closeFunc()
 	s.hub.removeSession(s)
+
+	if prev := s.federation.Swap(nil); prev != nil {
+		prev.Close()
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -467,9 +487,19 @@ func (s *ClientSession) LeaveCall() {
 }
 
 func (s *ClientSession) LeaveRoom(notify bool) *Room {
+	if prev := s.federation.Swap(nil); prev != nil {
+		// Session was connected to a federation room.
+		prev.Close()
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.doLeaveRoom(notify)
+}
+
+func (s *ClientSession) doLeaveRoom(notify bool) *Room {
 	room := s.GetRoom()
 	if room == nil {
 		return nil
