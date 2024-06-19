@@ -321,3 +321,32 @@ func TestThrottler_ExpireAll(t *testing.T) {
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle3(ctx)
 }
+
+func TestThrottler_Negative(t *testing.T) {
+	timing := &throttlerTiming{
+		t:   t,
+		now: time.Now(),
+	}
+	th := newMemoryThrottlerForTest(t)
+	th.getNow = timing.getNow
+	th.doDelay = timing.doDelay
+
+	ctx := context.Background()
+
+	for i := 0; i < maxBruteforceAttempts*10; i++ {
+		timing.now = timing.now.Add(time.Millisecond)
+		throttle, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
+		if err != nil && err != ErrBruteforceDetected {
+			t.Error(err)
+		}
+		if i == 0 {
+			timing.expectedSleep = 100 * time.Millisecond
+		} else {
+			timing.expectedSleep *= 2
+			if timing.expectedSleep > maxThrottleDelay {
+				timing.expectedSleep = maxThrottleDelay
+			}
+		}
+		throttle(ctx)
+	}
+}

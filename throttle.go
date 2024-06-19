@@ -252,6 +252,11 @@ func (t *memoryThrottler) Close() {
 }
 
 func (t *memoryThrottler) getDelay(count int) time.Duration {
+	if count > 16 {
+		// Prevent overflows.
+		return maxThrottleDelay
+	}
+
 	delay := time.Duration(100*intPow(2, count)) * time.Millisecond
 	if delay > maxThrottleDelay {
 		delay = maxThrottleDelay
