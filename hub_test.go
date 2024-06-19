@@ -1543,6 +1543,109 @@ func TestClientHelloResume(t *testing.T) {
 	}
 }
 
+func TestClientHelloResumeThrottle(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	timing := &throttlerTiming{
+		t:   t,
+		now: time.Now(),
+	}
+	th := newMemoryThrottlerForTest(t)
+	th.getNow = timing.getNow
+	th.doDelay = timing.doDelay
+	hub.throttler = th
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	timing.expectedSleep = 100 * time.Millisecond
+	if err := client.SendHelloResume("this-is-invalid"); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, err := client.RunUntilMessage(ctx); err != nil {
+		t.Error(err)
+	} else {
+		if msg.Type != "error" || msg.Error == nil {
+			t.Errorf("Expected error message, got %+v", msg)
+		} else if msg.Error.Code != "no_such_session" {
+			t.Errorf("Expected error \"no_such_session\", got %+v", msg.Error.Code)
+		}
+	}
+
+	client = NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	if err := client.SendHello(testDefaultUserId); err != nil {
+		t.Fatal(err)
+	}
+
+	hello, err := client.RunUntilHello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	} else {
+		if hello.Hello.UserId != testDefaultUserId {
+			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
+		}
+		if hello.Hello.SessionId == "" {
+			t.Errorf("Expected session id, got %+v", hello.Hello)
+		}
+		if hello.Hello.ResumeId == "" {
+			t.Errorf("Expected resume id, got %+v", hello.Hello)
+		}
+	}
+
+	client.Close()
+	if err := client.WaitForClientRemoved(ctx); err != nil {
+		t.Error(err)
+	}
+
+	// Perform housekeeping in the future, this will cause the session to be
+	// cleaned up after it is expired.
+	performHousekeeping(hub, time.Now().Add(sessionExpireDuration+time.Second)).Wait()
+
+	client = NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	// Valid but expired resume ids will not be throttled.
+	timing.expectedSleep = 0 * time.Millisecond
+	if err := client.SendHelloResume(hello.Hello.ResumeId); err != nil {
+		t.Fatal(err)
+	}
+	if msg, err := client.RunUntilMessage(ctx); err != nil {
+		t.Error(err)
+	} else {
+		if msg.Type != "error" || msg.Error == nil {
+			t.Errorf("Expected error message, got %+v", msg)
+		} else if msg.Error.Code != "no_such_session" {
+			t.Errorf("Expected error \"no_such_session\", got %+v", msg.Error.Code)
+		}
+	}
+
+	client = NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	timing.expectedSleep = 200 * time.Millisecond
+	if err := client.SendHelloResume("this-is-invalid"); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, err := client.RunUntilMessage(ctx); err != nil {
+		t.Error(err)
+	} else {
+		if msg.Type != "error" || msg.Error == nil {
+			t.Errorf("Expected error message, got %+v", msg)
+		} else if msg.Error.Code != "no_such_session" {
+			t.Errorf("Expected error \"no_such_session\", got %+v", msg.Error.Code)
+		}
+	}
+}
+
 func TestClientHelloResumeExpired(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
