@@ -1156,7 +1156,7 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 				return
 			}
 
-			throttle(ctx)
+			// NOTE: we don't throttle if the resume id syntax is valid but the session has expired already.
 			client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 			return
 		}
