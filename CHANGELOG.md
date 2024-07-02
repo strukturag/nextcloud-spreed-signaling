@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.3.2 - 2024-07-02
+
+### Added
+- Throttle /64 subnets for IPv6.
+  [#750](https://github.com/strukturag/nextcloud-spreed-signaling/pull/750)
+- grpc: Replace environment variables in listening address.
+  [#751](https://github.com/strukturag/nextcloud-spreed-signaling/pull/751)
+- Include list of supported features in websocket response.
+  [#755](https://github.com/strukturag/nextcloud-spreed-signaling/pull/755)
+
+### Changed
+- Support reloading more settings
+  [#752](https://github.com/strukturag/nextcloud-spreed-signaling/pull/752)
+- make: Don't update CLI tools before installing.
+  [#754](https://github.com/strukturag/nextcloud-spreed-signaling/pull/754)
+- Don't throttle valid but expired resume requests.
+  [#765](https://github.com/strukturag/nextcloud-spreed-signaling/pull/765)
+- Update badge for build status to new URL.
+  [#766](https://github.com/strukturag/nextcloud-spreed-signaling/pull/766)
+
+### Fixed
+- Prevent overflows when calculating throttle delay.
+  [#764](https://github.com/strukturag/nextcloud-spreed-signaling/pull/764)
+
+### Dependencies
+- Bump the etcd group with 4 updates
+  [#753](https://github.com/strukturag/nextcloud-spreed-signaling/pull/753)
+- Bump github.com/nats-io/nats.go from 1.35.0 to 1.36.0
+  [#761](https://github.com/strukturag/nextcloud-spreed-signaling/pull/761)
+- Bump google.golang.org/grpc/cmd/protoc-gen-go-grpc from 1.3.0 to 1.4.0
+  [#756](https://github.com/strukturag/nextcloud-spreed-signaling/pull/756)
+- Bump github.com/gorilla/websocket from 1.5.1 to 1.5.3
+  [#760](https://github.com/strukturag/nextcloud-spreed-signaling/pull/760)
+- Bump google.golang.org/protobuf from 1.34.1 to 1.34.2
+  [#759](https://github.com/strukturag/nextcloud-spreed-signaling/pull/759)
+- Bump github.com/oschwald/maxminddb-golang from 1.12.0 to 1.13.0
+  [#757](https://github.com/strukturag/nextcloud-spreed-signaling/pull/757)
+- Bump docker/build-push-action from 5 to 6
+  [#762](https://github.com/strukturag/nextcloud-spreed-signaling/pull/762)
+- Bump github.com/oschwald/maxminddb-golang from 1.13.0 to 1.13.1
+  [#767](https://github.com/strukturag/nextcloud-spreed-signaling/pull/767)
+- Bump github.com/nats-io/nats-server/v2 from 2.10.16 to 2.10.17
+  [#768](https://github.com/strukturag/nextcloud-spreed-signaling/pull/768)
+
+
 ## 1.3.1 - 2024-05-23
 
 ### Changed
