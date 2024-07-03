@@ -29,7 +29,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -240,14 +239,14 @@ func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId string, 
 	return sessionId, nil
 }
 
-func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId string, room *Room) (bool, error) {
+func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId string, room *Room, backendUrl string) (bool, error) {
 	statsGrpcClientCalls.WithLabelValues("IsSessionInCall").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Check if session %s is in call %s on %s", sessionId, room.Id(), c.Target())
 	response, err := c.impl.IsSessionInCall(ctx, &IsSessionInCallRequest{
 		SessionId:  sessionId,
 		RoomId:     room.Id(),
-		BackendUrl: room.Backend().url,
+		BackendUrl: backendUrl,
 	}, grpc.WaitForReady(true))
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return false, nil
@@ -258,13 +257,18 @@ func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId string, room
 	return response.GetInCall(), nil
 }
 
-func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, backend *Backend) (internal map[string]*InternalSessionData, virtual map[string]*VirtualSessionData, err error) {
+func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, backendUrls []string) (internal map[string]*InternalSessionData, virtual map[string]*VirtualSessionData, err error) {
 	statsGrpcClientCalls.WithLabelValues("GetInternalSessions").Inc()
 	// TODO: Remove debug logging
-	log.Printf("Get internal sessions for %s@%s on %s", roomId, backend.Id(), c.Target())
+	log.Printf("Get internal sessions for %s on %s", roomId, c.Target())
+	var backendUrl string
+	if len(backendUrls) > 0 {
+		backendUrl = backendUrls[0]
+	}
 	response, err := c.impl.GetInternalSessions(ctx, &GetInternalSessionsRequest{
-		RoomId:     roomId,
-		BackendUrl: backend.Url(),
+		RoomId:      roomId,
+		BackendUrl:  backendUrl,
+		BackendUrls: backendUrls,
 	}, grpc.WaitForReady(true))
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return nil, nil, nil
@@ -305,12 +309,12 @@ func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, strea
 	return response.GetPublisherId(), response.GetProxyUrl(), net.ParseIP(response.GetIp()), nil
 }
 
-func (c *GrpcClient) GetSessionCount(ctx context.Context, u *url.URL) (uint32, error) {
+func (c *GrpcClient) GetSessionCount(ctx context.Context, url string) (uint32, error) {
 	statsGrpcClientCalls.WithLabelValues("GetSessionCount").Inc()
 	// TODO: Remove debug logging
-	log.Printf("Get session count for %s on %s", u, c.Target())
+	log.Printf("Get session count for %s on %s", url, c.Target())
 	response, err := c.impl.GetSessionCount(ctx, &GetSessionCountRequest{
-		Url: u.String(),
+		Url: url,
 	}, grpc.WaitForReady(true))
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return 0, nil

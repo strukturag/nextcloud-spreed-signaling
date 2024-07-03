@@ -2019,7 +2019,7 @@ func TestClientHelloClient_V3Api(t *testing.T) {
 	}
 	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
 	// feature is returned by the capabilities endpoint.
-	require.NoError(client.SendHelloParams(server.URL+"/ocs/v2.php/apps/spreed/api/v1/signaling/backend", HelloVersionV1, "client", nil, params))
+	require.NoError(client.SendHelloParams(server.URL, HelloVersionV1, "client", nil, params))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()

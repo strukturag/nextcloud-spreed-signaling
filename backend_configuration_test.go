@@ -491,7 +491,7 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	require.NoError(storage.WaitForInitialized(ctx))
 
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
-		assert.Equal(url1, backends[0].url) &&
+		assert.Equal([]string{url1}, backends[0].urls) &&
 		assert.Equal(initialSecret1, string(backends[0].secret)) {
 		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
 			assert.Equal(backends[0], backend)
@@ -502,7 +502,7 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"url\":\""+url1+"\",\"secret\":\""+secret1+"\"}"))
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
-		assert.Equal(url1, backends[0].url) &&
+		assert.Equal([]string{url1}, backends[0].urls) &&
 		assert.Equal(secret1, string(backends[0].secret)) {
 		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
 			assert.Equal(backends[0], backend)
@@ -516,9 +516,9 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	SetEtcdValue(etcd, "/backends/2_two", []byte("{\"url\":\""+url2+"\",\"secret\":\""+secret2+"\"}"))
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) &&
-		assert.Equal(url1, backends[0].url) &&
+		assert.Equal([]string{url1}, backends[0].urls) &&
 		assert.Equal(secret1, string(backends[0].secret)) &&
-		assert.Equal(url2, backends[1].url) &&
+		assert.Equal([]string{url2}, backends[1].urls) &&
 		assert.Equal(secret2, string(backends[1].secret)) {
 		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
 			assert.Equal(backends[0], backend)
@@ -534,11 +534,11 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	SetEtcdValue(etcd, "/backends/3_three", []byte("{\"url\":\""+url3+"\",\"secret\":\""+secret3+"\"}"))
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 3) &&
-		assert.Equal(url1, backends[0].url) &&
+		assert.Equal([]string{url1}, backends[0].urls) &&
 		assert.Equal(secret1, string(backends[0].secret)) &&
-		assert.Equal(url2, backends[1].url) &&
+		assert.Equal([]string{url2}, backends[1].urls) &&
 		assert.Equal(secret2, string(backends[1].secret)) &&
-		assert.Equal(url3, backends[2].url) &&
+		assert.Equal([]string{url3}, backends[2].urls) &&
 		assert.Equal(secret3, string(backends[2].secret)) {
 		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
 			assert.Equal(backends[0], backend)
@@ -553,9 +553,9 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	DeleteEtcdValue(etcd, "/backends/1_one")
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) {
-		assert.Equal(url2, backends[0].url)
+		assert.Equal([]string{url2}, backends[0].urls)
 		assert.Equal(secret2, string(backends[0].secret))
-		assert.Equal(url3, backends[1].url)
+		assert.Equal([]string{url3}, backends[1].urls)
 		assert.Equal(secret3, string(backends[1].secret))
 	}
 
@@ -563,7 +563,7 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	DeleteEtcdValue(etcd, "/backends/2_two")
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) {
-		assert.Equal(url3, backends[0].url)
+		assert.Equal([]string{url3}, backends[0].urls)
 		assert.Equal(secret3, string(backends[0].secret))
 	}
 

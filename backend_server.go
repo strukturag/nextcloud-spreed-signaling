@@ -701,12 +701,22 @@ func isNumeric(s string) bool {
 }
 
 func (b *BackendServer) startDialoutInSession(ctx context.Context, session *ClientSession, roomid string, backend *Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
-	url := backend.Url()
-	if url == "" {
-		// Old-style compat backend, use client-provided URL.
-		url = backendUrl
-		if url != "" && url[len(url)-1] != '/' {
-			url += "/"
+	url := backendUrl
+	if url != "" && url[len(url)-1] != '/' {
+		url += "/"
+	}
+	if urls := backend.Urls(); len(urls) > 0 {
+		// Check if client-provided URL is registered for backend and use that.
+		found := false
+		for _, u := range urls {
+			if strings.HasPrefix(url, u) {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			url = urls[0]
 		}
 	}
 	id := newRandomString(32)

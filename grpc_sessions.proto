@@ -63,7 +63,8 @@ message IsSessionInCallReply {
 
 message GetInternalSessionsRequest {
   string roomId = 1;
-  string backendUrl = 2;
+  string backendUrl = 2 [deprecated = true];
+  repeated string backendUrls = 3;
 }
 
 message InternalSessionData {
