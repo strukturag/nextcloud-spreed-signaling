@@ -132,6 +132,10 @@ func (s *VirtualSession) ParsedBackendUrl() *url.URL {
 	return s.session.ParsedBackendUrl()
 }
 
+func (s *VirtualSession) ParsedBackendOcsUrl() *url.URL {
+	return s.session.ParsedBackendOcsUrl()
+}
+
 func (s *VirtualSession) UserId() string {
 	return s.userId
 }
@@ -197,7 +201,7 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 		}
 
 		var response BackendClientResponse
-		if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response); err != nil {
+		if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
 			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
 			log.Printf("Could not leave virtual session %s at backend %s: %s", virtualSessionId, s.BackendUrl(), err)
 			if session != nil && message != nil {
@@ -222,7 +226,7 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 			User:   s.userData,
 		})
 		var response BackendClientSessionResponse
-		err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response)
+		err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response)
 		if err != nil {
 			log.Printf("Could not remove virtual session %s from backend %s: %s", s.PublicId(), s.BackendUrl(), err)
 			if session != nil && message != nil {

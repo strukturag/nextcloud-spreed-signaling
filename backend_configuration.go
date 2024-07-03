@@ -42,11 +42,9 @@ var (
 )
 
 type Backend struct {
-	id        string
-	url       string
-	parsedUrl *url.URL
-	secret    []byte
-	compat    bool
+	id     string
+	urls   []string
+	secret []byte
 
 	allowHttp bool
 
@@ -67,7 +65,7 @@ func (b *Backend) Secret() []byte {
 }
 
 func (b *Backend) IsCompat() bool {
-	return b.compat
+	return len(b.urls) == 0
 }
 
 func (b *Backend) IsUrlAllowed(u *url.URL) bool {
@@ -81,12 +79,23 @@ func (b *Backend) IsUrlAllowed(u *url.URL) bool {
 	}
 }
 
-func (b *Backend) Url() string {
-	return b.url
+func (b *Backend) HasUrl(url string) bool {
+	if b.IsCompat() {
+		// Old-style configuration, only hosts are configured.
+		return true
+	}
+
+	for _, u := range b.urls {
+		if strings.HasPrefix(url, u) {
+			return true
+		}
+	}
+
+	return false
 }
 
-func (b *Backend) ParsedUrl() *url.URL {
-	return b.parsedUrl
+func (b *Backend) Urls() []string {
+	return b.urls
 }
 
 func (b *Backend) Limit() int {
@@ -173,10 +182,7 @@ func (s *backendStorageCommon) getBackendLocked(u *url.URL) *Backend {
 			continue
 		}
 
-		if entry.url == "" {
-			// Old-style configuration, only hosts are configured.
-			return entry
-		} else if strings.HasPrefix(url, entry.url) {
+		if entry.HasUrl(url) {
 			return entry
 		}
 	}
