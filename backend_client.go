@@ -188,14 +188,14 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
-		log.Printf("Received unsupported content-type from %s: %s (%s)", req.URL, ct, resp.Status)
+		log.Printf("Received unsupported content-type from %s for %s: %s (%s)", req.URL, data.String(), ct, resp.Status)
 		statsBackendClientError.WithLabelValues(backend.Id(), "invalid_content_type").Inc()
 		return ErrUnsupportedContentType
 	}
 
 	body, err := b.buffers.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Could not read response body from %s: %s", req.URL, err)
+		log.Printf("Could not read response body from %s for %s: %s", req.URL, data.String(), err)
 		statsBackendClientError.WithLabelValues(backend.Id(), "error_reading_body").Inc()
 		return err
 	}
