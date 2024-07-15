@@ -24,7 +24,7 @@ package signaling
 import (
 	"log"
 	"net/url"
-	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/dlintw/goconf"
@@ -66,14 +66,18 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 		updateBackendStats(compatBackend)
 		numBackends++
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
+		added := make(map[string]*Backend)
 		for host, configuredBackends := range getConfiguredHosts(backendIds, config, commonSecret) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
-				log.Printf("Backend %s added for %s", be.id, strings.Join(be.urls, ", "))
-				updateBackendStats(be)
+				added[be.id] = be
 			}
-			numBackends += len(configuredBackends)
 		}
+		for _, be := range added {
+			log.Printf("Backend %s added for %s", be.id, strings.Join(be.urls, ", "))
+			updateBackendStats(be)
+		}
+		numBackends += len(added)
 	} else if allowedUrls, _ := config.GetString("backend", "allowed"); allowedUrls != "" {
 		// Old-style configuration, only hosts are configured and are using a common secret.
 		allowMap := make(map[string]bool)
@@ -135,23 +139,30 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 func (s *backendStorageStatic) Close() {
 }
 
-func (s *backendStorageStatic) RemoveBackendsForHost(host string) {
+func (s *backendStorageStatic) RemoveBackendsForHost(host string, seen map[string]bool) {
 	if oldBackends := s.backends[host]; len(oldBackends) > 0 {
+		deleted := 0
 		for _, backend := range oldBackends {
+			if seen[backend.Id()] {
+				continue
+			}
+
+			seen[backend.Id()] = true
 			log.Printf("Backend %s removed for %s", backend.id, strings.Join(backend.urls, ", "))
 			deleteBackendStats(backend)
+			deleted++
 		}
-		statsBackendsCurrent.Sub(float64(len(oldBackends)))
+		statsBackendsCurrent.Sub(float64(deleted))
 	}
 	delete(s.backends, host)
 }
 
-func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend) {
+func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen map[string]bool) {
 	for existingIndex, existingBackend := range s.backends[host] {
 		found := false
 		index := 0
 		for _, newBackend := range backends {
-			if reflect.DeepEqual(existingBackend, newBackend) { // otherwise we could manually compare the struct members here
+			if existingBackend.Equal(newBackend) {
 				found = true
 				backends = append(backends[:index], backends[index+1:]...)
 				break
@@ -159,27 +170,41 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend) {
 				found = true
 				s.backends[host][existingIndex] = newBackend
 				backends = append(backends[:index], backends[index+1:]...)
-				log.Printf("Backend %s updated for %s", newBackend.id, strings.Join(newBackend.urls, ", "))
-				updateBackendStats(newBackend)
+				if !seen[newBackend.id] {
+					seen[newBackend.id] = true
+					log.Printf("Backend %s updated for %s", newBackend.id, strings.Join(newBackend.urls, ", "))
+					updateBackendStats(newBackend)
+				}
 				break
 			}
 			index++
 		}
 		if !found {
 			removed := s.backends[host][existingIndex]
-			log.Printf("Backend %s removed for %s", removed.id, strings.Join(removed.urls, ", "))
 			s.backends[host] = append(s.backends[host][:existingIndex], s.backends[host][existingIndex+1:]...)
-			deleteBackendStats(removed)
-			statsBackendsCurrent.Dec()
+			if !seen[removed.id] {
+				seen[removed.id] = true
+				log.Printf("Backend %s removed for %s", removed.id, strings.Join(removed.urls, ", "))
+				deleteBackendStats(removed)
+				statsBackendsCurrent.Dec()
+			}
 		}
 	}
 
 	s.backends[host] = append(s.backends[host], backends...)
+
+	addedBackends := 0
 	for _, added := range backends {
+		if seen[added.id] {
+			continue
+		}
+
+		seen[added.id] = true
 		log.Printf("Backend %s added for %s", added.id, strings.Join(added.urls, ", "))
 		updateBackendStats(added)
+		addedBackends++
 	}
-	statsBackendsCurrent.Add(float64(len(backends)))
+	statsBackendsCurrent.Add(float64(addedBackends))
 }
 
 func getConfiguredBackendIDs(backendIds string) (ids []string) {
@@ -201,35 +226,26 @@ func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	return ids
 }
 
+func MapIf[T any](s []T, f func(T) (T, bool)) []T {
+	result := make([]T, 0, len(s))
+	for _, v := range s {
+		if v, ok := f(v); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
 func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
 	hosts = make(map[string][]*Backend)
+	seenUrls := make(map[string]string)
 	for _, id := range getConfiguredBackendIDs(backendIds) {
-		u, _ := GetStringOptionWithEnv(config, id, "url")
-		if u == "" {
-			log.Printf("Backend %s is missing or incomplete, skipping", id)
-			continue
-		}
-
-		if u[len(u)-1] != '/' {
-			u += "/"
-		}
-		parsed, err := url.Parse(u)
-		if err != nil {
-			log.Printf("Backend %s has an invalid url %s configured (%s), skipping", id, u, err)
-			continue
-		}
-
-		if strings.Contains(parsed.Host, ":") && hasStandardPort(parsed) {
-			parsed.Host = parsed.Hostname()
-			u = parsed.String()
-		}
-
 		secret, _ := GetStringOptionWithEnv(config, id, "secret")
 		if secret == "" && commonSecret != "" {
 			log.Printf("Backend %s has no own shared secret set, using common shared secret", id)
 			secret = commonSecret
 		}
-		if u == "" || secret == "" {
+		if secret == "" {
 			log.Printf("Backend %s is missing or incomplete, skipping", id)
 			continue
 		}
@@ -251,18 +267,69 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecr
 			maxScreenBitrate = 0
 		}
 
-		hosts[parsed.Host] = append(hosts[parsed.Host], &Backend{
-			id:     id,
-			urls:   []string{u},
-			secret: []byte(secret),
+		var urls []string
+		if u, _ := GetStringOptionWithEnv(config, id, "urls"); u != "" {
+			urls = strings.Split(u, ",")
+			urls = MapIf(urls, func(s string) (string, bool) {
+				s = strings.TrimSpace(s)
+				return s, len(s) > 0
+			})
+			slices.Sort(urls)
+			urls = slices.Compact(urls)
+		} else if u, _ := GetStringOptionWithEnv(config, id, "url"); u != "" {
+			if u = strings.TrimSpace(u); u != "" {
+				urls = []string{u}
+			}
+		}
 
-			allowHttp: parsed.Scheme == "http",
+		if len(urls) == 0 {
+			log.Printf("Backend %s is missing or incomplete, skipping", id)
+			continue
+		}
+
+		backend := &Backend{
+			id:     id,
+			secret: []byte(secret),
 
 			maxStreamBitrate: maxStreamBitrate,
 			maxScreenBitrate: maxScreenBitrate,
 
 			sessionLimit: uint64(sessionLimit),
-		})
+		}
+
+		added := make(map[string]bool)
+		for _, u := range urls {
+			if u[len(u)-1] != '/' {
+				u += "/"
+			}
+
+			parsed, err := url.Parse(u)
+			if err != nil {
+				log.Printf("Backend %s has an invalid url %s configured (%s), skipping", id, u, err)
+				continue
+			}
+
+			if strings.Contains(parsed.Host, ":") && hasStandardPort(parsed) {
+				parsed.Host = parsed.Hostname()
+				u = parsed.String()
+			}
+
+			if prev, found := seenUrls[u]; found {
+				log.Printf("Url %s in backend %s was already used in backend %s, skipping", u, id, prev)
+				continue
+			}
+
+			seenUrls[u] = id
+			backend.urls = append(backend.urls, u)
+			if parsed.Scheme == "http" {
+				backend.allowHttp = true
+			}
+
+			if !added[parsed.Host] {
+				hosts[parsed.Host] = append(hosts[parsed.Host], backend)
+				added[parsed.Host] = true
+			}
+		}
 	}
 
 	return hosts
@@ -283,15 +350,16 @@ func (s *backendStorageStatic) Reload(config *goconf.ConfigFile) {
 		configuredHosts := getConfiguredHosts(backendIds, config, commonSecret)
 
 		// remove backends that are no longer configured
+		seen := make(map[string]bool)
 		for hostname := range s.backends {
 			if _, ok := configuredHosts[hostname]; !ok {
-				s.RemoveBackendsForHost(hostname)
+				s.RemoveBackendsForHost(hostname, seen)
 			}
 		}
 
 		// rewrite backends adding newly configured ones and rewriting existing ones
 		for hostname, configuredBackends := range configuredHosts {
-			s.UpsertHost(hostname, configuredBackends)
+			s.UpsertHost(hostname, configuredBackends, seen)
 		}
 	}
 }

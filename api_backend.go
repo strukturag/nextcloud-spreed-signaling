@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -440,10 +441,12 @@ type TurnCredentials struct {
 // Information on a backend in the etcd cluster.
 
 type BackendInformationEtcd struct {
-	parsedUrl *url.URL
+	// Compat setting.
+	Url string `json:"url,omitempty"`
 
-	Url    string `json:"url"`
-	Secret string `json:"secret"`
+	Urls       []string `json:"urls,omitempty"`
+	parsedUrls []*url.URL
+	Secret     string `json:"secret"`
 
 	MaxStreamBitrate int `json:"maxstreambitrate,omitempty"`
 	MaxScreenBitrate int `json:"maxscreenbitrate,omitempty"`
@@ -452,24 +455,41 @@ type BackendInformationEtcd struct {
 }
 
 func (p *BackendInformationEtcd) CheckValid() error {
-	if p.Url == "" {
-		return fmt.Errorf("url missing")
-	}
 	if p.Secret == "" {
 		return fmt.Errorf("secret missing")
 	}
 
-	parsedUrl, err := url.Parse(p.Url)
-	if err != nil {
-		return fmt.Errorf("invalid url: %w", err)
+	if len(p.Urls) > 0 {
+		slices.Sort(p.Urls)
+		p.Urls = slices.Compact(p.Urls)
+		for idx, u := range p.Urls {
+			parsedUrl, err := url.Parse(u)
+			if err != nil {
+				return fmt.Errorf("invalid url %s: %w", u, err)
+			}
+			if strings.Contains(parsedUrl.Host, ":") && hasStandardPort(parsedUrl) {
+				parsedUrl.Host = parsedUrl.Hostname()
+				p.Urls[idx] = parsedUrl.String()
+			}
+
+			p.parsedUrls = append(p.parsedUrls, parsedUrl)
+		}
+	} else if p.Url != "" {
+		parsedUrl, err := url.Parse(p.Url)
+		if err != nil {
+			return fmt.Errorf("invalid url: %w", err)
+		}
+		if strings.Contains(parsedUrl.Host, ":") && hasStandardPort(parsedUrl) {
+			parsedUrl.Host = parsedUrl.Hostname()
+			p.Url = parsedUrl.String()
+		}
+
+		p.Urls = append(p.Urls, p.Url)
+		p.parsedUrls = append(p.parsedUrls, parsedUrl)
+	} else {
+		return fmt.Errorf("urls missing")
 	}
 
-	if strings.Contains(parsedUrl.Host, ":") && hasStandardPort(parsedUrl) {
-		parsedUrl.Host = parsedUrl.Hostname()
-		p.Url = parsedUrl.String()
-	}
-
-	p.parsedUrl = parsedUrl
 	return nil
 }
 

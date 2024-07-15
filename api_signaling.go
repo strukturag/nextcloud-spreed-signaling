@@ -494,6 +494,10 @@ func (m *HelloClientMessage) CheckValid() error {
 			if m.Auth.Url[len(m.Auth.Url)-1] != '/' {
 				m.Auth.Url += "/"
 			}
+			if pos := strings.Index(m.Auth.Url, "ocs/v2.php/apps/spreed/"); pos != -1 {
+				m.Auth.Url = m.Auth.Url[:pos]
+			}
+
 			if u, err := url.ParseRequestURI(m.Auth.Url); err != nil {
 				return err
 			} else {
