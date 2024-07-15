@@ -461,7 +461,7 @@ func mustParse(s string) *url.URL {
 	return p
 }
 
-func TestBackendConfiguration_Etcd(t *testing.T) {
+func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
 	require := require.New(t)

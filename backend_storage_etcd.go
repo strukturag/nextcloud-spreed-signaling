@@ -178,53 +178,62 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		return
 	}
 
+	allowHttp := false
+	for _, u := range info.parsedUrls {
+		if u.Scheme == "http" {
+			allowHttp = true
+			break
+		}
+	}
+
 	backend := &Backend{
 		id:     key,
-		urls:   []string{info.Url},
+		urls:   info.Urls,
 		secret: []byte(info.Secret),
 
-		allowHttp: info.parsedUrl.Scheme == "http",
+		allowHttp: allowHttp,
 
 		maxStreamBitrate: info.MaxStreamBitrate,
 		maxScreenBitrate: info.MaxScreenBitrate,
 		sessionLimit:     info.SessionLimit,
 	}
 
-	host := info.parsedUrl.Host
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.keyInfos[key] = &info
-	entries, found := s.backends[host]
-	if !found {
-		// Simple case, first backend for this host
-		log.Printf("Added backend %s (from %s)", info.Url, key)
-		s.backends[host] = []*Backend{backend}
-		updateBackendStats(backend)
-		statsBackendsCurrent.Inc()
-		s.wakeupForTesting()
-		return
-	}
-
-	// Was the backend changed?
-	replaced := false
-	for idx, entry := range entries {
-		if entry.id == key {
-			log.Printf("Updated backend %s (from %s)", info.Url, key)
+	for idx, u := range info.parsedUrls {
+		host := u.Host
+		entries, found := s.backends[host]
+		if !found {
+			// Simple case, first backend for this host
+			log.Printf("Added backend %s (from %s)", info.Urls[idx], key)
+			s.backends[host] = []*Backend{backend}
 			updateBackendStats(backend)
-			entries[idx] = backend
-			replaced = true
-			break
+			statsBackendsCurrent.Inc()
+			s.wakeupForTesting()
+			continue
 		}
-	}
 
-	if !replaced {
-		// New backend, add to list.
-		log.Printf("Added backend %s (from %s)", info.Url, key)
-		s.backends[host] = append(entries, backend)
-		updateBackendStats(backend)
-		statsBackendsCurrent.Inc()
+		// Was the backend changed?
+		replaced := false
+		for idx, entry := range entries {
+			if entry.id == key {
+				log.Printf("Updated backend %s (from %s)", info.Urls[idx], key)
+				updateBackendStats(backend)
+				entries[idx] = backend
+				replaced = true
+				break
+			}
+		}
+
+		if !replaced {
+			// New backend, add to list.
+			log.Printf("Added backend %s (from %s)", info.Urls[idx], key)
+			s.backends[host] = append(entries, backend)
+			updateBackendStats(backend)
+			statsBackendsCurrent.Inc()
+		}
 	}
 	s.wakeupForTesting()
 }
@@ -239,27 +248,29 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prev
 	}
 
 	delete(s.keyInfos, key)
-	host := info.parsedUrl.Host
-	entries, found := s.backends[host]
-	if !found {
-		return
-	}
-
-	log.Printf("Removing backend %s (from %s)", info.Url, key)
-	newEntries := make([]*Backend, 0, len(entries)-1)
-	for _, entry := range entries {
-		if entry.id == key {
-			updateBackendStats(entry)
-			statsBackendsCurrent.Dec()
+	for idx, u := range info.parsedUrls {
+		host := u.Host
+		entries, found := s.backends[host]
+		if !found {
 			continue
 		}
 
-		newEntries = append(newEntries, entry)
-	}
-	if len(newEntries) > 0 {
-		s.backends[host] = newEntries
-	} else {
-		delete(s.backends, host)
+		log.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
+		newEntries := make([]*Backend, 0, len(entries)-1)
+		for _, entry := range entries {
+			if entry.id == key {
+				updateBackendStats(entry)
+				statsBackendsCurrent.Dec()
+				continue
+			}
+
+			newEntries = append(newEntries, entry)
+		}
+		if len(newEntries) > 0 {
+			s.backends[host] = newEntries
+		} else {
+			delete(s.backends, host)
+		}
 	}
 	s.wakeupForTesting()
 }

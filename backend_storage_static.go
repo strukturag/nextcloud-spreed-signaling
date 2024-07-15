@@ -24,7 +24,7 @@ package signaling
 import (
 	"log"
 	"net/url"
-	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/dlintw/goconf"
@@ -151,7 +151,7 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend) {
 		found := false
 		index := 0
 		for _, newBackend := range backends {
-			if reflect.DeepEqual(existingBackend, newBackend) { // otherwise we could manually compare the struct members here
+			if existingBackend.Equal(newBackend) {
 				found = true
 				backends = append(backends[:index], backends[index+1:]...)
 				break
@@ -201,35 +201,24 @@ func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	return ids
 }
 
+func Map[T any](s []T, f func(T) T) []T {
+	var result []T
+	for _, v := range s {
+		result = append(result, f(v))
+	}
+	return result
+}
+
 func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
 	hosts = make(map[string][]*Backend)
+	seenUrls := make(map[string]string)
 	for _, id := range getConfiguredBackendIDs(backendIds) {
-		u, _ := config.GetString(id, "url")
-		if u == "" {
-			log.Printf("Backend %s is missing or incomplete, skipping", id)
-			continue
-		}
-
-		if u[len(u)-1] != '/' {
-			u += "/"
-		}
-		parsed, err := url.Parse(u)
-		if err != nil {
-			log.Printf("Backend %s has an invalid url %s configured (%s), skipping", id, u, err)
-			continue
-		}
-
-		if strings.Contains(parsed.Host, ":") && hasStandardPort(parsed) {
-			parsed.Host = parsed.Hostname()
-			u = parsed.String()
-		}
-
 		secret, _ := config.GetString(id, "secret")
 		if secret == "" && commonSecret != "" {
 			log.Printf("Backend %s has no own shared secret set, using common shared secret", id)
 			secret = commonSecret
 		}
-		if u == "" || secret == "" {
+		if secret == "" {
 			log.Printf("Backend %s is missing or incomplete, skipping", id)
 			continue
 		}
@@ -251,18 +240,71 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecr
 			maxScreenBitrate = 0
 		}
 
-		hosts[parsed.Host] = append(hosts[parsed.Host], &Backend{
-			id:     id,
-			urls:   []string{u},
-			secret: []byte(secret),
+		var urls []string
+		if u, _ := config.GetString(id, "urls"); u != "" {
+			urls = strings.Split(u, ",")
+			urls = Map(urls, func(s string) string {
+				return strings.TrimSpace(s)
+			})
+			urls = slices.DeleteFunc(urls, func(s string) bool {
+				return s == ""
+			})
+			slices.Sort(urls)
+			urls = slices.Compact(urls)
+		} else if u, _ := config.GetString(id, "url"); u != "" {
+			if u = strings.TrimSpace(u); u != "" {
+				urls = []string{u}
+			}
+		}
 
-			allowHttp: parsed.Scheme == "http",
+		if len(urls) == 0 {
+			log.Printf("Backend %s is missing or incomplete, skipping", id)
+			continue
+		}
+
+		backend := &Backend{
+			id:     id,
+			secret: []byte(secret),
 
 			maxStreamBitrate: maxStreamBitrate,
 			maxScreenBitrate: maxScreenBitrate,
 
 			sessionLimit: uint64(sessionLimit),
-		})
+		}
+
+		added := make(map[string]bool)
+		for _, u := range urls {
+			if u[len(u)-1] != '/' {
+				u += "/"
+			}
+
+			parsed, err := url.Parse(u)
+			if err != nil {
+				log.Printf("Backend %s has an invalid url %s configured (%s), skipping", id, u, err)
+				continue
+			}
+
+			if strings.Contains(parsed.Host, ":") && hasStandardPort(parsed) {
+				parsed.Host = parsed.Hostname()
+				u = parsed.String()
+			}
+
+			if prev, found := seenUrls[u]; found {
+				log.Printf("Url %s in backend %s was already used in backend %s, skipping", u, id, prev)
+				continue
+			}
+
+			seenUrls[u] = id
+			backend.urls = append(backend.urls, u)
+			if parsed.Scheme == "http" {
+				backend.allowHttp = true
+			}
+
+			if !added[parsed.Host] {
+				hosts[parsed.Host] = append(hosts[parsed.Host], backend)
+				added[parsed.Host] = true
+			}
+		}
 	}
 
 	return hosts

@@ -22,8 +22,10 @@
 package signaling
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 
@@ -66,6 +68,22 @@ func (b *Backend) Secret() []byte {
 
 func (b *Backend) IsCompat() bool {
 	return len(b.urls) == 0
+}
+
+func (b *Backend) Equal(other *Backend) bool {
+	if b == other {
+		return true
+	} else if b == nil || other == nil {
+		return false
+	}
+
+	return b.id == other.id &&
+		b.allowHttp == other.allowHttp &&
+		b.maxStreamBitrate == other.maxStreamBitrate &&
+		b.maxScreenBitrate == other.maxScreenBitrate &&
+		b.sessionLimit == other.sessionLimit &&
+		bytes.Equal(b.secret, other.secret) &&
+		slices.Equal(b.urls, other.urls)
 }
 
 func (b *Backend) IsUrlAllowed(u *url.URL) bool {
