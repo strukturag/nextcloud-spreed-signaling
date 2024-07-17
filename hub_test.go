@@ -713,7 +713,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if os.Getenv("SKIP_V2_CAPABILITIES") != "" {
 			useV2 = false
 		}
-		if strings.Contains(t.Name(), "V2") && useV2 {
+		if (strings.Contains(t.Name(), "V2") && useV2) || strings.Contains(t.Name(), "Federation") {
 			key := getPublicAuthToken(t)
 			public, err := x509.MarshalPKIXPublicKey(key)
 			if err != nil {

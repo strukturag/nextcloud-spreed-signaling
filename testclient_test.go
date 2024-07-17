@@ -401,14 +401,14 @@ func (c *TestClient) SendHelloV2(userid string) error {
 	return c.SendHelloV2WithTimes(userid, now, now.Add(time.Minute))
 }
 
-func (c *TestClient) SendHelloV2WithTimes(userid string, issuedAt time.Time, expiresAt time.Time) error {
+func (c *TestClient) CreateHelloV2Token(userid string, issuedAt time.Time, expiresAt time.Time) (string, error) {
 	userdata := map[string]string{
 		"displayname": "Displayname " + userid,
 	}
 
 	data, err := json.Marshal(userdata)
 	if err != nil {
-		c.t.Fatal(err)
+		return "", err
 	}
 
 	claims := &HelloV2TokenClaims{
@@ -434,7 +434,11 @@ func (c *TestClient) SendHelloV2WithTimes(userid string, issuedAt time.Time, exp
 		token = jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	}
 	private := getPrivateAuthToken(c.t)
-	tokenString, err := token.SignedString(private)
+	return token.SignedString(private)
+}
+
+func (c *TestClient) SendHelloV2WithTimes(userid string, issuedAt time.Time, expiresAt time.Time) error {
+	tokenString, err := c.CreateHelloV2Token(userid, issuedAt, expiresAt)
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -724,6 +728,9 @@ func (c *TestClient) JoinRoomWithRoomSession(ctx context.Context, roomId string,
 	if err := checkMessageType(message, "room"); err != nil {
 		return nil, err
 	}
+	if message.Id != msg.Id {
+		return nil, fmt.Errorf("expected message id %s, got %s", msg.Id, message.Id)
+	}
 	return message, nil
 }
 
@@ -993,6 +1000,10 @@ func (c *TestClient) RunUntilOffer(ctx context.Context, offer string) error {
 }
 
 func (c *TestClient) RunUntilAnswer(ctx context.Context, answer string) error {
+	return c.RunUntilAnswerFromSender(ctx, answer, nil)
+}
+
+func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string, sender *MessageServerMessageSender) error {
 	message, err := c.RunUntilMessage(ctx)
 	if err != nil {
 		return err
@@ -1001,6 +1012,15 @@ func (c *TestClient) RunUntilAnswer(ctx context.Context, answer string) error {
 		return err
 	} else if err := checkMessageType(message, "message"); err != nil {
 		return err
+	}
+
+	if sender != nil {
+		if err := checkMessageSender(c.hub, message.Message.Sender, sender.Type, &HelloServerMessage{
+			SessionId: sender.SessionId,
+			UserId:    sender.UserId,
+		}); err != nil {
+			return err
+		}
 	}
 
 	var data map[string]interface{}
