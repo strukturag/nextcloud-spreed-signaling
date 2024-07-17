@@ -43,7 +43,9 @@ var (
 )
 
 type FederationClient struct {
-	session       *ClientSession
+	session *ClientSession
+	message *ClientMessage
+
 	roomId        string
 	roomSessionId string
 	federation    *RoomFederationMessage
@@ -58,12 +60,17 @@ type FederationClient struct {
 	hello      atomic.Pointer[HelloServerMessage]
 }
 
-func NewFederationClient(ctx context.Context, session *ClientSession, room *RoomClientMessage) (*FederationClient, error) {
+func NewFederationClient(ctx context.Context, session *ClientSession, message *ClientMessage) (*FederationClient, error) {
+	if message.Type != "room" || message.Room == nil {
+		return nil, fmt.Errorf("expected room message, got %+v", message)
+	}
+
 	var dialer websocket.Dialer
 	dialer.TLSClientConfig = &tls.Config{
 		InsecureSkipVerify: true,
 	}
 
+	room := message.Room
 	u := *room.Federation.parsedSignalingUrl
 	switch u.Scheme {
 	case "http":
@@ -94,7 +101,9 @@ func NewFederationClient(ctx context.Context, session *ClientSession, room *Room
 	}
 
 	result := &FederationClient{
-		session:       session,
+		session: session,
+		message: message,
+
 		roomId:        room.RoomId,
 		roomSessionId: room.SessionId,
 		federation:    room.Federation,
@@ -291,6 +300,7 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 
 func (c *FederationClient) joinRoom() error {
 	return c.SendMessage(&ClientMessage{
+		Id:   c.message.Id,
 		Type: "room",
 		Room: &RoomClientMessage{
 			RoomId:    c.roomId,

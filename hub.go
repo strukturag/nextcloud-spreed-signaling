@@ -1529,7 +1529,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 
 	if federation := message.Room.Federation; federation != nil {
 		// TODO: Handle case where session already is in a federated room on the same server.
-		client, err := NewFederationClient(session.Context(), session, message.Room)
+		client, err := NewFederationClient(session.Context(), session, message)
 		if err != nil {
 			log.Printf("Error creating federation client for %s to join room %s: %s", session.PublicId(), roomId, err)
 			session.SendMessage(message.NewErrorServerMessage(
