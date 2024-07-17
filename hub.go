@@ -1516,7 +1516,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 	roomId := message.Room.RoomId
 	if roomId == "" {
 		// We can handle leaving a room directly.
-		if session.LeaveRoom(true) != nil {
+		if session.LeaveRoomWithMessage(true, message) != nil {
 			// User was in a room before, so need to notify about leaving it.
 			h.sendRoom(session, message, nil)
 			if session.UserId() == "" && session.ClientType() != HelloClientTypeInternal {

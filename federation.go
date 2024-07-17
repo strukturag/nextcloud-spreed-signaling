@@ -58,6 +58,8 @@ type FederationClient struct {
 	helloMsgId string
 	helloAuth  *FederationAuthParams
 	hello      atomic.Pointer[HelloServerMessage]
+
+	closeOnLeave atomic.Bool
 }
 
 func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, message *ClientMessage) (*FederationClient, error) {
@@ -132,6 +134,27 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 
 func (c *FederationClient) URL() string {
 	return c.federation.parsedSignalingUrl.String()
+}
+
+func (c *FederationClient) Leave(message *ClientMessage) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if message == nil {
+		message = &ClientMessage{
+			Type: "room",
+			Room: &RoomClientMessage{
+				RoomId: "",
+			},
+		}
+	}
+
+	if err := c.sendMessageLocked(message); err != nil {
+		return err
+	}
+
+	c.closeOnLeave.Store(true)
+	return nil
 }
 
 func (c *FederationClient) Close() {
@@ -381,6 +404,8 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 	if hello := c.hello.Load(); hello != nil {
 		remoteSessionId = hello.SessionId
 	}
+
+	var doClose bool
 	switch msg.Type {
 	case "control":
 		c.updateRecipient(msg.Control.Recipient, localSessionId, remoteSessionId)
@@ -415,11 +440,18 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 					for idx, j := range msg.Event.Leave {
 						if j == remoteSessionId {
 							msg.Event.Leave[idx] = localSessionId
+							if c.closeOnLeave.Load() {
+								doClose = true
+							}
 							break
 						}
 					}
 				}
 			}
+		}
+	case "room":
+		if msg.Room.RoomId == "" && c.closeOnLeave.Load() {
+			doClose = true
 		}
 	case "message":
 		c.updateRecipient(msg.Message.Recipient, localSessionId, remoteSessionId)
@@ -446,13 +478,17 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 		}
 	}
 	c.session.SendMessage(msg)
+
+	if doClose {
+		c.Close()
+	}
 }
 
 func (c *FederationClient) ProxyMessage(message *ClientMessage) error {
 	switch message.Type {
 	case "message":
-		if r := message.Message.Recipient; r.Type == RecipientTypeSession && r.SessionId == c.session.PublicId() {
-			message.Message.Recipient.SessionId = c.hello.Load().SessionId
+		if hello := c.hello.Load(); hello != nil {
+			c.updateRecipient(&message.Message.Recipient, hello.SessionId, c.session.PublicId())
 		}
 	}
 

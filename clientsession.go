@@ -487,9 +487,16 @@ func (s *ClientSession) LeaveCall() {
 }
 
 func (s *ClientSession) LeaveRoom(notify bool) *Room {
+	return s.LeaveRoomWithMessage(notify, nil)
+}
+
+func (s *ClientSession) LeaveRoomWithMessage(notify bool, message *ClientMessage) *Room {
 	if prev := s.federation.Swap(nil); prev != nil {
 		// Session was connected to a federation room.
-		prev.Close()
+		if err := prev.Leave(message); err != nil {
+			log.Printf("Error leaving room for session %s on federation client %s: %s", s.PublicId(), prev.URL(), err)
+			prev.Close()
+		}
 		return nil
 	}
 
