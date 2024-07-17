@@ -309,12 +309,103 @@ func (c *FederationClient) joinRoom() error {
 	})
 }
 
+func (c *FederationClient) updateEventUsers(users []map[string]interface{}, localSessionId string, remoteSessionId string) {
+	for _, u := range users {
+		key := "sessionId"
+		sid, found := u[key]
+		if !found {
+			key := "sessionid"
+			sid, found = u[key]
+		}
+		if found {
+			if sid, ok := sid.(string); ok && sid == remoteSessionId {
+				u[key] = localSessionId
+				break
+			}
+		}
+	}
+}
+
+func (c *FederationClient) updateRecipient(recipient *MessageClientMessageRecipient, localSessionId string, remoteSessionId string) {
+	if recipient != nil && recipient.Type == RecipientTypeSession && remoteSessionId != "" && recipient.SessionId == remoteSessionId {
+		recipient.SessionId = localSessionId
+	}
+}
+
+func (c *FederationClient) updateSender(sender *MessageServerMessageSender, localSessionId string, remoteSessionId string) {
+	if sender != nil && sender.Type == RecipientTypeSession && remoteSessionId != "" && sender.SessionId == remoteSessionId {
+		sender.SessionId = localSessionId
+	}
+}
+
 func (c *FederationClient) processMessage(msg *ServerMessage) {
-	hello := c.hello.Load()
+	localSessionId := c.session.PublicId()
+	var remoteSessionId string
+	if hello := c.hello.Load(); hello != nil {
+		remoteSessionId = hello.SessionId
+	}
 	switch msg.Type {
+	case "control":
+		c.updateRecipient(msg.Control.Recipient, localSessionId, remoteSessionId)
+		c.updateSender(msg.Control.Sender, localSessionId, remoteSessionId)
+	case "event":
+		switch msg.Event.Target {
+		case "participants":
+			switch msg.Event.Type {
+			case "update":
+				if remoteSessionId != "" {
+					c.updateEventUsers(msg.Event.Update.Changed, localSessionId, remoteSessionId)
+					c.updateEventUsers(msg.Event.Update.Users, localSessionId, remoteSessionId)
+				}
+			case "flags":
+				if remoteSessionId != "" && msg.Event.Flags.SessionId == remoteSessionId {
+					msg.Event.Flags.SessionId = localSessionId
+				}
+			}
+		case "room":
+			switch msg.Event.Type {
+			case "join":
+				if remoteSessionId != "" {
+					for _, j := range msg.Event.Join {
+						if j.SessionId == remoteSessionId {
+							j.SessionId = localSessionId
+							break
+						}
+					}
+				}
+			case "leave":
+				if remoteSessionId != "" {
+					for idx, j := range msg.Event.Leave {
+						if j == remoteSessionId {
+							msg.Event.Leave[idx] = localSessionId
+							break
+						}
+					}
+				}
+			}
+		}
 	case "message":
-		if r := msg.Message.Recipient; r != nil && r.Type == RecipientTypeSession && hello != nil && r.SessionId == hello.SessionId {
-			msg.Message.Recipient.SessionId = c.session.PublicId()
+		c.updateRecipient(msg.Message.Recipient, localSessionId, remoteSessionId)
+		c.updateSender(msg.Message.Sender, localSessionId, remoteSessionId)
+		if remoteSessionId != "" && len(msg.Message.Data) > 0 {
+			var ao AnswerOfferMessage
+			if json.Unmarshal(msg.Message.Data, &ao) == nil && (ao.Type == "offer" || ao.Type == "answer") {
+				changed := false
+				if ao.From == remoteSessionId {
+					ao.From = localSessionId
+					changed = true
+				}
+				if ao.To == remoteSessionId {
+					ao.To = localSessionId
+					changed = true
+				}
+
+				if changed {
+					if data, err := json.Marshal(ao); err == nil {
+						msg.Message.Data = data
+					}
+				}
+			}
 		}
 	}
 	c.session.SendMessage(msg)
