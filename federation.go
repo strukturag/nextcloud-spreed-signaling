@@ -44,7 +44,7 @@ var (
 
 type FederationClient struct {
 	session *ClientSession
-	message *ClientMessage
+	message atomic.Pointer[ClientMessage]
 
 	roomId        string
 	roomSessionId string
@@ -60,7 +60,7 @@ type FederationClient struct {
 	hello      atomic.Pointer[HelloServerMessage]
 }
 
-func NewFederationClient(ctx context.Context, session *ClientSession, message *ClientMessage) (*FederationClient, error) {
+func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, message *ClientMessage) (*FederationClient, error) {
 	if message.Type != "room" || message.Room == nil {
 		return nil, fmt.Errorf("expected room message, got %+v", message)
 	}
@@ -102,7 +102,6 @@ func NewFederationClient(ctx context.Context, session *ClientSession, message *C
 
 	result := &FederationClient{
 		session: session,
-		message: message,
 
 		roomId:        room.RoomId,
 		roomSessionId: room.SessionId,
@@ -111,10 +110,23 @@ func NewFederationClient(ctx context.Context, session *ClientSession, message *C
 		conn:   conn,
 		closer: NewCloser(),
 	}
+	result.message.Store(message)
 	log.Printf("Creating federation connection to %s for %s", result.URL(), result.session.PublicId())
 
-	go result.readPump()
-	go result.writePump()
+	go func() {
+		hub.readPumpActive.Add(1)
+		defer hub.readPumpActive.Add(-1)
+
+		result.readPump()
+	}()
+
+	go func() {
+		hub.writePumpActive.Add(1)
+		defer hub.writePumpActive.Add(-1)
+
+		result.writePump()
+	}()
+
 	return result, nil
 }
 
@@ -124,9 +136,23 @@ func (c *FederationClient) URL() string {
 
 func (c *FederationClient) Close() {
 	c.closer.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn == nil {
+		return
+	}
+
+	if err := c.sendMessageLocked(&ClientMessage{
+		Type: "bye",
+	}); err != nil {
+		log.Printf("Error sending bye on federation connection to %s: %s", c.URL(), err)
+	}
+
 	if err := c.conn.Close(); err != nil {
 		log.Printf("Error closing federation connection to %s: %s", c.URL(), err)
 	}
+
+	c.conn = nil
 }
 
 func (c *FederationClient) readPump() {
@@ -221,7 +247,14 @@ func (c *FederationClient) closeWithError(err error) {
 	if !errors.As(err, &e) {
 		e = NewError("federation_error", err.Error())
 	}
+
+	var id string
+	if message := c.message.Swap(nil); message != nil {
+		id = message.Id
+	}
+
 	c.session.SendMessage(&ServerMessage{
+		Id:    id,
 		Type:  "error",
 		Error: e,
 	})
@@ -299,8 +332,12 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 }
 
 func (c *FederationClient) joinRoom() error {
+	var id string
+	if message := c.message.Swap(nil); message != nil {
+		id = message.Id
+	}
 	return c.SendMessage(&ClientMessage{
-		Id:   c.message.Id,
+		Id:   id,
 		Type: "room",
 		Room: &RoomClientMessage{
 			RoomId:    c.roomId,
