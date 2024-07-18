@@ -76,6 +76,9 @@ var (
 	// MCU requests will be cancelled if they take too long.
 	defaultMcuTimeoutSeconds = 10
 
+	// Federation requests will be cancelled if they take too long.
+	defaultFederationTimeoutSeconds = 10
+
 	// New connections have to send a "Hello" request after 2 seconds.
 	initialHelloTimeout = 2 * time.Second
 
@@ -181,6 +184,7 @@ type Hub struct {
 	throttler Throttler
 
 	skipFederationVerify bool
+	federationTimeout    time.Duration
 }
 
 func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
@@ -248,6 +252,11 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 	if skipFederationVerify {
 		log.Println("WARNING: Federation target verification is disabled!")
 	}
+	federationTimeoutSeconds, _ := config.GetInt("federation", "timeout")
+	if federationTimeoutSeconds <= 0 {
+		federationTimeoutSeconds = defaultFederationTimeoutSeconds
+	}
+	federationTimeout := time.Duration(federationTimeoutSeconds) * time.Second
 
 	if !trustedProxiesIps.Empty() {
 		log.Printf("Trusted proxies: %s", trustedProxiesIps)
@@ -359,6 +368,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		throttler: throttler,
 
 		skipFederationVerify: skipFederationVerify,
+		federationTimeout:    federationTimeout,
 	}
 	hub.trustedProxies.Store(trustedProxiesIps)
 	if len(geoipOverrides) > 0 {
@@ -1543,8 +1553,11 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		delete(h.anonymousSessions, session)
 		h.mu.Unlock()
 
+		ctx, cancel := context.WithTimeout(session.Context(), h.federationTimeout)
+		defer cancel()
+
 		// TODO: Handle case where session already is in a federated room on the same server.
-		client, err := NewFederationClient(session.Context(), h, session, message)
+		client, err := NewFederationClient(ctx, h, session, message)
 		if err != nil {
 			if session.UserId() == "" {
 				h.startWaitAnonymousSessionRoom(session)
