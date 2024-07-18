@@ -140,6 +140,51 @@ func Test_Federation(t *testing.T) {
 	// The client2 will see its own session id, not the one from the remote server.
 	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 
+	// Leaving and re-joining a room as "direct" session will trigger correct events.
+	if room, err := client1.JoinRoom(ctx, ""); assert.NoError(err) {
+		assert.Equal("", room.Room.RoomId)
+	}
+
+	assert.NoError(client2.RunUntilLeft(ctx, hello1.Hello))
+
+	if room, err := client1.JoinRoom(ctx, roomId); assert.NoError(err) {
+		assert.Equal(roomId, room.Room.RoomId)
+	}
+
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello, &HelloServerMessage{
+		SessionId: remoteSessionId,
+		UserId:    hello2.Hello.UserId,
+	}))
+	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello))
+
+	// Leaving and re-joining a room as "federated" session will trigger correct events.
+	if room, err := client2.JoinRoom(ctx, ""); assert.NoError(err) {
+		assert.Equal("", room.Room.RoomId)
+	}
+
+	assert.NoError(client1.RunUntilLeft(ctx, &HelloServerMessage{
+		SessionId: remoteSessionId,
+		UserId:    hello2.Hello.UserId,
+	}))
+
+	require.NoError(client2.WriteJSON(msg))
+	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal(msg.Id, message.Id)
+		require.Equal("room", message.Type)
+		require.Equal(roomId, message.Room.RoomId)
+	}
+
+	// Client1 will receive the updated "remoteSessionId"
+	if message, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		client1.checkSingleMessageJoined(message)
+		evt := message.Event.Join[0]
+		remoteSessionId = evt.SessionId
+		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
+		assert.Equal(testDefaultUserId+"2", evt.UserId)
+	}
+	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
+
+	// Test sending messages between sessions.
 	data1 := "from-1-to-2"
 	data2 := "from-2-to-1"
 	if assert.NoError(client1.SendMessage(MessageClientMessageRecipient{
@@ -230,8 +275,90 @@ func Test_Federation(t *testing.T) {
 	require.NotNil(room)
 	room.PublishUsersInCallChanged(users, users)
 	var event *EventServerMessage
+	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", &event))
+	assert.Equal(remoteSessionId, event.Update.Users[0]["sessionId"])
+
 	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", &event))
 	assert.Equal(hello2.Hello.SessionId, event.Update.Users[0]["sessionId"])
+
+	// Joining another "direct" session will trigger correct events.
+
+	client3 := NewTestClient(t, server1, hub1)
+	defer client3.CloseWithBye()
+	require.NoError(client3.SendHelloV2(testDefaultUserId + "3"))
+
+	hello3, err := client3.RunUntilHello(ctx)
+	require.NoError(err)
+
+	if room, err := client3.JoinRoom(ctx, roomId); assert.NoError(err) {
+		require.Equal(roomId, room.Room.RoomId)
+	}
+
+	assert.NoError(client1.RunUntilJoined(ctx, hello3.Hello))
+	assert.NoError(client2.RunUntilJoined(ctx, hello3.Hello))
+
+	assert.NoError(client3.RunUntilJoined(ctx, hello1.Hello, &HelloServerMessage{
+		SessionId: remoteSessionId,
+		UserId:    hello2.Hello.UserId,
+	}, hello3.Hello))
+
+	// Joining another "federated" session will trigger correct events.
+
+	client4 := NewTestClient(t, server2, hub1)
+	defer client4.CloseWithBye()
+	require.NoError(client4.SendHelloV2(testDefaultUserId + "4"))
+
+	hello4, err := client4.RunUntilHello(ctx)
+	require.NoError(err)
+
+	token, err = client4.CreateHelloV2Token(testDefaultUserId+"4", now, now.Add(time.Minute))
+	require.NoError(err)
+
+	msg = &ClientMessage{
+		Id:   "join-room-fed",
+		Type: "room",
+		Room: &RoomClientMessage{
+			RoomId:    roomId,
+			SessionId: roomId + "-" + hello4.Hello.SessionId,
+			Federation: &RoomFederationMessage{
+				SignalingUrl: server1.URL + "/spreed",
+				NextcloudUrl: server1.URL,
+				Token:        token,
+			},
+		},
+	}
+	require.NoError(client4.WriteJSON(msg))
+
+	if message, err := client4.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal(msg.Id, message.Id)
+		require.Equal("room", message.Type)
+		require.Equal(roomId, message.Room.RoomId)
+	}
+
+	// The client1 will see the remote session id for client2.
+	var remoteSessionId4 string
+	if message, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		client1.checkSingleMessageJoined(message)
+		evt := message.Event.Join[0]
+		remoteSessionId4 = evt.SessionId
+		assert.NotEqual(hello4.Hello.SessionId, remoteSessionId)
+		assert.Equal(testDefaultUserId+"4", evt.UserId)
+	}
+
+	assert.NoError(client2.RunUntilJoined(ctx, &HelloServerMessage{
+		SessionId: remoteSessionId4,
+		UserId:    hello4.Hello.UserId,
+	}))
+
+	assert.NoError(client3.RunUntilJoined(ctx, &HelloServerMessage{
+		SessionId: remoteSessionId4,
+		UserId:    hello4.Hello.UserId,
+	}))
+
+	assert.NoError(client4.RunUntilJoined(ctx, hello1.Hello, &HelloServerMessage{
+		SessionId: remoteSessionId,
+		UserId:    hello2.Hello.UserId,
+	}, hello3.Hello, hello4.Hello))
 
 	room3, err := client2.JoinRoom(ctx, "")
 	if assert.NoError(err) {
@@ -240,8 +367,6 @@ func Test_Federation(t *testing.T) {
 }
 
 func Test_FederationMedia(t *testing.T) {
-	CatchLogForTest(t)
-
 	CatchLogForTest(t)
 
 	assert := assert.New(t)

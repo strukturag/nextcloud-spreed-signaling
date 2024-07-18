@@ -322,7 +322,11 @@ func (s *ClientSession) UserData() json.RawMessage {
 
 func (s *ClientSession) SetRoom(room *Room) {
 	s.room.Store(room)
-	if room != nil {
+	s.onRoomSet(room != nil)
+}
+
+func (s *ClientSession) onRoomSet(hasRoom bool) {
+	if hasRoom {
 		s.roomJoinTime.Store(time.Now().UnixNano())
 	} else {
 		s.roomJoinTime.Store(0)
@@ -342,6 +346,7 @@ func (s *ClientSession) SetFederationClient(federation *FederationClient) {
 	defer s.mu.Unlock()
 
 	s.doLeaveRoom(true)
+	s.onRoomSet(federation != nil)
 
 	if prev := s.federation.Swap(federation); prev != nil {
 		prev.Close()
