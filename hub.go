@@ -27,6 +27,7 @@ import (
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -1528,21 +1529,61 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 	}
 
 	if federation := message.Room.Federation; federation != nil {
+		h.mu.Lock()
+		// The session will join a room, make sure it doesn't expire while connecting.
+		delete(h.anonymousSessions, session)
+		h.mu.Unlock()
+
 		// TODO: Handle case where session already is in a federated room on the same server.
 		client, err := NewFederationClient(session.Context(), h, session, message)
 		if err != nil {
-			log.Printf("Error creating federation client for %s to join room %s: %s", session.PublicId(), roomId, err)
+			if session.UserId() == "" {
+				h.startWaitAnonymousSessionRoom(session)
+			}
+			var ae *Error
+			if errors.As(err, &ae) {
+				session.SendMessage(message.NewErrorServerMessage(ae))
+				return
+			}
+
+			var details interface{}
+			var ce *tls.CertificateVerificationError
+			if errors.As(err, &ce) {
+				details = map[string]string{
+					"code":    "certificate_verification_error",
+					"message": ce.Error(),
+				}
+			}
+			var ne net.Error
+			if details == nil && errors.As(err, &ne) {
+				details = map[string]string{
+					"code":    "network_error",
+					"message": ne.Error(),
+				}
+			}
+			if details == nil {
+				var we websocket.HandshakeError
+				if errors.Is(err, websocket.ErrBadHandshake) {
+					details = map[string]string{
+						"code":    "network_error",
+						"message": err.Error(),
+					}
+				} else if errors.As(err, &we) {
+					details = map[string]string{
+						"code":    "network_error",
+						"message": we.Error(),
+					}
+				}
+			}
+
+			log.Printf("Error creating federation client to %s for %s to join room %s: %s", federation.SignalingUrl, session.PublicId(), roomId, err)
 			session.SendMessage(message.NewErrorServerMessage(
-				NewErrorDetail("federation_error", "Failed to create federation client.", nil),
+				NewErrorDetail("federation_error", "Failed to create federation client.", details),
 			))
 			return
 		}
 
 		session.SetFederationClient(client)
-		h.mu.Lock()
-		// The session now joined a room, don't expire if it is anonymous.
-		delete(h.anonymousSessions, session)
-		h.mu.Unlock()
 		return
 	}
 
