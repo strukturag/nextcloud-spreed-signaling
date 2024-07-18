@@ -179,6 +179,8 @@ type Hub struct {
 	rpcClients *GrpcClients
 
 	throttler Throttler
+
+	skipFederationVerify bool
 }
 
 func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
@@ -240,6 +242,11 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 	trustedProxiesIps, err := ParseAllowedIps(trustedProxies)
 	if err != nil {
 		return nil, err
+	}
+
+	skipFederationVerify, _ := config.GetBool("federation", "skipverify")
+	if skipFederationVerify {
+		log.Println("WARNING: Federation target verification is disabled!")
 	}
 
 	if !trustedProxiesIps.Empty() {
@@ -350,6 +357,8 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		rpcClients: rpcClients,
 
 		throttler: throttler,
+
+		skipFederationVerify: skipFederationVerify,
 	}
 	hub.trustedProxies.Store(trustedProxiesIps)
 	if len(geoipOverrides) > 0 {

@@ -71,11 +71,13 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 	}
 
 	var dialer websocket.Dialer
-	dialer.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true,
-	}
 
 	room := message.Room
+	if hub.skipFederationVerify {
+		dialer.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
 	u := *room.Federation.parsedSignalingUrl
 	switch u.Scheme {
 	case "http":
