@@ -55,7 +55,7 @@ func Test_FederationInvalidToken(t *testing.T) {
 			RoomId:    "test-room",
 			SessionId: "room-session-id",
 			Federation: &RoomFederationMessage{
-				SignalingUrl: server1.URL + "/spreed",
+				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				Token:        "invalid-token",
 			},
@@ -114,7 +114,7 @@ func Test_Federation(t *testing.T) {
 			RoomId:    federatedRoomId,
 			SessionId: federatedRoomId + "-" + hello2.Hello.SessionId,
 			Federation: &RoomFederationMessage{
-				SignalingUrl: server1.URL + "/spreed",
+				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
 				Token:        token,
@@ -325,7 +325,7 @@ func Test_Federation(t *testing.T) {
 			RoomId:    roomId,
 			SessionId: roomId + "-" + hello4.Hello.SessionId,
 			Federation: &RoomFederationMessage{
-				SignalingUrl: server1.URL + "/spreed",
+				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				Token:        token,
 			},
@@ -427,7 +427,7 @@ func Test_FederationMedia(t *testing.T) {
 			RoomId:    roomId,
 			SessionId: roomId + "-" + hello2.Hello.SessionId,
 			Federation: &RoomFederationMessage{
-				SignalingUrl: server1.URL + "/spreed",
+				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				Token:        token,
 			},

@@ -540,7 +540,7 @@ Message format (Client -> Server):
         "roomid": "the-local-room-id",
         "sessionid": "the-nextcloud-session-id",
         "federation": {
-          "signaling": "wss://remote.domain.invalid/path/to/signaling/spreed",
+          "signaling": "wss://remote.domain.invalid/path/to/signaling/",
           "url": "https://remote.domain.invalid/path/to/nextcloud/",
           "roomid": "the-remote-room-id",
           "token": "hello-v2-auth-token-for-remote-signaling-server"

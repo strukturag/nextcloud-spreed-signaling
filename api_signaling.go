@@ -624,7 +624,12 @@ type RoomFederationMessage struct {
 func (m *RoomFederationMessage) CheckValid() error {
 	if m.SignalingUrl == "" {
 		return errors.New("signaling url missing")
-	} else if u, err := url.Parse(m.SignalingUrl); err != nil {
+	}
+
+	if m.SignalingUrl[len(m.SignalingUrl)-1] != '/' {
+		m.SignalingUrl += "/"
+	}
+	if u, err := url.Parse(m.SignalingUrl); err != nil {
 		return fmt.Errorf("invalid signaling url: %w", err)
 	} else {
 		m.parsedSignalingUrl = u
