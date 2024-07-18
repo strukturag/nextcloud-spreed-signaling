@@ -437,7 +437,8 @@ Message format (Client -> Server):
 
 - The client can ask about joining a room using this request.
 - The session id received from the PHP backend must be passed as `sessionid`.
-- The `roomid` can be empty to leave the room.
+- The `roomid` can be empty to leave the room the client is currently in
+  (local or federated).
 - A session can only be connected to one room, i.e. joining a room will leave
   the room currently in.
 
@@ -522,6 +523,57 @@ user, the backend returns an error and the room request will be rejected.
 
 - `no_such_room`: The requested room does not exist or the user is not invited
   to the room.
+
+
+## Join federated room
+
+If the features list contains the id `federation`, the signaling server supports
+joining rooms on external signaling servers for Nextcloud instances not
+configured in the local server.
+
+Message format (Client -> Server):
+
+    {
+      "id": "unique-request-id",
+      "type": "room",
+      "room": {
+        "roomid": "the-local-room-id",
+        "sessionid": "the-nextcloud-session-id",
+        "federation": {
+          "signaling": "wss://remote.domain.invalid/path/to/signaling/spreed",
+          "url": "https://remote.domain.invalid/path/to/nextcloud/",
+          "roomid": "the-remote-room-id",
+          "token": "hello-v2-auth-token-for-remote-signaling-server"
+        }
+      }
+    }
+
+- The remote room id is optional. If omitted, the local room id will be used.
+- If a session joins a federated room, any local room will be left.
+
+Message format (Server -> Client):
+
+    {
+      "id": "unique-request-id-from-request",
+      "type": "room",
+      "room": {
+        "roomid": "the-local-room-id",
+        "properties": {
+          ...additional room properties...
+        }
+      }
+    }
+
+- Sent to confirm a request from the client.
+
+
+### Error codes
+
+- `federation_unsupported`: Federation is not supported by the target server.
+- `federation_error`: Error while creating connection to target server
+  (additional information might be available in `details`).
+
+Also the error codes from joining a regular room could be returned.
 
 
 ## Leave room
