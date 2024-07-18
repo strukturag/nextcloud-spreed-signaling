@@ -132,7 +132,7 @@ func Test_Federation(t *testing.T) {
 	// The client1 will see the remote session id for client2.
 	var remoteSessionId string
 	if message, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		client1.checkSingleMessageJoined(message)
+		assert.NoError(client1.checkSingleMessageJoined(message))
 		evt := message.Event.Join[0]
 		remoteSessionId = evt.SessionId
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
@@ -178,7 +178,7 @@ func Test_Federation(t *testing.T) {
 
 	// Client1 will receive the updated "remoteSessionId"
 	if message, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		client1.checkSingleMessageJoined(message)
+		assert.NoError(client1.checkSingleMessageJoined(message))
 		evt := message.Event.Join[0]
 		remoteSessionId = evt.SessionId
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
@@ -342,7 +342,7 @@ func Test_Federation(t *testing.T) {
 	// The client1 will see the remote session id for client2.
 	var remoteSessionId4 string
 	if message, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		client1.checkSingleMessageJoined(message)
+		assert.NoError(client1.checkSingleMessageJoined(message))
 		evt := message.Event.Join[0]
 		remoteSessionId4 = evt.SessionId
 		assert.NotEqual(hello4.Hello.SessionId, remoteSessionId)
@@ -444,7 +444,7 @@ func Test_FederationMedia(t *testing.T) {
 	// The client1 will see the remote session id for client2.
 	var remoteSessionId string
 	if message, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		client1.checkSingleMessageJoined(message)
+		assert.NoError(client1.checkSingleMessageJoined(message))
 		evt := message.Event.Join[0]
 		remoteSessionId = evt.SessionId
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)

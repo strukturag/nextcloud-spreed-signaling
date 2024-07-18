@@ -359,7 +359,9 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 
 	if msg.Id != c.helloMsgId {
 		log.Printf("Received hello response %+v for unknown request, expected %s", msg, c.helloMsgId)
-		c.sendHelloLocked(c.helloAuth)
+		if err := c.sendHelloLocked(c.helloAuth); err != nil {
+			c.closeWithError(err)
+		}
 		return
 	}
 
@@ -369,7 +371,9 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 		return
 	} else if msg.Type != "hello" {
 		log.Printf("Received unknown hello response %+v", msg)
-		c.sendHelloLocked(c.helloAuth)
+		if err := c.sendHelloLocked(c.helloAuth); err != nil {
+			c.closeWithError(err)
+		}
 		return
 	}
 
