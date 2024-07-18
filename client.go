@@ -365,7 +365,7 @@ func (c *Client) ReadPump() {
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
 			// Gorilla websocket hides the original net.Error, so also compare error messages
-			if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), net.ErrClosed.Error()) {
+			if errors.Is(err, net.ErrClosed) || errors.Is(err, websocket.ErrCloseSent) || strings.Contains(err.Error(), net.ErrClosed.Error()) {
 				break
 			} else if _, ok := err.(*websocket.CloseError); !ok || websocket.IsUnexpectedCloseError(err,
 				websocket.CloseNormalClosure,

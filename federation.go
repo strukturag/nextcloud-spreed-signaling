@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,7 +159,7 @@ func (c *FederationClient) Leave(message *ClientMessage) error {
 		}
 	}
 
-	if err := c.sendMessageLocked(message); err != nil {
+	if err := c.sendMessageLocked(message); err != nil && !errors.Is(err, websocket.ErrCloseSent) {
 		return err
 	}
 
@@ -176,8 +177,14 @@ func (c *FederationClient) Close() {
 
 	if err := c.sendMessageLocked(&ClientMessage{
 		Type: "bye",
-	}); err != nil {
+	}); err != nil && !errors.Is(err, websocket.ErrCloseSent) {
 		log.Printf("Error sending bye on federation connection to %s: %s", c.URL(), err)
+	}
+
+	closeMessage := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
+	deadline := time.Now().Add(writeWait)
+	if err := c.conn.WriteControl(websocket.CloseMessage, closeMessage, deadline); err != nil && !errors.Is(err, websocket.ErrCloseSent) {
+		log.Printf("Error sending close message on federation connection to %s: %s", c.URL(), err)
 	}
 
 	if err := c.conn.Close(); err != nil {
@@ -211,6 +218,13 @@ func (c *FederationClient) readPump() {
 		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 		msgType, data, err := conn.ReadMessage()
 		if err != nil {
+			// Gorilla websocket hides the original net.Error, so also compare error messages
+			if c.closer.IsClosed() && (errors.Is(err, net.ErrClosed) || errors.Is(err, websocket.ErrCloseSent) || strings.Contains(err.Error(), net.ErrClosed.Error())) {
+				break
+			} else if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
+				break
+			}
+
 			log.Printf("Error reading: %s", err)
 			break
 		}
