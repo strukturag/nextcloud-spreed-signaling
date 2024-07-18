@@ -47,6 +47,8 @@ type FederationClient struct {
 	message atomic.Pointer[ClientMessage]
 
 	roomId        string
+	remoteRoomId  string
+	changeRoomId  bool
 	roomSessionId string
 	federation    *RoomFederationMessage
 
@@ -102,10 +104,17 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 		return nil, ErrFederationNotSupported
 	}
 
+	remoteRoomId := room.Federation.RoomId
+	if remoteRoomId == "" {
+		remoteRoomId = room.RoomId
+	}
+
 	result := &FederationClient{
 		session: session,
 
 		roomId:        room.RoomId,
+		remoteRoomId:  remoteRoomId,
+		changeRoomId:  room.RoomId != remoteRoomId,
 		roomSessionId: room.SessionId,
 		federation:    room.Federation,
 
@@ -363,7 +372,7 @@ func (c *FederationClient) joinRoom() error {
 		Id:   id,
 		Type: "room",
 		Room: &RoomClientMessage{
-			RoomId:    c.roomId,
+			RoomId:    c.remoteRoomId,
 			SessionId: c.roomSessionId,
 		},
 	})
@@ -386,13 +395,13 @@ func (c *FederationClient) updateEventUsers(users []map[string]interface{}, loca
 	}
 }
 
-func (c *FederationClient) updateRecipient(recipient *MessageClientMessageRecipient, localSessionId string, remoteSessionId string) {
+func (c *FederationClient) updateSessionRecipient(recipient *MessageClientMessageRecipient, localSessionId string, remoteSessionId string) {
 	if recipient != nil && recipient.Type == RecipientTypeSession && remoteSessionId != "" && recipient.SessionId == remoteSessionId {
 		recipient.SessionId = localSessionId
 	}
 }
 
-func (c *FederationClient) updateSender(sender *MessageServerMessageSender, localSessionId string, remoteSessionId string) {
+func (c *FederationClient) updateSessionSender(sender *MessageServerMessageSender, localSessionId string, remoteSessionId string) {
 	if sender != nil && sender.Type == RecipientTypeSession && remoteSessionId != "" && sender.SessionId == remoteSessionId {
 		sender.SessionId = localSessionId
 	}
@@ -408,20 +417,30 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 	var doClose bool
 	switch msg.Type {
 	case "control":
-		c.updateRecipient(msg.Control.Recipient, localSessionId, remoteSessionId)
-		c.updateSender(msg.Control.Sender, localSessionId, remoteSessionId)
+		c.updateSessionRecipient(msg.Control.Recipient, localSessionId, remoteSessionId)
+		c.updateSessionSender(msg.Control.Sender, localSessionId, remoteSessionId)
 	case "event":
 		switch msg.Event.Target {
 		case "participants":
 			switch msg.Event.Type {
 			case "update":
+				if c.changeRoomId && msg.Event.Update.RoomId == c.remoteRoomId {
+					msg.Event.Update.RoomId = c.roomId
+				}
 				if remoteSessionId != "" {
 					c.updateEventUsers(msg.Event.Update.Changed, localSessionId, remoteSessionId)
 					c.updateEventUsers(msg.Event.Update.Users, localSessionId, remoteSessionId)
 				}
 			case "flags":
+				if c.changeRoomId && msg.Event.Flags.RoomId == c.remoteRoomId {
+					msg.Event.Flags.RoomId = c.roomId
+				}
 				if remoteSessionId != "" && msg.Event.Flags.SessionId == remoteSessionId {
 					msg.Event.Flags.SessionId = localSessionId
+				}
+			case "message":
+				if c.changeRoomId && msg.Event.Message.RoomId == c.remoteRoomId {
+					msg.Event.Message.RoomId = c.roomId
 				}
 			}
 		case "room":
@@ -447,15 +466,36 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 						}
 					}
 				}
+			case "message":
+				if c.changeRoomId && msg.Event.Message.RoomId == c.remoteRoomId {
+					msg.Event.Message.RoomId = c.roomId
+				}
+			}
+		case "roomlist":
+			switch msg.Event.Type {
+			case "invite":
+				if c.changeRoomId && msg.Event.Invite.RoomId == c.remoteRoomId {
+					msg.Event.Invite.RoomId = c.roomId
+				}
+			case "disinvite":
+				if c.changeRoomId && msg.Event.Disinvite.RoomId == c.remoteRoomId {
+					msg.Event.Disinvite.RoomId = c.roomId
+				}
+			case "update":
+				if c.changeRoomId && msg.Event.Update.RoomId == c.remoteRoomId {
+					msg.Event.Update.RoomId = c.roomId
+				}
 			}
 		}
 	case "room":
 		if msg.Room.RoomId == "" && c.closeOnLeave.Load() {
 			doClose = true
+		} else if c.changeRoomId && msg.Room.RoomId == c.remoteRoomId {
+			msg.Room.RoomId = c.roomId
 		}
 	case "message":
-		c.updateRecipient(msg.Message.Recipient, localSessionId, remoteSessionId)
-		c.updateSender(msg.Message.Sender, localSessionId, remoteSessionId)
+		c.updateSessionRecipient(msg.Message.Recipient, localSessionId, remoteSessionId)
+		c.updateSessionSender(msg.Message.Sender, localSessionId, remoteSessionId)
 		if remoteSessionId != "" && len(msg.Message.Data) > 0 {
 			var ao AnswerOfferMessage
 			if json.Unmarshal(msg.Message.Data, &ao) == nil && (ao.Type == "offer" || ao.Type == "answer") {
@@ -488,7 +528,7 @@ func (c *FederationClient) ProxyMessage(message *ClientMessage) error {
 	switch message.Type {
 	case "message":
 		if hello := c.hello.Load(); hello != nil {
-			c.updateRecipient(&message.Message.Recipient, hello.SessionId, c.session.PublicId())
+			c.updateSessionRecipient(&message.Message.Recipient, hello.SessionId, c.session.PublicId())
 		}
 	}
 

@@ -96,6 +96,7 @@ func Test_Federation(t *testing.T) {
 	require.NoError(err)
 
 	roomId := "test-room"
+	federatedRoomId := roomId + "@federated"
 	room1, err := client1.JoinRoom(ctx, roomId)
 	require.NoError(err)
 	require.Equal(roomId, room1.Room.RoomId)
@@ -110,11 +111,12 @@ func Test_Federation(t *testing.T) {
 		Id:   "join-room-fed",
 		Type: "room",
 		Room: &RoomClientMessage{
-			RoomId:    roomId,
-			SessionId: roomId + "-" + hello2.Hello.SessionId,
+			RoomId:    federatedRoomId,
+			SessionId: federatedRoomId + "-" + hello2.Hello.SessionId,
 			Federation: &RoomFederationMessage{
 				SignalingUrl: server1.URL + "/spreed",
 				NextcloudUrl: server1.URL,
+				RoomId:       roomId,
 				Token:        token,
 			},
 		},
@@ -124,7 +126,7 @@ func Test_Federation(t *testing.T) {
 	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
 		assert.Equal(msg.Id, message.Id)
 		require.Equal("room", message.Type)
-		require.Equal(roomId, message.Room.RoomId)
+		require.Equal(federatedRoomId, message.Room.RoomId)
 	}
 
 	// The client1 will see the remote session id for client2.
@@ -171,7 +173,7 @@ func Test_Federation(t *testing.T) {
 	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
 		assert.Equal(msg.Id, message.Id)
 		require.Equal("room", message.Type)
-		require.Equal(roomId, message.Room.RoomId)
+		require.Equal(federatedRoomId, message.Room.RoomId)
 	}
 
 	// Client1 will receive the updated "remoteSessionId"
@@ -277,9 +279,11 @@ func Test_Federation(t *testing.T) {
 	var event *EventServerMessage
 	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", &event))
 	assert.Equal(remoteSessionId, event.Update.Users[0]["sessionId"])
+	assert.Equal(roomId, event.Update.RoomId)
 
 	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", &event))
 	assert.Equal(hello2.Hello.SessionId, event.Update.Users[0]["sessionId"])
+	assert.Equal(federatedRoomId, event.Update.RoomId)
 
 	// Joining another "direct" session will trigger correct events.
 

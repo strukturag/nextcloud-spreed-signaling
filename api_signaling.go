@@ -617,7 +617,8 @@ type RoomFederationMessage struct {
 	NextcloudUrl       string `json:"url"`
 	parsedNextcloudUrl *url.URL
 
-	Token string `json:"token"`
+	RoomId string `json:"roomid,omitempty"`
+	Token  string `json:"token"`
 }
 
 func (m *RoomFederationMessage) CheckValid() error {

@@ -916,6 +916,8 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling7(in *jlex
 			out.SignalingUrl = string(in.String())
 		case "url":
 			out.NextcloudUrl = string(in.String())
+		case "roomid":
+			out.RoomId = string(in.String())
 		case "token":
 			out.Token = string(in.String())
 		default:
@@ -941,6 +943,11 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling7(out *jwr
 		const prefix string = ",\"url\":"
 		out.RawString(prefix)
 		out.String(string(in.NextcloudUrl))
+	}
+	if in.RoomId != "" {
+		const prefix string = ",\"roomid\":"
+		out.RawString(prefix)
+		out.String(string(in.RoomId))
 	}
 	{
 		const prefix string = ",\"token\":"
