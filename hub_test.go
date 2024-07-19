@@ -2422,9 +2422,7 @@ func TestClientHelloClient_V3Api(t *testing.T) {
 	params := TestBackendClientAuthParams{
 		UserId: testDefaultUserId,
 	}
-	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
-	// feature is returned by the capabilities endpoint.
-	if err := client.SendHelloParams(server.URL+"/ocs/v2.php/apps/spreed/api/v1/signaling/backend", HelloVersionV1, "client", nil, params); err != nil {
+	if err := client.SendHelloParams(server.URL, HelloVersionV1, "client", nil, params); err != nil {
 		t.Fatal(err)
 	}
 

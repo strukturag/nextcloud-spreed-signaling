@@ -26,6 +26,7 @@ import (
 	"context"
 	"net/url"
 	"reflect"
+	"slices"
 	"sort"
 	"testing"
 
@@ -530,8 +531,8 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 
 	if backends := sortBackends(cfg.GetBackends()); len(backends) != 1 {
 		t.Errorf("Expected one backend, got %+v", backends)
-	} else if backends[0].url != url1 {
-		t.Errorf("Expected backend url %s, got %s", url1, backends[0].url)
+	} else if !slices.Equal(backends[0].urls, []string{url1}) {
+		t.Errorf("Expected backend url %s, got %v", url1, backends[0].urls)
 	} else if string(backends[0].secret) != initialSecret1 {
 		t.Errorf("Expected backend secret %s, got %s", initialSecret1, string(backends[0].secret))
 	} else if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
@@ -543,8 +544,8 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); len(backends) != 1 {
 		t.Errorf("Expected one backend, got %+v", backends)
-	} else if backends[0].url != url1 {
-		t.Errorf("Expected backend url %s, got %s", url1, backends[0].url)
+	} else if !slices.Equal(backends[0].urls, []string{url1}) {
+		t.Errorf("Expected backend url %s, got %v", url1, backends[0].urls)
 	} else if string(backends[0].secret) != secret1 {
 		t.Errorf("Expected backend secret %s, got %s", secret1, string(backends[0].secret))
 	} else if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
@@ -559,12 +560,12 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); len(backends) != 2 {
 		t.Errorf("Expected two backends, got %+v", backends)
-	} else if backends[0].url != url1 {
-		t.Errorf("Expected backend url %s, got %s", url1, backends[0].url)
+	} else if !slices.Equal(backends[0].urls, []string{url1}) {
+		t.Errorf("Expected backend url %s, got %v", url1, backends[0].urls)
 	} else if string(backends[0].secret) != secret1 {
 		t.Errorf("Expected backend secret %s, got %s", secret1, string(backends[0].secret))
-	} else if backends[1].url != url2 {
-		t.Errorf("Expected backend url %s, got %s", url2, backends[1].url)
+	} else if !slices.Equal(backends[1].urls, []string{url2}) {
+		t.Errorf("Expected backend url %s, got %v", url2, backends[1].urls)
 	} else if string(backends[1].secret) != secret2 {
 		t.Errorf("Expected backend secret %s, got %s", secret2, string(backends[1].secret))
 	} else if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
@@ -581,16 +582,16 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); len(backends) != 3 {
 		t.Errorf("Expected three backends, got %+v", backends)
-	} else if backends[0].url != url1 {
-		t.Errorf("Expected backend url %s, got %s", url1, backends[0].url)
+	} else if !slices.Equal(backends[0].urls, []string{url1}) {
+		t.Errorf("Expected backend url %s, got %v", url1, backends[0].urls)
 	} else if string(backends[0].secret) != secret1 {
 		t.Errorf("Expected backend secret %s, got %s", secret1, string(backends[0].secret))
-	} else if backends[1].url != url2 {
-		t.Errorf("Expected backend url %s, got %s", url2, backends[1].url)
+	} else if !slices.Equal(backends[1].urls, []string{url2}) {
+		t.Errorf("Expected backend url %s, got %v", url2, backends[1].urls)
 	} else if string(backends[1].secret) != secret2 {
 		t.Errorf("Expected backend secret %s, got %s", secret2, string(backends[1].secret))
-	} else if backends[2].url != url3 {
-		t.Errorf("Expected backend url %s, got %s", url3, backends[2].url)
+	} else if !slices.Equal(backends[2].urls, []string{url3}) {
+		t.Errorf("Expected backend url %s, got %v", url3, backends[2].urls)
 	} else if string(backends[2].secret) != secret3 {
 		t.Errorf("Expected backend secret %s, got %s", secret3, string(backends[2].secret))
 	} else if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
@@ -606,12 +607,12 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); len(backends) != 2 {
 		t.Errorf("Expected two backends, got %+v", backends)
-	} else if backends[0].url != url2 {
-		t.Errorf("Expected backend url %s, got %s", url2, backends[0].url)
+	} else if !slices.Equal(backends[0].urls, []string{url2}) {
+		t.Errorf("Expected backend url %s, got %v", url2, backends[0].urls)
 	} else if string(backends[0].secret) != secret2 {
 		t.Errorf("Expected backend secret %s, got %s", secret2, string(backends[0].secret))
-	} else if backends[1].url != url3 {
-		t.Errorf("Expected backend url %s, got %s", url3, backends[1].url)
+	} else if !slices.Equal(backends[1].urls, []string{url3}) {
+		t.Errorf("Expected backend url %s, got %v", url3, backends[1].urls)
 	} else if string(backends[1].secret) != secret3 {
 		t.Errorf("Expected backend secret %s, got %s", secret3, string(backends[1].secret))
 	}
@@ -621,8 +622,8 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	<-ch
 	if backends := sortBackends(cfg.GetBackends()); len(backends) != 1 {
 		t.Errorf("Expected one backend, got %+v", backends)
-	} else if backends[0].url != url3 {
-		t.Errorf("Expected backend url %s, got %s", url3, backends[0].url)
+	} else if !slices.Equal(backends[0].urls, []string{url3}) {
+		t.Errorf("Expected backend url %s, got %v", url3, backends[0].urls)
 	} else if string(backends[0].secret) != secret3 {
 		t.Errorf("Expected backend secret %s, got %s", secret3, string(backends[0].secret))
 	}

@@ -29,6 +29,7 @@ import (
 	"log"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -917,6 +918,20 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 			continue
 		}
 
+		u += PathToOcsSignalingBackend
+		parsed, err := url.Parse(u)
+		if err != nil {
+			log.Printf("Could not parse backend url %s: %s", u, err)
+			continue
+		}
+
+		if strings.Contains(parsed.Host, ":") && hasStandardPort(parsed) {
+			parsed.Host = parsed.Hostname()
+		}
+
+		u = parsed.String()
+		parsedBackendUrl := parsed
+
 		var sid string
 		var uid string
 		switch sess := session.(type) {
@@ -936,12 +951,11 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 		}
 		e, found := entries[u]
 		if !found {
-			p := session.ParsedBackendUrl()
-			if p == nil {
+			if parsedBackendUrl == nil {
 				// Should not happen, invalid URLs should get rejected earlier.
 				continue
 			}
-			urls[u] = p
+			urls[u] = parsedBackendUrl
 		}
 
 		entries[u] = append(e, BackendPingEntry{

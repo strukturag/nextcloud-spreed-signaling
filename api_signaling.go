@@ -340,11 +340,17 @@ type ClientTypeInternalAuthParams struct {
 func (p *ClientTypeInternalAuthParams) CheckValid() error {
 	if p.Backend == "" {
 		return fmt.Errorf("backend missing")
-	} else if u, err := url.Parse(p.Backend); err != nil {
+	}
+
+	if p.Backend[len(p.Backend)-1] != '/' {
+		p.Backend += "/"
+	}
+	if u, err := url.Parse(p.Backend); err != nil {
 		return err
 	} else {
 		if strings.Contains(u.Host, ":") && hasStandardPort(u) {
 			u.Host = u.Hostname()
+			p.Backend = u.String()
 		}
 
 		p.parsedBackend = u
@@ -411,11 +417,17 @@ func (m *HelloClientMessage) CheckValid() error {
 		case HelloClientTypeClient:
 			if m.Auth.Url == "" {
 				return fmt.Errorf("url missing")
-			} else if u, err := url.ParseRequestURI(m.Auth.Url); err != nil {
+			}
+
+			if m.Auth.Url[len(m.Auth.Url)-1] != '/' {
+				m.Auth.Url += "/"
+			}
+			if u, err := url.ParseRequestURI(m.Auth.Url); err != nil {
 				return err
 			} else {
 				if strings.Contains(u.Host, ":") && hasStandardPort(u) {
 					u.Host = u.Hostname()
+					m.Auth.Url = u.String()
 				}
 
 				m.Auth.parsedUrl = u

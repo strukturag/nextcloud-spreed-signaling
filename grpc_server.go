@@ -175,7 +175,7 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 
 	result := &IsSessionInCallReply{}
 	room := session.GetRoom()
-	if room == nil || room.Id() != request.GetRoomId() || room.Backend().url != request.GetBackendUrl() ||
+	if room == nil || room.Id() != request.GetRoomId() || !room.Backend().HasUrl(request.GetBackendUrl()) ||
 		(session.ClientType() != HelloClientTypeInternal && !room.IsSessionInCall(session)) {
 		// Recipient is not in a room, a different room or not in the call.
 		result.InCall = false

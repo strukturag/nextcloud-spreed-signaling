@@ -37,8 +37,7 @@ func TestVirtualSession(t *testing.T) {
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
 	backend := &Backend{
-		id:     "compat",
-		compat: true,
+		id: "compat",
 	}
 	room, err := hub.createRoom(roomId, emptyProperties, backend)
 	if err != nil {
@@ -347,8 +346,7 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
 	backend := &Backend{
-		id:     "compat",
-		compat: true,
+		id: "compat",
 	}
 	room, err := hub.createRoom(roomId, emptyProperties, backend)
 	if err != nil {
@@ -580,8 +578,7 @@ func TestVirtualSessionCleanup(t *testing.T) {
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
 	backend := &Backend{
-		id:     "compat",
-		compat: true,
+		id: "compat",
 	}
 	room, err := hub.createRoom(roomId, emptyProperties, backend)
 	if err != nil {
