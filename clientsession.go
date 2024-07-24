@@ -348,7 +348,7 @@ func (s *ClientSession) SetFederationClient(federation *FederationClient) {
 	s.doLeaveRoom(true)
 	s.onRoomSet(federation != nil)
 
-	if prev := s.federation.Swap(federation); prev != nil {
+	if prev := s.federation.Swap(federation); prev != nil && prev != federation {
 		prev.Close()
 	}
 }

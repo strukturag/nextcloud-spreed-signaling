@@ -576,6 +576,44 @@ Message format (Server -> Client):
 Also the error codes from joining a regular room could be returned.
 
 
+### Events
+
+The signaling server tries to resume the internal proxy session if the
+connection to the remote server gets interrupted. To notify clients about these
+interruptions, two additional events may be sent from the server to the client:
+
+Connection was interrupted (Server -> Client):
+
+    {
+      "type": "event",
+      "event": {
+        "target": "room",
+        "type": "federation_interrupted"
+      }
+    }
+
+
+Connection was resumed (Server -> Client):
+
+    {
+      "type": "event",
+      "event": {
+        "target": "room",
+        "type": "federation_resumed",
+        "resumed": true
+      }
+    }
+
+The `resumed` flag will be `true` if the existing internal session could be
+resumed (i.e. the client stayed in the remote room), or `false` if a new
+internal session was created.
+
+If a new internal session was created, the client will receive another `room`
+event for the joined room and `join` events for the different participants in
+the room.  This should be handled the same as if the direct session could not
+be resumed on reconnect.
+
+
 ## Leave room
 
 To leave a room, a [join room](#join-room) message must be sent with an empty

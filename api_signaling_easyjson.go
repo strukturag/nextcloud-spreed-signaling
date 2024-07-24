@@ -4129,6 +4129,16 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				}
 				(*out.SwitchTo).UnmarshalEasyJSON(in)
 			}
+		case "resumed":
+			if in.IsNull() {
+				in.Skip()
+				out.Resumed = nil
+			} else {
+				if out.Resumed == nil {
+					out.Resumed = new(bool)
+				}
+				*out.Resumed = bool(in.Bool())
+			}
 		case "invite":
 			if in.IsNull() {
 				in.Skip()
@@ -4257,6 +4267,11 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling36(out *jw
 		const prefix string = ",\"switchto\":"
 		out.RawString(prefix)
 		(*in.SwitchTo).MarshalEasyJSON(out)
+	}
+	if in.Resumed != nil {
+		const prefix string = ",\"resumed\":"
+		out.RawString(prefix)
+		out.Bool(bool(*in.Resumed))
 	}
 	if in.Invite != nil {
 		const prefix string = ",\"invite\":"

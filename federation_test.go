@@ -472,3 +472,251 @@ func Test_FederationMedia(t *testing.T) {
 		UserId:    hello2.Hello.UserId,
 	}))
 }
+
+func Test_FederationResume(t *testing.T) {
+	CatchLogForTest(t)
+
+	assert := assert.New(t)
+	require := require.New(t)
+
+	hub1, hub2, server1, server2 := CreateClusteredHubsForTest(t)
+
+	client1 := NewTestClient(t, server1, hub1)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHelloV2(testDefaultUserId + "1"))
+
+	client2 := NewTestClient(t, server2, hub2)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloV2(testDefaultUserId + "2"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello1, err := client1.RunUntilHello(ctx)
+	require.NoError(err)
+
+	hello2, err := client2.RunUntilHello(ctx)
+	require.NoError(err)
+
+	roomId := "test-room"
+	federatedRoomId := roomId + "@federated"
+	room1, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, room1.Room.RoomId)
+
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
+
+	now := time.Now()
+	token, err := client1.CreateHelloV2Token(testDefaultUserId+"2", now, now.Add(time.Minute))
+	require.NoError(err)
+
+	msg := &ClientMessage{
+		Id:   "join-room-fed",
+		Type: "room",
+		Room: &RoomClientMessage{
+			RoomId:    federatedRoomId,
+			SessionId: federatedRoomId + "-" + hello2.Hello.SessionId,
+			Federation: &RoomFederationMessage{
+				SignalingUrl: server1.URL,
+				NextcloudUrl: server1.URL,
+				RoomId:       roomId,
+				Token:        token,
+			},
+		},
+	}
+	require.NoError(client2.WriteJSON(msg))
+
+	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal(msg.Id, message.Id)
+		require.Equal("room", message.Type)
+		require.Equal(federatedRoomId, message.Room.RoomId)
+	}
+
+	// The client1 will see the remote session id for client2.
+	var remoteSessionId string
+	if message, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(client1.checkSingleMessageJoined(message))
+		evt := message.Event.Join[0]
+		remoteSessionId = evt.SessionId
+		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
+		assert.Equal(testDefaultUserId+"2", evt.UserId)
+	}
+
+	// The client2 will see its own session id, not the one from the remote server.
+	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
+
+	session2 := hub2.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+	fed2 := session2.GetFederationClient()
+	require.NotNil(fed2)
+	fed2.mu.Lock()
+	err = fed2.conn.Close()
+
+	data2 := "from-2-to-1"
+	assert.NoError(client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, data2))
+	fed2.mu.Unlock()
+	assert.NoError(err)
+
+	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("event", message.Type)
+		assert.Equal("room", message.Event.Target)
+		assert.Equal("federation_interrupted", message.Event.Type)
+	}
+
+	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("event", message.Type)
+		assert.Equal("room", message.Event.Target)
+		assert.Equal("federation_resumed", message.Event.Type)
+		assert.NotNil(message.Event.Resumed)
+		assert.True(*message.Event.Resumed)
+	}
+
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel1()
+
+	var payload string
+	if assert.NoError(checkReceiveClientMessage(ctx, client1, "session", &HelloServerMessage{
+		SessionId: remoteSessionId,
+		UserId:    testDefaultUserId + "2",
+	}, &payload)) {
+		assert.Equal(data2, payload)
+	}
+
+	if message, err := client1.RunUntilMessage(ctx1); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+		assert.NoError(err)
+	} else {
+		assert.Nil(message)
+	}
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel2()
+
+	if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+		assert.NoError(err)
+	} else {
+		assert.Nil(message)
+	}
+}
+
+func Test_FederationResumeNewSession(t *testing.T) {
+	CatchLogForTest(t)
+
+	assert := assert.New(t)
+	require := require.New(t)
+
+	hub1, hub2, server1, server2 := CreateClusteredHubsForTest(t)
+
+	client1 := NewTestClient(t, server1, hub1)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHelloV2(testDefaultUserId + "1"))
+
+	client2 := NewTestClient(t, server2, hub2)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloV2(testDefaultUserId + "2"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello1, err := client1.RunUntilHello(ctx)
+	require.NoError(err)
+
+	hello2, err := client2.RunUntilHello(ctx)
+	require.NoError(err)
+
+	roomId := "test-room"
+	federatedRoomId := roomId + "@federated"
+	room1, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, room1.Room.RoomId)
+
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
+
+	now := time.Now()
+	token, err := client1.CreateHelloV2Token(testDefaultUserId+"2", now, now.Add(time.Minute))
+	require.NoError(err)
+
+	msg := &ClientMessage{
+		Id:   "join-room-fed",
+		Type: "room",
+		Room: &RoomClientMessage{
+			RoomId:    federatedRoomId,
+			SessionId: federatedRoomId + "-" + hello2.Hello.SessionId,
+			Federation: &RoomFederationMessage{
+				SignalingUrl: server1.URL,
+				NextcloudUrl: server1.URL,
+				RoomId:       roomId,
+				Token:        token,
+			},
+		},
+	}
+	require.NoError(client2.WriteJSON(msg))
+
+	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal(msg.Id, message.Id)
+		require.Equal("room", message.Type)
+		require.Equal(federatedRoomId, message.Room.RoomId)
+	}
+
+	// The client1 will see the remote session id for client2.
+	var remoteSessionId string
+	if message, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(client1.checkSingleMessageJoined(message))
+		evt := message.Event.Join[0]
+		remoteSessionId = evt.SessionId
+		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
+		assert.Equal(hello2.Hello.UserId, evt.UserId)
+	}
+
+	// The client2 will see its own session id, not the one from the remote server.
+	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
+
+	remoteSession2 := hub1.GetSessionByPublicId(remoteSessionId).(*ClientSession)
+	// Simulate disconnected federated client with an expired session.
+	if client := remoteSession2.GetClient(); client != nil {
+		remoteSession2.ClearClient(client)
+		client.Close()
+	}
+	remoteSession2.Close()
+
+	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("event", message.Type)
+		assert.Equal("room", message.Event.Target)
+		assert.Equal("federation_interrupted", message.Event.Type)
+	}
+
+	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("event", message.Type)
+		assert.Equal("room", message.Event.Target)
+		assert.Equal("federation_resumed", message.Event.Type)
+		assert.NotNil(message.Event.Resumed)
+		assert.False(*message.Event.Resumed)
+	}
+
+	// Client1 will get a "leave" for the expired session and a "join" with the
+	// new remote session id.
+	assert.NoError(client1.RunUntilLeft(ctx, &HelloServerMessage{
+		SessionId: remoteSessionId,
+		UserId:    hello2.Hello.UserId,
+	}))
+	if message, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(client1.checkSingleMessageJoined(message))
+		evt := message.Event.Join[0]
+		assert.NotEqual(remoteSessionId, evt.SessionId)
+		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
+		remoteSessionId = evt.SessionId
+		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
+		assert.Equal(hello2.Hello.UserId, evt.UserId)
+	}
+
+	// client2 will join the room again after the reconnect with the new
+	// session and get "joined" events for all sessions in the room (including
+	// its own).
+	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("", message.Id)
+		require.Equal("room", message.Type)
+		require.Equal(federatedRoomId, message.Room.RoomId)
+	}
+	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
+}

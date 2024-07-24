@@ -48,6 +48,10 @@ var (
 	ErrInvalidSdp = NewError("invalid_sdp", "Payload does not contain a valid SDP.")
 )
 
+func makePtr[T any](v T) *T {
+	return &v
+}
+
 // ClientMessage is a message that is sent from a client to the server.
 type ClientMessage struct {
 	json.Marshaler
@@ -1024,6 +1028,7 @@ type EventServerMessage struct {
 	Leave    []string                          `json:"leave,omitempty"`
 	Change   []*EventServerMessageSessionEntry `json:"change,omitempty"`
 	SwitchTo *EventServerMessageSwitchTo       `json:"switchto,omitempty"`
+	Resumed  *bool                             `json:"resumed,omitempty"`
 
 	// Used for target "roomlist" / "participants"
 	Invite    *RoomEventServerMessage          `json:"invite,omitempty"`
