@@ -1281,6 +1281,10 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		tokenString = message.Hello.Auth.helloV2Params.Token
 		tokenClaims = &HelloV2TokenClaims{}
 	case HelloClientTypeFederation:
+		if !h.backend.capabilities.HasCapabilityFeature(ctx, url, FeatureFederationV2) {
+			return nil, nil, ErrFederationNotSupported
+		}
+
 		tokenString = message.Hello.Auth.federationParams.Token
 		tokenClaims = &FederationTokenClaims{}
 	default:

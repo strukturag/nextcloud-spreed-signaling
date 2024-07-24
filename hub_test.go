@@ -699,6 +699,9 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if strings.Contains(t.Name(), "V3Api") {
 			features = append(features, "signaling-v3")
 		}
+		if strings.Contains(t.Name(), "Federation") {
+			features = append(features, "federation-v2")
+		}
 		signaling := map[string]interface{}{
 			"foo": "bar",
 			"baz": 42,
