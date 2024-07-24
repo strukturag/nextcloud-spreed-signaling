@@ -36,10 +36,6 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
 
-    - name: Install dependencies
-      run: |
-        sudo apt -y update && sudo apt -y install protobuf-compiler
-
     - name: Build applications
       run: |
         echo "Building with $(nproc) threads"

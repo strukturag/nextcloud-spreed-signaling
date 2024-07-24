@@ -33,10 +33,6 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
 
-    - name: Install dependencies
-      run: |
-        sudo apt -y update && sudo apt -y install protobuf-compiler
-
     - name: Create tarball
       run: |
         echo "Building with $(nproc) threads"
@@ -60,10 +56,6 @@ jobs:
     - uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
-
-    - name: Install dependencies
-      run: |
-        sudo apt -y update && sudo apt -y install protobuf-compiler
 
     - name: Download tarball
       uses: actions/download-artifact@v4
