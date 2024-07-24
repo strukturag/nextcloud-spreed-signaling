@@ -32,6 +32,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/marcw/cachecontrol"
 )
 
 const (
@@ -41,16 +43,112 @@ const (
 	// Name of capability to enable the "v3" API for the signaling endpoint.
 	FeatureSignalingV3Api = "signaling-v3"
 
-	// Cache received capabilities for one hour.
-	CapabilitiesCacheDuration = time.Hour
-
 	// Don't invalidate more than once per minute.
 	maxInvalidateInterval = time.Minute
 )
 
 type capabilitiesEntry struct {
+	mu           sync.RWMutex
 	nextUpdate   time.Time
+	etag         string
 	capabilities map[string]interface{}
+}
+
+func newCapabilitiesEntry() *capabilitiesEntry {
+	return &capabilitiesEntry{}
+}
+
+func (e *capabilitiesEntry) valid(now time.Time) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return e.nextUpdate.After(now)
+}
+
+func (e *capabilitiesEntry) updateRequest(r *http.Request) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.etag != "" {
+		r.Header.Set("If-None-Match", e.etag)
+	}
+}
+
+func (e *capabilitiesEntry) invalidate() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.nextUpdate = time.Now()
+}
+
+func (e *capabilitiesEntry) update(response *http.Response, now time.Time) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	url := response.Request.URL
+	e.etag = response.Header.Get("ETag")
+
+	var maxAge time.Duration
+	if cacheControl := response.Header.Get("Cache-Control"); cacheControl != "" {
+		cc := cachecontrol.Parse(cacheControl)
+		maxAge = cc.MaxAge()
+	}
+	e.nextUpdate = now.Add(maxAge)
+
+	if response.StatusCode == http.StatusNotModified {
+		log.Printf("Capabilities %+v from %s have not changed", e.capabilities, url)
+		return nil
+	}
+
+	ct := response.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		log.Printf("Received unsupported content-type from %s: %s (%s)", url, ct, response.Status)
+		return ErrUnsupportedContentType
+	}
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Could not read response body from %s: %s", url, err)
+		return err
+	}
+
+	var ocs OcsResponse
+	if err := json.Unmarshal(body, &ocs); err != nil {
+		log.Printf("Could not decode OCS response %s from %s: %s", string(body), url, err)
+		return err
+	} else if ocs.Ocs == nil || len(ocs.Ocs.Data) == 0 {
+		log.Printf("Incomplete OCS response %s from %s", string(body), url)
+		return fmt.Errorf("incomplete OCS response")
+	}
+
+	var capaResponse CapabilitiesResponse
+	if err := json.Unmarshal(ocs.Ocs.Data, &capaResponse); err != nil {
+		log.Printf("Could not decode OCS response body %s from %s: %s", string(ocs.Ocs.Data), url, err)
+		return err
+	}
+
+	capaObj, found := capaResponse.Capabilities[AppNameSpreed]
+	if !found || len(capaObj) == 0 {
+		log.Printf("No capabilities received for app spreed from %s: %+v", url, capaResponse)
+		return nil
+	}
+
+	var capa map[string]interface{}
+	if err := json.Unmarshal(capaObj, &capa); err != nil {
+		log.Printf("Unsupported capabilities received for app spreed from %s: %+v", url, capaResponse)
+		return nil
+	}
+
+	log.Printf("Received capabilities %+v from %s", capa, url)
+	e.capabilities = capa
+	return nil
+}
+
+func (e *capabilitiesEntry) GetCapabilities() map[string]interface{} {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return e.capabilities
 }
 
 type Capabilities struct {
@@ -92,29 +190,17 @@ type CapabilitiesResponse struct {
 	Capabilities map[string]json.RawMessage `json:"capabilities"`
 }
 
-func (c *Capabilities) getCapabilities(key string) (map[string]interface{}, bool) {
+func (c *Capabilities) getCapabilities(key string) (*capabilitiesEntry, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	now := c.getNow()
-	if entry, found := c.entries[key]; found && entry.nextUpdate.After(now) {
-		return entry.capabilities, true
+	entry, found := c.entries[key]
+	if found && entry.valid(now) {
+		return entry, true
 	}
 
-	return nil, false
-}
-
-func (c *Capabilities) setCapabilities(key string, capabilities map[string]interface{}) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	now := c.getNow()
-	entry := &capabilitiesEntry{
-		nextUpdate:   now.Add(CapabilitiesCacheDuration),
-		capabilities: capabilities,
-	}
-
-	c.entries[key] = entry
+	return entry, false
 }
 
 func (c *Capabilities) invalidateCapabilities(key string) {
@@ -126,8 +212,24 @@ func (c *Capabilities) invalidateCapabilities(key string) {
 		return
 	}
 
-	delete(c.entries, key)
+	if entry, found := c.entries[key]; found {
+		entry.invalidate()
+	}
+
 	c.nextInvalidate[key] = now.Add(maxInvalidateInterval)
+}
+
+func (c *Capabilities) newCapabilitiesEntry(key string) *capabilitiesEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	entry, found := c.entries[key]
+	if !found {
+		entry = newCapabilitiesEntry()
+		c.entries[key] = entry
+	}
+
+	return entry
 }
 
 func (c *Capabilities) getKeyForUrl(u *url.URL) string {
@@ -137,8 +239,9 @@ func (c *Capabilities) getKeyForUrl(u *url.URL) string {
 
 func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (map[string]interface{}, bool, error) {
 	key := c.getKeyForUrl(u)
-	if caps, found := c.getCapabilities(key); found {
-		return caps, true, nil
+	entry, valid := c.getCapabilities(key)
+	if valid {
+		return entry.GetCapabilities(), true, nil
 	}
 
 	capUrl := *u
@@ -168,6 +271,9 @@ func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (map[st
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("OCS-APIRequest", "true")
 	req.Header.Set("User-Agent", "nextcloud-spreed-signaling/"+c.version)
+	if entry != nil {
+		entry.updateRequest(req)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -175,48 +281,15 @@ func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (map[st
 	}
 	defer resp.Body.Close()
 
-	ct := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(ct, "application/json") {
-		log.Printf("Received unsupported content-type from %s: %s (%s)", capUrl.String(), ct, resp.Status)
-		return nil, false, ErrUnsupportedContentType
+	if entry == nil {
+		entry = c.newCapabilitiesEntry(key)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("Could not read response body from %s: %s", capUrl.String(), err)
+	if err := entry.update(resp, c.getNow()); err != nil {
 		return nil, false, err
 	}
 
-	var ocs OcsResponse
-	if err := json.Unmarshal(body, &ocs); err != nil {
-		log.Printf("Could not decode OCS response %s from %s: %s", string(body), capUrl.String(), err)
-		return nil, false, err
-	} else if ocs.Ocs == nil || len(ocs.Ocs.Data) == 0 {
-		log.Printf("Incomplete OCS response %s from %s", string(body), u)
-		return nil, false, fmt.Errorf("incomplete OCS response")
-	}
-
-	var response CapabilitiesResponse
-	if err := json.Unmarshal(ocs.Ocs.Data, &response); err != nil {
-		log.Printf("Could not decode OCS response body %s from %s: %s", string(ocs.Ocs.Data), capUrl.String(), err)
-		return nil, false, err
-	}
-
-	capaObj, found := response.Capabilities[AppNameSpreed]
-	if !found || len(capaObj) == 0 {
-		log.Printf("No capabilities received for app spreed from %s: %+v", capUrl.String(), response)
-		return nil, false, nil
-	}
-
-	var capa map[string]interface{}
-	if err := json.Unmarshal(capaObj, &capa); err != nil {
-		log.Printf("Unsupported capabilities received for app spreed from %s: %+v", capUrl.String(), response)
-		return nil, false, nil
-	}
-
-	log.Printf("Received capabilities %+v from %s", capa, capUrl.String())
-	c.setCapabilities(key, capa)
-	return capa, false, nil
+	return entry.GetCapabilities(), false, nil
 }
 
 func (c *Capabilities) HasCapabilityFeature(ctx context.Context, u *url.URL, feature string) bool {
