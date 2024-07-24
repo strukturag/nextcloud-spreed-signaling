@@ -39,7 +39,7 @@ jobs:
 
       - name: Check for missing licenses
         run: |
-          MISSING=$(echo "$CHECK_RESULT" | grep UNKNOWN || true)
+          MISSING=$(echo "$CHECK_RESULT" | grep -v "_easyjson.go" | grep UNKNOWN || true)
           if [ -n "$MISSING" ]; then \
             echo "$MISSING"; \
             exit 1; \

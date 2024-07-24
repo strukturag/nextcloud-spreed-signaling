@@ -34,11 +34,6 @@ jobs:
 
     - run: date
 
-    - name: Install dependencies
-      run: |
-        sudo apt -y update && sudo apt -y install protobuf-compiler
-        make common
-
     - name: Install and run govulncheck
       run: |
         set -euo pipefail

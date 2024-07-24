@@ -95,20 +95,20 @@ get:
 fmt: hook | $(PROTO_GO_FILES)
 	$(GOFMT) -s -w *.go client proxy server
 
-vet: common
+vet:
 	$(GO) vet $(ALL_PACKAGES)
 
-test: vet common
+test: vet
 	$(GO) test -timeout $(TIMEOUT) $(TESTARGS) $(ALL_PACKAGES)
 
-cover: vet common
+cover: vet
 	rm -f cover.out && \
 	$(GO) test -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
 	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -func=cover.out
 
-coverhtml: vet common
+coverhtml: vet
 	rm -f cover.out && \
 	$(GO) test -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
 	sed -i "/_easyjson/d" cover.out && \
@@ -134,23 +134,21 @@ common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
 $(BINDIR):
 	mkdir -p "$(BINDIR)"
 
-client: common $(BINDIR)
+client: $(BINDIR)
 	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/client" ./client/...
 
-server: common $(BINDIR)
+server: $(BINDIR)
 	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/signaling" ./server/...
 
-proxy: common $(BINDIR)
+proxy: $(BINDIR)
 	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/proxy" ./proxy/...
 
 clean:
-	rm -f $(EASYJSON_GO_FILES)
 	rm -f easyjson-bootstrap*.go
-	rm -f $(PROTO_GO_FILES)
 
 build: server proxy
 
-vendor: go.mod go.sum common
+vendor: go.mod go.sum
 	set -e ;\
 	rm -rf $(VENDORDIR)
 	$(GO) mod vendor

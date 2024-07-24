@@ -6,7 +6,7 @@ WORKDIR /workdir
 
 COPY . .
 RUN touch /.dockerenv && \
-    apk add --no-cache bash git build-base protobuf && \
+    apk add --no-cache bash git make && \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} make server
 
 FROM alpine:3

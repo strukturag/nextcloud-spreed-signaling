@@ -1,0 +1,48 @@
+name: generated
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/generated.yml'
+      - 'api*.go'
+      - '*_easyjson.go'
+      - '*.pb.go'
+      - '*.proto'
+      - 'go.*'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/generated.yml'
+      - 'api*.go'
+      - '*_easyjson.go'
+      - '*.pb.go'
+      - '*.proto'
+      - 'go.*'
+
+permissions:
+  contents: read
+
+jobs:
+  check-generated:
+    name: check-generated
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Install dependencies
+        run: |
+          sudo apt -y update && sudo apt -y install protobuf-compiler
+
+      - name: Generate files
+        run: |
+          make common
+
+      - name: Check generated files
+        run: |
+          git add *.go
+          git diff --cached --exit-code *.go
