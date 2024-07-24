@@ -123,11 +123,13 @@ coverhtml: vet
 	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc \
 		--go_out=. --go_opt=paths=source_relative \
 		$*.proto
+	sed -i -e '1h;2,$$H;$$!d;g' -re 's|// versions.+// source:|// source:|' $*.pb.go
 
 %_grpc.pb.go: %.proto $(GOPATHBIN)/protoc-gen-go $(GOPATHBIN)/protoc-gen-go-grpc
 	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		$*.proto
+	sed -i -e '1h;2,$$H;$$!d;g' -re 's|// versions.+// source:|// source:|' $*_grpc.pb.go
 
 common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
 
