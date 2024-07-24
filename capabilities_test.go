@@ -26,6 +26,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -38,7 +39,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*CapabilitiesResponse, http.ResponseWriter)) (*url.URL, *Capabilities) {
+func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*CapabilitiesResponse, http.ResponseWriter) error) (*url.URL, *Capabilities) {
 	pool, err := NewHttpClientPool(1, false)
 	if err != nil {
 		t.Fatal(err)
@@ -106,8 +107,15 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 		if data, err = json.Marshal(ocs); err != nil {
 			t.Fatal(err)
 		}
+		var cc []string
 		if !strings.Contains(t.Name(), "NoCache") {
-			w.Header().Add("Cache-Control", "max-age=60")
+			cc = append(cc, "max-age=60")
+		}
+		if strings.Contains(t.Name(), "MustRevalidate") && !strings.Contains(t.Name(), "NoMustRevalidate") {
+			cc = append(cc, "must-revalidate")
+		}
+		if len(cc) > 0 {
+			w.Header().Add("Cache-Control", strings.Join(cc, ", "))
 		}
 		if strings.Contains(t.Name(), "ETag") {
 			h := sha256.New()
@@ -115,20 +123,27 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 			etag := fmt.Sprintf("\"%s\"", base64.StdEncoding.EncodeToString(h.Sum(nil)))
 			w.Header().Add("ETag", etag)
 			if inm := r.Header.Get("If-None-Match"); inm == etag {
-				w.WriteHeader(http.StatusNotModified)
 				if callback != nil {
-					callback(response, w)
+					if err := callback(response, w); err != nil {
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
 				}
 
+				w.WriteHeader(http.StatusNotModified)
 				return
 			}
 		}
 		w.Header().Add("Content-Type", "application/json")
+		if callback != nil {
+			if err := callback(response, w); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}
+
 		w.WriteHeader(http.StatusOK)
 		w.Write(data) // nolint
-		if callback != nil {
-			callback(response, w)
-		}
 	}
 	r.HandleFunc("/ocs/v2.php/cloud/capabilities", handleCapabilitiesFunc)
 
@@ -223,8 +238,9 @@ func TestInvalidateCapabilities(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
 	var called atomic.Uint32
-	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) {
+	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
 		called.Add(1)
+		return nil
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -297,8 +313,9 @@ func TestCapabilitiesNoCache(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
 	var called atomic.Uint32
-	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) {
+	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
 		called.Add(1)
+		return nil
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -334,7 +351,7 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
 	var called atomic.Uint32
-	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) {
+	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
 		ct := w.Header().Get("Content-Type")
 		switch called.Add(1) {
 		case 1:
@@ -346,6 +363,7 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 				t.Errorf("expected no content-type on second request, got %s", ct)
 			}
 		}
+		return nil
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -370,6 +388,88 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 		t.Errorf("expected value %s, got %s", expectedString, value)
 	} else if cached {
 		t.Errorf("expected direct response")
+	}
+
+	if value := called.Load(); value != 2 {
+		t.Errorf("expected called %d, got %d", 2, value)
+	}
+}
+
+func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	var called atomic.Uint32
+	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
+		if called.Add(1) == 2 {
+			return errors.New("trigger error")
+		}
+
+		return nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	expectedString := "bar"
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := called.Load(); value != 1 {
+		t.Errorf("expected called %d, got %d", 1, value)
+	}
+
+	// Expired capabilities can still be used even in case of update errors if
+	// "must-revalidate" is not set.
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := called.Load(); value != 2 {
+		t.Errorf("expected called %d, got %d", 2, value)
+	}
+}
+
+func TestCapabilitiesNoCacheMustRevalidate(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	var called atomic.Uint32
+	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
+		if called.Add(1) == 2 {
+			return errors.New("trigger error")
+		}
+
+		return nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	expectedString := "bar"
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := called.Load(); value != 1 {
+		t.Errorf("expected called %d, got %d", 1, value)
+	}
+
+	// Capabilities will be cleared if "must-revalidate" is set and an error
+	// occurs while fetching the updated data.
+	if value, _, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); found {
+		t.Errorf("should not have found value for \"foo\", got %s", value)
 	}
 
 	if value := called.Load(); value != 2 {

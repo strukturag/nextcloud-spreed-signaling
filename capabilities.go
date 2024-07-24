@@ -24,7 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -47,11 +47,16 @@ const (
 	maxInvalidateInterval = time.Minute
 )
 
+var (
+	ErrUnexpectedHttpStatus = errors.New("unexpected_http_status")
+)
+
 type capabilitiesEntry struct {
-	mu           sync.RWMutex
-	nextUpdate   time.Time
-	etag         string
-	capabilities map[string]interface{}
+	mu             sync.RWMutex
+	nextUpdate     time.Time
+	etag           string
+	mustRevalidate bool
+	capabilities   map[string]interface{}
 }
 
 func newCapabilitiesEntry() *capabilitiesEntry {
@@ -81,6 +86,15 @@ func (e *capabilitiesEntry) invalidate() {
 	e.nextUpdate = time.Now()
 }
 
+func (e *capabilitiesEntry) errorIfMustRevalidate(err error) error {
+	if !e.mustRevalidate {
+		return nil
+	}
+
+	e.capabilities = nil
+	return err
+}
+
 func (e *capabilitiesEntry) update(response *http.Response, now time.Time) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -91,51 +105,59 @@ func (e *capabilitiesEntry) update(response *http.Response, now time.Time) error
 	var maxAge time.Duration
 	if cacheControl := response.Header.Get("Cache-Control"); cacheControl != "" {
 		cc := cachecontrol.Parse(cacheControl)
-		maxAge = cc.MaxAge()
+		if nc, _ := cc.NoCache(); !nc {
+			maxAge = cc.MaxAge()
+		}
+		e.mustRevalidate = cc.MustRevalidate()
 	}
 	e.nextUpdate = now.Add(maxAge)
 
 	if response.StatusCode == http.StatusNotModified {
 		log.Printf("Capabilities %+v from %s have not changed", e.capabilities, url)
 		return nil
+	} else if response.StatusCode != http.StatusOK {
+		log.Printf("Received unexpected HTTP status from %s: %s", url, response.Status)
+		return e.errorIfMustRevalidate(ErrUnexpectedHttpStatus)
 	}
 
 	ct := response.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
 		log.Printf("Received unsupported content-type from %s: %s (%s)", url, ct, response.Status)
-		return ErrUnsupportedContentType
+		return e.errorIfMustRevalidate(ErrUnsupportedContentType)
 	}
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		log.Printf("Could not read response body from %s: %s", url, err)
-		return err
+		return e.errorIfMustRevalidate(err)
 	}
 
 	var ocs OcsResponse
 	if err := json.Unmarshal(body, &ocs); err != nil {
 		log.Printf("Could not decode OCS response %s from %s: %s", string(body), url, err)
-		return err
+		return e.errorIfMustRevalidate(err)
 	} else if ocs.Ocs == nil || len(ocs.Ocs.Data) == 0 {
 		log.Printf("Incomplete OCS response %s from %s", string(body), url)
-		return fmt.Errorf("incomplete OCS response")
+		return e.errorIfMustRevalidate(ErrIncompleteResponse)
 	}
 
 	var capaResponse CapabilitiesResponse
 	if err := json.Unmarshal(ocs.Ocs.Data, &capaResponse); err != nil {
 		log.Printf("Could not decode OCS response body %s from %s: %s", string(ocs.Ocs.Data), url, err)
-		return err
+		return e.errorIfMustRevalidate(err)
 	}
 
 	capaObj, found := capaResponse.Capabilities[AppNameSpreed]
 	if !found || len(capaObj) == 0 {
 		log.Printf("No capabilities received for app spreed from %s: %+v", url, capaResponse)
+		e.capabilities = nil
 		return nil
 	}
 
 	var capa map[string]interface{}
 	if err := json.Unmarshal(capaObj, &capa); err != nil {
 		log.Printf("Unsupported capabilities received for app spreed from %s: %+v", url, capaResponse)
+		e.capabilities = nil
 		return nil
 	}
 
