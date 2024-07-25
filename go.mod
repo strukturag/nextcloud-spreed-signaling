@@ -11,6 +11,7 @@ require (
 	github.com/gorilla/securecookie v1.1.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/mailru/easyjson v0.7.7
+	github.com/marcw/cachecontrol v0.0.0-20140722115028-30341fe9a7d5
 	github.com/nats-io/nats-server/v2 v2.10.18
 	github.com/nats-io/nats.go v1.36.0
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
