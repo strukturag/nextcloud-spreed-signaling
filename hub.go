@@ -1559,6 +1559,21 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		delete(h.anonymousSessions, session)
 		h.mu.Unlock()
 
+		if client := session.GetFederationClient(); client != nil {
+			if remoteRoomId, properties, found := client.IsSameRoom(message.Room); found {
+				// TODO: Do we need to update the remote room session id?
+				session.SendMessage(message.NewErrorServerMessage(
+					NewErrorDetail("already_joined", "Already joined this room.", &RoomErrorDetails{
+						Room: &RoomServerMessage{
+							RoomId:     remoteRoomId,
+							Properties: properties,
+						},
+					}),
+				))
+				return
+			}
+		}
+
 		ctx, cancel := context.WithTimeout(session.Context(), h.federationTimeout)
 		defer cancel()
 

@@ -53,11 +53,12 @@ type FederationClient struct {
 	session *ClientSession
 	message atomic.Pointer[ClientMessage]
 
-	roomId        string
-	remoteRoomId  string
-	changeRoomId  bool
-	roomSessionId string
-	federation    *RoomFederationMessage
+	roomId         string
+	remoteRoomId   string
+	changeRoomId   bool
+	roomSessionId  string
+	roomProperties atomic.Pointer[json.RawMessage]
+	federation     *RoomFederationMessage
 
 	mu             sync.Mutex
 	dialer         *websocket.Dialer
@@ -140,6 +141,25 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 
 func (c *FederationClient) URL() string {
 	return c.federation.parsedSignalingUrl.String()
+}
+
+func (c *FederationClient) IsSameRoom(room *RoomClientMessage) (string, json.RawMessage, bool) {
+	federation := room.Federation
+	remoteRoomId := federation.RoomId
+	if remoteRoomId == "" {
+		remoteRoomId = room.RoomId
+	}
+
+	if c.remoteRoomId != remoteRoomId || c.federation.NextcloudUrl != federation.NextcloudUrl {
+		return "", nil, false
+	}
+
+	var properties json.RawMessage
+	if roomProperties := c.roomProperties.Load(); roomProperties != nil {
+		properties = *roomProperties
+	}
+
+	return room.RoomId, properties, true
 }
 
 func (c *FederationClient) connect(ctx context.Context) error {
@@ -662,6 +682,11 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 			doClose = true
 		} else if c.changeRoomId && msg.Room.RoomId == c.remoteRoomId {
 			msg.Room.RoomId = c.roomId
+		}
+		if len(msg.Room.Properties) > 0 {
+			c.roomProperties.Store(&msg.Room.Properties)
+		} else {
+			c.roomProperties.Store(nil)
 		}
 	case "message":
 		c.updateSessionRecipient(msg.Message.Recipient, localSessionId, remoteSessionId)
