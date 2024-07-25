@@ -53,12 +53,10 @@ type FederationClient struct {
 	session *ClientSession
 	message atomic.Pointer[ClientMessage]
 
-	roomId         string
-	remoteRoomId   string
-	changeRoomId   bool
-	roomSessionId  string
-	roomProperties atomic.Pointer[json.RawMessage]
-	federation     *RoomFederationMessage
+	roomId       atomic.Value
+	remoteRoomId atomic.Value
+	changeRoomId atomic.Bool
+	federation   atomic.Pointer[RoomFederationMessage]
 
 	mu             sync.Mutex
 	dialer         *websocket.Dialer
@@ -111,18 +109,16 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 		hub:     hub,
 		session: session,
 
-		roomId:        room.RoomId,
-		remoteRoomId:  remoteRoomId,
-		changeRoomId:  room.RoomId != remoteRoomId,
-		roomSessionId: room.SessionId,
-		federation:    room.Federation,
-
 		reconnectDelay: initialFederationReconnectInterval,
 
 		dialer: &dialer,
 		url:    url,
 		closer: NewCloser(),
 	}
+	result.roomId.Store(room.RoomId)
+	result.remoteRoomId.Store(remoteRoomId)
+	result.changeRoomId.Store(room.RoomId != remoteRoomId)
+	result.federation.Store(room.Federation)
 	result.message.Store(message)
 
 	if err := result.connect(ctx); err != nil {
@@ -140,26 +136,13 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 }
 
 func (c *FederationClient) URL() string {
-	return c.federation.parsedSignalingUrl.String()
+	return c.federation.Load().parsedSignalingUrl.String()
 }
 
-func (c *FederationClient) IsSameRoom(room *RoomClientMessage) (string, json.RawMessage, bool) {
-	federation := room.Federation
-	remoteRoomId := federation.RoomId
-	if remoteRoomId == "" {
-		remoteRoomId = room.RoomId
-	}
-
-	if c.remoteRoomId != remoteRoomId || c.federation.NextcloudUrl != federation.NextcloudUrl {
-		return "", nil, false
-	}
-
-	var properties json.RawMessage
-	if roomProperties := c.roomProperties.Load(); roomProperties != nil {
-		properties = *roomProperties
-	}
-
-	return room.RoomId, properties, true
+func (c *FederationClient) CanReuse(federation *RoomFederationMessage) bool {
+	fed := c.federation.Load()
+	return fed.NextcloudUrl == federation.NextcloudUrl &&
+		fed.SignalingUrl == federation.SignalingUrl
 }
 
 func (c *FederationClient) connect(ctx context.Context) error {
@@ -206,6 +189,17 @@ func (c *FederationClient) connect(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (c *FederationClient) ChangeRoom(message *ClientMessage) error {
+	if message.Room == nil || message.Room.Federation == nil {
+		return fmt.Errorf("expected federation room message, got %+v", message)
+	} else if !c.CanReuse(message.Room.Federation) {
+		return fmt.Errorf("can't reuse federation client to join room in %+v", message)
+	}
+
+	c.message.Swap(message)
+	return c.joinRoom()
 }
 
 func (c *FederationClient) Leave(message *ClientMessage) error {
@@ -442,7 +436,7 @@ func (c *FederationClient) sendHelloLocked(auth *FederationAuthParams) error {
 	} else {
 		msg.Hello.Auth = &HelloClientMessageAuth{
 			Type:   HelloClientTypeFederation,
-			Url:    c.federation.NextcloudUrl,
+			Url:    c.federation.Load().NextcloudUrl,
 			Params: authData,
 		}
 	}
@@ -456,7 +450,7 @@ func (c *FederationClient) processWelcome(msg *ServerMessage) {
 	}
 
 	federationParams := &FederationAuthParams{
-		Token: c.federation.Token,
+		Token: c.federation.Load().Token,
 	}
 	if err := c.sendHello(federationParams); err != nil {
 		log.Printf("Error sending hello message to %s for %s: %s", c.URL(), c.session.PublicId(), err)
@@ -554,16 +548,24 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 }
 
 func (c *FederationClient) joinRoom() error {
-	var id string
-	if message := c.message.Swap(nil); message != nil {
-		id = message.Id
+	message := c.message.Load()
+	if message == nil {
+		// Should not happen as the connection has been closed with an error already.
+		return ErrNotConnected
 	}
+
+	room := message.Room
+	remoteRoomId := room.Federation.RoomId
+	if remoteRoomId == "" {
+		remoteRoomId = room.RoomId
+	}
+
 	return c.SendMessage(&ClientMessage{
-		Id:   id,
+		Id:   message.Id,
 		Type: "room",
 		Room: &RoomClientMessage{
-			RoomId:    c.remoteRoomId,
-			SessionId: c.roomSessionId,
+			RoomId:    remoteRoomId,
+			SessionId: room.SessionId,
 		},
 	})
 }
@@ -604,6 +606,9 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 		remoteSessionId = hello.SessionId
 	}
 
+	remoteRoomId := c.remoteRoomId.Load().(string)
+	roomId := c.roomId.Load().(string)
+
 	var doClose bool
 	switch msg.Type {
 	case "control":
@@ -614,23 +619,23 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 		case "participants":
 			switch msg.Event.Type {
 			case "update":
-				if c.changeRoomId && msg.Event.Update.RoomId == c.remoteRoomId {
-					msg.Event.Update.RoomId = c.roomId
+				if c.changeRoomId.Load() && msg.Event.Update.RoomId == remoteRoomId {
+					msg.Event.Update.RoomId = roomId
 				}
 				if remoteSessionId != "" {
 					c.updateEventUsers(msg.Event.Update.Changed, localSessionId, remoteSessionId)
 					c.updateEventUsers(msg.Event.Update.Users, localSessionId, remoteSessionId)
 				}
 			case "flags":
-				if c.changeRoomId && msg.Event.Flags.RoomId == c.remoteRoomId {
-					msg.Event.Flags.RoomId = c.roomId
+				if c.changeRoomId.Load() && msg.Event.Flags.RoomId == remoteRoomId {
+					msg.Event.Flags.RoomId = roomId
 				}
 				if remoteSessionId != "" && msg.Event.Flags.SessionId == remoteSessionId {
 					msg.Event.Flags.SessionId = localSessionId
 				}
 			case "message":
-				if c.changeRoomId && msg.Event.Message.RoomId == c.remoteRoomId {
-					msg.Event.Message.RoomId = c.roomId
+				if c.changeRoomId.Load() && msg.Event.Message.RoomId == remoteRoomId {
+					msg.Event.Message.RoomId = roomId
 				}
 			}
 		case "room":
@@ -657,36 +662,66 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 					}
 				}
 			case "message":
-				if c.changeRoomId && msg.Event.Message.RoomId == c.remoteRoomId {
-					msg.Event.Message.RoomId = c.roomId
+				if c.changeRoomId.Load() && msg.Event.Message.RoomId == remoteRoomId {
+					msg.Event.Message.RoomId = roomId
 				}
 			}
 		case "roomlist":
 			switch msg.Event.Type {
 			case "invite":
-				if c.changeRoomId && msg.Event.Invite.RoomId == c.remoteRoomId {
-					msg.Event.Invite.RoomId = c.roomId
+				if c.changeRoomId.Load() && msg.Event.Invite.RoomId == remoteRoomId {
+					msg.Event.Invite.RoomId = roomId
 				}
 			case "disinvite":
-				if c.changeRoomId && msg.Event.Disinvite.RoomId == c.remoteRoomId {
-					msg.Event.Disinvite.RoomId = c.roomId
+				if c.changeRoomId.Load() && msg.Event.Disinvite.RoomId == remoteRoomId {
+					msg.Event.Disinvite.RoomId = roomId
 				}
 			case "update":
-				if c.changeRoomId && msg.Event.Update.RoomId == c.remoteRoomId {
-					msg.Event.Update.RoomId = c.roomId
+				if c.changeRoomId.Load() && msg.Event.Update.RoomId == remoteRoomId {
+					msg.Event.Update.RoomId = roomId
+				}
+			}
+		}
+	case "error":
+		if c.changeRoomId.Load() && msg.Error.Code == "already_joined" {
+			if len(msg.Error.Details) > 0 {
+				var details RoomErrorDetails
+				if err := json.Unmarshal(msg.Error.Details, &details); err == nil && details.Room != nil {
+					if details.Room.RoomId == remoteRoomId {
+						details.Room.RoomId = roomId
+						if data, err := json.Marshal(details); err == nil {
+							msg.Error.Details = data
+						}
+					}
 				}
 			}
 		}
 	case "room":
+		if message := c.message.Load(); message != nil {
+			if msg.Id != "" && message.Id == msg.Id {
+				// Got response to initial join request, clear id so future join
+				// requests will not be mapped to any client callbacks.
+				message.Id = ""
+				c.message.Store(message)
+			}
+
+			room := message.Room
+			roomId = room.RoomId
+			remoteRoomId = room.Federation.RoomId
+			if remoteRoomId == "" {
+				remoteRoomId = room.RoomId
+			}
+
+			c.roomId.Store(room.RoomId)
+			c.remoteRoomId.Store(remoteRoomId)
+			c.changeRoomId.Store(room.RoomId != remoteRoomId)
+			c.federation.Store(room.Federation)
+		}
+
 		if msg.Room.RoomId == "" && c.closeOnLeave.Load() {
 			doClose = true
-		} else if c.changeRoomId && msg.Room.RoomId == c.remoteRoomId {
-			msg.Room.RoomId = c.roomId
-		}
-		if len(msg.Room.Properties) > 0 {
-			c.roomProperties.Store(&msg.Room.Properties)
-		} else {
-			c.roomProperties.Store(nil)
+		} else if c.changeRoomId.Load() && msg.Room.RoomId == remoteRoomId {
+			msg.Room.RoomId = roomId
 		}
 	case "message":
 		c.updateSessionRecipient(msg.Message.Recipient, localSessionId, remoteSessionId)
@@ -752,7 +787,11 @@ func (c *FederationClient) deferMessage(message *ClientMessage) {
 
 func (c *FederationClient) sendMessageLocked(message *ClientMessage) error {
 	if c.conn == nil {
-		c.deferMessage(message)
+		if message.Type != "room" {
+			// Join requests will be automatically sent after the hello response has
+			// been received.
+			c.deferMessage(message)
+		}
 		return nil
 	}
 
