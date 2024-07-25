@@ -48,6 +48,13 @@ var (
 	ErrFederationNotSupported = NewError("federation_unsupported", "The target server does not support federation.")
 )
 
+func isClosedError(err error) bool {
+	return errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, websocket.ErrCloseSent) ||
+		// Gorilla websocket hides the original net.Error, so also compare error messages
+		strings.Contains(err.Error(), net.ErrClosed.Error())
+}
+
 type FederationClient struct {
 	hub     *Hub
 	session *ClientSession
@@ -240,18 +247,18 @@ func (c *FederationClient) closeConnection(withBye bool) {
 	if withBye {
 		if err := c.sendMessageLocked(&ClientMessage{
 			Type: "bye",
-		}); err != nil && !errors.Is(err, websocket.ErrCloseSent) {
+		}); err != nil && !isClosedError(err) {
 			log.Printf("Error sending bye on federation connection to %s: %s", c.URL(), err)
 		}
 	}
 
 	closeMessage := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
 	deadline := time.Now().Add(writeWait)
-	if err := c.conn.WriteControl(websocket.CloseMessage, closeMessage, deadline); err != nil && !errors.Is(err, websocket.ErrCloseSent) {
+	if err := c.conn.WriteControl(websocket.CloseMessage, closeMessage, deadline); err != nil && !isClosedError(err) {
 		log.Printf("Error sending close message on federation connection to %s: %s", c.URL(), err)
 	}
 
-	if err := c.conn.Close(); err != nil {
+	if err := c.conn.Close(); err != nil && !isClosedError(err) {
 		log.Printf("Error closing federation connection to %s: %s", c.URL(), err)
 	}
 
@@ -321,8 +328,7 @@ func (c *FederationClient) readPump(conn *websocket.Conn) {
 		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 		msgType, data, err := conn.ReadMessage()
 		if err != nil {
-			// Gorilla websocket hides the original net.Error, so also compare error messages
-			if c.closer.IsClosed() && (errors.Is(err, net.ErrClosed) || errors.Is(err, websocket.ErrCloseSent) || strings.Contains(err.Error(), net.ErrClosed.Error())) {
+			if c.closer.IsClosed() && isClosedError(err) {
 				// Connection closed locally, no need to reconnect.
 				break
 			}
