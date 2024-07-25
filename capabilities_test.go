@@ -334,6 +334,23 @@ func TestCapabilitiesNoCache(t *testing.T) {
 		t.Errorf("expected called %d, got %d", 1, value)
 	}
 
+	// Capabilities are cached for some time if no "Cache-Control" header is set.
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if !cached {
+		t.Errorf("expected cached response")
+	}
+
+	if value := called.Load(); value != 1 {
+		t.Errorf("expected called %d, got %d", 1, value)
+	}
+
+	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
+		return time.Now().Add(defaultCapabilitiesCacheDuration)
+	})
+
 	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
 		t.Error("could not find value for \"foo\"")
 	} else if value != expectedString {
@@ -382,6 +399,57 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 		t.Errorf("expected called %d, got %d", 1, value)
 	}
 
+	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
+		return time.Now().Add(defaultCapabilitiesCacheDuration)
+	})
+
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := called.Load(); value != 2 {
+		t.Errorf("expected called %d, got %d", 2, value)
+	}
+}
+
+func TestCapabilitiesCacheNoMustRevalidate(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	var called atomic.Uint32
+	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
+		if called.Add(1) == 2 {
+			return errors.New("trigger error")
+		}
+
+		return nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	expectedString := "bar"
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := called.Load(); value != 1 {
+		t.Errorf("expected called %d, got %d", 1, value)
+	}
+
+	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
+		return time.Now().Add(time.Minute)
+	})
+
+	// Expired capabilities can still be used even in case of update errors if
+	// "must-revalidate" is not set.
 	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
 		t.Error("could not find value for \"foo\"")
 	} else if value != expectedString {
@@ -422,6 +490,10 @@ func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 	if value := called.Load(); value != 1 {
 		t.Errorf("expected called %d, got %d", 1, value)
 	}
+
+	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
+		return time.Now().Add(defaultCapabilitiesCacheDuration)
+	})
 
 	// Expired capabilities can still be used even in case of update errors if
 	// "must-revalidate" is not set.
