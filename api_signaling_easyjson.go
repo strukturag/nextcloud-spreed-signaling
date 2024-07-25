@@ -3951,6 +3951,8 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling35(in *jle
 			}
 		case "roomsessionid":
 			out.RoomSessionId = string(in.String())
+		case "federated":
+			out.Federated = bool(in.Bool())
 		default:
 			in.SkipRecursive()
 		}
@@ -3984,6 +3986,11 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling35(out *jw
 		const prefix string = ",\"roomsessionid\":"
 		out.RawString(prefix)
 		out.String(string(in.RoomSessionId))
+	}
+	if in.Federated {
+		const prefix string = ",\"federated\":"
+		out.RawString(prefix)
+		out.Bool(bool(in.Federated))
 	}
 	out.RawByte('}')
 }

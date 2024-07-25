@@ -650,6 +650,10 @@ Room event session object:
       }
     }
 
+If a session is federated, an additional entry `"federated": true` will be
+available.
+
+
 Message format (Server -> Client, user(s) left):
 
     {

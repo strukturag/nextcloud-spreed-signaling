@@ -137,6 +137,7 @@ func Test_Federation(t *testing.T) {
 		remoteSessionId = evt.SessionId
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
 		assert.Equal(testDefaultUserId+"2", evt.UserId)
+		assert.True(evt.Federated)
 	}
 
 	// The client2 will see its own session id, not the one from the remote server.
@@ -183,6 +184,7 @@ func Test_Federation(t *testing.T) {
 		remoteSessionId = evt.SessionId
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
 		assert.Equal(testDefaultUserId+"2", evt.UserId)
+		assert.True(evt.Federated)
 	}
 	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 
@@ -347,6 +349,7 @@ func Test_Federation(t *testing.T) {
 		remoteSessionId4 = evt.SessionId
 		assert.NotEqual(hello4.Hello.SessionId, remoteSessionId)
 		assert.Equal(testDefaultUserId+"4", evt.UserId)
+		assert.True(evt.Federated)
 	}
 
 	assert.NoError(client2.RunUntilJoined(ctx, &HelloServerMessage{
@@ -449,6 +452,7 @@ func Test_FederationMedia(t *testing.T) {
 		remoteSessionId = evt.SessionId
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
 		assert.Equal(testDefaultUserId+"2", evt.UserId)
+		assert.True(evt.Federated)
 	}
 
 	// The client2 will see its own session id, not the one from the remote server.
@@ -540,6 +544,7 @@ func Test_FederationResume(t *testing.T) {
 		remoteSessionId = evt.SessionId
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
 		assert.Equal(testDefaultUserId+"2", evt.UserId)
+		assert.True(evt.Federated)
 	}
 
 	// The client2 will see its own session id, not the one from the remote server.
@@ -667,6 +672,7 @@ func Test_FederationResumeNewSession(t *testing.T) {
 		remoteSessionId = evt.SessionId
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
 		assert.Equal(hello2.Hello.UserId, evt.UserId)
+		assert.True(evt.Federated)
 	}
 
 	// The client2 will see its own session id, not the one from the remote server.
@@ -708,6 +714,7 @@ func Test_FederationResumeNewSession(t *testing.T) {
 		remoteSessionId = evt.SessionId
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
 		assert.Equal(hello2.Hello.UserId, evt.UserId)
+		assert.True(evt.Federated)
 	}
 
 	// client2 will join the room again after the reconnect with the new

@@ -367,6 +367,7 @@ func (r *Room) notifySessionJoined(sessionId string) {
 		}
 		if s, ok := s.(*ClientSession); ok {
 			entry.RoomSessionId = s.RoomSessionId()
+			entry.Federated = s.ClientType() == HelloClientTypeFederation
 		}
 		events = append(events, entry)
 	}
@@ -535,6 +536,7 @@ func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionDat
 	}
 	if session, ok := session.(*ClientSession); ok {
 		message.Event.Join[0].RoomSessionId = session.RoomSessionId()
+		message.Event.Join[0].Federated = session.ClientType() == HelloClientTypeFederation
 	}
 	if err := r.publish(message); err != nil {
 		log.Printf("Could not publish session joined message in room %s: %s", r.Id(), err)

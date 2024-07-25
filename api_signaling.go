@@ -1053,6 +1053,7 @@ type EventServerMessageSessionEntry struct {
 	UserId        string          `json:"userid"`
 	User          json.RawMessage `json:"user,omitempty"`
 	RoomSessionId string          `json:"roomsessionid,omitempty"`
+	Federated     bool            `json:"federated,omitempty"`
 }
 
 func (e *EventServerMessageSessionEntry) Clone() *EventServerMessageSessionEntry {
@@ -1061,6 +1062,7 @@ func (e *EventServerMessageSessionEntry) Clone() *EventServerMessageSessionEntry
 		UserId:        e.UserId,
 		User:          e.User,
 		RoomSessionId: e.RoomSessionId,
+		Federated:     e.Federated,
 	}
 }
 
