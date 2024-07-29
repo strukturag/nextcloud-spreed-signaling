@@ -109,7 +109,11 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 		}
 		var cc []string
 		if !strings.Contains(t.Name(), "NoCache") {
-			cc = append(cc, "max-age=60")
+			if strings.Contains(t.Name(), "ShortCache") {
+				cc = append(cc, "max-age=1")
+			} else {
+				cc = append(cc, "max-age=60")
+			}
 		}
 		if strings.Contains(t.Name(), "MustRevalidate") && !strings.Contains(t.Name(), "NoMustRevalidate") {
 			cc = append(cc, "must-revalidate")
@@ -348,7 +352,75 @@ func TestCapabilitiesNoCache(t *testing.T) {
 	}
 
 	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
-		return time.Now().Add(defaultCapabilitiesCacheDuration)
+		return time.Now().Add(minCapabilitiesCacheDuration)
+	})
+
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := called.Load(); value != 2 {
+		t.Errorf("expected called %d, got %d", 2, value)
+	}
+}
+
+func TestCapabilitiesShortCache(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	var called atomic.Uint32
+	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
+		called.Add(1)
+		return nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	expectedString := "bar"
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if cached {
+		t.Errorf("expected direct response")
+	}
+
+	if value := called.Load(); value != 1 {
+		t.Errorf("expected called %d, got %d", 1, value)
+	}
+
+	// Capabilities are cached for some time if no "Cache-Control" header is set.
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if !cached {
+		t.Errorf("expected cached response")
+	}
+
+	if value := called.Load(); value != 1 {
+		t.Errorf("expected called %d, got %d", 1, value)
+	}
+
+	// The capabilities are cached for a minumum duration.
+	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
+		return time.Now().Add(minCapabilitiesCacheDuration / 2)
+	})
+
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
+		t.Error("could not find value for \"foo\"")
+	} else if value != expectedString {
+		t.Errorf("expected value %s, got %s", expectedString, value)
+	} else if !cached {
+		t.Errorf("expected cached response")
+	}
+
+	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
+		return time.Now().Add(minCapabilitiesCacheDuration)
 	})
 
 	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
@@ -400,7 +472,7 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 	}
 
 	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
-		return time.Now().Add(defaultCapabilitiesCacheDuration)
+		return time.Now().Add(minCapabilitiesCacheDuration)
 	})
 
 	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); !found {
@@ -492,7 +564,7 @@ func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 	}
 
 	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
-		return time.Now().Add(defaultCapabilitiesCacheDuration)
+		return time.Now().Add(minCapabilitiesCacheDuration)
 	})
 
 	// Expired capabilities can still be used even in case of update errors if
@@ -537,6 +609,10 @@ func TestCapabilitiesNoCacheMustRevalidate(t *testing.T) {
 	if value := called.Load(); value != 1 {
 		t.Errorf("expected called %d, got %d", 1, value)
 	}
+
+	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
+		return time.Now().Add(minCapabilitiesCacheDuration)
+	})
 
 	// Capabilities will be cleared if "must-revalidate" is set and an error
 	// occurs while fetching the updated data.
