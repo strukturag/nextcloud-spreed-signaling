@@ -43,9 +43,10 @@ const (
 	// Name of capability to enable the "v3" API for the signaling endpoint.
 	FeatureSignalingV3Api = "signaling-v3"
 
-	// Cache capabilities for one minute if response does not contain a
-	// "Cache-Control" header.
-	defaultCapabilitiesCacheDuration = time.Minute
+	// minCapabilitiesCacheDuration specifies the minimum duration to cache
+	// capabilities.
+	// This could overwrite the "max-age" from a "Cache-Control" header.
+	minCapabilitiesCacheDuration = time.Minute
 
 	// Don't invalidate more than once per minute.
 	maxInvalidateInterval = time.Minute
@@ -112,9 +113,12 @@ func (e *capabilitiesEntry) update(response *http.Response, now time.Time) error
 		if nc, _ := cc.NoCache(); !nc {
 			maxAge = cc.MaxAge()
 		}
+		if maxAge < minCapabilitiesCacheDuration {
+			maxAge = minCapabilitiesCacheDuration
+		}
 		e.mustRevalidate = cc.MustRevalidate()
 	} else {
-		maxAge = defaultCapabilitiesCacheDuration
+		maxAge = minCapabilitiesCacheDuration
 	}
 	e.nextUpdate = now.Add(maxAge)
 
