@@ -24,6 +24,7 @@ The following metrics are available:
 | `signaling_proxy_command_messages_total`          | Counter   | 0.4.0     | The total number of command messages                                      | `type`                            |
 | `signaling_proxy_payload_messages_total`          | Counter   | 0.4.0     | The total number of payload messages                                      | `type`                            |
 | `signaling_proxy_token_errors_total`              | Counter   | 0.4.0     | The total number of token errors                                          | `reason`                          |
+| `signaling_backend_session_limit`                 | Gauge     | 1.3.3     | The session limit of a backend (if set)                                   | `backend`                         |
 | `signaling_backend_session_limit_exceeded_total`  | Counter   | 0.4.0     | The number of times the session limit exceeded                            | `backend`                         |
 | `signaling_backend_current`                       | Gauge     | 0.4.0     | The current number of configured backends                                 |                                   |
 | `signaling_client_countries_total`                | Counter   | 0.4.0     | The total number of connections by country                                | `country`                         |

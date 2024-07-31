@@ -202,6 +202,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		// Simple case, first backend for this host
 		log.Printf("Added backend %s (from %s)", info.Url, key)
 		s.backends[host] = []*Backend{backend}
+		updateBackendStats(backend)
 		statsBackendsCurrent.Inc()
 		s.wakeupForTesting()
 		return
@@ -212,6 +213,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 	for idx, entry := range entries {
 		if entry.id == key {
 			log.Printf("Updated backend %s (from %s)", info.Url, key)
+			updateBackendStats(backend)
 			entries[idx] = backend
 			replaced = true
 			break
@@ -222,6 +224,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		// New backend, add to list.
 		log.Printf("Added backend %s (from %s)", info.Url, key)
 		s.backends[host] = append(entries, backend)
+		updateBackendStats(backend)
 		statsBackendsCurrent.Inc()
 	}
 	s.wakeupForTesting()
@@ -247,6 +250,7 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prev
 	newEntries := make([]*Backend, 0, len(entries)-1)
 	for _, entry := range entries {
 		if entry.id == key {
+			updateBackendStats(entry)
 			statsBackendsCurrent.Dec()
 			continue
 		}

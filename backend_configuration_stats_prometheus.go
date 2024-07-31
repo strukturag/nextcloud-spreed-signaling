@@ -26,6 +26,12 @@ import (
 )
 
 var (
+	statsBackendLimit = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "backend",
+		Name:      "session_limit",
+		Help:      "The session limit of a backend",
+	}, []string{"backend"})
 	statsBackendLimitExceededTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "signaling",
 		Subsystem: "backend",
@@ -40,6 +46,7 @@ var (
 	})
 
 	backendConfigurationStats = []prometheus.Collector{
+		statsBackendLimit,
 		statsBackendLimitExceededTotal,
 		statsBackendsCurrent,
 	}
@@ -47,4 +54,16 @@ var (
 
 func RegisterBackendConfigurationStats() {
 	registerAll(backendConfigurationStats...)
+}
+
+func updateBackendStats(backend *Backend) {
+	if backend.sessionLimit > 0 {
+		statsBackendLimit.WithLabelValues(backend.id).Set(float64(backend.sessionLimit))
+	} else {
+		statsBackendLimit.DeleteLabelValues(backend.id)
+	}
+}
+
+func deleteBackendStats(backend *Backend) {
+	statsBackendLimit.DeleteLabelValues(backend.id)
 }
