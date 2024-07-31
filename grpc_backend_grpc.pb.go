@@ -33,8 +33,8 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-// Requires gRPC-Go v1.62.0 or later.
-const _ = grpc.SupportPackageIsVersion8
+// Requires gRPC-Go v1.64.0 or later.
+const _ = grpc.SupportPackageIsVersion9
 
 const (
 	RpcBackend_GetSessionCount_FullMethodName = "/signaling.RpcBackend/GetSessionCount"
@@ -67,20 +67,24 @@ func (c *rpcBackendClient) GetSessionCount(ctx context.Context, in *GetSessionCo
 
 // RpcBackendServer is the server API for RpcBackend service.
 // All implementations must embed UnimplementedRpcBackendServer
-// for forward compatibility
+// for forward compatibility.
 type RpcBackendServer interface {
 	GetSessionCount(context.Context, *GetSessionCountRequest) (*GetSessionCountReply, error)
 	mustEmbedUnimplementedRpcBackendServer()
 }
 
-// UnimplementedRpcBackendServer must be embedded to have forward compatible implementations.
-type UnimplementedRpcBackendServer struct {
-}
+// UnimplementedRpcBackendServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedRpcBackendServer struct{}
 
 func (UnimplementedRpcBackendServer) GetSessionCount(context.Context, *GetSessionCountRequest) (*GetSessionCountReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetSessionCount not implemented")
 }
 func (UnimplementedRpcBackendServer) mustEmbedUnimplementedRpcBackendServer() {}
+func (UnimplementedRpcBackendServer) testEmbeddedByValue()                    {}
 
 // UnsafeRpcBackendServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to RpcBackendServer will
@@ -90,6 +94,13 @@ type UnsafeRpcBackendServer interface {
 }
 
 func RegisterRpcBackendServer(s grpc.ServiceRegistrar, srv RpcBackendServer) {
+	// If the following call pancis, it indicates UnimplementedRpcBackendServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
 	s.RegisterService(&RpcBackend_ServiceDesc, srv)
 }
 
