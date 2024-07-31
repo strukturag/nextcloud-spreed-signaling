@@ -33,8 +33,8 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-// Requires gRPC-Go v1.62.0 or later.
-const _ = grpc.SupportPackageIsVersion8
+// Requires gRPC-Go v1.64.0 or later.
+const _ = grpc.SupportPackageIsVersion9
 
 const (
 	RpcInternal_GetServerId_FullMethodName = "/signaling.RpcInternal/GetServerId"
@@ -67,20 +67,24 @@ func (c *rpcInternalClient) GetServerId(ctx context.Context, in *GetServerIdRequ
 
 // RpcInternalServer is the server API for RpcInternal service.
 // All implementations must embed UnimplementedRpcInternalServer
-// for forward compatibility
+// for forward compatibility.
 type RpcInternalServer interface {
 	GetServerId(context.Context, *GetServerIdRequest) (*GetServerIdReply, error)
 	mustEmbedUnimplementedRpcInternalServer()
 }
 
-// UnimplementedRpcInternalServer must be embedded to have forward compatible implementations.
-type UnimplementedRpcInternalServer struct {
-}
+// UnimplementedRpcInternalServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedRpcInternalServer struct{}
 
 func (UnimplementedRpcInternalServer) GetServerId(context.Context, *GetServerIdRequest) (*GetServerIdReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetServerId not implemented")
 }
 func (UnimplementedRpcInternalServer) mustEmbedUnimplementedRpcInternalServer() {}
+func (UnimplementedRpcInternalServer) testEmbeddedByValue()                     {}
 
 // UnsafeRpcInternalServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to RpcInternalServer will
@@ -90,6 +94,13 @@ type UnsafeRpcInternalServer interface {
 }
 
 func RegisterRpcInternalServer(s grpc.ServiceRegistrar, srv RpcInternalServer) {
+	// If the following call pancis, it indicates UnimplementedRpcInternalServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
 	s.RegisterService(&RpcInternal_ServiceDesc, srv)
 }
 

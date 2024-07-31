@@ -33,8 +33,8 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-// Requires gRPC-Go v1.62.0 or later.
-const _ = grpc.SupportPackageIsVersion8
+// Requires gRPC-Go v1.64.0 or later.
+const _ = grpc.SupportPackageIsVersion9
 
 const (
 	RpcSessions_LookupResumeId_FullMethodName  = "/signaling.RpcSessions/LookupResumeId"
@@ -50,7 +50,7 @@ type RpcSessionsClient interface {
 	LookupResumeId(ctx context.Context, in *LookupResumeIdRequest, opts ...grpc.CallOption) (*LookupResumeIdReply, error)
 	LookupSessionId(ctx context.Context, in *LookupSessionIdRequest, opts ...grpc.CallOption) (*LookupSessionIdReply, error)
 	IsSessionInCall(ctx context.Context, in *IsSessionInCallRequest, opts ...grpc.CallOption) (*IsSessionInCallReply, error)
-	ProxySession(ctx context.Context, opts ...grpc.CallOption) (RpcSessions_ProxySessionClient, error)
+	ProxySession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ClientSessionMessage, ServerSessionMessage], error)
 }
 
 type rpcSessionsClient struct {
@@ -91,52 +91,36 @@ func (c *rpcSessionsClient) IsSessionInCall(ctx context.Context, in *IsSessionIn
 	return out, nil
 }
 
-func (c *rpcSessionsClient) ProxySession(ctx context.Context, opts ...grpc.CallOption) (RpcSessions_ProxySessionClient, error) {
+func (c *rpcSessionsClient) ProxySession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ClientSessionMessage, ServerSessionMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &RpcSessions_ServiceDesc.Streams[0], RpcSessions_ProxySession_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &rpcSessionsProxySessionClient{ClientStream: stream}
+	x := &grpc.GenericClientStream[ClientSessionMessage, ServerSessionMessage]{ClientStream: stream}
 	return x, nil
 }
 
-type RpcSessions_ProxySessionClient interface {
-	Send(*ClientSessionMessage) error
-	Recv() (*ServerSessionMessage, error)
-	grpc.ClientStream
-}
-
-type rpcSessionsProxySessionClient struct {
-	grpc.ClientStream
-}
-
-func (x *rpcSessionsProxySessionClient) Send(m *ClientSessionMessage) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *rpcSessionsProxySessionClient) Recv() (*ServerSessionMessage, error) {
-	m := new(ServerSessionMessage)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RpcSessions_ProxySessionClient = grpc.BidiStreamingClient[ClientSessionMessage, ServerSessionMessage]
 
 // RpcSessionsServer is the server API for RpcSessions service.
 // All implementations must embed UnimplementedRpcSessionsServer
-// for forward compatibility
+// for forward compatibility.
 type RpcSessionsServer interface {
 	LookupResumeId(context.Context, *LookupResumeIdRequest) (*LookupResumeIdReply, error)
 	LookupSessionId(context.Context, *LookupSessionIdRequest) (*LookupSessionIdReply, error)
 	IsSessionInCall(context.Context, *IsSessionInCallRequest) (*IsSessionInCallReply, error)
-	ProxySession(RpcSessions_ProxySessionServer) error
+	ProxySession(grpc.BidiStreamingServer[ClientSessionMessage, ServerSessionMessage]) error
 	mustEmbedUnimplementedRpcSessionsServer()
 }
 
-// UnimplementedRpcSessionsServer must be embedded to have forward compatible implementations.
-type UnimplementedRpcSessionsServer struct {
-}
+// UnimplementedRpcSessionsServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedRpcSessionsServer struct{}
 
 func (UnimplementedRpcSessionsServer) LookupResumeId(context.Context, *LookupResumeIdRequest) (*LookupResumeIdReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LookupResumeId not implemented")
@@ -147,10 +131,11 @@ func (UnimplementedRpcSessionsServer) LookupSessionId(context.Context, *LookupSe
 func (UnimplementedRpcSessionsServer) IsSessionInCall(context.Context, *IsSessionInCallRequest) (*IsSessionInCallReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IsSessionInCall not implemented")
 }
-func (UnimplementedRpcSessionsServer) ProxySession(RpcSessions_ProxySessionServer) error {
+func (UnimplementedRpcSessionsServer) ProxySession(grpc.BidiStreamingServer[ClientSessionMessage, ServerSessionMessage]) error {
 	return status.Errorf(codes.Unimplemented, "method ProxySession not implemented")
 }
 func (UnimplementedRpcSessionsServer) mustEmbedUnimplementedRpcSessionsServer() {}
+func (UnimplementedRpcSessionsServer) testEmbeddedByValue()                     {}
 
 // UnsafeRpcSessionsServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to RpcSessionsServer will
@@ -160,6 +145,13 @@ type UnsafeRpcSessionsServer interface {
 }
 
 func RegisterRpcSessionsServer(s grpc.ServiceRegistrar, srv RpcSessionsServer) {
+	// If the following call pancis, it indicates UnimplementedRpcSessionsServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
 	s.RegisterService(&RpcSessions_ServiceDesc, srv)
 }
 
@@ -218,30 +210,11 @@ func _RpcSessions_IsSessionInCall_Handler(srv interface{}, ctx context.Context, 
 }
 
 func _RpcSessions_ProxySession_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(RpcSessionsServer).ProxySession(&rpcSessionsProxySessionServer{ServerStream: stream})
+	return srv.(RpcSessionsServer).ProxySession(&grpc.GenericServerStream[ClientSessionMessage, ServerSessionMessage]{ServerStream: stream})
 }
 
-type RpcSessions_ProxySessionServer interface {
-	Send(*ServerSessionMessage) error
-	Recv() (*ClientSessionMessage, error)
-	grpc.ServerStream
-}
-
-type rpcSessionsProxySessionServer struct {
-	grpc.ServerStream
-}
-
-func (x *rpcSessionsProxySessionServer) Send(m *ServerSessionMessage) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *rpcSessionsProxySessionServer) Recv() (*ClientSessionMessage, error) {
-	m := new(ClientSessionMessage)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RpcSessions_ProxySessionServer = grpc.BidiStreamingServer[ClientSessionMessage, ServerSessionMessage]
 
 // RpcSessions_ServiceDesc is the grpc.ServiceDesc for RpcSessions service.
 // It's only intended for direct use with grpc.RegisterService,
