@@ -24,8 +24,51 @@ permissions:
   contents: read
 
 jobs:
-  check-generated:
-    name: check-generated
+  build:
+    if: ${{ github.event_name == 'pull_request' }}
+    name: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Install dependencies
+        run: |
+          sudo apt -y update && sudo apt -y install protobuf-compiler
+
+      - name: Generate files
+        run: |
+          make common
+
+      - name: Commit changes
+        run: |
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "Checked out $CHECKOUT_SHA"
+          if [ "$CHECKOUT_SHA" != "${{github.event.pull_request.head.sha}}" ]; then
+            echo "More changes since this commit ${{github.event.pull_request.head.sha}}, skipping"
+          else
+            git add *_easyjson.go *.pb.go
+            CHANGES=$(git status --porcelain)
+            if [ -z "$CHANGES" ]; then
+              echo "No files have changed, no need to commit / push."
+            else
+              git config user.name "$(git log -n 1 --pretty=format:%an)"
+              git config user.email "$(git log -n 1 --pretty=format:%ae)"
+              git commit -m "Update generated files from ${{github.event.pull_request.head.sha}}" *_easyjson.go *.pb.go
+              git push
+            fi
+          fi
+
+  check:
+    name: check
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
