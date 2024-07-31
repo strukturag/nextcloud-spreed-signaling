@@ -20,6 +20,10 @@ on:
       - '*.proto'
       - 'go.*'
 
+env:
+  CODE_GENERATOR_NAME: struktur AG service user
+  CODE_GENERATOR_EMAIL: opensource@struktur.de
+
 permissions:
   contents: read
 
@@ -34,6 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          token: ${{ secrets.CODE_GENERATOR_PAT }}
           ref: ${{ github.event.pull_request.head.ref }}
 
       - uses: actions/setup-go@v5
@@ -60,9 +65,9 @@ jobs:
             if [ -z "$CHANGES" ]; then
               echo "No files have changed, no need to commit / push."
             else
-              git config user.name "$(git log -n 1 --pretty=format:%an)"
-              git config user.email "$(git log -n 1 --pretty=format:%ae)"
-              git commit -m "Update generated files from ${{github.event.pull_request.head.sha}}" *_easyjson.go *.pb.go
+              git config user.name "$CODE_GENERATOR_NAME"
+              git config user.email "$CODE_GENERATOR_EMAIL"
+              git commit --author="$(git log -n 1 --pretty=format:%an) <$(git log -n 1 --pretty=format:%ae)>" -m "Update generated files from ${{github.event.pull_request.head.sha}}" *_easyjson.go *.pb.go
               git push
             fi
           fi
