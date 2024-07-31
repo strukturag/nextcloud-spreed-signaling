@@ -238,6 +238,23 @@ func Test_Federation(t *testing.T) {
 		}
 	}
 
+	// Special handling for the "forceMute" control event.
+	forceMute := map[string]any{
+		"action": "forceMute",
+		"peerId": remoteSessionId,
+	}
+	if assert.NoError(client1.SendControl(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: remoteSessionId,
+	}, forceMute)) {
+		var payload map[string]any
+		if assert.NoError(checkReceiveClientControl(ctx, client2, "session", hello1.Hello, &payload)) {
+			// The sessionId in "peerId" will be replaced with the local one.
+			forceMute["peerId"] = hello2.Hello.SessionId
+			assert.Equal(forceMute, payload)
+		}
+	}
+
 	data3 := "from-2-to-2"
 	// Clients can't send to their own (local) session id.
 	if assert.NoError(client2.SendMessage(MessageClientMessageRecipient{

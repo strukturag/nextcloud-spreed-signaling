@@ -620,6 +620,20 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 	case "control":
 		c.updateSessionRecipient(msg.Control.Recipient, localSessionId, remoteSessionId)
 		c.updateSessionSender(msg.Control.Sender, localSessionId, remoteSessionId)
+		// Special handling for "forceMute" event.
+		if len(msg.Control.Data) > 0 && msg.Control.Data[0] == '{' {
+			var data map[string]interface{}
+			if err := json.Unmarshal(msg.Control.Data, &data); err == nil {
+				if action, found := data["action"]; found && action == "forceMute" {
+					if peerId, found := data["peerId"]; found && peerId == remoteSessionId {
+						data["peerId"] = localSessionId
+						if d, err := json.Marshal(data); err == nil {
+							msg.Control.Data = d
+						}
+					}
+				}
+			}
+		}
 	case "event":
 		switch msg.Event.Target {
 		case "participants":
