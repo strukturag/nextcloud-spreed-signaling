@@ -7,6 +7,7 @@ import (
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
+	time "time"
 )
 
 // suppress unused package warning
@@ -48,7 +49,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling(in *jlexe
 				if out.Data == nil {
 					out.Data = new(MessageClientMessageData)
 				}
-				(*out.Data).UnmarshalEasyJSON(in)
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in, out.Data)
 			}
 		default:
 			in.SkipRecursive()
@@ -86,7 +87,7 @@ func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling(out *jwri
 		if in.Data == nil {
 			out.RawString("null")
 		} else {
-			(*in.Data).MarshalEasyJSON(out)
+			easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling1(out, *in.Data)
 		}
 	}
 	out.RawByte('}')
@@ -115,7 +116,119 @@ func (v *SendOfferMessage) UnmarshalJSON(data []byte) error {
 func (v *SendOfferMessage) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling(l, v)
 }
-func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlexer.Lexer, out *AsyncRoomMessage) {
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlexer.Lexer, out *MessageClientMessageData) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "type":
+			out.Type = string(in.String())
+		case "sid":
+			out.Sid = string(in.String())
+		case "roomType":
+			out.RoomType = string(in.String())
+		case "bitrate":
+			out.Bitrate = int(in.Int())
+		case "payload":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				in.Delim('{')
+				out.Payload = make(map[string]interface{})
+				for !in.IsDelim('}') {
+					key := string(in.String())
+					in.WantColon()
+					var v1 interface{}
+					if m, ok := v1.(easyjson.Unmarshaler); ok {
+						m.UnmarshalEasyJSON(in)
+					} else if m, ok := v1.(json.Unmarshaler); ok {
+						_ = m.UnmarshalJSON(in.Raw())
+					} else {
+						v1 = in.Interface()
+					}
+					(out.Payload)[key] = v1
+					in.WantComma()
+				}
+				in.Delim('}')
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling1(out *jwriter.Writer, in MessageClientMessageData) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	{
+		const prefix string = ",\"type\":"
+		out.RawString(prefix[1:])
+		out.String(string(in.Type))
+	}
+	{
+		const prefix string = ",\"sid\":"
+		out.RawString(prefix)
+		out.String(string(in.Sid))
+	}
+	{
+		const prefix string = ",\"roomType\":"
+		out.RawString(prefix)
+		out.String(string(in.RoomType))
+	}
+	if in.Bitrate != 0 {
+		const prefix string = ",\"bitrate\":"
+		out.RawString(prefix)
+		out.Int(int(in.Bitrate))
+	}
+	{
+		const prefix string = ",\"payload\":"
+		out.RawString(prefix)
+		if in.Payload == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
+			out.RawString(`null`)
+		} else {
+			out.RawByte('{')
+			v2First := true
+			for v2Name, v2Value := range in.Payload {
+				if v2First {
+					v2First = false
+				} else {
+					out.RawByte(',')
+				}
+				out.String(string(v2Name))
+				out.RawByte(':')
+				if m, ok := v2Value.(easyjson.Marshaler); ok {
+					m.MarshalEasyJSON(out)
+				} else if m, ok := v2Value.(json.Marshaler); ok {
+					out.Raw(m.MarshalJSON())
+				} else {
+					out.Raw(json.Marshal(v2Value))
+				}
+			}
+			out.RawByte('}')
+		}
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlexer.Lexer, out *AsyncRoomMessage) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -150,7 +263,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 		in.Consumed()
 	}
 }
-func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling1(out *jwriter.Writer, in AsyncRoomMessage) {
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling2(out *jwriter.Writer, in AsyncRoomMessage) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -175,27 +288,27 @@ func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling1(out *jwr
 // MarshalJSON supports json.Marshaler interface
 func (v AsyncRoomMessage) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling1(&w, v)
+	easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling2(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v AsyncRoomMessage) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling1(w, v)
+	easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling2(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *AsyncRoomMessage) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(&r, v)
+	easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *AsyncRoomMessage) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(l, v)
+	easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(l, v)
 }
-func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlexer.Lexer, out *AsyncMessage) {
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling3(in *jlexer.Lexer, out *AsyncMessage) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -228,7 +341,9 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				if out.Message == nil {
 					out.Message = new(ServerMessage)
 				}
-				(*out.Message).UnmarshalEasyJSON(in)
+				if data := in.Raw(); in.Ok() {
+					in.AddError((*out.Message).UnmarshalJSON(data))
+				}
 			}
 		case "room":
 			if in.IsNull() {
@@ -238,7 +353,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				if out.Room == nil {
 					out.Room = new(BackendServerRoomRequest)
 				}
-				(*out.Room).UnmarshalEasyJSON(in)
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling4(in, out.Room)
 			}
 		case "permissions":
 			if in.IsNull() {
@@ -256,9 +371,9 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 					out.Permissions = (out.Permissions)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v1 Permission
-					v1 = Permission(in.String())
-					out.Permissions = append(out.Permissions, v1)
+					var v3 Permission
+					v3 = Permission(in.String())
+					out.Permissions = append(out.Permissions, v3)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -295,7 +410,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 		in.Consumed()
 	}
 }
-func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling2(out *jwriter.Writer, in AsyncMessage) {
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling3(out *jwriter.Writer, in AsyncMessage) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -312,23 +427,23 @@ func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling2(out *jwr
 	if in.Message != nil {
 		const prefix string = ",\"message\":"
 		out.RawString(prefix)
-		(*in.Message).MarshalEasyJSON(out)
+		out.Raw((*in.Message).MarshalJSON())
 	}
 	if in.Room != nil {
 		const prefix string = ",\"room\":"
 		out.RawString(prefix)
-		(*in.Room).MarshalEasyJSON(out)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling4(out, *in.Room)
 	}
 	if len(in.Permissions) != 0 {
 		const prefix string = ",\"permissions\":"
 		out.RawString(prefix)
 		{
 			out.RawByte('[')
-			for v2, v3 := range in.Permissions {
-				if v2 > 0 {
+			for v4, v5 := range in.Permissions {
+				if v4 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v3))
+				out.String(string(v5))
 			}
 			out.RawByte(']')
 		}
@@ -354,23 +469,1422 @@ func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling2(out *jwr
 // MarshalJSON supports json.Marshaler interface
 func (v AsyncMessage) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling2(&w, v)
+	easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling3(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v AsyncMessage) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling2(w, v)
+	easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling3(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *AsyncMessage) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(&r, v)
+	easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling3(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *AsyncMessage) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(l, v)
+	easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling3(l, v)
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlexer.Lexer, out *BackendServerRoomRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "type":
+			out.Type = string(in.String())
+		case "invite":
+			if in.IsNull() {
+				in.Skip()
+				out.Invite = nil
+			} else {
+				if out.Invite == nil {
+					out.Invite = new(BackendRoomInviteRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling5(in, out.Invite)
+			}
+		case "disinvite":
+			if in.IsNull() {
+				in.Skip()
+				out.Disinvite = nil
+			} else {
+				if out.Disinvite == nil {
+					out.Disinvite = new(BackendRoomDisinviteRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling6(in, out.Disinvite)
+			}
+		case "update":
+			if in.IsNull() {
+				in.Skip()
+				out.Update = nil
+			} else {
+				if out.Update == nil {
+					out.Update = new(BackendRoomUpdateRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling7(in, out.Update)
+			}
+		case "delete":
+			if in.IsNull() {
+				in.Skip()
+				out.Delete = nil
+			} else {
+				if out.Delete == nil {
+					out.Delete = new(BackendRoomDeleteRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling8(in, out.Delete)
+			}
+		case "incall":
+			if in.IsNull() {
+				in.Skip()
+				out.InCall = nil
+			} else {
+				if out.InCall == nil {
+					out.InCall = new(BackendRoomInCallRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling9(in, out.InCall)
+			}
+		case "participants":
+			if in.IsNull() {
+				in.Skip()
+				out.Participants = nil
+			} else {
+				if out.Participants == nil {
+					out.Participants = new(BackendRoomParticipantsRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling10(in, out.Participants)
+			}
+		case "message":
+			if in.IsNull() {
+				in.Skip()
+				out.Message = nil
+			} else {
+				if out.Message == nil {
+					out.Message = new(BackendRoomMessageRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling11(in, out.Message)
+			}
+		case "switchto":
+			if in.IsNull() {
+				in.Skip()
+				out.SwitchTo = nil
+			} else {
+				if out.SwitchTo == nil {
+					out.SwitchTo = new(BackendRoomSwitchToMessageRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling12(in, out.SwitchTo)
+			}
+		case "dialout":
+			if in.IsNull() {
+				in.Skip()
+				out.Dialout = nil
+			} else {
+				if out.Dialout == nil {
+					out.Dialout = new(BackendRoomDialoutRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling13(in, out.Dialout)
+			}
+		case "transient":
+			if in.IsNull() {
+				in.Skip()
+				out.Transient = nil
+			} else {
+				if out.Transient == nil {
+					out.Transient = new(BackendRoomTransientRequest)
+				}
+				easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling14(in, out.Transient)
+			}
+		case "received":
+			out.ReceivedTime = int64(in.Int64())
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling4(out *jwriter.Writer, in BackendServerRoomRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	{
+		const prefix string = ",\"type\":"
+		out.RawString(prefix[1:])
+		out.String(string(in.Type))
+	}
+	if in.Invite != nil {
+		const prefix string = ",\"invite\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling5(out, *in.Invite)
+	}
+	if in.Disinvite != nil {
+		const prefix string = ",\"disinvite\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling6(out, *in.Disinvite)
+	}
+	if in.Update != nil {
+		const prefix string = ",\"update\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling7(out, *in.Update)
+	}
+	if in.Delete != nil {
+		const prefix string = ",\"delete\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling8(out, *in.Delete)
+	}
+	if in.InCall != nil {
+		const prefix string = ",\"incall\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling9(out, *in.InCall)
+	}
+	if in.Participants != nil {
+		const prefix string = ",\"participants\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling10(out, *in.Participants)
+	}
+	if in.Message != nil {
+		const prefix string = ",\"message\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling11(out, *in.Message)
+	}
+	if in.SwitchTo != nil {
+		const prefix string = ",\"switchto\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling12(out, *in.SwitchTo)
+	}
+	if in.Dialout != nil {
+		const prefix string = ",\"dialout\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling13(out, *in.Dialout)
+	}
+	if in.Transient != nil {
+		const prefix string = ",\"transient\":"
+		out.RawString(prefix)
+		easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling14(out, *in.Transient)
+	}
+	if in.ReceivedTime != 0 {
+		const prefix string = ",\"received\":"
+		out.RawString(prefix)
+		out.Int64(int64(in.ReceivedTime))
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling14(in *jlexer.Lexer, out *BackendRoomTransientRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "action":
+			out.Action = TransientAction(in.String())
+		case "key":
+			out.Key = string(in.String())
+		case "value":
+			if m, ok := out.Value.(easyjson.Unmarshaler); ok {
+				m.UnmarshalEasyJSON(in)
+			} else if m, ok := out.Value.(json.Unmarshaler); ok {
+				_ = m.UnmarshalJSON(in.Raw())
+			} else {
+				out.Value = in.Interface()
+			}
+		case "ttl":
+			out.TTL = time.Duration(in.Int64())
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling14(out *jwriter.Writer, in BackendRoomTransientRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	{
+		const prefix string = ",\"action\":"
+		out.RawString(prefix[1:])
+		out.String(string(in.Action))
+	}
+	{
+		const prefix string = ",\"key\":"
+		out.RawString(prefix)
+		out.String(string(in.Key))
+	}
+	if in.Value != nil {
+		const prefix string = ",\"value\":"
+		out.RawString(prefix)
+		if m, ok := in.Value.(easyjson.Marshaler); ok {
+			m.MarshalEasyJSON(out)
+		} else if m, ok := in.Value.(json.Marshaler); ok {
+			out.Raw(m.MarshalJSON())
+		} else {
+			out.Raw(json.Marshal(in.Value))
+		}
+	}
+	if in.TTL != 0 {
+		const prefix string = ",\"ttl\":"
+		out.RawString(prefix)
+		out.Int64(int64(in.TTL))
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling13(in *jlexer.Lexer, out *BackendRoomDialoutRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "number":
+			out.Number = string(in.String())
+		case "options":
+			if data := in.Raw(); in.Ok() {
+				in.AddError((out.Options).UnmarshalJSON(data))
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling13(out *jwriter.Writer, in BackendRoomDialoutRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	{
+		const prefix string = ",\"number\":"
+		out.RawString(prefix[1:])
+		out.String(string(in.Number))
+	}
+	if len(in.Options) != 0 {
+		const prefix string = ",\"options\":"
+		out.RawString(prefix)
+		out.Raw((in.Options).MarshalJSON())
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling12(in *jlexer.Lexer, out *BackendRoomSwitchToMessageRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "roomid":
+			out.RoomId = string(in.String())
+		case "sessions":
+			if data := in.Raw(); in.Ok() {
+				in.AddError((out.Sessions).UnmarshalJSON(data))
+			}
+		case "sessionslist":
+			if in.IsNull() {
+				in.Skip()
+				out.SessionsList = nil
+			} else {
+				in.Delim('[')
+				if out.SessionsList == nil {
+					if !in.IsDelim(']') {
+						out.SessionsList = make(BackendRoomSwitchToSessionsList, 0, 4)
+					} else {
+						out.SessionsList = BackendRoomSwitchToSessionsList{}
+					}
+				} else {
+					out.SessionsList = (out.SessionsList)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v6 string
+					v6 = string(in.String())
+					out.SessionsList = append(out.SessionsList, v6)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		case "sessionsmap":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				in.Delim('{')
+				if !in.IsDelim('}') {
+					out.SessionsMap = make(BackendRoomSwitchToSessionsMap)
+				} else {
+					out.SessionsMap = nil
+				}
+				for !in.IsDelim('}') {
+					key := string(in.String())
+					in.WantColon()
+					var v7 json.RawMessage
+					if data := in.Raw(); in.Ok() {
+						in.AddError((v7).UnmarshalJSON(data))
+					}
+					(out.SessionsMap)[key] = v7
+					in.WantComma()
+				}
+				in.Delim('}')
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling12(out *jwriter.Writer, in BackendRoomSwitchToMessageRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	{
+		const prefix string = ",\"roomid\":"
+		out.RawString(prefix[1:])
+		out.String(string(in.RoomId))
+	}
+	if len(in.Sessions) != 0 {
+		const prefix string = ",\"sessions\":"
+		out.RawString(prefix)
+		out.Raw((in.Sessions).MarshalJSON())
+	}
+	if len(in.SessionsList) != 0 {
+		const prefix string = ",\"sessionslist\":"
+		out.RawString(prefix)
+		{
+			out.RawByte('[')
+			for v8, v9 := range in.SessionsList {
+				if v8 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v9))
+			}
+			out.RawByte(']')
+		}
+	}
+	if len(in.SessionsMap) != 0 {
+		const prefix string = ",\"sessionsmap\":"
+		out.RawString(prefix)
+		{
+			out.RawByte('{')
+			v10First := true
+			for v10Name, v10Value := range in.SessionsMap {
+				if v10First {
+					v10First = false
+				} else {
+					out.RawByte(',')
+				}
+				out.String(string(v10Name))
+				out.RawByte(':')
+				out.Raw((v10Value).MarshalJSON())
+			}
+			out.RawByte('}')
+		}
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling11(in *jlexer.Lexer, out *BackendRoomMessageRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "data":
+			if data := in.Raw(); in.Ok() {
+				in.AddError((out.Data).UnmarshalJSON(data))
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling11(out *jwriter.Writer, in BackendRoomMessageRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	if len(in.Data) != 0 {
+		const prefix string = ",\"data\":"
+		first = false
+		out.RawString(prefix[1:])
+		out.Raw((in.Data).MarshalJSON())
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling10(in *jlexer.Lexer, out *BackendRoomParticipantsRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "changed":
+			if in.IsNull() {
+				in.Skip()
+				out.Changed = nil
+			} else {
+				in.Delim('[')
+				if out.Changed == nil {
+					if !in.IsDelim(']') {
+						out.Changed = make([]map[string]interface{}, 0, 8)
+					} else {
+						out.Changed = []map[string]interface{}{}
+					}
+				} else {
+					out.Changed = (out.Changed)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v11 map[string]interface{}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						in.Delim('{')
+						if !in.IsDelim('}') {
+							v11 = make(map[string]interface{})
+						} else {
+							v11 = nil
+						}
+						for !in.IsDelim('}') {
+							key := string(in.String())
+							in.WantColon()
+							var v12 interface{}
+							if m, ok := v12.(easyjson.Unmarshaler); ok {
+								m.UnmarshalEasyJSON(in)
+							} else if m, ok := v12.(json.Unmarshaler); ok {
+								_ = m.UnmarshalJSON(in.Raw())
+							} else {
+								v12 = in.Interface()
+							}
+							(v11)[key] = v12
+							in.WantComma()
+						}
+						in.Delim('}')
+					}
+					out.Changed = append(out.Changed, v11)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		case "users":
+			if in.IsNull() {
+				in.Skip()
+				out.Users = nil
+			} else {
+				in.Delim('[')
+				if out.Users == nil {
+					if !in.IsDelim(']') {
+						out.Users = make([]map[string]interface{}, 0, 8)
+					} else {
+						out.Users = []map[string]interface{}{}
+					}
+				} else {
+					out.Users = (out.Users)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v13 map[string]interface{}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						in.Delim('{')
+						if !in.IsDelim('}') {
+							v13 = make(map[string]interface{})
+						} else {
+							v13 = nil
+						}
+						for !in.IsDelim('}') {
+							key := string(in.String())
+							in.WantColon()
+							var v14 interface{}
+							if m, ok := v14.(easyjson.Unmarshaler); ok {
+								m.UnmarshalEasyJSON(in)
+							} else if m, ok := v14.(json.Unmarshaler); ok {
+								_ = m.UnmarshalJSON(in.Raw())
+							} else {
+								v14 = in.Interface()
+							}
+							(v13)[key] = v14
+							in.WantComma()
+						}
+						in.Delim('}')
+					}
+					out.Users = append(out.Users, v13)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling10(out *jwriter.Writer, in BackendRoomParticipantsRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	if len(in.Changed) != 0 {
+		const prefix string = ",\"changed\":"
+		first = false
+		out.RawString(prefix[1:])
+		{
+			out.RawByte('[')
+			for v15, v16 := range in.Changed {
+				if v15 > 0 {
+					out.RawByte(',')
+				}
+				if v16 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
+					out.RawString(`null`)
+				} else {
+					out.RawByte('{')
+					v17First := true
+					for v17Name, v17Value := range v16 {
+						if v17First {
+							v17First = false
+						} else {
+							out.RawByte(',')
+						}
+						out.String(string(v17Name))
+						out.RawByte(':')
+						if m, ok := v17Value.(easyjson.Marshaler); ok {
+							m.MarshalEasyJSON(out)
+						} else if m, ok := v17Value.(json.Marshaler); ok {
+							out.Raw(m.MarshalJSON())
+						} else {
+							out.Raw(json.Marshal(v17Value))
+						}
+					}
+					out.RawByte('}')
+				}
+			}
+			out.RawByte(']')
+		}
+	}
+	if len(in.Users) != 0 {
+		const prefix string = ",\"users\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		{
+			out.RawByte('[')
+			for v18, v19 := range in.Users {
+				if v18 > 0 {
+					out.RawByte(',')
+				}
+				if v19 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
+					out.RawString(`null`)
+				} else {
+					out.RawByte('{')
+					v20First := true
+					for v20Name, v20Value := range v19 {
+						if v20First {
+							v20First = false
+						} else {
+							out.RawByte(',')
+						}
+						out.String(string(v20Name))
+						out.RawByte(':')
+						if m, ok := v20Value.(easyjson.Marshaler); ok {
+							m.MarshalEasyJSON(out)
+						} else if m, ok := v20Value.(json.Marshaler); ok {
+							out.Raw(m.MarshalJSON())
+						} else {
+							out.Raw(json.Marshal(v20Value))
+						}
+					}
+					out.RawByte('}')
+				}
+			}
+			out.RawByte(']')
+		}
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling9(in *jlexer.Lexer, out *BackendRoomInCallRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "incall":
+			if data := in.Raw(); in.Ok() {
+				in.AddError((out.InCall).UnmarshalJSON(data))
+			}
+		case "all":
+			out.All = bool(in.Bool())
+		case "changed":
+			if in.IsNull() {
+				in.Skip()
+				out.Changed = nil
+			} else {
+				in.Delim('[')
+				if out.Changed == nil {
+					if !in.IsDelim(']') {
+						out.Changed = make([]map[string]interface{}, 0, 8)
+					} else {
+						out.Changed = []map[string]interface{}{}
+					}
+				} else {
+					out.Changed = (out.Changed)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v21 map[string]interface{}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						in.Delim('{')
+						if !in.IsDelim('}') {
+							v21 = make(map[string]interface{})
+						} else {
+							v21 = nil
+						}
+						for !in.IsDelim('}') {
+							key := string(in.String())
+							in.WantColon()
+							var v22 interface{}
+							if m, ok := v22.(easyjson.Unmarshaler); ok {
+								m.UnmarshalEasyJSON(in)
+							} else if m, ok := v22.(json.Unmarshaler); ok {
+								_ = m.UnmarshalJSON(in.Raw())
+							} else {
+								v22 = in.Interface()
+							}
+							(v21)[key] = v22
+							in.WantComma()
+						}
+						in.Delim('}')
+					}
+					out.Changed = append(out.Changed, v21)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		case "users":
+			if in.IsNull() {
+				in.Skip()
+				out.Users = nil
+			} else {
+				in.Delim('[')
+				if out.Users == nil {
+					if !in.IsDelim(']') {
+						out.Users = make([]map[string]interface{}, 0, 8)
+					} else {
+						out.Users = []map[string]interface{}{}
+					}
+				} else {
+					out.Users = (out.Users)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v23 map[string]interface{}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						in.Delim('{')
+						if !in.IsDelim('}') {
+							v23 = make(map[string]interface{})
+						} else {
+							v23 = nil
+						}
+						for !in.IsDelim('}') {
+							key := string(in.String())
+							in.WantColon()
+							var v24 interface{}
+							if m, ok := v24.(easyjson.Unmarshaler); ok {
+								m.UnmarshalEasyJSON(in)
+							} else if m, ok := v24.(json.Unmarshaler); ok {
+								_ = m.UnmarshalJSON(in.Raw())
+							} else {
+								v24 = in.Interface()
+							}
+							(v23)[key] = v24
+							in.WantComma()
+						}
+						in.Delim('}')
+					}
+					out.Users = append(out.Users, v23)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling9(out *jwriter.Writer, in BackendRoomInCallRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	if len(in.InCall) != 0 {
+		const prefix string = ",\"incall\":"
+		first = false
+		out.RawString(prefix[1:])
+		out.Raw((in.InCall).MarshalJSON())
+	}
+	if in.All {
+		const prefix string = ",\"all\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Bool(bool(in.All))
+	}
+	if len(in.Changed) != 0 {
+		const prefix string = ",\"changed\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		{
+			out.RawByte('[')
+			for v25, v26 := range in.Changed {
+				if v25 > 0 {
+					out.RawByte(',')
+				}
+				if v26 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
+					out.RawString(`null`)
+				} else {
+					out.RawByte('{')
+					v27First := true
+					for v27Name, v27Value := range v26 {
+						if v27First {
+							v27First = false
+						} else {
+							out.RawByte(',')
+						}
+						out.String(string(v27Name))
+						out.RawByte(':')
+						if m, ok := v27Value.(easyjson.Marshaler); ok {
+							m.MarshalEasyJSON(out)
+						} else if m, ok := v27Value.(json.Marshaler); ok {
+							out.Raw(m.MarshalJSON())
+						} else {
+							out.Raw(json.Marshal(v27Value))
+						}
+					}
+					out.RawByte('}')
+				}
+			}
+			out.RawByte(']')
+		}
+	}
+	if len(in.Users) != 0 {
+		const prefix string = ",\"users\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		{
+			out.RawByte('[')
+			for v28, v29 := range in.Users {
+				if v28 > 0 {
+					out.RawByte(',')
+				}
+				if v29 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
+					out.RawString(`null`)
+				} else {
+					out.RawByte('{')
+					v30First := true
+					for v30Name, v30Value := range v29 {
+						if v30First {
+							v30First = false
+						} else {
+							out.RawByte(',')
+						}
+						out.String(string(v30Name))
+						out.RawByte(':')
+						if m, ok := v30Value.(easyjson.Marshaler); ok {
+							m.MarshalEasyJSON(out)
+						} else if m, ok := v30Value.(json.Marshaler); ok {
+							out.Raw(m.MarshalJSON())
+						} else {
+							out.Raw(json.Marshal(v30Value))
+						}
+					}
+					out.RawByte('}')
+				}
+			}
+			out.RawByte(']')
+		}
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling8(in *jlexer.Lexer, out *BackendRoomDeleteRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "userids":
+			if in.IsNull() {
+				in.Skip()
+				out.UserIds = nil
+			} else {
+				in.Delim('[')
+				if out.UserIds == nil {
+					if !in.IsDelim(']') {
+						out.UserIds = make([]string, 0, 4)
+					} else {
+						out.UserIds = []string{}
+					}
+				} else {
+					out.UserIds = (out.UserIds)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v31 string
+					v31 = string(in.String())
+					out.UserIds = append(out.UserIds, v31)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling8(out *jwriter.Writer, in BackendRoomDeleteRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	if len(in.UserIds) != 0 {
+		const prefix string = ",\"userids\":"
+		first = false
+		out.RawString(prefix[1:])
+		{
+			out.RawByte('[')
+			for v32, v33 := range in.UserIds {
+				if v32 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v33))
+			}
+			out.RawByte(']')
+		}
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling7(in *jlexer.Lexer, out *BackendRoomUpdateRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "userids":
+			if in.IsNull() {
+				in.Skip()
+				out.UserIds = nil
+			} else {
+				in.Delim('[')
+				if out.UserIds == nil {
+					if !in.IsDelim(']') {
+						out.UserIds = make([]string, 0, 4)
+					} else {
+						out.UserIds = []string{}
+					}
+				} else {
+					out.UserIds = (out.UserIds)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v34 string
+					v34 = string(in.String())
+					out.UserIds = append(out.UserIds, v34)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		case "properties":
+			if data := in.Raw(); in.Ok() {
+				in.AddError((out.Properties).UnmarshalJSON(data))
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling7(out *jwriter.Writer, in BackendRoomUpdateRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	if len(in.UserIds) != 0 {
+		const prefix string = ",\"userids\":"
+		first = false
+		out.RawString(prefix[1:])
+		{
+			out.RawByte('[')
+			for v35, v36 := range in.UserIds {
+				if v35 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v36))
+			}
+			out.RawByte(']')
+		}
+	}
+	if len(in.Properties) != 0 {
+		const prefix string = ",\"properties\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Raw((in.Properties).MarshalJSON())
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling6(in *jlexer.Lexer, out *BackendRoomDisinviteRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "userids":
+			if in.IsNull() {
+				in.Skip()
+				out.UserIds = nil
+			} else {
+				in.Delim('[')
+				if out.UserIds == nil {
+					if !in.IsDelim(']') {
+						out.UserIds = make([]string, 0, 4)
+					} else {
+						out.UserIds = []string{}
+					}
+				} else {
+					out.UserIds = (out.UserIds)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v37 string
+					v37 = string(in.String())
+					out.UserIds = append(out.UserIds, v37)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		case "sessionids":
+			if in.IsNull() {
+				in.Skip()
+				out.SessionIds = nil
+			} else {
+				in.Delim('[')
+				if out.SessionIds == nil {
+					if !in.IsDelim(']') {
+						out.SessionIds = make([]string, 0, 4)
+					} else {
+						out.SessionIds = []string{}
+					}
+				} else {
+					out.SessionIds = (out.SessionIds)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v38 string
+					v38 = string(in.String())
+					out.SessionIds = append(out.SessionIds, v38)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		case "alluserids":
+			if in.IsNull() {
+				in.Skip()
+				out.AllUserIds = nil
+			} else {
+				in.Delim('[')
+				if out.AllUserIds == nil {
+					if !in.IsDelim(']') {
+						out.AllUserIds = make([]string, 0, 4)
+					} else {
+						out.AllUserIds = []string{}
+					}
+				} else {
+					out.AllUserIds = (out.AllUserIds)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v39 string
+					v39 = string(in.String())
+					out.AllUserIds = append(out.AllUserIds, v39)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		case "properties":
+			if data := in.Raw(); in.Ok() {
+				in.AddError((out.Properties).UnmarshalJSON(data))
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling6(out *jwriter.Writer, in BackendRoomDisinviteRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	if len(in.UserIds) != 0 {
+		const prefix string = ",\"userids\":"
+		first = false
+		out.RawString(prefix[1:])
+		{
+			out.RawByte('[')
+			for v40, v41 := range in.UserIds {
+				if v40 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v41))
+			}
+			out.RawByte(']')
+		}
+	}
+	if len(in.SessionIds) != 0 {
+		const prefix string = ",\"sessionids\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		{
+			out.RawByte('[')
+			for v42, v43 := range in.SessionIds {
+				if v42 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v43))
+			}
+			out.RawByte(']')
+		}
+	}
+	if len(in.AllUserIds) != 0 {
+		const prefix string = ",\"alluserids\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		{
+			out.RawByte('[')
+			for v44, v45 := range in.AllUserIds {
+				if v44 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v45))
+			}
+			out.RawByte(']')
+		}
+	}
+	if len(in.Properties) != 0 {
+		const prefix string = ",\"properties\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Raw((in.Properties).MarshalJSON())
+	}
+	out.RawByte('}')
+}
+func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling5(in *jlexer.Lexer, out *BackendRoomInviteRequest) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "userids":
+			if in.IsNull() {
+				in.Skip()
+				out.UserIds = nil
+			} else {
+				in.Delim('[')
+				if out.UserIds == nil {
+					if !in.IsDelim(']') {
+						out.UserIds = make([]string, 0, 4)
+					} else {
+						out.UserIds = []string{}
+					}
+				} else {
+					out.UserIds = (out.UserIds)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v46 string
+					v46 = string(in.String())
+					out.UserIds = append(out.UserIds, v46)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		case "alluserids":
+			if in.IsNull() {
+				in.Skip()
+				out.AllUserIds = nil
+			} else {
+				in.Delim('[')
+				if out.AllUserIds == nil {
+					if !in.IsDelim(']') {
+						out.AllUserIds = make([]string, 0, 4)
+					} else {
+						out.AllUserIds = []string{}
+					}
+				} else {
+					out.AllUserIds = (out.AllUserIds)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v47 string
+					v47 = string(in.String())
+					out.AllUserIds = append(out.AllUserIds, v47)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
+		case "properties":
+			if data := in.Raw(); in.Ok() {
+				in.AddError((out.Properties).UnmarshalJSON(data))
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling5(out *jwriter.Writer, in BackendRoomInviteRequest) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	if len(in.UserIds) != 0 {
+		const prefix string = ",\"userids\":"
+		first = false
+		out.RawString(prefix[1:])
+		{
+			out.RawByte('[')
+			for v48, v49 := range in.UserIds {
+				if v48 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v49))
+			}
+			out.RawByte(']')
+		}
+	}
+	if len(in.AllUserIds) != 0 {
+		const prefix string = ",\"alluserids\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		{
+			out.RawByte('[')
+			for v50, v51 := range in.AllUserIds {
+				if v50 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v51))
+			}
+			out.RawByte(']')
+		}
+	}
+	if len(in.Properties) != 0 {
+		const prefix string = ",\"properties\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Raw((in.Properties).MarshalJSON())
+	}
+	out.RawByte('}')
 }

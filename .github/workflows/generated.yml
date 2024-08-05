@@ -68,6 +68,7 @@ jobs:
 
       - name: Generate files
         run: |
+          make distclean
           make common
 
       - name: Commit changes
@@ -105,6 +106,7 @@ jobs:
 
       - name: Generate files
         run: |
+          make distclean
           make common
 
       - name: Check generated files
