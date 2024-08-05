@@ -55,6 +55,18 @@ func isClosedError(err error) bool {
 		strings.Contains(err.Error(), net.ErrClosed.Error())
 }
 
+func getCloudUrl(s string) string {
+	if strings.HasPrefix(s, "https://") {
+		s = s[8:]
+	} else {
+		s = strings.TrimPrefix(s, "http://")
+	}
+	if pos := strings.Index(s, "/ocs/v"); pos != -1 {
+		s = s[:pos]
+	}
+	return s
+}
+
 type FederationClient struct {
 	hub     *Hub
 	session *ClientSession
@@ -577,17 +589,36 @@ func (c *FederationClient) joinRoom() error {
 }
 
 func (c *FederationClient) updateEventUsers(users []map[string]interface{}, localSessionId string, remoteSessionId string) {
+	localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
+	localCloudUrlLen := len(localCloudUrl)
+	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
+	checkSessionId := true
 	for _, u := range users {
-		key := "sessionId"
-		sid, found := u[key]
-		if !found {
-			key := "sessionid"
-			sid, found = u[key]
+		if actorType, found := getStringMapEntry[string](u, "actorType"); found {
+			if actorId, found := getStringMapEntry[string](u, "actorId"); found {
+				switch actorType {
+				case ActorTypeFederatedUsers:
+					if strings.HasSuffix(actorId, localCloudUrl) {
+						u["actorId"] = actorId[:len(actorId)-localCloudUrlLen]
+						u["actorType"] = ActorTypeUsers
+					}
+				case ActorTypeUsers:
+					u["actorId"] = actorId + remoteCloudUrl
+					u["actorType"] = ActorTypeFederatedUsers
+				}
+			}
 		}
-		if found {
-			if sid, ok := sid.(string); ok && sid == remoteSessionId {
+
+		if checkSessionId {
+			key := "sessionId"
+			sid, found := getStringMapEntry[string](u, key)
+			if !found {
+				key := "sessionid"
+				sid, found = getStringMapEntry[string](u, key)
+			}
+			if found && sid == remoteSessionId {
 				u[key] = localSessionId
-				break
+				checkSessionId = false
 			}
 		}
 	}

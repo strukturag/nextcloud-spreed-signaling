@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,23 +287,53 @@ func Test_Federation(t *testing.T) {
 		}
 	}
 
-	// Simulate request from the backend that somebody joined the call.
+	// Simulate request from the backend that a federated user joined the call.
 	users := []map[string]interface{}{
 		{
 			"sessionId": remoteSessionId,
 			"inCall":    1,
+			"actorId":   "remoteUser@" + strings.TrimPrefix(server2.URL, "http://"),
+			"actorType": "federated_users",
 		},
 	}
 	room := hub1.getRoom(roomId)
 	require.NotNil(room)
 	room.PublishUsersInCallChanged(users, users)
 	var event *EventServerMessage
+	// For the local user, it's a federated user on server 2 that joined.
 	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", &event))
 	assert.Equal(remoteSessionId, event.Update.Users[0]["sessionId"])
+	assert.Equal("remoteUser@"+strings.TrimPrefix(server2.URL, "http://"), event.Update.Users[0]["actorId"])
+	assert.Equal("federated_users", event.Update.Users[0]["actorType"])
 	assert.Equal(roomId, event.Update.RoomId)
-
+	// For the federated user, it's a local user that joined.
 	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", &event))
 	assert.Equal(hello2.Hello.SessionId, event.Update.Users[0]["sessionId"])
+	assert.Equal("remoteUser", event.Update.Users[0]["actorId"])
+	assert.Equal("users", event.Update.Users[0]["actorType"])
+	assert.Equal(federatedRoomId, event.Update.RoomId)
+
+	// Simulate request from the backend that a local user joined the call.
+	users = []map[string]interface{}{
+		{
+			"sessionId": hello1.Hello.SessionId,
+			"inCall":    1,
+			"actorId":   "localUser",
+			"actorType": "users",
+		},
+	}
+	room.PublishUsersInCallChanged(users, users)
+	// For the local user, it's a local user that joined.
+	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", &event))
+	assert.Equal(hello1.Hello.SessionId, event.Update.Users[0]["sessionId"])
+	assert.Equal("localUser", event.Update.Users[0]["actorId"])
+	assert.Equal("users", event.Update.Users[0]["actorType"])
+	assert.Equal(roomId, event.Update.RoomId)
+	// For the federated user, it's a federated user on server 1 that joined.
+	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", &event))
+	assert.Equal(hello1.Hello.SessionId, event.Update.Users[0]["sessionId"])
+	assert.Equal("localUser@"+strings.TrimPrefix(server1.URL, "http://"), event.Update.Users[0]["actorId"])
+	assert.Equal("federated_users", event.Update.Users[0]["actorType"])
 	assert.Equal(federatedRoomId, event.Update.RoomId)
 
 	// Joining another "direct" session will trigger correct events.

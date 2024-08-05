@@ -41,6 +41,9 @@ const (
 
 	// Version 2.0 validates auth params encoded as JWT.
 	HelloVersionV2 = "2.0"
+
+	ActorTypeUsers          = "users"
+	ActorTypeFederatedUsers = "federated_users"
 )
 
 var (
@@ -50,6 +53,17 @@ var (
 
 func makePtr[T any](v T) *T {
 	return &v
+}
+
+func getStringMapEntry[T any](m map[string]interface{}, key string) (s T, ok bool) {
+	var defaultValue T
+	v, found := m[key]
+	if !found {
+		return defaultValue, false
+	}
+
+	s, ok = v.(T)
+	return
 }
 
 // ClientMessage is a message that is sent from a client to the server.
