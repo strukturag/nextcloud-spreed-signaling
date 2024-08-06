@@ -64,12 +64,14 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 		if sessionLimit > 0 {
 			log.Printf("Allow a maximum of %d sessions", sessionLimit)
 		}
+		updateBackendStats(compatBackend)
 		numBackends++
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
 		for host, configuredBackends := range getConfiguredHosts(backendIds, config, commonSecret) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
 				log.Printf("Backend %s added for %s", be.id, be.url)
+				updateBackendStats(be)
 			}
 			numBackends += len(configuredBackends)
 		}
@@ -111,6 +113,7 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 			if sessionLimit > 0 {
 				log.Printf("Allow a maximum of %d sessions", sessionLimit)
 			}
+			updateBackendStats(compatBackend)
 			numBackends++
 		}
 	}
@@ -138,6 +141,7 @@ func (s *backendStorageStatic) RemoveBackendsForHost(host string) {
 	if oldBackends := s.backends[host]; len(oldBackends) > 0 {
 		for _, backend := range oldBackends {
 			log.Printf("Backend %s removed for %s", backend.id, backend.url)
+			deleteBackendStats(backend)
 		}
 		statsBackendsCurrent.Sub(float64(len(oldBackends)))
 	}
@@ -158,6 +162,7 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend) {
 				s.backends[host][existingIndex] = newBackend
 				backends = append(backends[:index], backends[index+1:]...)
 				log.Printf("Backend %s updated for %s", newBackend.id, newBackend.url)
+				updateBackendStats(newBackend)
 				break
 			}
 			index++
@@ -166,6 +171,7 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend) {
 			removed := s.backends[host][existingIndex]
 			log.Printf("Backend %s removed for %s", removed.id, removed.url)
 			s.backends[host] = append(s.backends[host][:existingIndex], s.backends[host][existingIndex+1:]...)
+			deleteBackendStats(removed)
 			statsBackendsCurrent.Dec()
 		}
 	}
@@ -173,6 +179,7 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend) {
 	s.backends[host] = append(s.backends[host], backends...)
 	for _, added := range backends {
 		log.Printf("Backend %s added for %s", added.id, added.url)
+		updateBackendStats(added)
 	}
 	statsBackendsCurrent.Add(float64(len(backends)))
 }
