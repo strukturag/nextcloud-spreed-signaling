@@ -72,6 +72,7 @@ type ClientSession struct {
 	client       HandlerClient
 	room         atomic.Pointer[Room]
 	roomJoinTime atomic.Int64
+	federation   atomic.Pointer[FederationClient]
 
 	roomSessionIdLock sync.RWMutex
 	roomSessionId     string
@@ -321,7 +322,11 @@ func (s *ClientSession) UserData() json.RawMessage {
 
 func (s *ClientSession) SetRoom(room *Room) {
 	s.room.Store(room)
-	if room != nil {
+	s.onRoomSet(room != nil)
+}
+
+func (s *ClientSession) onRoomSet(hasRoom bool) {
+	if hasRoom {
 		s.roomJoinTime.Store(time.Now().UnixNano())
 	} else {
 		s.roomJoinTime.Store(0)
@@ -330,6 +335,22 @@ func (s *ClientSession) SetRoom(room *Room) {
 	s.seenJoinedLock.Lock()
 	defer s.seenJoinedLock.Unlock()
 	s.seenJoinedEvents = nil
+}
+
+func (s *ClientSession) GetFederationClient() *FederationClient {
+	return s.federation.Load()
+}
+
+func (s *ClientSession) SetFederationClient(federation *FederationClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.doLeaveRoom(true)
+	s.onRoomSet(federation != nil)
+
+	if prev := s.federation.Swap(federation); prev != nil && prev != federation {
+		prev.Close()
+	}
 }
 
 func (s *ClientSession) GetRoom() *Room {
@@ -373,6 +394,10 @@ func (s *ClientSession) Close() {
 func (s *ClientSession) closeAndWait(wait bool) {
 	s.closeFunc()
 	s.hub.removeSession(s)
+
+	if prev := s.federation.Swap(nil); prev != nil {
+		prev.Close()
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -467,9 +492,26 @@ func (s *ClientSession) LeaveCall() {
 }
 
 func (s *ClientSession) LeaveRoom(notify bool) *Room {
+	return s.LeaveRoomWithMessage(notify, nil)
+}
+
+func (s *ClientSession) LeaveRoomWithMessage(notify bool, message *ClientMessage) *Room {
+	if prev := s.federation.Swap(nil); prev != nil {
+		// Session was connected to a federation room.
+		if err := prev.Leave(message); err != nil {
+			log.Printf("Error leaving room for session %s on federation client %s: %s", s.PublicId(), prev.URL(), err)
+			prev.Close()
+		}
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.doLeaveRoom(notify)
+}
+
+func (s *ClientSession) doLeaveRoom(notify bool) *Room {
 	room := s.GetRoom()
 	if room == nil {
 		return nil

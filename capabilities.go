@@ -43,6 +43,9 @@ const (
 	// Name of capability to enable the "v3" API for the signaling endpoint.
 	FeatureSignalingV3Api = "signaling-v3"
 
+	// Name of capability that is set if the server supports Federation V2.
+	FeatureFederationV2 = "federation-v2"
+
 	// minCapabilitiesCacheDuration specifies the minimum duration to cache
 	// capabilities.
 	// This could overwrite the "max-age" from a "Cache-Control" header.

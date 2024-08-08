@@ -27,6 +27,7 @@ import (
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -74,6 +75,9 @@ var (
 
 	// MCU requests will be cancelled if they take too long.
 	defaultMcuTimeoutSeconds = 10
+
+	// Federation requests will be cancelled if they take too long.
+	defaultFederationTimeoutSeconds = 10
 
 	// New connections have to send a "Hello" request after 2 seconds.
 	initialHelloTimeout = 2 * time.Second
@@ -178,6 +182,9 @@ type Hub struct {
 	rpcClients *GrpcClients
 
 	throttler Throttler
+
+	skipFederationVerify bool
+	federationTimeout    time.Duration
 }
 
 func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
@@ -240,6 +247,16 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 	if err != nil {
 		return nil, err
 	}
+
+	skipFederationVerify, _ := config.GetBool("federation", "skipverify")
+	if skipFederationVerify {
+		log.Println("WARNING: Federation target verification is disabled!")
+	}
+	federationTimeoutSeconds, _ := config.GetInt("federation", "timeout")
+	if federationTimeoutSeconds <= 0 {
+		federationTimeoutSeconds = defaultFederationTimeoutSeconds
+	}
+	federationTimeout := time.Duration(federationTimeoutSeconds) * time.Second
 
 	if !trustedProxiesIps.Empty() {
 		log.Printf("Trusted proxies: %s", trustedProxiesIps)
@@ -349,6 +366,9 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		rpcClients: rpcClients,
 
 		throttler: throttler,
+
+		skipFederationVerify: skipFederationVerify,
+		federationTimeout:    federationTimeout,
 	}
 	hub.trustedProxies.Store(trustedProxiesIps)
 	if len(geoipOverrides) > 0 {
@@ -1005,6 +1025,18 @@ func (h *Hub) processMessage(client HandlerClient, data []byte) {
 		return
 	}
 
+	isLocalMessage := message.Type == "room" ||
+		message.Type == "hello" ||
+		message.Type == "bye"
+	if cs, ok := session.(*ClientSession); ok && !isLocalMessage {
+		if federated := cs.GetFederationClient(); federated != nil {
+			if err := federated.ProxyMessage(&message); err != nil {
+				client.SendMessage(message.NewWrappedErrorServerMessage(err))
+			}
+			return
+		}
+	}
+
 	switch message.Type {
 	case "room":
 		h.processRoom(session, &message)
@@ -1202,6 +1234,8 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 
 	switch message.Hello.Auth.Type {
 	case HelloClientTypeClient:
+		fallthrough
+	case HelloClientTypeFederation:
 		h.processHelloClient(client, message)
 	case HelloClientTypeInternal:
 		h.processHelloInternal(client, message)
@@ -1240,7 +1274,23 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		return nil, nil, InvalidBackendUrl
 	}
 
-	token, err := jwt.ParseWithClaims(message.Hello.Auth.helloV2Params.Token, &HelloV2TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+	var tokenString string
+	var tokenClaims jwt.Claims
+	switch message.Hello.Auth.Type {
+	case HelloClientTypeClient:
+		tokenString = message.Hello.Auth.helloV2Params.Token
+		tokenClaims = &HelloV2TokenClaims{}
+	case HelloClientTypeFederation:
+		if !h.backend.capabilities.HasCapabilityFeature(ctx, url, FeatureFederationV2) {
+			return nil, nil, ErrFederationNotSupported
+		}
+
+		tokenString = message.Hello.Auth.federationParams.Token
+		tokenClaims = &FederationTokenClaims{}
+	default:
+		return nil, nil, InvalidClientType
+	}
+	token, err := jwt.ParseWithClaims(tokenString, tokenClaims, func(token *jwt.Token) (interface{}, error) {
 		// Only public-private-key algorithms are supported.
 		var loadKeyFunc func([]byte) (interface{}, error)
 		switch token.Method.(type) {
@@ -1316,15 +1366,26 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		return nil, nil, InvalidToken
 	}
 
-	claims, ok := token.Claims.(*HelloV2TokenClaims)
-	if !ok || !token.Valid {
-		return nil, nil, InvalidToken
+	var authTokenClaims AuthTokenClaims
+	switch message.Hello.Auth.Type {
+	case HelloClientTypeClient:
+		claims, ok := token.Claims.(*HelloV2TokenClaims)
+		if !ok || !token.Valid {
+			return nil, nil, InvalidToken
+		}
+		authTokenClaims = claims
+	case HelloClientTypeFederation:
+		claims, ok := token.Claims.(*FederationTokenClaims)
+		if !ok || !token.Valid {
+			return nil, nil, InvalidToken
+		}
+		authTokenClaims = claims
 	}
 	now := time.Now()
-	if !claims.VerifyIssuedAt(now, true) {
+	if !authTokenClaims.VerifyIssuedAt(now, true) {
 		return nil, nil, TokenNotValidYet
 	}
-	if !claims.VerifyExpiresAt(now, true) {
+	if !authTokenClaims.VerifyExpiresAt(now, true) {
 		return nil, nil, TokenExpired
 	}
 
@@ -1332,8 +1393,8 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		Type: "auth",
 		Auth: &BackendClientAuthResponse{
 			Version: message.Hello.Version,
-			UserId:  claims.Subject,
-			User:    claims.UserData,
+			UserId:  authTokenClaims.TokenSubject(),
+			User:    authTokenClaims.TokenUserData(),
 		},
 	}
 	return backend, auth, nil
@@ -1481,7 +1542,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 	roomId := message.Room.RoomId
 	if roomId == "" {
 		// We can handle leaving a room directly.
-		if session.LeaveRoom(true) != nil {
+		if session.LeaveRoomWithMessage(true, message) != nil {
 			// User was in a room before, so need to notify about leaving it.
 			h.sendRoom(session, message, nil)
 			if session.UserId() == "" && session.ClientType() != HelloClientTypeInternal {
@@ -1489,6 +1550,82 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 			}
 		}
 
+		return
+	}
+
+	if federation := message.Room.Federation; federation != nil {
+		h.mu.Lock()
+		// The session will join a room, make sure it doesn't expire while connecting.
+		delete(h.anonymousSessions, session)
+		h.mu.Unlock()
+
+		ctx, cancel := context.WithTimeout(session.Context(), h.federationTimeout)
+		defer cancel()
+
+		client := session.GetFederationClient()
+		var err error
+		if client != nil {
+			if client.CanReuse(federation) {
+				err = client.ChangeRoom(message)
+				if errors.Is(err, ErrNotConnected) {
+					client = nil
+				}
+			} else {
+				client = nil
+			}
+		}
+		if client == nil {
+			client, err = NewFederationClient(ctx, h, session, message)
+		}
+
+		if err != nil {
+			if session.UserId() == "" && client == nil {
+				h.startWaitAnonymousSessionRoom(session)
+			}
+			var ae *Error
+			if errors.As(err, &ae) {
+				session.SendMessage(message.NewErrorServerMessage(ae))
+				return
+			}
+
+			var details interface{}
+			var ce *tls.CertificateVerificationError
+			if errors.As(err, &ce) {
+				details = map[string]string{
+					"code":    "certificate_verification_error",
+					"message": ce.Error(),
+				}
+			}
+			var ne net.Error
+			if details == nil && errors.As(err, &ne) {
+				details = map[string]string{
+					"code":    "network_error",
+					"message": ne.Error(),
+				}
+			}
+			if details == nil {
+				var we websocket.HandshakeError
+				if errors.Is(err, websocket.ErrBadHandshake) {
+					details = map[string]string{
+						"code":    "network_error",
+						"message": err.Error(),
+					}
+				} else if errors.As(err, &we) {
+					details = map[string]string{
+						"code":    "network_error",
+						"message": we.Error(),
+					}
+				}
+			}
+
+			log.Printf("Error creating federation client to %s for %s to join room %s: %s", federation.SignalingUrl, session.PublicId(), roomId, err)
+			session.SendMessage(message.NewErrorServerMessage(
+				NewErrorDetail("federation_error", "Failed to create federation client.", details),
+			))
+			return
+		}
+
+		session.SetFederationClient(client)
 		return
 	}
 

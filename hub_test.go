@@ -196,11 +196,17 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		server2.Close()
 	})
 
-	nats := startLocalNatsServer(t)
+	nats1 := startLocalNatsServer(t)
+	var nats2 string
+	if strings.Contains(t.Name(), "Federation") {
+		nats2 = startLocalNatsServer(t)
+	} else {
+		nats2 = nats1
+	}
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
 
-	events1, err := NewAsyncEvents(nats)
+	events1, err := NewAsyncEvents(nats1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +226,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	if err != nil {
 		t.Fatal(err)
 	}
-	events2, err := NewAsyncEvents(nats)
+	events2, err := NewAsyncEvents(nats2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,6 +705,9 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if strings.Contains(t.Name(), "V3Api") {
 			features = append(features, "signaling-v3")
 		}
+		if strings.Contains(t.Name(), "Federation") {
+			features = append(features, "federation-v2")
+		}
 		signaling := map[string]interface{}{
 			"foo": "bar",
 			"baz": 42,
@@ -713,7 +722,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if os.Getenv("SKIP_V2_CAPABILITIES") != "" {
 			useV2 = false
 		}
-		if strings.Contains(t.Name(), "V2") && useV2 {
+		if (strings.Contains(t.Name(), "V2") && useV2) || strings.Contains(t.Name(), "Federation") {
 			key := getPublicAuthToken(t)
 			public, err := x509.MarshalPKIXPublicKey(key)
 			if err != nil {
