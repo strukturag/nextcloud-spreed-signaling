@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1813,7 +1814,7 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 				connections2 = append(connections2, c)
 			}
 		}
-		SlicesSortFunc(connections2, func(a *mcuProxyConnection, b *mcuProxyConnection) int {
+		slices.SortFunc(connections2, func(a *mcuProxyConnection, b *mcuProxyConnection) int {
 			var incoming_a *float64
 			if bw := a.Bandwidth(); bw != nil {
 				incoming_a = bw.Incoming
@@ -2071,7 +2072,7 @@ func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publ
 						connections2 = append(connections2, c)
 					}
 				}
-				SlicesSortFunc(connections2, func(a *mcuProxyConnection, b *mcuProxyConnection) int {
+				slices.SortFunc(connections2, func(a *mcuProxyConnection, b *mcuProxyConnection) int {
 					var outgoing_a *float64
 					if bw := a.Bandwidth(); bw != nil {
 						outgoing_a = bw.Outgoing
