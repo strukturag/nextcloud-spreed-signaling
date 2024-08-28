@@ -1717,8 +1717,9 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	var wg sync.WaitGroup
 	if len(h.federatedSessions) == 0 {
-		return 0, nil
+		return 0, &wg
 	}
 
 	rooms := make(map[string]map[string][]BackendPingEntry)
@@ -1766,15 +1767,14 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 		})
 	}
 
-	var wg sync.WaitGroup
 	if len(urls) == 0 {
 		return 0, &wg
 	}
 	count := 0
 	for roomId, entries := range rooms {
-		count += len(entries)
 		for u, e := range entries {
 			wg.Add(1)
+			count += len(e)
 			go func(roomId string, url *url.URL, entries []BackendPingEntry) {
 				defer wg.Done()
 				ctx, cancel := context.WithTimeout(context.Background(), h.backendTimeout)

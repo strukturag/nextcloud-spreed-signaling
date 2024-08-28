@@ -956,8 +956,10 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 	if len(urls) == 0 {
 		return 0, &wg
 	}
+	var count int
 	for u, e := range entries {
 		wg.Add(1)
+		count += len(e)
 		go func(url *url.URL, entries []BackendPingEntry) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), r.hub.backendTimeout)
@@ -968,7 +970,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 			}
 		}(urls[u], e)
 	}
-	return len(entries), &wg
+	return count, &wg
 }
 
 func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
