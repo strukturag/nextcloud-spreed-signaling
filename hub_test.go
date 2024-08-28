@@ -206,6 +206,11 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
 
+	if strings.Contains(t.Name(), "Federation") {
+		// Signaling servers should not form a cluster in federation tests.
+		addr1, addr2 = addr2, addr1
+	}
+
 	events1, err := NewAsyncEvents(nats1)
 	if err != nil {
 		t.Fatal(err)
