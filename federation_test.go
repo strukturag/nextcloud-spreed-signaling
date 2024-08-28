@@ -105,6 +105,9 @@ func Test_Federation(t *testing.T) {
 
 	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
+	room := hub1.getRoom(roomId)
+	require.NotNil(room)
+
 	now := time.Now()
 	token, err := client1.CreateHelloV2Token(testDefaultUserId+"2", now, now.Add(time.Minute))
 	require.NoError(err)
@@ -145,6 +148,58 @@ func Test_Federation(t *testing.T) {
 	// The client2 will see its own session id, not the one from the remote server.
 	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 
+	tmpRoom1 := hub2.getRoom(roomId)
+	assert.Nil(tmpRoom1)
+	tmpRoom2 := hub2.getRoom(federatedRoomId)
+	assert.Nil(tmpRoom2)
+
+	// The host hub has no federated sessions and thus doesn't send pings.
+	count1, wg1 := hub1.publishFederatedSessions()
+	wg1.Wait()
+	assert.Equal(0, count1)
+
+	count1, wg1 = room.publishActiveSessions()
+	wg1.Wait()
+	assert.Equal(2, count1)
+
+	request1 := getPingRequests(t)
+	clearPingRequests(t)
+	assert.Len(request1, 1)
+	if ping := request1[0].Ping; assert.NotNil(ping) {
+		assert.Equal(roomId, ping.RoomId)
+		assert.Equal("1.0", ping.Version)
+		assert.Len(ping.Entries, 2)
+		// The order of entries is not defined
+		if ping.Entries[0].SessionId == federatedRoomId+"-"+hello2.Hello.SessionId {
+			assert.Equal(hello2.Hello.UserId, ping.Entries[0].UserId)
+
+			assert.Equal(roomId+"-"+hello1.Hello.SessionId, ping.Entries[1].SessionId)
+			assert.Equal(hello1.Hello.UserId, ping.Entries[1].UserId)
+		} else {
+			assert.Equal(roomId+"-"+hello1.Hello.SessionId, ping.Entries[0].SessionId)
+			assert.Equal(hello1.Hello.UserId, ping.Entries[0].UserId)
+
+			assert.Equal(federatedRoomId+"-"+hello2.Hello.SessionId, ping.Entries[1].SessionId)
+			assert.Equal(hello2.Hello.UserId, ping.Entries[1].UserId)
+		}
+	}
+
+	// The federated hub has a federated session for which it sends a ping.
+	count2, wg2 := hub2.publishFederatedSessions()
+	wg2.Wait()
+	assert.Equal(1, count2)
+
+	request2 := getPingRequests(t)
+	clearPingRequests(t)
+	assert.Len(request2, 1)
+	if ping := request2[0].Ping; assert.NotNil(ping) {
+		assert.Equal(federatedRoomId, ping.RoomId)
+		assert.Equal("1.0", ping.Version)
+		assert.Len(ping.Entries, 1)
+		assert.Equal(federatedRoomId+"-"+hello2.Hello.SessionId, ping.Entries[0].SessionId)
+		assert.Equal(hello2.Hello.UserId, ping.Entries[0].UserId)
+	}
+
 	// Leaving and re-joining a room as "direct" session will trigger correct events.
 	if room, err := client1.JoinRoom(ctx, ""); assert.NoError(err) {
 		assert.Equal("", room.Room.RoomId)
@@ -171,6 +226,11 @@ func Test_Federation(t *testing.T) {
 		SessionId: remoteSessionId,
 		UserId:    hello2.Hello.UserId,
 	}))
+
+	// The federated session has left the room, so no more pings.
+	count3, wg3 := hub2.publishFederatedSessions()
+	wg3.Wait()
+	assert.Equal(0, count3)
 
 	require.NoError(client2.WriteJSON(msg))
 	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
@@ -296,8 +356,6 @@ func Test_Federation(t *testing.T) {
 			"actorType": "federated_users",
 		},
 	}
-	room := hub1.getRoom(roomId)
-	require.NotNil(room)
 	room.PublishUsersInCallChanged(users, users)
 	var event *EventServerMessage
 	// For the local user, it's a federated user on server 2 that joined.
