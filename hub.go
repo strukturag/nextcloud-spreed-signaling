@@ -1709,7 +1709,7 @@ func (h *Hub) removeRoom(room *Room) {
 		statsHubRoomsCurrent.WithLabelValues(room.Backend().Id()).Dec()
 	}
 	h.ru.Unlock()
-	h.roomPing.DeleteRoom(room)
+	h.roomPing.DeleteRoom(room.Id())
 }
 
 func (h *Hub) createRoom(id string, properties json.RawMessage, backend *Backend) (*Room, error) {

@@ -963,7 +963,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 			ctx, cancel := context.WithTimeout(context.Background(), r.hub.backendTimeout)
 			defer cancel()
 
-			if err := r.hub.roomPing.SendPings(ctx, r, url, entries); err != nil {
+			if err := r.hub.roomPing.SendPings(ctx, r.id, url, entries); err != nil {
 				log.Printf("Error pinging room %s for active entries %+v: %s", r.id, entries, err)
 			}
 		}(urls[u], e)
