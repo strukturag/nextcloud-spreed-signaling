@@ -444,12 +444,16 @@ func (s *ClientSession) UpdateRoomSessionId(roomSessionId string) error {
 	if roomSessionId != "" {
 		if room := s.GetRoom(); room != nil {
 			log.Printf("Session %s updated room session id to %s in room %s", s.PublicId(), roomSessionId, room.Id())
+		} else if client := s.GetFederationClient(); client != nil {
+			log.Printf("Session %s updated room session id to %s in federated room %s", s.PublicId(), roomSessionId, client.RemoteRoomId())
 		} else {
 			log.Printf("Session %s updated room session id to %s in unknown room", s.PublicId(), roomSessionId)
 		}
 	} else {
 		if room := s.GetRoom(); room != nil {
 			log.Printf("Session %s cleared room session id in room %s", s.PublicId(), room.Id())
+		} else if client := s.GetFederationClient(); client != nil {
+			log.Printf("Session %s cleared room session id in federated room %s", s.PublicId(), client.RemoteRoomId())
 		} else {
 			log.Printf("Session %s cleared room session id in unknown room", s.PublicId())
 		}

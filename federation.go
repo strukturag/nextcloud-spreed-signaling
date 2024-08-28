@@ -158,6 +158,14 @@ func (c *FederationClient) URL() string {
 	return c.federation.Load().parsedSignalingUrl.String()
 }
 
+func (c *FederationClient) RoomId() string {
+	return c.roomId.Load().(string)
+}
+
+func (c *FederationClient) RemoteRoomId() string {
+	return c.remoteRoomId.Load().(string)
+}
+
 func (c *FederationClient) CanReuse(federation *RoomFederationMessage) bool {
 	fed := c.federation.Load()
 	return fed.NextcloudUrl == federation.NextcloudUrl &&
@@ -643,8 +651,8 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 		remoteSessionId = hello.SessionId
 	}
 
-	remoteRoomId := c.remoteRoomId.Load().(string)
-	roomId := c.roomId.Load().(string)
+	remoteRoomId := c.RemoteRoomId()
+	roomId := c.RoomId()
 
 	var doClose bool
 	switch msg.Type {
