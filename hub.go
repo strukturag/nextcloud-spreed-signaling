@@ -1695,6 +1695,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 			sessionId = session.PublicId()
 		}
 		request := NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
+		request.Room.UpdateFromSession(session)
 		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &room); err != nil {
 			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			return

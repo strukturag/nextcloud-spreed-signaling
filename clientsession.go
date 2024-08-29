@@ -560,6 +560,7 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 		go func(sid string) {
 			ctx := context.Background()
 			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
+			request.Room.UpdateFromSession(s)
 			request.Room.Action = "leave"
 			var response map[string]interface{}
 			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response); err != nil {

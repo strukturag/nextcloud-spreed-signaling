@@ -420,6 +420,25 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		}
 	}
 
+	if strings.Contains(t.Name(), "Federation") {
+		// Check additional fields present for federated sessions.
+		if strings.Contains(request.Room.SessionId, "@federated") {
+			if actorType := request.Room.ActorType; actorType != ActorTypeFederatedUsers {
+				t.Errorf("expected actorType %s, received %+v", ActorTypeFederatedUsers, request.Room)
+			}
+			if actorId := request.Room.ActorId; actorId == "" {
+				t.Errorf("expected actorId, received %+v", request.Room)
+			}
+		} else {
+			if actorType := request.Room.ActorType; actorType != "" {
+				t.Errorf("expected empty actorType, received %+v", request.Room)
+			}
+			if actorId := request.Room.ActorId; actorId != "" {
+				t.Errorf("expected empty actorId, received %+v", request.Room)
+			}
+		}
+	}
+
 	// Allow joining any room.
 	response := &BackendClientResponse{
 		Type: "room",
