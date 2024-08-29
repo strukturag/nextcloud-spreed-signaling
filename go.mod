@@ -13,7 +13,7 @@ require (
 	github.com/mailru/easyjson v0.7.7
 	github.com/marcw/cachecontrol v0.0.0-20140722115028-30341fe9a7d5
 	github.com/nats-io/nats-server/v2 v2.10.19
-	github.com/nats-io/nats.go v1.36.0
+	github.com/nats-io/nats.go v1.37.0
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/pion/sdp/v3 v3.0.9

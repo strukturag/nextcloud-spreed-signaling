@@ -24,10 +24,12 @@ package signaling
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -61,8 +63,7 @@ func GetEncodedSubject(prefix string, suffix string) string {
 }
 
 type natsClient struct {
-	nc   *nats.Conn
-	conn *nats.EncodedConn
+	conn *nats.Conn
 }
 
 func NewNatsClient(url string) (NatsClient, error) {
@@ -82,7 +83,7 @@ func NewNatsClient(url string) (NatsClient, error) {
 
 	client := &natsClient{}
 
-	client.nc, err = nats.Connect(url,
+	client.conn, err = nats.Connect(url,
 		nats.ClosedHandler(client.onClosed),
 		nats.DisconnectHandler(client.onDisconnected),
 		nats.ReconnectHandler(client.onReconnected))
@@ -98,12 +99,9 @@ func NewNatsClient(url string) (NatsClient, error) {
 			return nil, fmt.Errorf("interrupted")
 		}
 
-		client.nc, err = nats.Connect(url)
+		client.conn, err = nats.Connect(url)
 	}
-	log.Printf("Connection established to %s (%s)", client.nc.ConnectedUrl(), client.nc.ConnectedServerId())
-
-	// All communication will be JSON based.
-	client.conn, _ = nats.NewEncodedConn(client.nc, nats.JSON_ENCODER)
+	log.Printf("Connection established to %s (%s)", client.conn.ConnectedUrl(), client.conn.ConnectedServerId())
 	return client, nil
 }
 
@@ -124,13 +122,34 @@ func (c *natsClient) onReconnected(conn *nats.Conn) {
 }
 
 func (c *natsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error) {
-	return c.nc.ChanSubscribe(subject, ch)
+	return c.conn.ChanSubscribe(subject, ch)
 }
 
 func (c *natsClient) Publish(subject string, message interface{}) error {
-	return c.conn.Publish(subject, message)
+	data, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+
+	return c.conn.Publish(subject, data)
 }
 
-func (c *natsClient) Decode(msg *nats.Msg, v interface{}) error {
-	return c.conn.Enc.Decode(msg.Subject, msg.Data, v)
+func (c *natsClient) Decode(msg *nats.Msg, vPtr interface{}) (err error) {
+	switch arg := vPtr.(type) {
+	case *string:
+		// If they want a string and it is a JSON string, strip quotes
+		// This allows someone to send a struct but receive as a plain string
+		// This cast should be efficient for Go 1.3 and beyond.
+		str := string(msg.Data)
+		if strings.HasPrefix(str, `"`) && strings.HasSuffix(str, `"`) {
+			*arg = str[1 : len(str)-1]
+		} else {
+			*arg = str
+		}
+	case *[]byte:
+		*arg = msg.Data
+	default:
+		err = json.Unmarshal(msg.Data, arg)
+	}
+	return
 }
