@@ -206,6 +206,11 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
 
+	if strings.Contains(t.Name(), "Federation") {
+		// Signaling servers should not form a cluster in federation tests.
+		addr1, addr2 = addr2, addr1
+	}
+
 	events1, err := NewAsyncEvents(nats1)
 	if err != nil {
 		t.Fatal(err)
@@ -412,6 +417,25 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		// Additional checks for testcase "TestClientTakeoverRoomSession"
 		if request.Room.Action == "leave" && request.Room.UserId == "test-userid1" {
 			t.Errorf("Should not receive \"leave\" event for first user, received %+v", request.Room)
+		}
+	}
+
+	if strings.Contains(t.Name(), "Federation") {
+		// Check additional fields present for federated sessions.
+		if strings.Contains(request.Room.SessionId, "@federated") {
+			if actorType := request.Room.ActorType; actorType != ActorTypeFederatedUsers {
+				t.Errorf("expected actorType %s, received %+v", ActorTypeFederatedUsers, request.Room)
+			}
+			if actorId := request.Room.ActorId; actorId == "" {
+				t.Errorf("expected actorId, received %+v", request.Room)
+			}
+		} else {
+			if actorType := request.Room.ActorType; actorType != "" {
+				t.Errorf("expected empty actorType, received %+v", request.Room)
+			}
+			if actorId := request.Room.ActorId; actorId != "" {
+				t.Errorf("expected empty actorId, received %+v", request.Room)
+			}
 		}
 	}
 

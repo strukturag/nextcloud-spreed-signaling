@@ -956,19 +956,21 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 	if len(urls) == 0 {
 		return 0, &wg
 	}
+	var count int
 	for u, e := range entries {
 		wg.Add(1)
+		count += len(e)
 		go func(url *url.URL, entries []BackendPingEntry) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), r.hub.backendTimeout)
 			defer cancel()
 
-			if err := r.hub.roomPing.SendPings(ctx, r, url, entries); err != nil {
+			if err := r.hub.roomPing.SendPings(ctx, r.id, url, entries); err != nil {
 				log.Printf("Error pinging room %s for active entries %+v: %s", r.id, entries, err)
 			}
 		}(urls[u], e)
 	}
-	return len(entries), &wg
+	return count, &wg
 }
 
 func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {

@@ -296,10 +296,24 @@ type BackendClientRoomRequest struct {
 	UserId    string `json:"userid"`
 	SessionId string `json:"sessionid"`
 
-	// For Nextcloud Talk with SIP support.
+	// For Nextcloud Talk with SIP support and for federated sessions.
 	ActorId   string `json:"actorid,omitempty"`
 	ActorType string `json:"actortype,omitempty"`
 	InCall    int    `json:"incall,omitempty"`
+}
+
+func (r *BackendClientRoomRequest) UpdateFromSession(s Session) {
+	if s.ClientType() == HelloClientTypeFederation {
+		// Need to send additional data for requests of federated users.
+		if u, err := s.ParsedUserData(); err == nil && len(u) > 0 {
+			if actorType, found := getStringMapEntry[string](u, "actorType"); found {
+				if actorId, found := getStringMapEntry[string](u, "actorId"); found {
+					r.ActorId = actorId
+					r.ActorType = actorType
+				}
+			}
+		}
+	}
 }
 
 func NewBackendClientRoomRequest(roomid string, userid string, sessionid string) *BackendClientRequest {

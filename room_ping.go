@@ -32,28 +32,28 @@ import (
 type pingEntries struct {
 	url *url.URL
 
-	entries map[*Room][]BackendPingEntry
+	entries map[string][]BackendPingEntry
 }
 
-func newPingEntries(url *url.URL, room *Room, entries []BackendPingEntry) *pingEntries {
+func newPingEntries(url *url.URL, roomId string, entries []BackendPingEntry) *pingEntries {
 	return &pingEntries{
 		url: url,
-		entries: map[*Room][]BackendPingEntry{
-			room: entries,
+		entries: map[string][]BackendPingEntry{
+			roomId: entries,
 		},
 	}
 }
 
-func (e *pingEntries) Add(room *Room, entries []BackendPingEntry) {
-	if existing, found := e.entries[room]; found {
-		e.entries[room] = append(existing, entries...)
+func (e *pingEntries) Add(roomId string, entries []BackendPingEntry) {
+	if existing, found := e.entries[roomId]; found {
+		e.entries[roomId] = append(existing, entries...)
 	} else {
-		e.entries[room] = entries
+		e.entries[roomId] = entries
 	}
 }
 
-func (e *pingEntries) RemoveRoom(room *Room) {
-	delete(e.entries, room)
+func (e *pingEntries) RemoveRoom(roomId string) {
+	delete(e.entries, roomId)
 }
 
 // RoomPing sends ping requests for active sessions in rooms. It evaluates the
@@ -120,12 +120,12 @@ func (p *RoomPing) publishEntries(entries *pingEntries, timeout time.Duration) {
 	if !found || limit <= 0 {
 		// Limit disabled while waiting for the next iteration, fallback to sending
 		// one request per room.
-		for room, e := range entries.entries {
+		for roomId, e := range entries.entries {
 			ctx2, cancel2 := context.WithTimeout(context.Background(), timeout)
 			defer cancel2()
 
-			if err := p.sendPingsDirect(ctx2, room, entries.url, e); err != nil {
-				log.Printf("Error pinging room %s for active entries %+v: %s", room.Id(), e, err)
+			if err := p.sendPingsDirect(ctx2, roomId, entries.url, e); err != nil {
+				log.Printf("Error pinging room %s for active entries %+v: %s", roomId, e, err)
 			}
 		}
 		return
@@ -158,8 +158,8 @@ func (p *RoomPing) publishActiveSessions() {
 	wg.Wait()
 }
 
-func (p *RoomPing) sendPingsDirect(ctx context.Context, room *Room, url *url.URL, entries []BackendPingEntry) error {
-	request := NewBackendClientPingRequest(room.Id(), entries)
+func (p *RoomPing) sendPingsDirect(ctx context.Context, roomId string, url *url.URL, entries []BackendPingEntry) error {
+	request := NewBackendClientPingRequest(roomId, entries)
 	var response BackendClientResponse
 	return p.backend.PerformJSONRequest(ctx, url, request, &response)
 }
@@ -184,13 +184,13 @@ func (p *RoomPing) sendPingsCombined(url *url.URL, entries []BackendPingEntry, l
 	}
 }
 
-func (p *RoomPing) SendPings(ctx context.Context, room *Room, url *url.URL, entries []BackendPingEntry) error {
+func (p *RoomPing) SendPings(ctx context.Context, roomId string, url *url.URL, entries []BackendPingEntry) error {
 	limit, _, found := p.capabilities.GetIntegerConfig(ctx, url, ConfigGroupSignaling, ConfigKeySessionPingLimit)
 	if !found || limit <= 0 {
 		// Old-style Nextcloud or session limit not configured. Perform one request
 		// per room. Don't queue to avoid sending all ping requests to old-style
 		// instances at the same time but distribute across the interval.
-		return p.sendPingsDirect(ctx, room, url, entries)
+		return p.sendPingsDirect(ctx, roomId, url, entries)
 	}
 
 	key := url.String()
@@ -198,7 +198,7 @@ func (p *RoomPing) SendPings(ctx context.Context, room *Room, url *url.URL, entr
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if existing, found := p.entries[key]; found {
-		existing.Add(room, entries)
+		existing.Add(roomId, entries)
 		return nil
 	}
 
@@ -206,15 +206,15 @@ func (p *RoomPing) SendPings(ctx context.Context, room *Room, url *url.URL, entr
 		p.entries = make(map[string]*pingEntries)
 	}
 
-	p.entries[key] = newPingEntries(url, room, entries)
+	p.entries[key] = newPingEntries(url, roomId, entries)
 	return nil
 }
 
-func (p *RoomPing) DeleteRoom(room *Room) {
+func (p *RoomPing) DeleteRoom(roomId string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	for _, entries := range p.entries {
-		entries.RemoveRoom(room)
+		entries.RemoveRoom(roomId)
 	}
 }

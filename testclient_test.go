@@ -401,11 +401,7 @@ func (c *TestClient) SendHelloV2(userid string) error {
 	return c.SendHelloV2WithTimes(userid, now, now.Add(time.Minute))
 }
 
-func (c *TestClient) CreateHelloV2Token(userid string, issuedAt time.Time, expiresAt time.Time) (string, error) {
-	userdata := map[string]string{
-		"displayname": "Displayname " + userid,
-	}
-
+func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time.Time, expiresAt time.Time, userdata map[string]interface{}) (string, error) {
 	data, err := json.Marshal(userdata)
 	if err != nil {
 		return "", err
@@ -435,6 +431,14 @@ func (c *TestClient) CreateHelloV2Token(userid string, issuedAt time.Time, expir
 	}
 	private := getPrivateAuthToken(c.t)
 	return token.SignedString(private)
+}
+
+func (c *TestClient) CreateHelloV2Token(userid string, issuedAt time.Time, expiresAt time.Time) (string, error) {
+	userdata := map[string]interface{}{
+		"displayname": "Displayname " + userid,
+	}
+
+	return c.CreateHelloV2TokenWithUserdata(userid, issuedAt, expiresAt, userdata)
 }
 
 func (c *TestClient) SendHelloV2WithTimes(userid string, issuedAt time.Time, expiresAt time.Time) error {

@@ -78,7 +78,7 @@ func TestSingleRoomPing(t *testing.T) {
 			SessionId: "123",
 		},
 	}
-	if err := ping.SendPings(ctx, room1, u, entries1); err != nil {
+	if err := ping.SendPings(ctx, room1.Id(), u, entries1); err != nil {
 		t.Error(err)
 	}
 	if requests := getPingRequests(t); len(requests) != 1 {
@@ -97,7 +97,7 @@ func TestSingleRoomPing(t *testing.T) {
 			SessionId: "456",
 		},
 	}
-	if err := ping.SendPings(ctx, room2, u, entries2); err != nil {
+	if err := ping.SendPings(ctx, room2.Id(), u, entries2); err != nil {
 		t.Error(err)
 	}
 	if requests := getPingRequests(t); len(requests) != 1 {
@@ -129,7 +129,7 @@ func TestMultiRoomPing(t *testing.T) {
 			SessionId: "123",
 		},
 	}
-	if err := ping.SendPings(ctx, room1, u, entries1); err != nil {
+	if err := ping.SendPings(ctx, room1.Id(), u, entries1); err != nil {
 		t.Error(err)
 	}
 	if requests := getPingRequests(t); len(requests) != 0 {
@@ -145,7 +145,7 @@ func TestMultiRoomPing(t *testing.T) {
 			SessionId: "456",
 		},
 	}
-	if err := ping.SendPings(ctx, room2, u, entries2); err != nil {
+	if err := ping.SendPings(ctx, room2.Id(), u, entries2); err != nil {
 		t.Error(err)
 	}
 	if requests := getPingRequests(t); len(requests) != 0 {
@@ -176,7 +176,7 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 			SessionId: "123",
 		},
 	}
-	if err := ping.SendPings(ctx, room1, u, entries1); err != nil {
+	if err := ping.SendPings(ctx, room1.Id(), u, entries1); err != nil {
 		t.Error(err)
 	}
 	if requests := getPingRequests(t); len(requests) != 0 {
@@ -188,7 +188,7 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 			SessionId: "456",
 		},
 	}
-	if err := ping.SendPings(ctx, room1, u, entries2); err != nil {
+	if err := ping.SendPings(ctx, room1.Id(), u, entries2); err != nil {
 		t.Error(err)
 	}
 	if requests := getPingRequests(t); len(requests) != 0 {
@@ -219,7 +219,7 @@ func TestMultiRoomPing_DeleteRoom(t *testing.T) {
 			SessionId: "123",
 		},
 	}
-	if err := ping.SendPings(ctx, room1, u, entries1); err != nil {
+	if err := ping.SendPings(ctx, room1.Id(), u, entries1); err != nil {
 		t.Error(err)
 	}
 	if requests := getPingRequests(t); len(requests) != 0 {
@@ -235,14 +235,14 @@ func TestMultiRoomPing_DeleteRoom(t *testing.T) {
 			SessionId: "456",
 		},
 	}
-	if err := ping.SendPings(ctx, room2, u, entries2); err != nil {
+	if err := ping.SendPings(ctx, room2.Id(), u, entries2); err != nil {
 		t.Error(err)
 	}
 	if requests := getPingRequests(t); len(requests) != 0 {
 		t.Errorf("expected no ping requests, got %+v", requests)
 	}
 
-	ping.DeleteRoom(room2)
+	ping.DeleteRoom(room2.Id())
 
 	ping.publishActiveSessions()
 	if requests := getPingRequests(t); len(requests) != 1 {

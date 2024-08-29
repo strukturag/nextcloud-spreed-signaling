@@ -49,6 +49,8 @@ type VirtualSession struct {
 	inCall    Flags
 	flags     Flags
 	options   *AddSessionOptions
+
+	parseUserData func() (map[string]interface{}, error)
 }
 
 func GetVirtualSessionId(session Session, sessionId string) string {
@@ -63,10 +65,11 @@ func NewVirtualSession(session *ClientSession, privateId string, publicId string
 		publicId:  publicId,
 		data:      data,
 
-		sessionId: msg.SessionId,
-		userId:    msg.UserId,
-		userData:  msg.User,
-		options:   msg.Options,
+		sessionId:     msg.SessionId,
+		userId:        msg.UserId,
+		userData:      msg.User,
+		parseUserData: parseUserData(msg.User),
+		options:       msg.Options,
 	}
 
 	if err := session.events.RegisterSessionListener(publicId, session.Backend(), result); err != nil {
@@ -135,6 +138,10 @@ func (s *VirtualSession) UserId() string {
 
 func (s *VirtualSession) UserData() json.RawMessage {
 	return s.userData
+}
+
+func (s *VirtualSession) ParsedUserData() (map[string]interface{}, error) {
+	return s.parseUserData()
 }
 
 func (s *VirtualSession) SetRoom(room *Room) {

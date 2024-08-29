@@ -169,6 +169,7 @@ type Hub struct {
 	expectHelloClients map[HandlerClient]time.Time
 	dialoutSessions    map[*ClientSession]bool
 	remoteSessions     map[*RemoteSession]bool
+	federatedSessions  map[*ClientSession]bool
 
 	backendTimeout time.Duration
 	backend        *BackendClient
@@ -356,6 +357,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		expectHelloClients: make(map[HandlerClient]time.Time),
 		dialoutSessions:    make(map[*ClientSession]bool),
 		remoteSessions:     make(map[*RemoteSession]bool),
+		federatedSessions:  make(map[*ClientSession]bool),
 
 		backendTimeout: backendTimeout,
 		backend:        backend,
@@ -465,6 +467,7 @@ func (h *Hub) Run() {
 	defer h.backend.Close()
 
 	housekeeping := time.NewTicker(housekeepingInterval)
+	federationPing := time.NewTicker(updateActiveSessionsInterval)
 	geoipUpdater := time.NewTicker(24 * time.Hour)
 
 loop:
@@ -484,6 +487,8 @@ loop:
 			h.performHousekeeping(now)
 		case <-geoipUpdater.C:
 			go h.updateGeoDatabase()
+		case <-federationPing.C:
+			go h.publishFederatedSessions()
 		case <-h.closer.C:
 			break loop
 		}
@@ -1626,6 +1631,23 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		}
 
 		session.SetFederationClient(client)
+
+		roomSessionId := message.Room.SessionId
+		if roomSessionId == "" {
+			// TODO(jojo): Better make the session id required in the request.
+			log.Printf("User did not send a room session id, assuming session %s", session.PublicId())
+			roomSessionId = session.PublicId()
+		}
+
+		// Prefix room session id to allow using the same signaling server for two Nextcloud instances during development.
+		// Otherwise the same room session id will be detected and the other session will be kicked.
+		if err := session.UpdateRoomSessionId(FederatedRoomSessionIdPrefix + roomSessionId); err != nil {
+			log.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
+		}
+
+		h.mu.Lock()
+		h.federatedSessions[session] = true
+		h.mu.Unlock()
 		return
 	}
 
@@ -1673,6 +1695,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 			sessionId = session.PublicId()
 		}
 		request := NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
+		request.Room.UpdateFromSession(session)
 		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &room); err != nil {
 			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			return
@@ -1693,6 +1716,82 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 	h.processJoinRoom(session, message, &room)
 }
 
+func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	var wg sync.WaitGroup
+	if len(h.federatedSessions) == 0 {
+		return 0, &wg
+	}
+
+	rooms := make(map[string]map[string][]BackendPingEntry)
+	urls := make(map[string]*url.URL)
+	for session := range h.federatedSessions {
+		u := session.BackendUrl()
+		if u == "" {
+			continue
+		}
+
+		federation := session.GetFederationClient()
+		if federation == nil {
+			continue
+		}
+
+		var sid string
+		var uid string
+		// Use Nextcloud session id and user id
+		sid = strings.TrimPrefix(session.RoomSessionId(), FederatedRoomSessionIdPrefix)
+		uid = session.AuthUserId()
+		if sid == "" {
+			continue
+		}
+
+		roomId := federation.RoomId()
+		entries, found := rooms[roomId]
+		if !found {
+			entries = make(map[string][]BackendPingEntry)
+			rooms[roomId] = entries
+		}
+
+		e, found := entries[u]
+		if !found {
+			p := session.ParsedBackendUrl()
+			if p == nil {
+				// Should not happen, invalid URLs should get rejected earlier.
+				continue
+			}
+			urls[u] = p
+		}
+
+		entries[u] = append(e, BackendPingEntry{
+			SessionId: sid,
+			UserId:    uid,
+		})
+	}
+
+	if len(urls) == 0 {
+		return 0, &wg
+	}
+	count := 0
+	for roomId, entries := range rooms {
+		for u, e := range entries {
+			wg.Add(1)
+			count += len(e)
+			go func(roomId string, url *url.URL, entries []BackendPingEntry) {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(context.Background(), h.backendTimeout)
+				defer cancel()
+
+				if err := h.roomPing.SendPings(ctx, roomId, url, entries); err != nil {
+					log.Printf("Error pinging room %s for active entries %+v: %s", roomId, entries, err)
+				}
+			}(roomId, urls[u], e)
+		}
+	}
+	return count, &wg
+}
+
 func (h *Hub) getRoomForBackend(id string, backend *Backend) *Room {
 	internalRoomId := getRoomIdForBackend(id, backend)
 
@@ -1709,7 +1808,7 @@ func (h *Hub) removeRoom(room *Room) {
 		statsHubRoomsCurrent.WithLabelValues(room.Backend().Id()).Dec()
 	}
 	h.ru.Unlock()
-	h.roomPing.DeleteRoom(room)
+	h.roomPing.DeleteRoom(room.Id())
 }
 
 func (h *Hub) createRoom(id string, properties json.RawMessage, backend *Backend) (*Room, error) {
@@ -1735,6 +1834,9 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	}
 
 	session.LeaveRoom(true)
+	h.mu.Lock()
+	delete(h.federatedSessions, session)
+	h.mu.Unlock()
 
 	roomId := room.Room.RoomId
 	internalRoomId := getRoomIdForBackend(roomId, session.Backend())

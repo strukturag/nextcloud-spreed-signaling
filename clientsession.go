@@ -42,6 +42,10 @@ var (
 	PathToOcsSignalingBackend = "ocs/v2.php/apps/spreed/api/v1/signaling/backend"
 )
 
+const (
+	FederatedRoomSessionIdPrefix = "federated|"
+)
+
 // ResponseHandlerFunc will return "true" has been fully processed.
 type ResponseHandlerFunc func(message *ClientMessage) bool
 
@@ -58,6 +62,8 @@ type ClientSession struct {
 	features   []string
 	userId     string
 	userData   json.RawMessage
+
+	parseUserData func() (map[string]interface{}, error)
 
 	inCall              Flags
 	supportsPermissions bool
@@ -106,10 +112,11 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 		ctx:       ctx,
 		closeFunc: closeFunc,
 
-		clientType: hello.Auth.Type,
-		features:   hello.Features,
-		userId:     auth.UserId,
-		userData:   auth.User,
+		clientType:    hello.Auth.Type,
+		features:      hello.Features,
+		userId:        auth.UserId,
+		userData:      auth.User,
+		parseUserData: parseUserData(auth.User),
 
 		backend: backend,
 	}
@@ -320,6 +327,10 @@ func (s *ClientSession) UserData() json.RawMessage {
 	return s.userData
 }
 
+func (s *ClientSession) ParsedUserData() (map[string]interface{}, error) {
+	return s.parseUserData()
+}
+
 func (s *ClientSession) SetRoom(room *Room) {
 	s.room.Store(room)
 	s.onRoomSet(room != nil)
@@ -444,12 +455,16 @@ func (s *ClientSession) UpdateRoomSessionId(roomSessionId string) error {
 	if roomSessionId != "" {
 		if room := s.GetRoom(); room != nil {
 			log.Printf("Session %s updated room session id to %s in room %s", s.PublicId(), roomSessionId, room.Id())
+		} else if client := s.GetFederationClient(); client != nil {
+			log.Printf("Session %s updated room session id to %s in federated room %s", s.PublicId(), roomSessionId, client.RemoteRoomId())
 		} else {
 			log.Printf("Session %s updated room session id to %s in unknown room", s.PublicId(), roomSessionId)
 		}
 	} else {
 		if room := s.GetRoom(); room != nil {
 			log.Printf("Session %s cleared room session id in room %s", s.PublicId(), room.Id())
+		} else if client := s.GetFederationClient(); client != nil {
+			log.Printf("Session %s cleared room session id in federated room %s", s.PublicId(), client.RemoteRoomId())
 		} else {
 			log.Printf("Session %s cleared room session id in unknown room", s.PublicId())
 		}
@@ -540,11 +555,12 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 
 	s.roomSessionIdLock.Lock()
 	defer s.roomSessionIdLock.Unlock()
-	if notify && room != nil && s.roomSessionId != "" {
+	if notify && room != nil && s.roomSessionId != "" && !strings.HasPrefix(s.roomSessionId, FederatedRoomSessionIdPrefix) {
 		// Notify
 		go func(sid string) {
 			ctx := context.Background()
 			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
+			request.Room.UpdateFromSession(s)
 			request.Room.Action = "leave"
 			var response map[string]interface{}
 			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response); err != nil {
