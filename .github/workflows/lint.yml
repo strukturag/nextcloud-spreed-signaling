@@ -49,7 +49,7 @@ jobs:
 
       - name: Check minimum supported version of Go
         run: |
-          go mod tidy -go=1.21 -compat=1.21
+          go mod tidy -go=1.21.0 -compat=1.21.0
 
       - name: Check go.mod / go.sum
         run: |
