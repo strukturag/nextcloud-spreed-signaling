@@ -1639,7 +1639,9 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 			roomSessionId = session.PublicId()
 		}
 
-		if err := session.UpdateRoomSessionId(roomSessionId); err != nil {
+		// Prefix room session id to allow using the same signaling server for two Nextcloud instances during development.
+		// Otherwise the same room session id will be detected and the other session will be kicked.
+		if err := session.UpdateRoomSessionId(FederatedRoomSessionIdPrefix + roomSessionId); err != nil {
 			log.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
 		}
 
@@ -1738,7 +1740,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 		var sid string
 		var uid string
 		// Use Nextcloud session id and user id
-		sid = session.RoomSessionId()
+		sid = strings.TrimPrefix(session.RoomSessionId(), FederatedRoomSessionIdPrefix)
 		uid = session.AuthUserId()
 		if sid == "" {
 			continue

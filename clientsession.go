@@ -42,6 +42,10 @@ var (
 	PathToOcsSignalingBackend = "ocs/v2.php/apps/spreed/api/v1/signaling/backend"
 )
 
+const (
+	FederatedRoomSessionIdPrefix = "federated|"
+)
+
 // ResponseHandlerFunc will return "true" has been fully processed.
 type ResponseHandlerFunc func(message *ClientMessage) bool
 
@@ -544,7 +548,7 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 
 	s.roomSessionIdLock.Lock()
 	defer s.roomSessionIdLock.Unlock()
-	if notify && room != nil && s.roomSessionId != "" {
+	if notify && room != nil && s.roomSessionId != "" && !strings.HasPrefix(s.roomSessionId, FederatedRoomSessionIdPrefix) {
 		// Notify
 		go func(sid string) {
 			ctx := context.Background()
