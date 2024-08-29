@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -62,6 +63,7 @@ type Session interface {
 
 	UserId() string
 	UserData() json.RawMessage
+	ParsedUserData() (map[string]interface{}, error)
 
 	Backend() *Backend
 	BackendUrl() string
@@ -77,4 +79,19 @@ type Session interface {
 
 	SendError(e *Error) bool
 	SendMessage(message *ServerMessage) bool
+}
+
+func parseUserData(data json.RawMessage) func() (map[string]interface{}, error) {
+	return sync.OnceValues(func() (map[string]interface{}, error) {
+		if len(data) == 0 {
+			return nil, nil
+		}
+
+		var m map[string]interface{}
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+
+		return m, nil
+	})
 }

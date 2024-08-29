@@ -63,6 +63,8 @@ type ClientSession struct {
 	userId     string
 	userData   json.RawMessage
 
+	parseUserData func() (map[string]interface{}, error)
+
 	inCall              Flags
 	supportsPermissions bool
 	permissions         map[Permission]bool
@@ -110,10 +112,11 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 		ctx:       ctx,
 		closeFunc: closeFunc,
 
-		clientType: hello.Auth.Type,
-		features:   hello.Features,
-		userId:     auth.UserId,
-		userData:   auth.User,
+		clientType:    hello.Auth.Type,
+		features:      hello.Features,
+		userId:        auth.UserId,
+		userData:      auth.User,
+		parseUserData: parseUserData(auth.User),
 
 		backend: backend,
 	}
@@ -322,6 +325,10 @@ func (s *ClientSession) UserId() string {
 
 func (s *ClientSession) UserData() json.RawMessage {
 	return s.userData
+}
+
+func (s *ClientSession) ParsedUserData() (map[string]interface{}, error) {
+	return s.parseUserData()
 }
 
 func (s *ClientSession) SetRoom(room *Room) {

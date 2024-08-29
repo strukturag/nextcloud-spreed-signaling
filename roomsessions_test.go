@@ -61,6 +61,10 @@ func (s *DummySession) UserData() json.RawMessage {
 	return nil
 }
 
+func (s *DummySession) ParsedUserData() (map[string]interface{}, error) {
+	return nil, nil
+}
+
 func (s *DummySession) Backend() *Backend {
 	return nil
 }
