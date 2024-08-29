@@ -34,6 +34,8 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/embed"
@@ -66,15 +68,14 @@ func isErrorAddressAlreadyInUse(err error) bool {
 }
 
 func NewEtcdForTest(t *testing.T) *embed.Etcd {
+	require := require.New(t)
 	cfg := embed.NewConfig()
 	cfg.Dir = t.TempDir()
 	os.Chmod(cfg.Dir, 0700) // nolint
 	cfg.LogLevel = "warn"
 
 	u, err := url.Parse(etcdListenUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Find a free port to bind the server to.
 	var etcd *embed.Etcd
@@ -94,14 +95,12 @@ func NewEtcdForTest(t *testing.T) *embed.Etcd {
 		etcd, err = embed.StartEtcd(cfg)
 		if isErrorAddressAlreadyInUse(err) {
 			continue
-		} else if err != nil {
-			t.Fatal(err)
 		}
+
+		require.NoError(err)
 		break
 	}
-	if etcd == nil {
-		t.Fatal("could not find free port")
-	}
+	require.NotNil(etcd, "could not find free port")
 
 	t.Cleanup(func() {
 		etcd.Close()
@@ -121,13 +120,9 @@ func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	config.AddOption("etcd", "loglevel", "error")
 
 	client, err := NewEtcdClient(config, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(t, client.Close())
 	})
 	return etcd, client
 }
@@ -149,54 +144,44 @@ func DeleteEtcdValue(etcd *embed.Etcd, key string) {
 func Test_EtcdClient_Get(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 
-	if response, err := client.Get(context.Background(), "foo"); err != nil {
-		t.Error(err)
-	} else if response.Count != 0 {
-		t.Errorf("expected 0 response, got %d", response.Count)
+	if response, err := client.Get(context.Background(), "foo"); assert.NoError(err) {
+		assert.EqualValues(0, response.Count)
 	}
 
 	SetEtcdValue(etcd, "foo", []byte("bar"))
 
-	if response, err := client.Get(context.Background(), "foo"); err != nil {
-		t.Error(err)
-	} else if response.Count != 1 {
-		t.Errorf("expected 1 responses, got %d", response.Count)
-	} else if string(response.Kvs[0].Key) != "foo" {
-		t.Errorf("expected key \"foo\", got \"%s\"", string(response.Kvs[0].Key))
-	} else if string(response.Kvs[0].Value) != "bar" {
-		t.Errorf("expected value \"bar\", got \"%s\"", string(response.Kvs[0].Value))
+	if response, err := client.Get(context.Background(), "foo"); assert.NoError(err) {
+		if assert.EqualValues(1, response.Count) {
+			assert.Equal("foo", string(response.Kvs[0].Key))
+			assert.Equal("bar", string(response.Kvs[0].Value))
+		}
 	}
 }
 
 func Test_EtcdClient_GetPrefix(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 
-	if response, err := client.Get(context.Background(), "foo"); err != nil {
-		t.Error(err)
-	} else if response.Count != 0 {
-		t.Errorf("expected 0 response, got %d", response.Count)
+	if response, err := client.Get(context.Background(), "foo"); assert.NoError(err) {
+		assert.EqualValues(0, response.Count)
 	}
 
 	SetEtcdValue(etcd, "foo", []byte("1"))
 	SetEtcdValue(etcd, "foo/lala", []byte("2"))
 	SetEtcdValue(etcd, "lala/foo", []byte("3"))
 
-	if response, err := client.Get(context.Background(), "foo", clientv3.WithPrefix()); err != nil {
-		t.Error(err)
-	} else if response.Count != 2 {
-		t.Errorf("expected 2 responses, got %d", response.Count)
-	} else if string(response.Kvs[0].Key) != "foo" {
-		t.Errorf("expected key \"foo\", got \"%s\"", string(response.Kvs[0].Key))
-	} else if string(response.Kvs[0].Value) != "1" {
-		t.Errorf("expected value \"1\", got \"%s\"", string(response.Kvs[0].Value))
-	} else if string(response.Kvs[1].Key) != "foo/lala" {
-		t.Errorf("expected key \"foo/lala\", got \"%s\"", string(response.Kvs[1].Key))
-	} else if string(response.Kvs[1].Value) != "2" {
-		t.Errorf("expected value \"2\", got \"%s\"", string(response.Kvs[1].Value))
+	if response, err := client.Get(context.Background(), "foo", clientv3.WithPrefix()); assert.NoError(err) {
+		if assert.EqualValues(2, response.Count) {
+			assert.Equal("foo", string(response.Kvs[0].Key))
+			assert.Equal("1", string(response.Kvs[0].Value))
+			assert.Equal("foo/lala", string(response.Kvs[1].Key))
+			assert.Equal("2", string(response.Kvs[1].Value))
+		}
 	}
 }
 
@@ -237,8 +222,8 @@ func (l *EtcdClientTestListener) Close() {
 
 func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
 	go func() {
-		if err := client.WaitForConnection(l.ctx); err != nil {
-			l.t.Errorf("error waiting for connection: %s", err)
+		assert := assert.New(l.t)
+		if err := client.WaitForConnection(l.ctx); !assert.NoError(err) {
 			return
 		}
 
@@ -246,23 +231,17 @@ func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
 		defer cancel()
 
 		response, err := client.Get(ctx, "foo", clientv3.WithPrefix())
-		if err != nil {
-			l.t.Error(err)
-		} else if response.Count != 1 {
-			l.t.Errorf("expected 1 responses, got %d", response.Count)
-		} else if string(response.Kvs[0].Key) != "foo/a" {
-			l.t.Errorf("expected key \"foo/a\", got \"%s\"", string(response.Kvs[0].Key))
-		} else if string(response.Kvs[0].Value) != "1" {
-			l.t.Errorf("expected value \"1\", got \"%s\"", string(response.Kvs[0].Value))
+		if assert.NoError(err) && assert.EqualValues(1, response.Count) {
+			assert.Equal("foo/a", string(response.Kvs[0].Key))
+			assert.Equal("1", string(response.Kvs[0].Value))
 		}
 
 		close(l.initial)
 		nextRevision := response.Header.Revision + 1
 		for l.ctx.Err() == nil {
 			var err error
-			if nextRevision, err = client.Watch(clientv3.WithRequireLeader(l.ctx), "foo", nextRevision, l, clientv3.WithPrefix()); err != nil {
-				l.t.Error(err)
-			}
+			nextRevision, err = client.Watch(clientv3.WithRequireLeader(l.ctx), "foo", nextRevision, l, clientv3.WithPrefix())
+			assert.NoError(err)
 		}
 	}()
 }
@@ -296,6 +275,7 @@ func (l *EtcdClientTestListener) EtcdKeyDeleted(client *EtcdClient, key string, 
 func Test_EtcdClient_Watch(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 
 	SetEtcdValue(etcd, "foo/a", []byte("1"))
@@ -310,31 +290,19 @@ func Test_EtcdClient_Watch(t *testing.T) {
 
 	SetEtcdValue(etcd, "foo/b", []byte("2"))
 	event := <-listener.events
-	if event.t != clientv3.EventTypePut {
-		t.Errorf("expected type %d, got %d", clientv3.EventTypePut, event.t)
-	} else if event.key != "foo/b" {
-		t.Errorf("expected key %s, got %s", "foo/b", event.key)
-	} else if event.value != "2" {
-		t.Errorf("expected value %s, got %s", "2", event.value)
-	}
+	assert.Equal(clientv3.EventTypePut, event.t)
+	assert.Equal("foo/b", event.key)
+	assert.Equal("2", event.value)
 
 	SetEtcdValue(etcd, "foo/a", []byte("3"))
 	event = <-listener.events
-	if event.t != clientv3.EventTypePut {
-		t.Errorf("expected type %d, got %d", clientv3.EventTypePut, event.t)
-	} else if event.key != "foo/a" {
-		t.Errorf("expected key %s, got %s", "foo/a", event.key)
-	} else if event.value != "3" {
-		t.Errorf("expected value %s, got %s", "3", event.value)
-	}
+	assert.Equal(clientv3.EventTypePut, event.t)
+	assert.Equal("foo/a", event.key)
+	assert.Equal("3", event.value)
 
 	DeleteEtcdValue(etcd, "foo/a")
 	event = <-listener.events
-	if event.t != clientv3.EventTypeDelete {
-		t.Errorf("expected type %d, got %d", clientv3.EventTypeDelete, event.t)
-	} else if event.key != "foo/a" {
-		t.Errorf("expected key %s, got %s", "foo/a", event.key)
-	} else if event.prevValue != "3" {
-		t.Errorf("expected previous value %s, got %s", "3", event.prevValue)
-	}
+	assert.Equal(clientv3.EventTypeDelete, event.t)
+	assert.Equal("foo/a", event.key)
+	assert.Equal("3", event.prevValue)
 }

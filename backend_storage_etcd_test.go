@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/dlintw/goconf"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
@@ -67,9 +68,7 @@ func Test_BackendStorageEtcdNoLeak(t *testing.T) {
 		config.AddOption("backend", "backendprefix", "/backends")
 
 		cfg, err := NewBackendConfiguration(config, client)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		<-tl.closed
 		cfg.Close()

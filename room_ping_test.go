@@ -28,9 +28,12 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
+	require := require.New(t)
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
@@ -40,30 +43,23 @@ func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
 	})
 
 	config, err := getTestConfig(server)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	backend, err := NewBackendClient(config, 1, "0.0", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	p, err := NewRoomPing(backend, backend.capabilities)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	u, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	return u, p
 }
 
 func TestSingleRoomPing(t *testing.T) {
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -78,13 +74,9 @@ func TestSingleRoomPing(t *testing.T) {
 			SessionId: "123",
 		},
 	}
-	if err := ping.SendPings(ctx, room1.Id(), u, entries1); err != nil {
-		t.Error(err)
-	}
-	if requests := getPingRequests(t); len(requests) != 1 {
-		t.Errorf("expected one ping request, got %+v", requests)
-	} else if len(requests[0].Ping.Entries) != 1 {
-		t.Errorf("expected one entry, got %+v", requests[0].Ping.Entries)
+	assert.NoError(ping.SendPings(ctx, room1.Id(), u, entries1))
+	if requests := getPingRequests(t); assert.Len(requests, 1) {
+		assert.Len(requests[0].Ping.Entries, 1)
 	}
 	clearPingRequests(t)
 
@@ -97,24 +89,19 @@ func TestSingleRoomPing(t *testing.T) {
 			SessionId: "456",
 		},
 	}
-	if err := ping.SendPings(ctx, room2.Id(), u, entries2); err != nil {
-		t.Error(err)
-	}
-	if requests := getPingRequests(t); len(requests) != 1 {
-		t.Errorf("expected one ping request, got %+v", requests)
-	} else if len(requests[0].Ping.Entries) != 1 {
-		t.Errorf("expected one entry, got %+v", requests[0].Ping.Entries)
+	assert.NoError(ping.SendPings(ctx, room2.Id(), u, entries2))
+	if requests := getPingRequests(t); assert.Len(requests, 1) {
+		assert.Len(requests[0].Ping.Entries, 1)
 	}
 	clearPingRequests(t)
 
 	ping.publishActiveSessions()
-	if requests := getPingRequests(t); len(requests) != 0 {
-		t.Errorf("expected no ping requests, got %+v", requests)
-	}
+	assert.Empty(getPingRequests(t))
 }
 
 func TestMultiRoomPing(t *testing.T) {
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -129,12 +116,8 @@ func TestMultiRoomPing(t *testing.T) {
 			SessionId: "123",
 		},
 	}
-	if err := ping.SendPings(ctx, room1.Id(), u, entries1); err != nil {
-		t.Error(err)
-	}
-	if requests := getPingRequests(t); len(requests) != 0 {
-		t.Errorf("expected no ping requests, got %+v", requests)
-	}
+	assert.NoError(ping.SendPings(ctx, room1.Id(), u, entries1))
+	assert.Empty(getPingRequests(t))
 
 	room2 := &Room{
 		id: "sample-room-2",
@@ -145,23 +128,18 @@ func TestMultiRoomPing(t *testing.T) {
 			SessionId: "456",
 		},
 	}
-	if err := ping.SendPings(ctx, room2.Id(), u, entries2); err != nil {
-		t.Error(err)
-	}
-	if requests := getPingRequests(t); len(requests) != 0 {
-		t.Errorf("expected no ping requests, got %+v", requests)
-	}
+	assert.NoError(ping.SendPings(ctx, room2.Id(), u, entries2))
+	assert.Empty(getPingRequests(t))
 
 	ping.publishActiveSessions()
-	if requests := getPingRequests(t); len(requests) != 1 {
-		t.Errorf("expected one ping request, got %+v", requests)
-	} else if len(requests[0].Ping.Entries) != 2 {
-		t.Errorf("expected two entries, got %+v", requests[0].Ping.Entries)
+	if requests := getPingRequests(t); assert.Len(requests, 1) {
+		assert.Len(requests[0].Ping.Entries, 2)
 	}
 }
 
 func TestMultiRoomPing_Separate(t *testing.T) {
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -176,35 +154,26 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 			SessionId: "123",
 		},
 	}
-	if err := ping.SendPings(ctx, room1.Id(), u, entries1); err != nil {
-		t.Error(err)
-	}
-	if requests := getPingRequests(t); len(requests) != 0 {
-		t.Errorf("expected no ping requests, got %+v", requests)
-	}
+	assert.NoError(ping.SendPings(ctx, room1.Id(), u, entries1))
+	assert.Empty(getPingRequests(t))
 	entries2 := []BackendPingEntry{
 		{
 			UserId:    "bar",
 			SessionId: "456",
 		},
 	}
-	if err := ping.SendPings(ctx, room1.Id(), u, entries2); err != nil {
-		t.Error(err)
-	}
-	if requests := getPingRequests(t); len(requests) != 0 {
-		t.Errorf("expected no ping requests, got %+v", requests)
-	}
+	assert.NoError(ping.SendPings(ctx, room1.Id(), u, entries2))
+	assert.Empty(getPingRequests(t))
 
 	ping.publishActiveSessions()
-	if requests := getPingRequests(t); len(requests) != 1 {
-		t.Errorf("expected one ping request, got %+v", requests)
-	} else if len(requests[0].Ping.Entries) != 2 {
-		t.Errorf("expected two entries, got %+v", requests[0].Ping.Entries)
+	if requests := getPingRequests(t); assert.Len(requests, 1) {
+		assert.Len(requests[0].Ping.Entries, 2)
 	}
 }
 
 func TestMultiRoomPing_DeleteRoom(t *testing.T) {
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -219,12 +188,8 @@ func TestMultiRoomPing_DeleteRoom(t *testing.T) {
 			SessionId: "123",
 		},
 	}
-	if err := ping.SendPings(ctx, room1.Id(), u, entries1); err != nil {
-		t.Error(err)
-	}
-	if requests := getPingRequests(t); len(requests) != 0 {
-		t.Errorf("expected no ping requests, got %+v", requests)
-	}
+	assert.NoError(ping.SendPings(ctx, room1.Id(), u, entries1))
+	assert.Empty(getPingRequests(t))
 
 	room2 := &Room{
 		id: "sample-room-2",
@@ -235,19 +200,13 @@ func TestMultiRoomPing_DeleteRoom(t *testing.T) {
 			SessionId: "456",
 		},
 	}
-	if err := ping.SendPings(ctx, room2.Id(), u, entries2); err != nil {
-		t.Error(err)
-	}
-	if requests := getPingRequests(t); len(requests) != 0 {
-		t.Errorf("expected no ping requests, got %+v", requests)
-	}
+	assert.NoError(ping.SendPings(ctx, room2.Id(), u, entries2))
+	assert.Empty(getPingRequests(t))
 
 	ping.DeleteRoom(room2.Id())
 
 	ping.publishActiveSessions()
-	if requests := getPingRequests(t); len(requests) != 1 {
-		t.Errorf("expected one ping request, got %+v", requests)
-	} else if len(requests[0].Ping.Entries) != 1 {
-		t.Errorf("expected two entries, got %+v", requests[0].Ping.Entries)
+	if requests := getPingRequests(t); assert.Len(requests, 1) {
+		assert.Len(requests[0].Ping.Entries, 1)
 	}
 }

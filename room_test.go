@@ -27,11 +27,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRoom_InCall(t *testing.T) {
@@ -63,59 +66,47 @@ func TestRoom_InCall(t *testing.T) {
 	}
 	for _, test := range tests {
 		inCall, ok := IsInCall(test.Value)
-		if ok != test.Valid {
-			t.Errorf("%+v should be valid %v, got %v", test.Value, test.Valid, ok)
+		if test.Valid {
+			assert.True(t, ok, "%+v should be valid", test.Value)
+		} else {
+			assert.False(t, ok, "%+v should not be valid", test.Value)
 		}
-		if inCall != test.InCall {
-			t.Errorf("%+v should convert to %v, got %v", test.Value, test.InCall, inCall)
-		}
+		assert.EqualValues(t, test.InCall, inCall, "conversion failed for %+v", test.Value)
 	}
 }
 
 func TestRoom_Update(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	b, err := NewBackendServer(config, hub, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Start(router); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(b.Start(router))
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	// Simulate backend request from Nextcloud to update the room.
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
@@ -130,54 +121,32 @@ func TestRoom_Update(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if res.StatusCode != 200 {
-		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
-	}
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
 	// The client receives a roomlist update and a changed room event. The
 	// ordering is not defined because messages are sent by asynchronous event
 	// handlers.
 	message1, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	message2, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 
 	if msg, err := checkMessageRoomlistUpdate(message1); err != nil {
-		if err := checkMessageRoomId(message1, roomId); err != nil {
-			t.Error(err)
-		}
-		if msg, err := checkMessageRoomlistUpdate(message2); err != nil {
-			t.Error(err)
-		} else if msg.RoomId != roomId {
-			t.Errorf("Expected room id %s, got %+v", roomId, msg)
-		} else if len(msg.Properties) == 0 || !bytes.Equal(msg.Properties, roomProperties) {
-			t.Errorf("Expected room properties %s, got %+v", string(roomProperties), msg)
+		assert.NoError(checkMessageRoomId(message1, roomId))
+		if msg, err := checkMessageRoomlistUpdate(message2); assert.NoError(err) {
+			assert.Equal(roomId, msg.RoomId)
+			assert.Equal(string(roomProperties), string(msg.Properties))
 		}
 	} else {
-		if msg.RoomId != roomId {
-			t.Errorf("Expected room id %s, got %+v", roomId, msg)
-		} else if len(msg.Properties) == 0 || !bytes.Equal(msg.Properties, roomProperties) {
-			t.Errorf("Expected room properties %s, got %+v", string(roomProperties), msg)
-		}
-		if err := checkMessageRoomId(message2, roomId); err != nil {
-			t.Error(err)
-		}
+		assert.Equal(roomId, msg.RoomId)
+		assert.Equal(string(roomProperties), string(msg.Properties))
+		assert.NoError(checkMessageRoomId(message2, roomId))
 	}
 
 	// Allow up to 100 milliseconds for asynchronous event processing.
@@ -206,55 +175,41 @@ loop:
 		time.Sleep(time.Millisecond)
 	}
 
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 }
 
 func TestRoom_Delete(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	b, err := NewBackendServer(config, hub, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Start(router); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(b.Start(router))
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	// Simulate backend request from Nextcloud to update the room.
 	msg := &BackendServerRoomRequest{
@@ -267,47 +222,31 @@ func TestRoom_Delete(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if res.StatusCode != 200 {
-		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
-	}
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
 	// The client is no longer invited to the room and leaves it. The ordering
 	// of messages is not defined as they get published through events and handled
 	// by asynchronous channels.
 	message1, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 
 	if err := checkMessageType(message1, "event"); err != nil {
 		// Ordering should be "leave room", "disinvited".
-		if err := checkMessageRoomId(message1, ""); err != nil {
-			t.Error(err)
-		}
-		message2, err := client.RunUntilMessage(ctx)
-		if err != nil {
-			t.Error(err)
-		}
-		if _, err := checkMessageRoomlistDisinvite(message2); err != nil {
-			t.Error(err)
+		assert.NoError(checkMessageRoomId(message1, ""))
+		if message2, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+			_, err := checkMessageRoomlistDisinvite(message2)
+			assert.NoError(err)
 		}
 	} else {
 		// Ordering should be "disinvited", "leave room".
-		if _, err := checkMessageRoomlistDisinvite(message1); err != nil {
-			t.Error(err)
-		}
+		_, err := checkMessageRoomlistDisinvite(message1)
+		assert.NoError(err)
 		message2, err := client.RunUntilMessage(ctx)
 		if err != nil {
 			// The connection should get closed after the "disinvited".
@@ -315,10 +254,10 @@ func TestRoom_Delete(t *testing.T) {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				t.Error(err)
+				assert.NoError(err)
 			}
-		} else if err := checkMessageRoomId(message2, ""); err != nil {
-			t.Error(err)
+		} else {
+			assert.NoError(checkMessageRoomId(message2, ""))
 		}
 	}
 
@@ -350,151 +289,106 @@ loop:
 		time.Sleep(time.Millisecond)
 	}
 
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 }
 
 func TestRoom_RoomSessionData(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	b, err := NewBackendServer(config, hub, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Start(router); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(b.Start(router))
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(authAnonymousUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(authAnonymousUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room-with-sessiondata"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event with the userid from the room session data.
 	expected := "userid-from-sessiondata"
-	if message, err := client.RunUntilMessage(ctx); err != nil {
-		t.Error(err)
-	} else if err := client.checkMessageJoinedSession(message, hello.Hello.SessionId, expected); err != nil {
-		t.Error(err)
-	} else if message.Event.Join[0].RoomSessionId != roomId+"-"+hello.Hello.SessionId {
-		t.Errorf("Expected join room session id %s, got %+v", roomId+"-"+hello.Hello.SessionId, message.Event.Join[0])
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		if assert.NoError(client.checkMessageJoinedSession(message, hello.Hello.SessionId, expected)) {
+			assert.Equal(roomId+"-"+hello.Hello.SessionId, message.Event.Join[0].RoomSessionId)
+		}
 	}
 
 	session := hub.GetSessionByPublicId(hello.Hello.SessionId)
-	if session == nil {
-		t.Fatalf("Could not find session %s", hello.Hello.SessionId)
-	}
-
-	if userid := session.UserId(); userid != expected {
-		t.Errorf("Expected userid %s, got %s", expected, userid)
-	}
+	require.NotNil(session, "Could not find session %s", hello.Hello.SessionId)
+	assert.Equal(expected, session.UserId())
 
 	room := hub.getRoom(roomId)
-	if room == nil {
-		t.Fatalf("Room not found")
-	}
+	assert.NotNil(room, "Room not found")
 
 	entries, wg := room.publishActiveSessions()
-	if entries != 1 {
-		t.Errorf("expected 1 entries, got %d", entries)
-	}
+	assert.Equal(1, entries)
 	wg.Wait()
 }
 
 func TestRoom_InCallAll(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	b, err := NewBackendServer(config, hub, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Start(router); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(b.Start(router))
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
 
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
 
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
-	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 
-	if err := client1.RunUntilJoined(ctx, hello2.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.RunUntilJoined(ctx, hello2.Hello))
 
 	// Simulate backend request from Nextcloud to update the "inCall" flag of all participants.
 	msg1 := &BackendServerRoomRequest{
@@ -506,32 +400,20 @@ func TestRoom_InCallAll(t *testing.T) {
 	}
 
 	data1, err := json.Marshal(msg1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	res1, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer res1.Body.Close()
 	body1, err := io.ReadAll(res1.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if res1.StatusCode != 200 {
-		t.Errorf("Expected successful request, got %s: %s", res1.Status, string(body1))
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res1.StatusCode, "Expected successful request, got %s", string(body1))
+
+	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(checkMessageInCallAll(msg, roomId, FlagInCall))
 	}
 
-	if msg, err := client1.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else if err := checkMessageInCallAll(msg, roomId, FlagInCall); err != nil {
-		t.Fatal(err)
-	}
-
-	if msg, err := client2.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else if err := checkMessageInCallAll(msg, roomId, FlagInCall); err != nil {
-		t.Fatal(err)
+	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(checkMessageInCallAll(msg, roomId, FlagInCall))
 	}
 
 	// Simulate backend request from Nextcloud to update the "inCall" flag of all participants.
@@ -544,31 +426,19 @@ func TestRoom_InCallAll(t *testing.T) {
 	}
 
 	data2, err := json.Marshal(msg2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	res2, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer res2.Body.Close()
 	body2, err := io.ReadAll(res2.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if res2.StatusCode != 200 {
-		t.Errorf("Expected successful request, got %s: %s", res2.Status, string(body2))
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res2.StatusCode, "Expected successful request, got %s", string(body2))
+
+	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(checkMessageInCallAll(msg, roomId, 0))
 	}
 
-	if msg, err := client1.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else if err := checkMessageInCallAll(msg, roomId, 0); err != nil {
-		t.Fatal(err)
-	}
-
-	if msg, err := client2.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else if err := checkMessageInCallAll(msg, roomId, 0); err != nil {
-		t.Fatal(err)
+	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(checkMessageInCallAll(msg, roomId, 0))
 	}
 }

@@ -25,75 +25,52 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConcurrentStringStringMap(t *testing.T) {
+	assert := assert.New(t)
 	var m ConcurrentStringStringMap
-	if m.Len() != 0 {
-		t.Errorf("Expected %d entries, got %d", 0, m.Len())
-	}
-	if v, found := m.Get("foo"); found {
-		t.Errorf("Expected missing entry, got %s", v)
-	}
+	assert.Equal(0, m.Len())
+	v, found := m.Get("foo")
+	assert.False(found, "Expected missing entry, got %s", v)
 
 	m.Set("foo", "bar")
-	if m.Len() != 1 {
-		t.Errorf("Expected %d entries, got %d", 1, m.Len())
-	}
-	if v, found := m.Get("foo"); !found {
-		t.Errorf("Expected entry")
-	} else if v != "bar" {
-		t.Errorf("Expected bar, got %s", v)
+	assert.Equal(1, m.Len())
+	if v, found := m.Get("foo"); assert.True(found) {
+		assert.Equal("bar", v)
 	}
 
 	m.Set("foo", "baz")
-	if m.Len() != 1 {
-		t.Errorf("Expected %d entries, got %d", 1, m.Len())
-	}
-	if v, found := m.Get("foo"); !found {
-		t.Errorf("Expected entry")
-	} else if v != "baz" {
-		t.Errorf("Expected baz, got %s", v)
+	assert.Equal(1, m.Len())
+	if v, found := m.Get("foo"); assert.True(found) {
+		assert.Equal("baz", v)
 	}
 
 	m.Set("lala", "lolo")
-	if m.Len() != 2 {
-		t.Errorf("Expected %d entries, got %d", 2, m.Len())
-	}
-	if v, found := m.Get("lala"); !found {
-		t.Errorf("Expected entry")
-	} else if v != "lolo" {
-		t.Errorf("Expected lolo, got %s", v)
+	assert.Equal(2, m.Len())
+	if v, found := m.Get("lala"); assert.True(found) {
+		assert.Equal("lolo", v)
 	}
 
 	// Deleting missing entries doesn't do anything.
 	m.Del("xyz")
-	if m.Len() != 2 {
-		t.Errorf("Expected %d entries, got %d", 2, m.Len())
+	assert.Equal(2, m.Len())
+	if v, found := m.Get("foo"); assert.True(found) {
+		assert.Equal("baz", v)
 	}
-	if v, found := m.Get("foo"); !found {
-		t.Errorf("Expected entry")
-	} else if v != "baz" {
-		t.Errorf("Expected baz, got %s", v)
-	}
-	if v, found := m.Get("lala"); !found {
-		t.Errorf("Expected entry")
-	} else if v != "lolo" {
-		t.Errorf("Expected lolo, got %s", v)
+	if v, found := m.Get("lala"); assert.True(found) {
+		assert.Equal("lolo", v)
 	}
 
 	m.Del("lala")
-	if m.Len() != 1 {
-		t.Errorf("Expected %d entries, got %d", 2, m.Len())
+	assert.Equal(1, m.Len())
+	if v, found := m.Get("foo"); assert.True(found) {
+		assert.Equal("baz", v)
 	}
-	if v, found := m.Get("foo"); !found {
-		t.Errorf("Expected entry")
-	} else if v != "baz" {
-		t.Errorf("Expected baz, got %s", v)
-	}
-	if v, found := m.Get("lala"); found {
-		t.Errorf("Expected missing entry, got %s", v)
-	}
+	v, found = m.Get("lala")
+	assert.False(found, "Expected missing entry, got %s", v)
 	m.Clear()
 
 	var wg sync.WaitGroup
@@ -108,18 +85,13 @@ func TestConcurrentStringStringMap(t *testing.T) {
 			for y := 0; y < count; y = y + 1 {
 				value := newRandomString(32)
 				m.Set(key, value)
-				if v, found := m.Get(key); !found {
-					t.Errorf("Expected entry for key %s", key)
-					return
-				} else if v != value {
-					t.Errorf("Expected value %s for key %s, got %s", value, key, v)
+				if v, found := m.Get(key); !assert.True(found, "Expected entry for key %s", key) ||
+					!assert.Equal(value, v, "Unexpected value for key %s", key) {
 					return
 				}
 			}
 		}(x)
 	}
 	wg.Wait()
-	if m.Len() != concurrency {
-		t.Errorf("Expected %d entries, got %d", concurrency, m.Len())
-	}
+	assert.Equal(concurrency, m.Len())
 }

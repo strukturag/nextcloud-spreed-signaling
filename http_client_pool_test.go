@@ -26,52 +26,42 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHttpClientPool(t *testing.T) {
 	t.Parallel()
-	if _, err := NewHttpClientPool(0, false); err == nil {
-		t.Error("should not be possible to create empty pool")
-	}
+	require := require.New(t)
+	assert := assert.New(t)
+	_, err := NewHttpClientPool(0, false)
+	assert.Error(err)
 
 	pool, err := NewHttpClientPool(1, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	u, err := url.Parse("http://localhost/foo/bar")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	ctx := context.Background()
-	if _, _, err := pool.Get(ctx, u); err != nil {
-		t.Fatal(err)
-	}
+	_, _, err = pool.Get(ctx, u)
+	require.NoError(err)
 
 	ctx2, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
 	defer cancel()
-	if _, _, err := pool.Get(ctx2, u); err == nil {
-		t.Error("fetching from empty pool should have timed out")
-	} else if err != context.DeadlineExceeded {
-		t.Errorf("fetching from empty pool should have timed out, got %s", err)
-	}
+	_, _, err = pool.Get(ctx2, u)
+	assert.ErrorIs(err, context.DeadlineExceeded)
 
 	// Pools are separated by hostname, so can get client for different host.
 	u2, err := url.Parse("http://local.host/foo/bar")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if _, _, err := pool.Get(ctx, u2); err != nil {
-		t.Fatal(err)
-	}
+	_, _, err = pool.Get(ctx, u2)
+	require.NoError(err)
 
 	ctx3, cancel2 := context.WithTimeout(ctx, 10*time.Millisecond)
 	defer cancel2()
-	if _, _, err := pool.Get(ctx3, u2); err == nil {
-		t.Error("fetching from empty pool should have timed out")
-	} else if err != context.DeadlineExceeded {
-		t.Errorf("fetching from empty pool should have timed out, got %s", err)
-	}
+	_, _, err = pool.Get(ctx3, u2)
+	assert.ErrorIs(err, context.DeadlineExceeded)
 }

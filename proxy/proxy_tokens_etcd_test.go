@@ -37,6 +37,8 @@ import (
 	"testing"
 
 	"github.com/dlintw/goconf"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 	"go.etcd.io/etcd/server/v3/lease"
 
@@ -73,9 +75,7 @@ func newEtcdForTesting(t *testing.T) *embed.Etcd {
 	cfg.LogLevel = "warn"
 
 	u, err := url.Parse(etcdListenUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Find a free port to bind the server to.
 	var etcd *embed.Etcd
@@ -91,14 +91,12 @@ func newEtcdForTesting(t *testing.T) *embed.Etcd {
 		etcd, err = embed.StartEtcd(cfg)
 		if isErrorAddressAlreadyInUse(err) {
 			continue
-		} else if err != nil {
-			t.Fatal(err)
 		}
+
+		require.NoError(t, err)
 		break
 	}
-	if etcd == nil {
-		t.Fatal("could not find free port")
-	}
+	require.NotNil(t, etcd, "could not find free port")
 
 	t.Cleanup(func() {
 		etcd.Close()
@@ -118,9 +116,7 @@ func newTokensEtcdForTesting(t *testing.T) (*tokensEtcd, *embed.Etcd) {
 	cfg.AddOption("tokens", "keyformat", "/%s, /testing/%s/key")
 
 	tokens, err := NewProxyTokensEtcd(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		tokens.Close()
 	})
@@ -134,11 +130,9 @@ func storeKey(t *testing.T, etcd *embed.Etcd, key string, pubkey crypto.PublicKe
 	switch pubkey := pubkey.(type) {
 	case rsa.PublicKey:
 		data, err = x509.MarshalPKIXPublicKey(&pubkey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	default:
-		t.Fatalf("unknown key type %T in %+v", pubkey, pubkey)
+		require.Fail(t, "unknown key type %T in %+v", pubkey, pubkey)
 	}
 
 	data = pem.EncodeToMemory(&pem.Block{
@@ -154,9 +148,7 @@ func storeKey(t *testing.T, etcd *embed.Etcd, key string, pubkey crypto.PublicKe
 
 func generateAndSaveKey(t *testing.T, etcd *embed.Etcd, name string) *rsa.PrivateKey {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	storeKey(t, etcd, name, key.PublicKey)
 	return key
@@ -164,24 +156,17 @@ func generateAndSaveKey(t *testing.T, etcd *embed.Etcd, name string) *rsa.Privat
 
 func TestProxyTokensEtcd(t *testing.T) {
 	signaling.CatchLogForTest(t)
+	assert := assert.New(t)
 	tokens, etcd := newTokensEtcdForTesting(t)
 
 	key1 := generateAndSaveKey(t, etcd, "/foo")
 	key2 := generateAndSaveKey(t, etcd, "/testing/bar/key")
 
-	if token, err := tokens.Get("foo"); err != nil {
-		t.Error(err)
-	} else if token == nil {
-		t.Error("could not get token")
-	} else if !key1.PublicKey.Equal(token.key) {
-		t.Error("token keys mismatch")
+	if token, err := tokens.Get("foo"); assert.NoError(err) && assert.NotNil(token) {
+		assert.True(key1.PublicKey.Equal(token.key))
 	}
 
-	if token, err := tokens.Get("bar"); err != nil {
-		t.Error(err)
-	} else if token == nil {
-		t.Error("could not get token")
-	} else if !key2.PublicKey.Equal(token.key) {
-		t.Error("token keys mismatch")
+	if token, err := tokens.Get("bar"); assert.NoError(err) && assert.NotNil(token) {
+		assert.True(key2.PublicKey.Equal(token.key))
 	}
 }

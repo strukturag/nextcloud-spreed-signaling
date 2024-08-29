@@ -24,46 +24,36 @@ package signaling
 import (
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestLruUnbound(t *testing.T) {
+	assert := assert.New(t)
 	lru := NewLruCache(0)
 	count := 10
 	for i := 0; i < count; i++ {
 		key := fmt.Sprintf("%d", i)
 		lru.Set(key, i)
 	}
-	if lru.Len() != count {
-		t.Errorf("Expected %d entries, got %d", count, lru.Len())
-	}
+	assert.Equal(count, lru.Len())
 	for i := 0; i < count; i++ {
 		key := fmt.Sprintf("%d", i)
-		value := lru.Get(key)
-		if value == nil {
-			t.Errorf("No value found for %s", key)
-			continue
-		} else if value.(int) != i {
-			t.Errorf("Expected value to be %d, got %d", value.(int), i)
+		if value := lru.Get(key); assert.NotNil(value, "No value found for %s", key) {
+			assert.EqualValues(i, value)
 		}
 	}
 	// The first key ("0") is now the oldest.
 	lru.RemoveOldest()
-	if lru.Len() != count-1 {
-		t.Errorf("Expected %d entries after RemoveOldest, got %d", count-1, lru.Len())
-	}
+	assert.Equal(count-1, lru.Len())
 	for i := 0; i < count; i++ {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i == 0 {
-			if value != nil {
-				t.Errorf("The value for key %s should have been removed", key)
-			}
+			assert.Nil(value, "The value for key %s should have been removed", key)
 			continue
-		} else if value == nil {
-			t.Errorf("No value found for %s", key)
-			continue
-		} else if value.(int) != i {
-			t.Errorf("Expected value to be %d, got %d", value.(int), i)
+		} else if assert.NotNil(value, "No value found for %s", key) {
+			assert.EqualValues(i, value)
 		}
 	}
 
@@ -74,66 +64,47 @@ func TestLruUnbound(t *testing.T) {
 		key := fmt.Sprintf("%d", i)
 		lru.Set(key, i)
 	}
-	if lru.Len() != count-1 {
-		t.Errorf("Expected %d entries, got %d", count-1, lru.Len())
-	}
+	assert.Equal(count-1, lru.Len())
 	// NOTE: The same ordering as the Set calls above.
 	for i := count - 1; i >= 1; i-- {
 		key := fmt.Sprintf("%d", i)
-		value := lru.Get(key)
-		if value == nil {
-			t.Errorf("No value found for %s", key)
-			continue
-		} else if value.(int) != i {
-			t.Errorf("Expected value to be %d, got %d", value.(int), i)
+		if value := lru.Get(key); assert.NotNil(value, "No value found for %s", key) {
+			assert.EqualValues(i, value)
 		}
 	}
 
 	// The last key ("9") is now the oldest.
 	lru.RemoveOldest()
-	if lru.Len() != count-2 {
-		t.Errorf("Expected %d entries after RemoveOldest, got %d", count-2, lru.Len())
-	}
+	assert.Equal(count-2, lru.Len())
 	for i := 0; i < count; i++ {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 {
-			if value != nil {
-				t.Errorf("The value for key %s should have been removed", key)
-			}
+			assert.Nil(value, "The value for key %s should have been removed", key)
 			continue
-		} else if value == nil {
-			t.Errorf("No value found for %s", key)
-			continue
-		} else if value.(int) != i {
-			t.Errorf("Expected value to be %d, got %d", value.(int), i)
+		} else if assert.NotNil(value, "No value found for %s", key) {
+			assert.EqualValues(i, value)
 		}
 	}
 
 	// Remove an arbitrary key from the cache
 	key := fmt.Sprintf("%d", count/2)
 	lru.Remove(key)
-	if lru.Len() != count-3 {
-		t.Errorf("Expected %d entries after RemoveOldest, got %d", count-3, lru.Len())
-	}
+	assert.Equal(count-3, lru.Len())
 	for i := 0; i < count; i++ {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 || i == count/2 {
-			if value != nil {
-				t.Errorf("The value for key %s should have been removed", key)
-			}
+			assert.Nil(value, "The value for key %s should have been removed", key)
 			continue
-		} else if value == nil {
-			t.Errorf("No value found for %s", key)
-			continue
-		} else if value.(int) != i {
-			t.Errorf("Expected value to be %d, got %d", value.(int), i)
+		} else if assert.NotNil(value, "No value found for %s", key) {
+			assert.EqualValues(i, value)
 		}
 	}
 }
 
 func TestLruBound(t *testing.T) {
+	assert := assert.New(t)
 	size := 2
 	lru := NewLruCache(size)
 	count := 10
@@ -141,23 +112,16 @@ func TestLruBound(t *testing.T) {
 		key := fmt.Sprintf("%d", i)
 		lru.Set(key, i)
 	}
-	if lru.Len() != size {
-		t.Errorf("Expected %d entries, got %d", size, lru.Len())
-	}
+	assert.Equal(size, lru.Len())
 	// Only the last "size" entries have been stored.
 	for i := 0; i < count; i++ {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i < count-size {
-			if value != nil {
-				t.Errorf("The value for key %s should have been removed", key)
-			}
+			assert.Nil(value, "The value for key %s should have been removed", key)
 			continue
-		} else if value == nil {
-			t.Errorf("No value found for %s", key)
-			continue
-		} else if value.(int) != i {
-			t.Errorf("Expected value to be %d, got %d", value.(int), i)
+		} else if assert.NotNil(value, "No value found for %s", key) {
+			assert.EqualValues(i, value)
 		}
 	}
 }

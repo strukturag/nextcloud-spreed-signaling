@@ -23,6 +23,8 @@ package signaling
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestChannelWaiters(t *testing.T) {
@@ -42,9 +44,9 @@ func TestChannelWaiters(t *testing.T) {
 
 	select {
 	case <-ch1:
-		t.Error("should have not received another event")
+		assert.Fail(t, "should have not received another event")
 	case <-ch2:
-		t.Error("should have not received another event")
+		assert.Fail(t, "should have not received another event")
 	default:
 	}
 
@@ -60,7 +62,7 @@ func TestChannelWaiters(t *testing.T) {
 	<-ch2
 	select {
 	case <-ch3:
-		t.Error("should have not received another event")
+		assert.Fail(t, "should have not received another event")
 	default:
 	}
 }

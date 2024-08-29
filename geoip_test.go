@@ -32,6 +32,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
@@ -47,14 +50,11 @@ func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
 		expected := expected
 		t.Run(ip, func(t *testing.T) {
 			country, err := reader.LookupCountry(net.ParseIP(ip))
-			if err != nil {
-				t.Errorf("Could not lookup %s: %s", ip, err)
+			if !assert.NoError(t, err, "Could not lookup %s", ip) {
 				return
 			}
 
-			if country != expected {
-				t.Errorf("Expected %s for %s, got %s", expected, ip, country)
-			}
+			assert.Equal(t, expected, country, "Unexpected country for %s", ip)
 		})
 	}
 }
@@ -79,36 +79,28 @@ func GetGeoIpUrlForTest(t *testing.T) string {
 
 func TestGeoLookup(t *testing.T) {
 	CatchLogForTest(t)
+	require := require.New(t)
 	reader, err := NewGeoLookupFromUrl(GetGeoIpUrlForTest(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer reader.Close()
 
-	if err := reader.Update(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(reader.Update())
 
 	testGeoLookupReader(t, reader)
 }
 
 func TestGeoLookupCaching(t *testing.T) {
 	CatchLogForTest(t)
+	require := require.New(t)
 	reader, err := NewGeoLookupFromUrl(GetGeoIpUrlForTest(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer reader.Close()
 
-	if err := reader.Update(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(reader.Update())
 
 	// Updating the second time will most likely return a "304 Not Modified".
 	// Make sure this doesn't trigger an error.
-	if err := reader.Update(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(reader.Update())
 }
 
 func TestGeoLookupContinent(t *testing.T) {
@@ -125,13 +117,11 @@ func TestGeoLookupContinent(t *testing.T) {
 		expected := expected
 		t.Run(country, func(t *testing.T) {
 			continents := LookupContinents(country)
-			if len(continents) != len(expected) {
-				t.Errorf("Continents didn't match for %s: got %s, expected %s", country, continents, expected)
+			if !assert.Equal(t, len(expected), len(continents), "Continents didn't match for %s: got %s, expected %s", country, continents, expected) {
 				return
 			}
 			for idx, c := range expected {
-				if continents[idx] != c {
-					t.Errorf("Continents didn't match for %s: got %s, expected %s", country, continents, expected)
+				if !assert.Equal(t, c, continents[idx], "Continents didn't match for %s: got %s, expected %s", country, continents, expected) {
 					break
 				}
 			}
@@ -142,36 +132,29 @@ func TestGeoLookupContinent(t *testing.T) {
 func TestGeoLookupCloseEmpty(t *testing.T) {
 	CatchLogForTest(t)
 	reader, err := NewGeoLookupFromUrl("ignore-url")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	reader.Close()
 }
 
 func TestGeoLookupFromFile(t *testing.T) {
 	CatchLogForTest(t)
+	require := require.New(t)
 	geoIpUrl := GetGeoIpUrlForTest(t)
 
 	resp, err := http.Get(geoIpUrl)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer resp.Body.Close()
 
 	body := resp.Body
 	url := geoIpUrl
 	if strings.HasSuffix(geoIpUrl, ".gz") {
 		body, err = gzip.NewReader(body)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 		url = strings.TrimSuffix(url, ".gz")
 	}
 
 	tmpfile, err := os.CreateTemp("", "geoipdb")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	t.Cleanup(func() {
 		os.Remove(tmpfile.Name())
 	})
@@ -183,9 +166,8 @@ func TestGeoLookupFromFile(t *testing.T) {
 			header, err := tarfile.Next()
 			if err == io.EOF {
 				break
-			} else if err != nil {
-				t.Fatal(err)
 			}
+			require.NoError(err)
 
 			if !strings.HasSuffix(header.Name, ".mmdb") {
 				continue
@@ -193,33 +175,25 @@ func TestGeoLookupFromFile(t *testing.T) {
 
 			if _, err := io.Copy(tmpfile, tarfile); err != nil {
 				tmpfile.Close()
-				t.Fatal(err)
+				require.NoError(err)
 			}
-			if err := tmpfile.Close(); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(tmpfile.Close())
 			foundDatabase = true
 			break
 		}
 	} else {
 		if _, err := io.Copy(tmpfile, body); err != nil {
 			tmpfile.Close()
-			t.Fatal(err)
+			require.NoError(err)
 		}
-		if err := tmpfile.Close(); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(tmpfile.Close())
 		foundDatabase = true
 	}
 
-	if !foundDatabase {
-		t.Fatalf("Did not find GeoIP database in download from %s", geoIpUrl)
-	}
+	require.True(foundDatabase, "Did not find GeoIP database in download from %s", geoIpUrl)
 
 	reader, err := NewGeoLookupFromFile(tmpfile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer reader.Close()
 
 	testGeoLookupReader(t, reader)
@@ -228,9 +202,7 @@ func TestGeoLookupFromFile(t *testing.T) {
 func TestIsValidContinent(t *testing.T) {
 	for country, continents := range ContinentMap {
 		for _, continent := range continents {
-			if !IsValidContinent(continent) {
-				t.Errorf("Continent %s of country %s is not valid", continent, country)
-			}
+			assert.True(t, IsValidContinent(continent), "Continent %s of country %s is not valid", continent, country)
 		}
 	}
 }

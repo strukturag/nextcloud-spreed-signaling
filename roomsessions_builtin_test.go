@@ -23,13 +23,13 @@ package signaling
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuiltinRoomSessions(t *testing.T) {
 	sessions, err := NewBuiltinRoomSessions(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	testRoomSessions(t, sessions)
 }

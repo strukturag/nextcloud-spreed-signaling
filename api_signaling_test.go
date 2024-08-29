@@ -24,9 +24,10 @@ package signaling
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"sort"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type testCheckValid interface {
@@ -53,40 +54,34 @@ func wrapMessage(messageType string, msg testCheckValid) *ClientMessage {
 }
 
 func testMessages(t *testing.T, messageType string, valid_messages []testCheckValid, invalid_messages []testCheckValid) {
+	t.Helper()
+	assert := assert.New(t)
 	for _, msg := range valid_messages {
-		if err := msg.CheckValid(); err != nil {
-			t.Errorf("Message %+v should be valid, got %s", msg, err)
-		}
+		assert.NoError(msg.CheckValid(), "Message %+v should be valid", msg)
+
 		// If the inner message is valid, it should also be valid in a wrapped
 		// ClientMessage.
-		if wrapped := wrapMessage(messageType, msg); wrapped == nil {
-			t.Errorf("Unknown message type: %s", messageType)
-		} else if err := wrapped.CheckValid(); err != nil {
-			t.Errorf("Message %+v should be valid, got %s", wrapped, err)
+		if wrapped := wrapMessage(messageType, msg); assert.NotNil(wrapped, "Unknown message type: %s", messageType) {
+			assert.NoError(wrapped.CheckValid(), "Message %+v should be valid", wrapped)
 		}
 	}
 	for _, msg := range invalid_messages {
-		if err := msg.CheckValid(); err == nil {
-			t.Errorf("Message %+v should not be valid", msg)
-		}
+		assert.Error(msg.CheckValid(), "Message %+v should not be valid", msg)
 
 		// If the inner message is invalid, it should also be invalid in a
 		// wrapped ClientMessage.
-		if wrapped := wrapMessage(messageType, msg); wrapped == nil {
-			t.Errorf("Unknown message type: %s", messageType)
-		} else if err := wrapped.CheckValid(); err == nil {
-			t.Errorf("Message %+v should not be valid", wrapped)
+		if wrapped := wrapMessage(messageType, msg); assert.NotNil(wrapped, "Unknown message type: %s", messageType) {
+			assert.Error(wrapped.CheckValid(), "Message %+v should not be valid", wrapped)
 		}
 	}
 }
 
 func TestClientMessage(t *testing.T) {
 	t.Parallel()
+	assert := assert.New(t)
 	// The message needs a type.
 	msg := ClientMessage{}
-	if err := msg.CheckValid(); err == nil {
-		t.Errorf("Message %+v should not be valid", msg)
-	}
+	assert.Error(msg.CheckValid())
 }
 
 func TestHelloClientMessage(t *testing.T) {
@@ -229,9 +224,8 @@ func TestHelloClientMessage(t *testing.T) {
 	msg := ClientMessage{
 		Type: "hello",
 	}
-	if err := msg.CheckValid(); err == nil {
-		t.Errorf("Message %+v should not be valid", msg)
-	}
+	assert := assert.New(t)
+	assert.Error(msg.CheckValid())
 }
 
 func TestMessageClientMessage(t *testing.T) {
@@ -311,9 +305,8 @@ func TestMessageClientMessage(t *testing.T) {
 	msg := ClientMessage{
 		Type: "message",
 	}
-	if err := msg.CheckValid(); err == nil {
-		t.Errorf("Message %+v should not be valid", msg)
-	}
+	assert := assert.New(t)
+	assert.Error(msg.CheckValid())
 }
 
 func TestByeClientMessage(t *testing.T) {
@@ -330,9 +323,8 @@ func TestByeClientMessage(t *testing.T) {
 	msg := ClientMessage{
 		Type: "bye",
 	}
-	if err := msg.CheckValid(); err != nil {
-		t.Errorf("Message %+v should be valid, got %s", msg, err)
-	}
+	assert := assert.New(t)
+	assert.NoError(msg.CheckValid())
 }
 
 func TestRoomClientMessage(t *testing.T) {
@@ -349,42 +341,31 @@ func TestRoomClientMessage(t *testing.T) {
 	msg := ClientMessage{
 		Type: "room",
 	}
-	if err := msg.CheckValid(); err == nil {
-		t.Errorf("Message %+v should not be valid", msg)
-	}
+	assert := assert.New(t)
+	assert.Error(msg.CheckValid())
 }
 
 func TestErrorMessages(t *testing.T) {
 	t.Parallel()
+	assert := assert.New(t)
 	id := "request-id"
 	msg := ClientMessage{
 		Id: id,
 	}
 	err1 := msg.NewErrorServerMessage(&Error{})
-	if err1.Id != id {
-		t.Errorf("Expected id %s, got %+v", id, err1)
-	}
-	if err1.Type != "error" || err1.Error == nil {
-		t.Errorf("Expected type \"error\", got %+v", err1)
-	}
+	assert.Equal(id, err1.Id, "%+v", err1)
+	assert.Equal("error", err1.Type, "%+v", err1)
+	assert.NotNil(err1.Error, "%+v", err1)
 
 	err2 := msg.NewWrappedErrorServerMessage(fmt.Errorf("test-error"))
-	if err2.Id != id {
-		t.Errorf("Expected id %s, got %+v", id, err2)
-	}
-	if err2.Type != "error" || err2.Error == nil {
-		t.Errorf("Expected type \"error\", got %+v", err2)
-	}
-	if err2.Error.Code != "internal_error" {
-		t.Errorf("Expected code \"internal_error\", got %+v", err2)
-	}
-	if err2.Error.Message != "test-error" {
-		t.Errorf("Expected message \"test-error\", got %+v", err2)
+	assert.Equal(id, err2.Id, "%+v", err2)
+	assert.Equal("error", err2.Type, "%+v", err2)
+	if assert.NotNil(err2.Error, "%+v", err2) {
+		assert.Equal("internal_error", err2.Error.Code, "%+v", err2)
+		assert.Equal("test-error", err2.Error.Message, "%+v", err2)
 	}
 	// Test "error" interface
-	if err2.Error.Error() != "test-error" {
-		t.Errorf("Expected error string \"test-error\", got %+v", err2)
-	}
+	assert.Equal("test-error", err2.Error.Error(), "%+v", err2)
 }
 
 func TestIsChatRefresh(t *testing.T) {
@@ -397,9 +378,7 @@ func TestIsChatRefresh(t *testing.T) {
 			Data: data_true,
 		},
 	}
-	if !msg.IsChatRefresh() {
-		t.Error("message should be detected as chat refresh")
-	}
+	assert.True(t, msg.IsChatRefresh())
 
 	data_false := []byte("{\"type\":\"chat\",\"chat\":{\"refresh\":false}}")
 	msg = ServerMessage{
@@ -408,9 +387,7 @@ func TestIsChatRefresh(t *testing.T) {
 			Data: data_false,
 		},
 	}
-	if msg.IsChatRefresh() {
-		t.Error("message should not be detected as chat refresh")
-	}
+	assert.False(t, msg.IsChatRefresh())
 }
 
 func assertEqualStrings(t *testing.T, expected, result []string) {
@@ -427,27 +404,22 @@ func assertEqualStrings(t *testing.T, expected, result []string) {
 		sort.Strings(result)
 	}
 
-	if !reflect.DeepEqual(expected, result) {
-		t.Errorf("Expected %+v, got %+v", expected, result)
-	}
+	assert.Equal(t, expected, result)
 }
 
 func Test_Welcome_AddRemoveFeature(t *testing.T) {
 	t.Parallel()
+	assert := assert.New(t)
 	var msg WelcomeServerMessage
 	assertEqualStrings(t, []string{}, msg.Features)
 
 	msg.AddFeature("one", "two", "one")
 	assertEqualStrings(t, []string{"one", "two"}, msg.Features)
-	if !sort.StringsAreSorted(msg.Features) {
-		t.Errorf("features should be sorted, got %+v", msg.Features)
-	}
+	assert.True(sort.StringsAreSorted(msg.Features), "features should be sorted, got %+v", msg.Features)
 
 	msg.AddFeature("three")
 	assertEqualStrings(t, []string{"one", "two", "three"}, msg.Features)
-	if !sort.StringsAreSorted(msg.Features) {
-		t.Errorf("features should be sorted, got %+v", msg.Features)
-	}
+	assert.True(sort.StringsAreSorted(msg.Features), "features should be sorted, got %+v", msg.Features)
 
 	msg.RemoveFeature("three", "one")
 	assertEqualStrings(t, []string{"two"}, msg.Features)

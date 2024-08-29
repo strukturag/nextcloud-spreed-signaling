@@ -24,17 +24,17 @@ package signaling
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
@@ -57,37 +57,29 @@ func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
 	}
 
 	data, err := json.Marshal(response)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	require.NoError(t, err)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(data); err != nil {
-		t.Error(err)
-	}
+	_, err = w.Write(data)
+	assert.NoError(t, err)
 }
 
 func TestPostOnRedirect(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusTemporaryRedirect)
 	})
 	r.HandleFunc("/ocs/v2.php/two", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatal(err)
-			return
-		}
+		require.NoError(err)
 
 		var request map[string]string
-		if err := json.Unmarshal(body, &request); err != nil {
-			t.Fatal(err)
-			return
-		}
+		err = json.Unmarshal(body, &request)
+		require.NoError(err)
 
 		returnOCS(t, w, body)
 	})
@@ -96,9 +88,7 @@ func TestPostOnRedirect(t *testing.T) {
 	defer server.Close()
 
 	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", u.Host)
@@ -107,9 +97,7 @@ func TestPostOnRedirect(t *testing.T) {
 		config.AddOption("backend", "allowhttp", "true")
 	}
 	client, err := NewBackendClient(config, 1, "0.0", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	ctx := context.Background()
 	request := map[string]string{
@@ -117,18 +105,17 @@ func TestPostOnRedirect(t *testing.T) {
 	}
 	var response map[string]string
 	err = client.PerformJSONRequest(ctx, u, request, &response)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if response == nil || !reflect.DeepEqual(request, response) {
-		t.Errorf("Expected %+v, got %+v", request, response)
+	if assert.NotNil(t, response) {
+		assert.Equal(t, request, response)
 	}
 }
 
 func TestPostOnRedirectDifferentHost(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://domain.invalid/ocs/v2.php/two", http.StatusTemporaryRedirect)
@@ -137,9 +124,7 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 	defer server.Close()
 
 	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", u.Host)
@@ -148,9 +133,7 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 		config.AddOption("backend", "allowhttp", "true")
 	}
 	client, err := NewBackendClient(config, 1, "0.0", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	ctx := context.Background()
 	request := map[string]string{
@@ -160,41 +143,33 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 	err = client.PerformJSONRequest(ctx, u, request, &response)
 	if err != nil {
 		// The redirect to a different host should have failed.
-		if !errors.Is(err, ErrNotRedirecting) {
-			t.Fatal(err)
-		}
+		require.ErrorIs(err, ErrNotRedirecting)
 	} else {
-		t.Fatal("The redirect should have failed")
+		require.Fail("The redirect should have failed")
 	}
 }
 
 func TestPostOnRedirectStatusFound(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusFound)
 	})
 	r.HandleFunc("/ocs/v2.php/two", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatal(err)
-			return
-		}
+		require.NoError(err)
 
-		if len(body) > 0 {
-			t.Errorf("Should not have received any body, got %s", string(body))
-		}
-
+		assert.Empty(string(body), "Should not have received any body, got %s", string(body))
 		returnOCS(t, w, []byte("{}"))
 	})
 	server := httptest.NewServer(r)
 	defer server.Close()
 
 	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", u.Host)
@@ -203,9 +178,7 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 		config.AddOption("backend", "allowhttp", "true")
 	}
 	client, err := NewBackendClient(config, 1, "0.0", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	ctx := context.Background()
 	request := map[string]string{
@@ -213,18 +186,16 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 	}
 	var response map[string]string
 	err = client.PerformJSONRequest(ctx, u, request, &response)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if len(response) > 0 {
-		t.Errorf("Expected empty response, got %+v", response)
+	if assert.NoError(err) {
+		assert.Empty(response, "Expected empty response, got %+v", response)
 	}
 }
 
 func TestHandleThrottled(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
 		returnOCS(t, w, []byte("[]"))
@@ -233,9 +204,7 @@ func TestHandleThrottled(t *testing.T) {
 	defer server.Close()
 
 	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", u.Host)
@@ -244,9 +213,7 @@ func TestHandleThrottled(t *testing.T) {
 		config.AddOption("backend", "allowhttp", "true")
 	}
 	client, err := NewBackendClient(config, 1, "0.0", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	ctx := context.Background()
 	request := map[string]string{
@@ -254,9 +221,7 @@ func TestHandleThrottled(t *testing.T) {
 	}
 	var response map[string]string
 	err = client.PerformJSONRequest(ctx, u, request, &response)
-	if err == nil {
-		t.Error("should have triggered an error")
-	} else if !errors.Is(err, ErrThrottledResponse) {
-		t.Error(err)
+	if assert.Error(err) {
+		assert.ErrorIs(err, ErrThrottledResponse)
 	}
 }

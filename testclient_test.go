@@ -40,6 +40,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -225,9 +227,7 @@ type TestClient struct {
 func NewTestClientContext(ctx context.Context, t *testing.T, server *httptest.Server, hub *Hub) *TestClient {
 	// Reference "hub" to prevent compiler error.
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, getWebsocketUrl(server.URL), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	messageChan := make(chan []byte)
 	readErrorChan := make(chan error, 1)
@@ -238,8 +238,7 @@ func NewTestClientContext(ctx context.Context, t *testing.T, server *httptest.Se
 			if err != nil {
 				readErrorChan <- err
 				return
-			} else if messageType != websocket.TextMessage {
-				t.Errorf("Expect text message, got %d", messageType)
+			} else if !assert.Equal(t, websocket.TextMessage, messageType) {
 				return
 			}
 
@@ -266,13 +265,8 @@ func NewTestClient(t *testing.T, server *httptest.Server, hub *Hub) *TestClient 
 
 	client := NewTestClientContext(ctx, t, server, hub)
 	msg, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if msg.Type != "welcome" {
-		t.Errorf("Expected welcome message, got %+v", msg)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "welcome", msg.Type)
 	return client
 }
 
@@ -380,9 +374,7 @@ func (c *TestClient) WriteJSON(data interface{}) error {
 }
 
 func (c *TestClient) EnsuerWriteJSON(data interface{}) {
-	if err := c.WriteJSON(data); err != nil {
-		c.t.Fatalf("Could not write JSON %+v: %s", data, err)
-	}
+	require.NoError(c.t, c.WriteJSON(data), "Could not write JSON %+v", data)
 }
 
 func (c *TestClient) SendHello(userid string) error {
@@ -443,9 +435,7 @@ func (c *TestClient) CreateHelloV2Token(userid string, issuedAt time.Time, expir
 
 func (c *TestClient) SendHelloV2WithTimes(userid string, issuedAt time.Time, expiresAt time.Time) error {
 	tokenString, err := c.CreateHelloV2Token(userid, issuedAt, expiresAt)
-	if err != nil {
-		c.t.Fatal(err)
-	}
+	require.NoError(c.t, err)
 
 	params := HelloV2AuthParams{
 		Token: tokenString,
@@ -493,9 +483,7 @@ func (c *TestClient) SendHelloInternalWithFeatures(features []string) error {
 
 func (c *TestClient) SendHelloParams(url string, version string, clientType string, features []string, params interface{}) error {
 	data, err := json.Marshal(params)
-	if err != nil {
-		c.t.Fatal(err)
-	}
+	require.NoError(c.t, err)
 
 	hello := &ClientMessage{
 		Id:   "1234",
@@ -524,9 +512,7 @@ func (c *TestClient) SendBye() error {
 
 func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data interface{}) error {
 	payload, err := json.Marshal(data)
-	if err != nil {
-		c.t.Fatal(err)
-	}
+	require.NoError(c.t, err)
 
 	message := &ClientMessage{
 		Id:   "abcd",
@@ -541,9 +527,7 @@ func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data i
 
 func (c *TestClient) SendControl(recipient MessageClientMessageRecipient, data interface{}) error {
 	payload, err := json.Marshal(data)
-	if err != nil {
-		c.t.Fatal(err)
-	}
+	require.NoError(c.t, err)
 
 	message := &ClientMessage{
 		Id:   "abcd",
@@ -608,9 +592,7 @@ func (c *TestClient) SendInternalDialout(msg *DialoutInternalClientMessage) erro
 
 func (c *TestClient) SetTransientData(key string, value interface{}, ttl time.Duration) error {
 	payload, err := json.Marshal(value)
-	if err != nil {
-		c.t.Fatal(err)
-	}
+	require.NoError(c.t, err)
 
 	message := &ClientMessage{
 		Id:   "efgh",

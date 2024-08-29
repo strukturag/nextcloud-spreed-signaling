@@ -26,6 +26,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSingleNotifierNoWaiter(t *testing.T) {
@@ -48,9 +50,7 @@ func TestSingleNotifierSimple(t *testing.T) {
 		defer wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		if err := waiter.Wait(ctx); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(t, waiter.Wait(ctx))
 	}()
 
 	notifier.Notify()
@@ -74,9 +74,7 @@ func TestSingleNotifierWaitClosed(t *testing.T) {
 	waiter := notifier.NewWaiter()
 	notifier.Release(waiter)
 
-	if err := waiter.Wait(context.Background()); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, waiter.Wait(context.Background()))
 }
 
 func TestSingleNotifierWaitClosedMulti(t *testing.T) {
@@ -87,12 +85,8 @@ func TestSingleNotifierWaitClosedMulti(t *testing.T) {
 	notifier.Release(waiter1)
 	notifier.Release(waiter2)
 
-	if err := waiter1.Wait(context.Background()); err != nil {
-		t.Error(err)
-	}
-	if err := waiter2.Wait(context.Background()); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, waiter1.Wait(context.Background()))
+	assert.NoError(t, waiter2.Wait(context.Background()))
 }
 
 func TestSingleNotifierResetWillNotify(t *testing.T) {
@@ -108,9 +102,7 @@ func TestSingleNotifierResetWillNotify(t *testing.T) {
 		defer wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		if err := waiter.Wait(ctx); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(t, waiter.Wait(ctx))
 	}()
 
 	notifier.Reset()
@@ -137,9 +129,7 @@ func TestSingleNotifierDuplicate(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			if err := waiter.Wait(ctx); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(t, waiter.Wait(ctx))
 		}()
 	}
 

@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/stretchr/testify/require"
 )
 
 func newProxyConfigStatic(t *testing.T, proxy McuProxy, dns bool, urls ...string) (ProxyConfig, *DnsMonitor) {
@@ -38,9 +39,7 @@ func newProxyConfigStatic(t *testing.T, proxy McuProxy, dns bool, urls ...string
 	}
 	dnsMonitor := newDnsMonitorForTest(t, time.Hour) // will be updated manually
 	p, err := NewProxyConfigStatic(cfg, proxy, dnsMonitor)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		p.Stop()
 	})
@@ -53,9 +52,7 @@ func updateProxyConfigStatic(t *testing.T, config ProxyConfig, dns bool, urls ..
 	if dns {
 		cfg.AddOption("mcu", "dnsdiscovery", "true")
 	}
-	if err := config.Reload(cfg); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, config.Reload(cfg))
 }
 
 func TestProxyConfigStaticSimple(t *testing.T) {
@@ -63,9 +60,7 @@ func TestProxyConfigStaticSimple(t *testing.T) {
 	proxy := newMcuProxyForConfig(t)
 	config, _ := newProxyConfigStatic(t, proxy, false, "https://foo/")
 	proxy.Expect("add", "https://foo/")
-	if err := config.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, config.Start())
 
 	proxy.Expect("keep", "https://foo/")
 	proxy.Expect("add", "https://bar/")
@@ -82,9 +77,7 @@ func TestProxyConfigStaticDNS(t *testing.T) {
 	lookup := newMockDnsLookupForTest(t)
 	proxy := newMcuProxyForConfig(t)
 	config, dnsMonitor := newProxyConfigStatic(t, proxy, true, "https://foo/")
-	if err := config.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, config.Start())
 
 	time.Sleep(time.Millisecond)
 

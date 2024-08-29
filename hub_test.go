@@ -22,7 +22,6 @@
 package signaling
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -39,7 +38,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -49,6 +47,8 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -131,6 +131,7 @@ func getTestConfigWithMultipleBackends(server *httptest.Server) (*goconf.ConfigF
 }
 
 func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
+	require := require.New(t)
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
@@ -141,20 +142,12 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 
 	events := getAsyncEventsForTest(t)
 	config, err := getConfigFunc(server)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	h, err := NewHub(config, events, nil, nil, nil, r, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	b, err := NewBackendServer(config, h, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Start(r); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(b.Start(r))
 
 	go h.Run()
 
@@ -180,6 +173,7 @@ func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, AsyncEvents, *mux
 }
 
 func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, *Hub, *mux.Router, *mux.Router, *httptest.Server, *httptest.Server) {
+	require := require.New(t)
 	r1 := mux.NewRouter()
 	registerBackendHandler(t, r1)
 
@@ -212,51 +206,31 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	}
 
 	events1, err := NewAsyncEvents(nats1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	t.Cleanup(func() {
 		events1.Close()
 	})
 	config1, err := getConfigFunc(server1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	client1, _ := NewGrpcClientsForTest(t, addr2)
 	h1, err := NewHub(config1, events1, grpcServer1, client1, nil, r1, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	b1, err := NewBackendServer(config1, h1, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	events2, err := NewAsyncEvents(nats2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	t.Cleanup(func() {
 		events2.Close()
 	})
 	config2, err := getConfigFunc(server2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	client2, _ := NewGrpcClientsForTest(t, addr1)
 	h2, err := NewHub(config2, events2, grpcServer2, client2, nil, r2, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	b2, err := NewBackendServer(config2, h2, "no-version")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b1.Start(r1); err != nil {
-		t.Fatal(err)
-	}
-	if err := b2.Start(r2); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(b1.Start(r1))
+	require.NoError(b2.Start(r2))
 
 	go h1.Run()
 	go h2.Run()
@@ -306,7 +280,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 			h.mu.Lock()
 			h.ru.Lock()
 			dumpGoroutines("", os.Stderr)
-			t.Errorf("Error waiting for clients %+v / rooms %+v / sessions %+v / remoteSessions %v / %d read / %d write to terminate: %s", h.clients, h.rooms, h.sessions, h.remoteSessions, readActive, writeActive, ctx.Err())
+			assert.Fail(t, "Error waiting for clients %+v / rooms %+v / sessions %+v / remoteSessions %v / %d read / %d write to terminate: %s", h.clients, h.rooms, h.sessions, h.remoteSessions, readActive, writeActive, ctx.Err())
 			h.ru.Unlock()
 			h.mu.Unlock()
 			return
@@ -318,25 +292,22 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 
 func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Request, *BackendClientRequest) *BackendClientResponse) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		require := require.New(t)
 		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatal("Error reading body: ", err)
-		}
+		require.NoError(err)
 
 		rnd := r.Header.Get(HeaderBackendSignalingRandom)
 		checksum := r.Header.Get(HeaderBackendSignalingChecksum)
 		if rnd == "" || checksum == "" {
-			t.Fatalf("No checksum headers found in request to %s", r.URL)
+			require.Fail("No checksum headers found in request to %s", r.URL)
 		}
 
 		if verify := CalculateBackendChecksum(rnd, body, testBackendSecret); verify != checksum {
-			t.Fatalf("Backend checksum verification failed for request to %s", r.URL)
+			require.Fail("Backend checksum verification failed for request to %s", r.URL)
 		}
 
 		var request BackendClientRequest
-		if err := json.Unmarshal(body, &request); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(json.Unmarshal(body, &request))
 
 		response := f(w, r, &request)
 		if response == nil {
@@ -345,9 +316,7 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 		}
 
 		data, err := json.Marshal(response)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 
 		if r.Header.Get("OCS-APIRequest") != "" {
 			var ocs OcsResponse
@@ -359,9 +328,8 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 				},
 				Data: data,
 			}
-			if data, err = json.Marshal(ocs); err != nil {
-				t.Fatal(err)
-			}
+			data, err = json.Marshal(ocs)
+			require.NoError(err)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -371,15 +339,14 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 }
 
 func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+	require := require.New(t)
 	if request.Type != "auth" || request.Auth == nil {
-		t.Fatalf("Expected an auth backend request, got %+v", request)
+		require.Fail("Expected an auth backend request, got %+v", request)
 	}
 
 	var params TestBackendClientAuthParams
 	if len(request.Auth.Params) > 0 {
-		if err := json.Unmarshal(request.Auth.Params, &params); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(json.Unmarshal(request.Auth.Params, &params))
 	}
 	if params.UserId == "" {
 		params.UserId = testDefaultUserId
@@ -397,17 +364,17 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	userdata := map[string]string{
 		"displayname": "Displayname " + params.UserId,
 	}
-	if data, err := json.Marshal(userdata); err != nil {
-		t.Fatal(err)
-	} else {
-		response.Auth.User = data
-	}
+	data, err := json.Marshal(userdata)
+	require.NoError(err)
+	response.Auth.User = data
 	return response
 }
 
 func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+	require := require.New(t)
+	assert := assert.New(t)
 	if request.Type != "room" || request.Room == nil {
-		t.Fatalf("Expected an room backend request, got %+v", request)
+		require.Fail("Expected an room backend request, got %+v", request)
 	}
 
 	switch request.Room.RoomId {
@@ -416,26 +383,18 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	case "test-room-takeover-room-session":
 		// Additional checks for testcase "TestClientTakeoverRoomSession"
 		if request.Room.Action == "leave" && request.Room.UserId == "test-userid1" {
-			t.Errorf("Should not receive \"leave\" event for first user, received %+v", request.Room)
+			assert.Fail("Should not receive \"leave\" event for first user, received %+v", request.Room)
 		}
 	}
 
 	if strings.Contains(t.Name(), "Federation") {
 		// Check additional fields present for federated sessions.
 		if strings.Contains(request.Room.SessionId, "@federated") {
-			if actorType := request.Room.ActorType; actorType != ActorTypeFederatedUsers {
-				t.Errorf("expected actorType %s, received %+v", ActorTypeFederatedUsers, request.Room)
-			}
-			if actorId := request.Room.ActorId; actorId == "" {
-				t.Errorf("expected actorId, received %+v", request.Room)
-			}
+			assert.Equal(ActorTypeFederatedUsers, request.Room.ActorType)
+			assert.NotEmpty(request.Room.ActorId)
 		} else {
-			if actorType := request.Room.ActorType; actorType != "" {
-				t.Errorf("expected empty actorType, received %+v", request.Room)
-			}
-			if actorId := request.Room.ActorId; actorId != "" {
-				t.Errorf("expected empty actorId, received %+v", request.Room)
-			}
+			assert.Empty(request.Room.ActorType)
+			assert.Empty(request.Room.ActorId)
 		}
 	}
 
@@ -454,9 +413,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 			"userid": "userid-from-sessiondata",
 		}
 		tmp, err := json.Marshal(data)
-		if err != nil {
-			t.Fatalf("Could not marshal %+v: %s", data, err)
-		}
+		require.NoError(err)
 		response.Room.Session = tmp
 	case "test-room-initial-permissions":
 		permissions := []Permission{PERMISSION_MAY_PUBLISH_AUDIO}
@@ -498,7 +455,7 @@ func clearSessionRequestHandler(t *testing.T) { // nolint
 
 func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
 	if request.Type != "session" || request.Session == nil {
-		t.Fatalf("Expected an session backend request, got %+v", request)
+		require.Fail(t, "Expected an session backend request, got %+v", request)
 	}
 
 	sessionRequestHander.Lock()
@@ -545,16 +502,12 @@ func storePingRequest(t *testing.T, request *BackendClientRequest) {
 
 func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
 	if request.Type != "ping" || request.Ping == nil {
-		t.Fatalf("Expected an ping backend request, got %+v", request)
+		require.Fail(t, "Expected an ping backend request, got %+v", request)
 	}
 
 	if request.Ping.RoomId == "test-room-with-sessiondata" {
-		if entries := request.Ping.Entries; len(entries) != 1 {
-			t.Errorf("Expected one entry, got %+v", entries)
-		} else {
-			if entries[0].UserId != "" {
-				t.Errorf("Expected empty userid, got %+v", entries[0])
-			}
+		if entries := request.Ping.Entries; assert.Len(t, entries, 1) {
+			assert.Empty(t, entries[0].UserId)
 		}
 	}
 
@@ -571,12 +524,11 @@ func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 }
 
 func ensureAuthTokens(t *testing.T) (string, string) {
+	require := require.New(t)
 	if privateKey := os.Getenv("PRIVATE_AUTH_TOKEN_" + t.Name()); privateKey != "" {
 		publicKey := os.Getenv("PUBLIC_AUTH_TOKEN_" + t.Name())
-		if publicKey == "" {
-			// should not happen, always both keys are created
-			t.Fatal("public key is empty")
-		}
+		// should not happen, always both keys are created
+		require.NotEmpty(publicKey, "public key is empty")
 		return privateKey, publicKey
 	}
 
@@ -585,55 +537,41 @@ func ensureAuthTokens(t *testing.T) (string, string) {
 
 	if strings.Contains(t.Name(), "ECDSA") {
 		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 
 		private, err = x509.MarshalECPrivateKey(key)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 		private = pem.EncodeToMemory(&pem.Block{
 			Type:  "ECDSA PRIVATE KEY",
 			Bytes: private,
 		})
 
 		public, err = x509.MarshalPKIXPublicKey(&key.PublicKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 		public = pem.EncodeToMemory(&pem.Block{
 			Type:  "ECDSA PUBLIC KEY",
 			Bytes: public,
 		})
 	} else if strings.Contains(t.Name(), "Ed25519") {
 		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 
 		private, err = x509.MarshalPKCS8PrivateKey(privateKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 		private = pem.EncodeToMemory(&pem.Block{
 			Type:  "Ed25519 PRIVATE KEY",
 			Bytes: private,
 		})
 
 		public, err = x509.MarshalPKIXPublicKey(publicKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 		public = pem.EncodeToMemory(&pem.Block{
 			Type:  "Ed25519 PUBLIC KEY",
 			Bytes: public,
 		})
 	} else {
 		key, err := rsa.GenerateKey(rand.Reader, 1024)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 
 		private = pem.EncodeToMemory(&pem.Block{
 			Type:  "RSA PRIVATE KEY",
@@ -641,9 +579,7 @@ func ensureAuthTokens(t *testing.T) (string, string) {
 		})
 
 		public, err = x509.MarshalPKIXPublicKey(&key.PublicKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 		public = pem.EncodeToMemory(&pem.Block{
 			Type:  "RSA PUBLIC KEY",
 			Bytes: public,
@@ -660,9 +596,7 @@ func ensureAuthTokens(t *testing.T) (string, string) {
 func getPrivateAuthToken(t *testing.T) (key interface{}) {
 	private, _ := ensureAuthTokens(t)
 	data, err := base64.StdEncoding.DecodeString(private)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if strings.Contains(t.Name(), "ECDSA") {
 		key, err = jwt.ParseECPrivateKeyFromPEM(data)
 	} else if strings.Contains(t.Name(), "Ed25519") {
@@ -670,18 +604,14 @@ func getPrivateAuthToken(t *testing.T) (key interface{}) {
 	} else {
 		key, err = jwt.ParseRSAPrivateKeyFromPEM(data)
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return key
 }
 
 func getPublicAuthToken(t *testing.T) (key interface{}) {
 	_, public := ensureAuthTokens(t)
 	data, err := base64.StdEncoding.DecodeString(public)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if strings.Contains(t.Name(), "ECDSA") {
 		key, err = jwt.ParseECPublicKeyFromPEM(data)
 	} else if strings.Contains(t.Name(), "Ed25519") {
@@ -689,9 +619,7 @@ func getPublicAuthToken(t *testing.T) (key interface{}) {
 	} else {
 		key, err = jwt.ParseRSAPublicKeyFromPEM(data)
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return key
 }
 
@@ -711,7 +639,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		case "ping":
 			return processPingRequest(t, w, r, request)
 		default:
-			t.Fatalf("Unsupported request received: %+v", request)
+			require.Fail(t, "Unsupported request received: %+v", request)
 			return nil
 		}
 	})
@@ -749,9 +677,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if (strings.Contains(t.Name(), "V2") && useV2) || strings.Contains(t.Name(), "Federation") {
 			key := getPublicAuthToken(t)
 			public, err := x509.MarshalPKIXPublicKey(key)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			var pemType string
 			if strings.Contains(t.Name(), "ECDSA") {
 				pemType = "ECDSA PUBLIC KEY"
@@ -787,9 +713,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		}
 
 		data, err := json.Marshal(response)
-		if err != nil {
-			t.Errorf("Could not marshal %+v: %s", response, err)
-		}
+		assert.NoError(t, err, "Could not marshal %+v", response)
 
 		var ocs OcsResponse
 		ocs.Ocs = &OcsBody{
@@ -800,9 +724,8 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			},
 			Data: data,
 		}
-		if data, err = json.Marshal(ocs); err != nil {
-			t.Fatal(err)
-		}
+		data, err = json.Marshal(ocs)
+		require.NoError(t, err)
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(data) // nolint
@@ -829,46 +752,43 @@ func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {
 func TestWebsocketFeatures(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	_, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	conn, response, err := websocket.DefaultDialer.DialContext(ctx, getWebsocketUrl(server.URL), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer conn.Close() // nolint
 
-	if server := response.Header.Get("Server"); !strings.HasPrefix(server, "nextcloud-spreed-signaling/") {
-		t.Errorf("expected valid server header, got \"%s\"", server)
-	}
+	serverHeader := response.Header.Get("Server")
+	assert.True(strings.HasPrefix(serverHeader, "nextcloud-spreed-signaling/"), "expected valid server header, got \"%s\"", serverHeader)
 	features := response.Header.Get("X-Spreed-Signaling-Features")
 	featuresList := make(map[string]bool)
 	for _, f := range strings.Split(features, ",") {
 		f = strings.TrimSpace(f)
 		if f != "" {
-			if _, found := featuresList[f]; found {
-				t.Errorf("duplicate feature id \"%s\" in \"%s\"", f, features)
-			}
+			_, found := featuresList[f]
+			assert.False(found, "duplicate feature id \"%s\" in \"%s\"", f, features)
 			featuresList[f] = true
 		}
 	}
 	if len(featuresList) <= 1 {
-		t.Errorf("expected valid features header, got \"%s\"", features)
+		assert.Fail("expected valid features header, got \"%s\"", features)
 	}
-	if _, found := featuresList["hello-v2"]; !found {
-		t.Errorf("expected feature \"hello-v2\", got \"%s\"", features)
-	}
+	_, found := featuresList["hello-v2"]
+	assert.True(found, "expected feature \"hello-v2\", got \"%s\"", features)
 
-	if err := conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}); err != nil {
-		t.Errorf("could not write close message: %s", err)
-	}
+	assert.NoError(conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}))
 }
 
 func TestInitialWelcome(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -878,22 +798,20 @@ func TestInitialWelcome(t *testing.T) {
 	defer client.CloseWithBye()
 
 	msg, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if msg.Type != "welcome" {
-		t.Errorf("Expected \"welcome\" message, got %+v", msg)
-	} else if msg.Welcome.Version == "" {
-		t.Errorf("Expected welcome version, got %+v", msg)
-	} else if len(msg.Welcome.Features) == 0 {
-		t.Errorf("Expected welcome features, got %+v", msg)
+	assert.Equal("welcome", msg.Type, "%+v", msg)
+	if assert.NotNil(msg.Welcome, "%+v", msg) {
+		assert.NotEmpty(msg.Welcome.Version, "%+v", msg)
+		assert.NotEmpty(msg.Welcome.Features, "%+v", msg)
 	}
 }
 
 func TestExpectClientHello(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	// The server will send an error and close the connection if no "Hello"
@@ -908,28 +826,24 @@ func TestExpectClientHello(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 	message, err := client.RunUntilMessage(ctx)
-	if err := checkUnexpectedClose(err); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(checkUnexpectedClose(err))
 
 	message2, err := client.RunUntilMessage(ctx)
 	if message2 != nil {
-		t.Fatalf("Received multiple messages, already have %+v, also got %+v", message, message2)
+		require.Fail("Received multiple messages, already have %+v, also got %+v", message, message2)
 	}
-	if err := checkUnexpectedClose(err); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(checkUnexpectedClose(err))
 
-	if err := checkMessageType(message, "bye"); err != nil {
-		t.Error(err)
-	} else if message.Bye.Reason != "hello_timeout" {
-		t.Errorf("Expected \"hello_timeout\" reason, got %+v", message.Bye)
+	if err := checkMessageType(message, "bye"); assert.NoError(err) {
+		assert.Equal("hello_timeout", message.Bye.Reason, "%+v", message.Bye)
 	}
 }
 
 func TestExpectClientHelloUnsupportedVersion(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -938,49 +852,37 @@ func TestExpectClientHelloUnsupportedVersion(t *testing.T) {
 	params := TestBackendClientAuthParams{
 		UserId: testDefaultUserId,
 	}
-	if err := client.SendHelloParams(server.URL, "0.0", "", nil, params); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHelloParams(server.URL, "0.0", "", nil, params))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	message, err := client.RunUntilMessage(ctx)
-	if err := checkUnexpectedClose(err); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(checkUnexpectedClose(err))
 
-	if err := checkMessageType(message, "error"); err != nil {
-		t.Error(err)
-	} else if message.Error.Code != "invalid_hello_version" {
-		t.Errorf("Expected \"invalid_hello_version\" reason, got %+v", message.Error)
+	if err := checkMessageType(message, "error"); assert.NoError(err) {
+		assert.Equal("invalid_hello_version", message.Error.Code)
 	}
 }
 
 func TestClientHelloV1(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	if hello, err := client.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
+	if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello)
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello)
 	}
 }
 
@@ -988,49 +890,35 @@ func TestClientHelloV2(t *testing.T) {
 	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			require := require.New(t)
+			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
 			client := NewTestClient(t, server, hub)
 			defer client.CloseWithBye()
 
-			if err := client.SendHelloV2(testDefaultUserId); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client.SendHelloV2(testDefaultUserId))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			hello, err := client.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if hello.Hello.UserId != testDefaultUserId {
-				t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-			}
-			if hello.Hello.SessionId == "" {
-				t.Errorf("Expected session id, got %+v", hello.Hello)
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 
 			data := hub.decodeSessionId(hello.Hello.SessionId, publicSessionName)
-			if data == nil {
-				t.Fatalf("Could not decode session id: %s", hello.Hello.SessionId)
-			}
+			require.NotNil(data, "Could not decode session id: %s", hello.Hello.SessionId)
 
 			hub.mu.RLock()
 			session := hub.sessions[data.Sid]
 			hub.mu.RUnlock()
-			if session == nil {
-				t.Fatalf("Could not get session for id %+v", data)
-			}
+			require.NotNil(session, "Could not get session for id %+v", data)
 
 			var userdata map[string]string
-			if err := json.Unmarshal(session.UserData(), &userdata); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(json.Unmarshal(session.UserData(), &userdata))
 
-			if expected := "Displayname " + testDefaultUserId; userdata["displayname"] != expected {
-				t.Errorf("Expected displayname %s, got %s", expected, userdata["displayname"])
-			}
+			assert.Equal("Displayname "+testDefaultUserId, userdata["displayname"])
 		})
 	}
 }
@@ -1039,6 +927,8 @@ func TestClientHelloV2_IssuedInFuture(t *testing.T) {
 	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			require := require.New(t)
+			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
 			client := NewTestClient(t, server, hub)
@@ -1046,22 +936,16 @@ func TestClientHelloV2_IssuedInFuture(t *testing.T) {
 
 			issuedAt := time.Now().Add(time.Minute)
 			expiresAt := issuedAt.Add(time.Second)
-			if err := client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			message, err := client.RunUntilMessage(ctx)
-			if err := checkUnexpectedClose(err); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(checkUnexpectedClose(err))
 
-			if err := checkMessageType(message, "error"); err != nil {
-				t.Error(err)
-			} else if message.Error.Code != "token_not_valid_yet" {
-				t.Errorf("Expected \"token_not_valid_yet\" reason, got %+v", message.Error)
+			if err := checkMessageType(message, "error"); assert.NoError(err) {
+				assert.Equal("token_not_valid_yet", message.Error.Code, "%+v", message)
 			}
 		})
 	}
@@ -1071,28 +955,24 @@ func TestClientHelloV2_Expired(t *testing.T) {
 	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			require := require.New(t)
+			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
 			client := NewTestClient(t, server, hub)
 			defer client.CloseWithBye()
 
 			issuedAt := time.Now().Add(-time.Minute)
-			if err := client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, issuedAt.Add(time.Second)); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, issuedAt.Add(time.Second)))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			message, err := client.RunUntilMessage(ctx)
-			if err := checkUnexpectedClose(err); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(checkUnexpectedClose(err))
 
-			if err := checkMessageType(message, "error"); err != nil {
-				t.Error(err)
-			} else if message.Error.Code != "token_expired" {
-				t.Errorf("Expected \"token_expired\" reason, got %+v", message.Error)
+			if err := checkMessageType(message, "error"); assert.NoError(err) {
+				assert.Equal("token_expired", message.Error.Code, "%+v", message)
 			}
 		})
 	}
@@ -1102,6 +982,8 @@ func TestClientHelloV2_IssuedAtMissing(t *testing.T) {
 	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			require := require.New(t)
+			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
 			client := NewTestClient(t, server, hub)
@@ -1109,22 +991,16 @@ func TestClientHelloV2_IssuedAtMissing(t *testing.T) {
 
 			var issuedAt time.Time
 			expiresAt := time.Now().Add(time.Minute)
-			if err := client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			message, err := client.RunUntilMessage(ctx)
-			if err := checkUnexpectedClose(err); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(checkUnexpectedClose(err))
 
-			if err := checkMessageType(message, "error"); err != nil {
-				t.Error(err)
-			} else if message.Error.Code != "token_not_valid_yet" {
-				t.Errorf("Expected \"token_not_valid_yet\" reason, got %+v", message.Error)
+			if err := checkMessageType(message, "error"); assert.NoError(err) {
+				assert.Equal("token_not_valid_yet", message.Error.Code, "%+v", message)
 			}
 		})
 	}
@@ -1134,6 +1010,8 @@ func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
 	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			require := require.New(t)
+			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
 			client := NewTestClient(t, server, hub)
@@ -1141,22 +1019,16 @@ func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
 
 			issuedAt := time.Now().Add(-time.Minute)
 			var expiresAt time.Time
-			if err := client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			message, err := client.RunUntilMessage(ctx)
-			if err := checkUnexpectedClose(err); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(checkUnexpectedClose(err))
 
-			if err := checkMessageType(message, "error"); err != nil {
-				t.Error(err)
-			} else if message.Error.Code != "token_expired" {
-				t.Errorf("Expected \"token_expired\" reason, got %+v", message.Error)
+			if err := checkMessageType(message, "error"); assert.NoError(err) {
+				assert.Equal("token_expired", message.Error.Code, "%+v", message)
 			}
 		})
 	}
@@ -1166,6 +1038,8 @@ func TestClientHelloV2_CachedCapabilities(t *testing.T) {
 	CatchLogForTest(t)
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			require := require.New(t)
+			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -1177,20 +1051,12 @@ func TestClientHelloV2_CachedCapabilities(t *testing.T) {
 			client1 := NewTestClient(t, server, hub)
 			defer client1.CloseWithBye()
 
-			if err := client1.SendHelloV1(testDefaultUserId + "1"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHelloV1(testDefaultUserId + "1"))
 
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if hello1.Hello.UserId != testDefaultUserId+"1" {
-				t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"1", hello1.Hello)
-			}
-			if hello1.Hello.SessionId == "" {
-				t.Errorf("Expected session id, got %+v", hello1.Hello)
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId+"1", hello1.Hello.UserId, "%+v", hello1.Hello)
+			assert.NotEmpty(hello1.Hello.SessionId, "%+v", hello1.Hello)
 
 			// Simulate updated Nextcloud with capabilities for Hello V2.
 			t.Setenv("SKIP_V2_CAPABILITIES", "")
@@ -1198,20 +1064,12 @@ func TestClientHelloV2_CachedCapabilities(t *testing.T) {
 			client2 := NewTestClient(t, server, hub)
 			defer client2.CloseWithBye()
 
-			if err := client2.SendHelloV2(testDefaultUserId + "2"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHelloV2(testDefaultUserId + "2"))
 
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if hello2.Hello.UserId != testDefaultUserId+"2" {
-				t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"2", hello2.Hello)
-			}
-			if hello2.Hello.SessionId == "" {
-				t.Errorf("Expected session id, got %+v", hello2.Hello)
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId+"2", hello2.Hello.UserId, "%+v", hello2.Hello)
+			assert.NotEmpty(hello2.Hello.SessionId, "%+v", hello2.Hello)
 		})
 	}
 }
@@ -1219,34 +1077,30 @@ func TestClientHelloV2_CachedCapabilities(t *testing.T) {
 func TestClientHelloWithSpaces(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
 	userId := "test user with spaces"
-	if err := client.SendHello(userId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(userId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	if hello, err := client.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != userId {
-			t.Errorf("Expected \"%s\", got %+v", userId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
+	if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(userId, hello.Hello.UserId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 	}
 }
 
 func TestClientHelloAllowAll(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
 		config, err := getTestConfig(server)
 		if err != nil {
@@ -1261,22 +1115,14 @@ func TestClientHelloAllowAll(t *testing.T) {
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	if hello, err := client.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
+	if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 	}
 }
 
@@ -1285,6 +1131,8 @@ func TestClientHelloSessionLimit(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -1358,22 +1206,14 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params1 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId,
 			}
-			if err := client.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params1); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params1))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
-			if hello, err := client.RunUntilHello(ctx); err != nil {
-				t.Error(err)
-			} else {
-				if hello.Hello.UserId != testDefaultUserId {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-				}
-				if hello.Hello.SessionId == "" {
-					t.Errorf("Expected session id, got %+v", hello.Hello)
-				}
+			if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+				assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+				assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 			}
 
 			// The second client can't connect as it would exceed the session limit.
@@ -1383,42 +1223,26 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params2 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId + "2",
 			}
-			if err := client2.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params2); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params2))
 
-			msg, err := client2.RunUntilMessage(ctx)
-			if err != nil {
-				t.Error(err)
-			} else {
-				if msg.Type != "error" || msg.Error == nil {
-					t.Errorf("Expected error message, got %+v", msg)
-				} else if msg.Error.Code != "session_limit_exceeded" {
-					t.Errorf("Expected error \"session_limit_exceeded\", got %+v", msg.Error.Code)
+			if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+				assert.Equal("error", msg.Type, "%+v", msg)
+				if assert.NotNil(msg.Error, "%+v", msg) {
+					assert.Equal("session_limit_exceeded", msg.Error.Code, "%+v", msg)
 				}
 			}
 
 			// The client can connect to a different backend.
-			if err := client2.SendHelloParams(server1.URL+"/two", HelloVersionV1, "client", nil, params2); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHelloParams(server1.URL+"/two", HelloVersionV1, "client", nil, params2))
 
-			if hello, err := client2.RunUntilHello(ctx); err != nil {
-				t.Error(err)
-			} else {
-				if hello.Hello.UserId != testDefaultUserId+"2" {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"2", hello.Hello)
-				}
-				if hello.Hello.SessionId == "" {
-					t.Errorf("Expected session id, got %+v", hello.Hello)
-				}
+			if hello, err := client2.RunUntilHello(ctx); assert.NoError(err) {
+				assert.Equal(testDefaultUserId+"2", hello.Hello.UserId, "%+v", hello.Hello)
+				assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 			}
 
 			// If the first client disconnects (and releases the session), a new one can connect.
 			client.CloseWithBye()
-			if err := client.WaitForClientRemoved(ctx); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client.WaitForClientRemoved(ctx))
 
 			client3 := NewTestClient(t, server2, hub2)
 			defer client3.CloseWithBye()
@@ -1426,19 +1250,11 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params3 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId + "3",
 			}
-			if err := client3.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params3); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client3.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params3))
 
-			if hello, err := client3.RunUntilHello(ctx); err != nil {
-				t.Error(err)
-			} else {
-				if hello.Hello.UserId != testDefaultUserId+"3" {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"3", hello.Hello)
-				}
-				if hello.Hello.SessionId == "" {
-					t.Errorf("Expected session id, got %+v", hello.Hello)
-				}
+			if hello, err := client3.RunUntilHello(ctx); assert.NoError(err) {
+				assert.Equal(testDefaultUserId+"3", hello.Hello.UserId, "%+v", hello.Hello)
+				assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 			}
 		})
 	}
@@ -1447,6 +1263,8 @@ func TestClientHelloSessionLimit(t *testing.T) {
 func TestSessionIdsUnordered(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	publicSessionIds := make([]string, 0)
@@ -1454,36 +1272,24 @@ func TestSessionIdsUnordered(t *testing.T) {
 		client := NewTestClient(t, server, hub)
 		defer client.CloseWithBye()
 
-		if err := client.SendHello(testDefaultUserId); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(client.SendHello(testDefaultUserId))
 
 		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 		defer cancel()
 
-		if hello, err := client.RunUntilHello(ctx); err != nil {
-			t.Error(err)
-		} else {
-			if hello.Hello.UserId != testDefaultUserId {
-				t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-				break
-			}
-			if hello.Hello.SessionId == "" {
-				t.Errorf("Expected session id, got %+v", hello.Hello)
-				break
-			}
+		if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 
 			data := hub.decodeSessionId(hello.Hello.SessionId, publicSessionName)
-			if data == nil {
-				t.Errorf("Could not decode session id: %s", hello.Hello.SessionId)
+			if !assert.NotNil(data, "Could not decode session id: %s", hello.Hello.SessionId) {
 				break
 			}
 
 			hub.mu.RLock()
 			session := hub.sessions[data.Sid]
 			hub.mu.RUnlock()
-			if session == nil {
-				t.Errorf("Could not get session for id %+v", data)
+			if !assert.NotNil(session, "Could not get session for id %+v", data) {
 				break
 			}
 
@@ -1491,9 +1297,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 		}
 	}
 
-	if len(publicSessionIds) == 0 {
-		t.Fatal("no session ids decoded")
-	}
+	require.NotEmpty(publicSessionIds, "no session ids decoded")
 
 	larger := 0
 	smaller := 0
@@ -1505,80 +1309,57 @@ func TestSessionIdsUnordered(t *testing.T) {
 			} else if sid < prevSid {
 				smaller--
 			} else {
-				t.Error("should not have received the same session id twice")
+				assert.Fail("should not have received the same session id twice")
 			}
 		}
 		prevSid = sid
 	}
 
 	// Public session ids should not be ordered.
-	if len(publicSessionIds) == larger {
-		t.Error("the session ids are all larger than the previous ones")
-	} else if len(publicSessionIds) == smaller {
-		t.Error("the session ids are all smaller than the previous ones")
-	}
+	assert.NotEqual(larger, len(publicSessionIds), "the session ids are all larger than the previous ones")
+	assert.NotEqual(smaller, len(publicSessionIds), "the session ids are all smaller than the previous ones")
 }
 
 func TestClientHelloResume(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
-	}
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+	require.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 
 	client.Close()
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.WaitForClientRemoved(ctx))
 
 	client = NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHelloResume(hello.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
-	hello2, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello2.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
-		}
-		if hello2.Hello.SessionId != hello.Hello.SessionId {
-			t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
-		}
-		if hello2.Hello.ResumeId != hello.Hello.ResumeId {
-			t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
-		}
+	require.NoError(client.SendHelloResume(hello.Hello.ResumeId))
+	if hello2, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(testDefaultUserId, hello2.Hello.UserId, "%+v", hello2.Hello)
+		assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+		assert.Equal(hello.Hello.ResumeId, hello2.Hello.ResumeId, "%+v", hello2.Hello)
 	}
 }
 
 func TestClientHelloResumeThrottle(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	timing := &throttlerTiming{
@@ -1597,46 +1378,28 @@ func TestClientHelloResumeThrottle(t *testing.T) {
 	defer client.CloseWithBye()
 
 	timing.expectedSleep = 100 * time.Millisecond
-	if err := client.SendHelloResume("this-is-invalid"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHelloResume("this-is-invalid"))
 
-	if msg, err := client.RunUntilMessage(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "error" || msg.Error == nil {
-			t.Errorf("Expected error message, got %+v", msg)
-		} else if msg.Error.Code != "no_such_session" {
-			t.Errorf("Expected error \"no_such_session\", got %+v", msg.Error.Code)
+	if msg, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("error", msg.Type, "%+v", msg)
+		if assert.NotNil(msg.Error, "%+v", msg) {
+			assert.Equal("no_such_session", msg.Error.Code, "%+v", msg)
 		}
 	}
 
 	client = NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
-	}
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello.Hello.UserId)
+	assert.NotEmpty(hello.Hello.SessionId)
+	assert.NotEmpty(hello.Hello.ResumeId)
 
 	client.Close()
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.WaitForClientRemoved(ctx))
 
 	// Perform housekeeping in the future, this will cause the session to be
 	// cleaned up after it is expired.
@@ -1647,16 +1410,11 @@ func TestClientHelloResumeThrottle(t *testing.T) {
 
 	// Valid but expired resume ids will not be throttled.
 	timing.expectedSleep = 0 * time.Millisecond
-	if err := client.SendHelloResume(hello.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
-	if msg, err := client.RunUntilMessage(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "error" || msg.Error == nil {
-			t.Errorf("Expected error message, got %+v", msg)
-		} else if msg.Error.Code != "no_such_session" {
-			t.Errorf("Expected error \"no_such_session\", got %+v", msg.Error.Code)
+	require.NoError(client.SendHelloResume(hello.Hello.ResumeId))
+	if msg, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("error", msg.Type, "%+v", msg)
+		if assert.NotNil(msg.Error, "%+v", msg) {
+			assert.Equal("no_such_session", msg.Error.Code, "%+v", msg)
 		}
 	}
 
@@ -1664,17 +1422,12 @@ func TestClientHelloResumeThrottle(t *testing.T) {
 	defer client.CloseWithBye()
 
 	timing.expectedSleep = 200 * time.Millisecond
-	if err := client.SendHelloResume("this-is-invalid"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHelloResume("this-is-invalid"))
 
-	if msg, err := client.RunUntilMessage(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "error" || msg.Error == nil {
-			t.Errorf("Expected error message, got %+v", msg)
-		} else if msg.Error.Code != "no_such_session" {
-			t.Errorf("Expected error \"no_such_session\", got %+v", msg.Error.Code)
+	if msg, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("error", msg.Type, "%+v", msg)
+		if assert.NotNil(msg.Error, "%+v", msg) {
+			assert.Equal("no_such_session", msg.Error.Code, "%+v", msg)
 		}
 	}
 }
@@ -1682,37 +1435,26 @@ func TestClientHelloResumeThrottle(t *testing.T) {
 func TestClientHelloResumeExpired(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
-	}
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 
 	client.Close()
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.WaitForClientRemoved(ctx))
 
 	// Perform housekeeping in the future, this will cause the session to be
 	// cleaned up after it is expired.
@@ -1721,17 +1463,11 @@ func TestClientHelloResumeExpired(t *testing.T) {
 	client = NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHelloResume(hello.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
-	msg, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "error" || msg.Error == nil {
-			t.Errorf("Expected error message, got %+v", msg)
-		} else if msg.Error.Code != "no_such_session" {
-			t.Errorf("Expected error \"no_such_session\", got %+v", msg.Error.Code)
+	require.NoError(client.SendHelloResume(hello.Hello.ResumeId))
+	if msg, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("error", msg.Type, "%+v", msg)
+		if assert.NotNil(msg.Error, "%+v", msg) {
+			assert.Equal("no_such_session", msg.Error.Code, "%+v", msg)
 		}
 	}
 }
@@ -1739,107 +1475,72 @@ func TestClientHelloResumeExpired(t *testing.T) {
 func TestClientHelloResumeTakeover(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
 
-	if err := client1.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
-	}
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+	require.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
 
-	if err := client2.SendHelloResume(hello.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHelloResume(hello.Hello.ResumeId))
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello2.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
-		}
-		if hello2.Hello.SessionId != hello.Hello.SessionId {
-			t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
-		}
-		if hello2.Hello.ResumeId != hello.Hello.ResumeId {
-			t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
-		}
-	}
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello2.Hello.UserId, "%+v", hello2.Hello)
+	assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+	assert.Equal(hello.Hello.ResumeId, hello2.Hello.ResumeId, "%+v", hello2.Hello)
 
 	// The first client got disconnected with a reason in a "Bye" message.
-	msg, err := client1.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "bye" || msg.Bye == nil {
-			t.Errorf("Expected bye message, got %+v", msg)
-		} else if msg.Bye.Reason != "session_resumed" {
-			t.Errorf("Expected reason \"session_resumed\", got %+v", msg.Bye.Reason)
+	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("bye", msg.Type, "%+v", msg)
+		if assert.NotNil(msg.Bye, "%+v", msg) {
+			assert.Equal("session_resumed", msg.Bye.Reason, "%+v", msg)
 		}
 	}
 
 	if msg, err := client1.RunUntilMessage(ctx); err == nil {
-		t.Errorf("Expected error but received %+v", msg)
+		assert.Fail("Expected error but received %+v", msg)
 	} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-		t.Errorf("Expected close error but received %+v", err)
+		assert.Fail("Expected close error but received %+v", err)
 	}
 }
 
 func TestClientHelloResumeOtherHub(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
-	}
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 
 	client.Close()
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.WaitForClientRemoved(ctx))
 
 	// Simulate a restart of the hub.
 	hub.sid.Store(0)
@@ -1855,46 +1556,28 @@ func TestClientHelloResumeOtherHub(t *testing.T) {
 	hub.mu.Lock()
 	count := len(hub.sessions)
 	hub.mu.Unlock()
-	if count > 0 {
-		t.Errorf("Should have removed all sessions (still has %d)", count)
-	}
+	assert.Equal(0, count, "Should have removed all sessions")
 
 	// The new client will get the same (internal) sid for his session.
 	newClient := NewTestClient(t, server, hub)
 	defer newClient.CloseWithBye()
 
-	if err := newClient.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(newClient.SendHello(testDefaultUserId))
 
-	if hello, err := newClient.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
-	}
+	hello2, err := newClient.RunUntilHello(ctx)
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello2.Hello.UserId, "%+v", hello2.Hello)
+	assert.NotEmpty(hello2.Hello.SessionId, "%+v", hello2.Hello)
+	assert.NotEmpty(hello2.Hello.ResumeId, "%+v", hello2.Hello)
 
 	// The previous session (which had the same internal sid) can't be resumed.
 	client = NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
-	if err := client.SendHelloResume(hello.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
-	msg, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "error" || msg.Error == nil {
-			t.Errorf("Expected error message, got %+v", msg)
-		} else if msg.Error.Code != "no_such_session" {
-			t.Errorf("Expected error \"no_such_session\", got %+v", msg.Error.Code)
+	require.NoError(client.SendHelloResume(hello.Hello.ResumeId))
+	if msg, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("error", msg.Type, "%+v", msg)
+		if assert.NotNil(msg.Error, "%+v", msg) {
+			assert.Equal("no_such_session", msg.Error.Code, "%+v", msg)
 		}
 	}
 
@@ -1905,35 +1588,27 @@ func TestClientHelloResumeOtherHub(t *testing.T) {
 func TestClientHelloResumePublicId(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	// Test that a client can't resume a "public" session of another user.
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if hello1.Hello.SessionId == hello2.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	}
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 	recipient2 := MessageClientMessageRecipient{
 		Type:      "session",
@@ -1945,32 +1620,22 @@ func TestClientHelloResumePublicId(t *testing.T) {
 
 	var payload string
 	var sender *MessageServerMessageSender
-	if err := checkReceiveClientMessageWithSender(ctx, client2, "session", hello1.Hello, &payload, &sender); err != nil {
-		t.Error(err)
-	} else if payload != data {
-		t.Errorf("Expected payload %s, got %s", data, payload)
+	if err := checkReceiveClientMessageWithSender(ctx, client2, "session", hello1.Hello, &payload, &sender); assert.NoError(err) {
+		assert.Equal(data, payload)
 	}
 
 	client1.Close()
-	if err := client1.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.WaitForClientRemoved(ctx))
 
 	client1 = NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
 
 	// Can't resume a session with the id received from messages of a client.
-	if err := client1.SendHelloResume(sender.SessionId); err != nil {
-		t.Fatal(err)
-	}
-	msg, err := client1.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "error" || msg.Error == nil {
-			t.Errorf("Expected error message, got %+v", msg)
-		} else if msg.Error.Code != "no_such_session" {
-			t.Errorf("Expected error \"no_such_session\", got %+v", msg.Error.Code)
+	require.NoError(client1.SendHelloResume(sender.SessionId))
+	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("error", msg.Type, "%+v", msg)
+		if assert.NotNil(msg.Error, "%+v", msg) {
+			assert.Equal("no_such_session", msg.Error.Code, "%+v", msg)
 		}
 	}
 
@@ -1981,66 +1646,41 @@ func TestClientHelloResumePublicId(t *testing.T) {
 func TestClientHelloByeResume(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
-	}
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 
-	if err := client.SendBye(); err != nil {
-		t.Fatal(err)
-	}
-	if message, err := client.RunUntilMessage(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if err := checkMessageType(message, "bye"); err != nil {
-			t.Error(err)
-		}
+	require.NoError(client.SendBye())
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(checkMessageType(message, "bye"))
 	}
 
 	client.Close()
-	if err := client.WaitForSessionRemoved(ctx, hello.Hello.SessionId); err != nil {
-		t.Error(err)
-	}
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.WaitForSessionRemoved(ctx, hello.Hello.SessionId))
+	assert.NoError(client.WaitForClientRemoved(ctx))
 
 	client = NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHelloResume(hello.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
-	msg, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "error" || msg.Error == nil {
-			t.Errorf("Expected \"error\", got %+v", *msg)
-		} else if msg.Error.Code != "no_such_session" {
-			t.Errorf("Expected error \"no_such_session\", got %+v", *msg)
+	require.NoError(client.SendHelloResume(hello.Hello.ResumeId))
+	if msg, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("error", msg.Type, "%+v", msg)
+		if assert.NotNil(msg.Error, "%+v", msg) {
+			assert.Equal("no_such_session", msg.Error.Code, "%+v", msg)
 		}
 	}
 }
@@ -2048,66 +1688,42 @@ func TestClientHelloByeResume(t *testing.T) {
 func TestClientHelloResumeAndJoin(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
-	}
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+	assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 
 	client.Close()
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.WaitForClientRemoved(ctx))
 
 	client = NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHelloResume(hello.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHelloResume(hello.Hello.ResumeId))
 	hello2, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello2.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
-		}
-		if hello2.Hello.SessionId != hello.Hello.SessionId {
-			t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
-		}
-		if hello2.Hello.ResumeId != hello.Hello.ResumeId {
-			t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
-		}
-	}
+	require.NoError(err)
+	assert.Equal(testDefaultUserId, hello2.Hello.UserId, "%+v", hello2.Hello)
+	assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+	assert.Equal(hello.Hello.ResumeId, hello2.Hello.ResumeId, "%+v", hello2.Hello)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 }
 
 func runGrpcProxyTest(t *testing.T, f func(hub1, hub2 *Hub, server1, server2 *httptest.Server)) {
@@ -2152,76 +1768,48 @@ func TestClientHelloResumeProxy(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
+			require := require.New(t)
+			assert := assert.New(t)
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
 
-			if err := client1.SendHello(testDefaultUserId); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			hello, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			} else {
-				if hello.Hello.UserId != testDefaultUserId {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-				}
-				if hello.Hello.SessionId == "" {
-					t.Errorf("Expected session id, got %+v", hello.Hello)
-				}
-				if hello.Hello.ResumeId == "" {
-					t.Errorf("Expected resume id, got %+v", hello.Hello)
-				}
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+			assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 
 			client1.Close()
-			if err := client1.WaitForClientRemoved(ctx); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client1.WaitForClientRemoved(ctx))
 
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
 
-			if err := client2.SendHelloResume(hello.Hello.ResumeId); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHelloResume(hello.Hello.ResumeId))
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Error(err)
-			} else {
-				if hello2.Hello.UserId != testDefaultUserId {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
-				}
-				if hello2.Hello.SessionId != hello.Hello.SessionId {
-					t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
-				}
-				if hello2.Hello.ResumeId != hello.Hello.ResumeId {
-					t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
-				}
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId, hello2.Hello.UserId, "%+v", hello2.Hello)
+			assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+			assert.Equal(hello.Hello.ResumeId, hello2.Hello.ResumeId, "%+v", hello2.Hello)
 
 			// Join room by id.
 			roomId := "test-room"
-			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err := client2.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// We will receive a "joined" event.
-			if err := client2.RunUntilJoined(ctx, hello.Hello); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client2.RunUntilJoined(ctx, hello.Hello))
 
-			if room := hub1.getRoom(roomId); room == nil {
-				t.Fatalf("Could not find room %s", roomId)
-			}
-			if room := hub2.getRoom(roomId); room != nil {
-				t.Fatalf("Should not have gotten room %s, got %+v", roomId, room)
-			}
+			room := hub1.getRoom(roomId)
+			require.NotNil(room, "Could not find room %s", roomId)
+			room2 := hub2.getRoom(roomId)
+			require.Nil(room2, "Should not have gotten room %s", roomId)
 
 			users := []map[string]interface{}{
 				{
@@ -2229,14 +1817,8 @@ func TestClientHelloResumeProxy(t *testing.T) {
 					"inCall":    1,
 				},
 			}
-			room := hub1.getRoom(roomId)
-			if room == nil {
-				t.Fatalf("Could not find room %s", roomId)
-			}
 			room.PublishUsersInCallChanged(users, users)
-			if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
 		})
 	})
 }
@@ -2245,105 +1827,68 @@ func TestClientHelloResumeProxy_Takeover(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
+			require := require.New(t)
+			assert := assert.New(t)
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
 
-			if err := client1.SendHello(testDefaultUserId); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			hello, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			} else {
-				if hello.Hello.UserId != testDefaultUserId {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-				}
-				if hello.Hello.SessionId == "" {
-					t.Errorf("Expected session id, got %+v", hello.Hello)
-				}
-				if hello.Hello.ResumeId == "" {
-					t.Errorf("Expected resume id, got %+v", hello.Hello)
-				}
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+			require.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
 
-			if err := client2.SendHelloResume(hello.Hello.ResumeId); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHelloResume(hello.Hello.ResumeId))
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Error(err)
-			} else {
-				if hello2.Hello.UserId != testDefaultUserId {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
-				}
-				if hello2.Hello.SessionId != hello.Hello.SessionId {
-					t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
-				}
-				if hello2.Hello.ResumeId != hello.Hello.ResumeId {
-					t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
-				}
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId, hello2.Hello.UserId, "%+v", hello2.Hello)
+			assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+			assert.Equal(hello.Hello.ResumeId, hello2.Hello.ResumeId, "%+v", hello2.Hello)
 
 			// The first client got disconnected with a reason in a "Bye" message.
-			if msg, err := client1.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else {
-				if msg.Type != "bye" || msg.Bye == nil {
-					t.Errorf("Expected bye message, got %+v", msg)
-				} else if msg.Bye.Reason != "session_resumed" {
-					t.Errorf("Expected reason \"session_resumed\", got %+v", msg.Bye.Reason)
+			if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+				assert.Equal("bye", msg.Type, "%+v", msg)
+				if assert.NotNil(msg.Bye, "%+v", msg) {
+					assert.Equal("session_resumed", msg.Bye.Reason, "%+v", msg)
 				}
 			}
 
 			if msg, err := client1.RunUntilMessage(ctx); err == nil {
-				t.Errorf("Expected error but received %+v", msg)
+				assert.Fail("Expected error but received %+v", msg)
 			} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-				t.Errorf("Expected close error but received %+v", err)
+				assert.Fail("Expected close error but received %+v", err)
 			}
 
 			client3 := NewTestClient(t, server1, hub1)
 			defer client3.CloseWithBye()
 
-			if err := client3.SendHelloResume(hello.Hello.ResumeId); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client3.SendHelloResume(hello.Hello.ResumeId))
 			hello3, err := client3.RunUntilHello(ctx)
-			if err != nil {
-				t.Error(err)
-			} else {
-				if hello3.Hello.UserId != testDefaultUserId {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
-				}
-				if hello3.Hello.SessionId != hello.Hello.SessionId {
-					t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
-				}
-				if hello3.Hello.ResumeId != hello.Hello.ResumeId {
-					t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
-				}
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId, hello3.Hello.UserId, "%+v", hello3.Hello)
+			assert.Equal(hello.Hello.SessionId, hello3.Hello.SessionId, "%+v", hello3.Hello)
+			assert.Equal(hello.Hello.ResumeId, hello3.Hello.ResumeId, "%+v", hello3.Hello)
 
 			// The second client got disconnected with a reason in a "Bye" message.
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else {
-				if msg.Type != "bye" || msg.Bye == nil {
-					t.Errorf("Expected bye message, got %+v", msg)
-				} else if msg.Bye.Reason != "session_resumed" {
-					t.Errorf("Expected reason \"session_resumed\", got %+v", msg.Bye.Reason)
+			if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+				assert.Equal("bye", msg.Type, "%+v", msg)
+				if assert.NotNil(msg.Bye, "%+v", msg) {
+					assert.Equal("session_resumed", msg.Bye.Reason, "%+v", msg)
 				}
 			}
 
 			if msg, err := client2.RunUntilMessage(ctx); err == nil {
-				t.Errorf("Expected error but received %+v", msg)
+				assert.Fail("Expected error but received %+v", msg)
 			} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-				t.Errorf("Expected close error but received %+v", err)
+				assert.Fail("Expected close error but received %+v", err)
 			}
 		})
 	})
@@ -2353,63 +1898,39 @@ func TestClientHelloResumeProxy_Disconnect(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
+			require := require.New(t)
+			assert := assert.New(t)
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
 
-			if err := client1.SendHello(testDefaultUserId); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			hello, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			} else {
-				if hello.Hello.UserId != testDefaultUserId {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-				}
-				if hello.Hello.SessionId == "" {
-					t.Errorf("Expected session id, got %+v", hello.Hello)
-				}
-				if hello.Hello.ResumeId == "" {
-					t.Errorf("Expected resume id, got %+v", hello.Hello)
-				}
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+			assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 
 			client1.Close()
-			if err := client1.WaitForClientRemoved(ctx); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client1.WaitForClientRemoved(ctx))
 
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
 
-			if err := client2.SendHelloResume(hello.Hello.ResumeId); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHelloResume(hello.Hello.ResumeId))
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Error(err)
-			} else {
-				if hello2.Hello.UserId != testDefaultUserId {
-					t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
-				}
-				if hello2.Hello.SessionId != hello.Hello.SessionId {
-					t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
-				}
-				if hello2.Hello.ResumeId != hello.Hello.ResumeId {
-					t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
-				}
-			}
+			require.NoError(err)
+			assert.Equal(testDefaultUserId, hello2.Hello.UserId, "%+v", hello2.Hello)
+			assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+			assert.Equal(hello.Hello.ResumeId, hello2.Hello.ResumeId, "%+v", hello2.Hello)
 
 			// Simulate unclean shutdown of second instance.
 			hub2.rpcServer.conn.Stop()
 
-			if err := client2.WaitForClientRemoved(ctx); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client2.WaitForClientRemoved(ctx))
 		})
 	})
 }
@@ -2417,36 +1938,30 @@ func TestClientHelloResumeProxy_Disconnect(t *testing.T) {
 func TestClientHelloClient(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHelloClient(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHelloClient(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	if hello, err := client.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
+	if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 	}
 }
 
 func TestClientHelloClient_V3Api(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
@@ -2457,55 +1972,37 @@ func TestClientHelloClient_V3Api(t *testing.T) {
 	}
 	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
 	// feature is returned by the capabilities endpoint.
-	if err := client.SendHelloParams(server.URL+"/ocs/v2.php/apps/spreed/api/v1/signaling/backend", HelloVersionV1, "client", nil, params); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHelloParams(server.URL+"/ocs/v2.php/apps/spreed/api/v1/signaling/backend", HelloVersionV1, "client", nil, params))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	if hello, err := client.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
+	if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 	}
 }
 
 func TestClientHelloInternal(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHelloInternal(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHelloInternal())
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	if hello, err := client.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != "" {
-			t.Errorf("Expected empty user id, got %+v", hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
+	if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Empty(hello.Hello.UserId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 	}
 }
 
@@ -2514,6 +2011,8 @@ func TestClientMessageToSessionId(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -2529,45 +2028,31 @@ func TestClientMessageToSessionId(t *testing.T) {
 			}
 
 			mcu1, err := NewTestMCU()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			hub1.SetMcu(mcu1)
 
 			if hub1 != hub2 {
 				mcu2, err := NewTestMCU()
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(err)
 				hub2.SetMcu(mcu2)
 			}
 
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
-			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId + "1"))
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
-			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
-			if hello1.Hello.SessionId == hello2.Hello.SessionId {
-				t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-			}
+			require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 			recipient1 := MessageClientMessageRecipient{
 				Type:      "session",
@@ -2587,16 +2072,12 @@ func TestClientMessageToSessionId(t *testing.T) {
 			client2.SendMessage(recipient1, data2) // nolint
 
 			var payload1 string
-			if err := checkReceiveClientMessage(ctx, client1, "session", hello2.Hello, &payload1); err != nil {
-				t.Error(err)
-			} else if payload1 != data2 {
-				t.Errorf("Expected payload %s, got %s", data2, payload1)
+			if err := checkReceiveClientMessage(ctx, client1, "session", hello2.Hello, &payload1); assert.NoError(err) {
+				assert.Equal(data2, payload1)
 			}
 			var payload2 map[string]interface{}
-			if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload2); err != nil {
-				t.Error(err)
-			} else if !reflect.DeepEqual(data1, payload2) {
-				t.Errorf("Expected payload %+v, got %+v", data1, payload2)
+			if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload2); assert.NoError(err) {
+				assert.Equal(data1, payload2)
 			}
 		})
 	}
@@ -2607,6 +2088,8 @@ func TestClientControlToSessionId(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -2623,30 +2106,20 @@ func TestClientControlToSessionId(t *testing.T) {
 
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
-			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId + "1"))
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
-			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
-			if hello1.Hello.SessionId == hello2.Hello.SessionId {
-				t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-			}
+			require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 			recipient1 := MessageClientMessageRecipient{
 				Type:      "session",
@@ -2663,15 +2136,11 @@ func TestClientControlToSessionId(t *testing.T) {
 			client2.SendControl(recipient1, data2) // nolint
 
 			var payload string
-			if err := checkReceiveClientControl(ctx, client1, "session", hello2.Hello, &payload); err != nil {
-				t.Error(err)
-			} else if payload != data2 {
-				t.Errorf("Expected payload %s, got %s", data2, payload)
+			if err := checkReceiveClientControl(ctx, client1, "session", hello2.Hello, &payload); assert.NoError(err) {
+				assert.Equal(data2, payload)
 			}
-			if err := checkReceiveClientControl(ctx, client2, "session", hello1.Hello, &payload); err != nil {
-				t.Error(err)
-			} else if payload != data1 {
-				t.Errorf("Expected payload %s, got %s", data1, payload)
+			if err := checkReceiveClientControl(ctx, client2, "session", hello1.Hello, &payload); assert.NoError(err) {
+				assert.Equal(data1, payload)
 			}
 		})
 	}
@@ -2680,43 +2149,31 @@ func TestClientControlToSessionId(t *testing.T) {
 func TestClientControlMissingPermissions(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if hello1.Hello.SessionId == hello2.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	}
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
-	if session1 == nil {
-		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
-	}
+	require.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
 	session2 := hub.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
-	if session2 == nil {
-		t.Fatalf("Session %s does not exist", hello2.Hello.SessionId)
-	}
+	require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
 
 	// Client 1 may not send control messages (will be ignored).
 	session1.SetPermissions([]Permission{
@@ -2745,57 +2202,44 @@ func TestClientControlMissingPermissions(t *testing.T) {
 	client2.SendControl(recipient1, data2) // nolint
 
 	var payload string
-	if err := checkReceiveClientControl(ctx, client1, "session", hello2.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data2 {
-		t.Errorf("Expected payload %s, got %s", data2, payload)
+	if err := checkReceiveClientControl(ctx, client1, "session", hello2.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data2, payload)
 	}
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 
-	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err != nil {
-		if err != ErrNoMessageReceived {
-			t.Error(err)
-		}
+	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err == nil {
+		assert.Fail("Expected no payload, got %+v", payload)
 	} else {
-		t.Errorf("Expected no payload, got %+v", payload)
+		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
 }
 
 func TestClientMessageToUserId(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if hello1.Hello.SessionId == hello2.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	} else if hello1.Hello.UserId == hello2.Hello.UserId {
-		t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
-	}
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
 
 	recipient1 := MessageClientMessageRecipient{
 		Type:   "user",
@@ -2812,52 +2256,39 @@ func TestClientMessageToUserId(t *testing.T) {
 	client2.SendMessage(recipient1, data2) // nolint
 
 	var payload string
-	if err := checkReceiveClientMessage(ctx, client1, "user", hello2.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data2 {
-		t.Errorf("Expected payload %s, got %s", data2, payload)
+	if err := checkReceiveClientMessage(ctx, client1, "user", hello2.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data2, payload)
 	}
 
-	if err := checkReceiveClientMessage(ctx, client2, "user", hello1.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data1 {
-		t.Errorf("Expected payload %s, got %s", data1, payload)
+	if err := checkReceiveClientMessage(ctx, client2, "user", hello1.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data1, payload)
 	}
 }
 
 func TestClientControlToUserId(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if hello1.Hello.SessionId == hello2.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	} else if hello1.Hello.UserId == hello2.Hello.UserId {
-		t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
-	}
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
 
 	recipient1 := MessageClientMessageRecipient{
 		Type:   "user",
@@ -2874,70 +2305,49 @@ func TestClientControlToUserId(t *testing.T) {
 	client2.SendControl(recipient1, data2) // nolint
 
 	var payload string
-	if err := checkReceiveClientControl(ctx, client1, "user", hello2.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data2 {
-		t.Errorf("Expected payload %s, got %s", data2, payload)
+	if err := checkReceiveClientControl(ctx, client1, "user", hello2.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data2, payload)
 	}
 
-	if err := checkReceiveClientControl(ctx, client2, "user", hello1.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data1 {
-		t.Errorf("Expected payload %s, got %s", data1, payload)
+	if err := checkReceiveClientControl(ctx, client2, "user", hello1.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data1, payload)
 	}
 }
 
 func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 	client2a := NewTestClient(t, server, hub)
 	defer client2a.CloseWithBye()
-	if err := client2a.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2a.SendHello(testDefaultUserId + "2"))
 	client2b := NewTestClient(t, server, hub)
 	defer client2b.CloseWithBye()
-	if err := client2b.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2b.SendHello(testDefaultUserId + "2"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2a, err := client2a.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2b, err := client2b.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if hello1.Hello.SessionId == hello2a.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	} else if hello1.Hello.SessionId == hello2b.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	} else if hello2a.Hello.SessionId == hello2b.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello2a.Hello.SessionId)
-	}
-	if hello1.Hello.UserId == hello2a.Hello.UserId {
-		t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
-	} else if hello1.Hello.UserId == hello2b.Hello.UserId {
-		t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
-	} else if hello2a.Hello.UserId != hello2b.Hello.UserId {
-		t.Fatalf("Expected the same user ids, got %s and %s", hello2a.Hello.UserId, hello2b.Hello.UserId)
-	}
+	require.NotEqual(hello1.Hello.SessionId, hello2a.Hello.SessionId)
+	require.NotEqual(hello1.Hello.SessionId, hello2b.Hello.SessionId)
+	require.NotEqual(hello2a.Hello.SessionId, hello2b.Hello.SessionId)
+
+	require.NotEqual(hello1.Hello.UserId, hello2a.Hello.UserId)
+	require.NotEqual(hello1.Hello.UserId, hello2b.Hello.UserId)
+	require.Equal(hello2a.Hello.UserId, hello2b.Hello.UserId)
 
 	recipient := MessageClientMessageRecipient{
 		Type:   "user",
@@ -2949,27 +2359,19 @@ func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
 
 	// Both clients will receive the message as it was sent to the user.
 	var payload string
-	if err := checkReceiveClientMessage(ctx, client2a, "user", hello1.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data1 {
-		t.Errorf("Expected payload %s, got %s", data1, payload)
+	if err := checkReceiveClientMessage(ctx, client2a, "user", hello1.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data1, payload)
 	}
-	if err := checkReceiveClientMessage(ctx, client2b, "user", hello1.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if payload != data1 {
-		t.Errorf("Expected payload %s, got %s", data1, payload)
+	if err := checkReceiveClientMessage(ctx, client2b, "user", hello1.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data1, payload)
 	}
 }
 
 func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, hello1 *ServerMessage, client2 *TestClient, hello2 *ServerMessage) {
 	// We will receive "joined" events for all clients. The ordering is not
 	// defined as messages are processed and sent by asynchronous event handlers.
-	if err := client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-		t.Error(err)
-	}
-	if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
+	assert.NoError(t, client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 }
 
 func TestClientMessageToRoom(t *testing.T) {
@@ -2977,6 +2379,8 @@ func TestClientMessageToRoom(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -2996,46 +2400,31 @@ func TestClientMessageToRoom(t *testing.T) {
 
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
-			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId + "1"))
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
-			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHello(testDefaultUserId + "2"))
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
-			if hello1.Hello.SessionId == hello2.Hello.SessionId {
-				t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-			} else if hello1.Hello.UserId == hello2.Hello.UserId {
-				t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
-			}
+			require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+			require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
 
 			// Join room by id.
 			roomId := "test-room"
-			if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err := client1.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// Give message processing some time.
 			time.Sleep(10 * time.Millisecond)
 
-			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err = client2.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
@@ -3049,16 +2438,12 @@ func TestClientMessageToRoom(t *testing.T) {
 			client2.SendMessage(recipient, data2) // nolint
 
 			var payload string
-			if err := checkReceiveClientMessage(ctx, client1, "room", hello2.Hello, &payload); err != nil {
-				t.Error(err)
-			} else if payload != data2 {
-				t.Errorf("Expected payload %s, got %s", data2, payload)
+			if err := checkReceiveClientMessage(ctx, client1, "room", hello2.Hello, &payload); assert.NoError(err) {
+				assert.Equal(data2, payload)
 			}
 
-			if err := checkReceiveClientMessage(ctx, client2, "room", hello1.Hello, &payload); err != nil {
-				t.Error(err)
-			} else if payload != data1 {
-				t.Errorf("Expected payload %s, got %s", data1, payload)
+			if err := checkReceiveClientMessage(ctx, client2, "room", hello1.Hello, &payload); assert.NoError(err) {
+				assert.Equal(data1, payload)
 			}
 		})
 	}
@@ -3069,6 +2454,8 @@ func TestClientControlToRoom(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -3088,46 +2475,31 @@ func TestClientControlToRoom(t *testing.T) {
 
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
-			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId + "1"))
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
-			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHello(testDefaultUserId + "2"))
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
-			if hello1.Hello.SessionId == hello2.Hello.SessionId {
-				t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-			} else if hello1.Hello.UserId == hello2.Hello.UserId {
-				t.Fatalf("Expected different user ids, got %s twice", hello1.Hello.UserId)
-			}
+			require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+			require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
 
 			// Join room by id.
 			roomId := "test-room"
-			if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err := client1.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// Give message processing some time.
 			time.Sleep(10 * time.Millisecond)
 
-			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err = client2.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
@@ -3141,16 +2513,12 @@ func TestClientControlToRoom(t *testing.T) {
 			client2.SendControl(recipient, data2) // nolint
 
 			var payload string
-			if err := checkReceiveClientControl(ctx, client1, "room", hello2.Hello, &payload); err != nil {
-				t.Error(err)
-			} else if payload != data2 {
-				t.Errorf("Expected payload %s, got %s", data2, payload)
+			if err := checkReceiveClientControl(ctx, client1, "room", hello2.Hello, &payload); assert.NoError(err) {
+				assert.Equal(data2, payload)
 			}
 
-			if err := checkReceiveClientControl(ctx, client2, "room", hello1.Hello, &payload); err != nil {
-				t.Error(err)
-			} else if payload != data1 {
-				t.Errorf("Expected payload %s, got %s", data1, payload)
+			if err := checkReceiveClientControl(ctx, client2, "room", hello1.Hello, &payload); assert.NoError(err) {
+				assert.Equal(data1, payload)
 			}
 		})
 	}
@@ -3159,78 +2527,63 @@ func TestClientControlToRoom(t *testing.T) {
 func TestJoinRoom(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	// Leave room.
-	if room, err := client.JoinRoom(ctx, ""); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != "" {
-		t.Fatalf("Expected empty room, got %s", room.Room.RoomId)
-	}
+	roomMsg, err = client.JoinRoom(ctx, "")
+	require.NoError(err)
+	require.Equal("", roomMsg.Room.RoomId)
 }
 
 func TestJoinRoomTwice(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	} else if !bytes.Equal(testRoomProperties, room.Room.Properties) {
-		t.Fatalf("Expected room properties %s, got %s", string(testRoomProperties), string(room.Room.Properties))
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	require.Equal(string(testRoomProperties), string(roomMsg.Room.Properties))
 
 	// We will receive a "joined" event.
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	msg := &ClientMessage{
 		Id:   "ABCD",
@@ -3240,138 +2593,94 @@ func TestJoinRoomTwice(t *testing.T) {
 			SessionId: roomId + "-" + client.publicId + "-2",
 		},
 	}
-	if err := client.WriteJSON(msg); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.WriteJSON(msg))
 
 	message, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := checkUnexpectedClose(err); err != nil {
-		t.Fatal(err)
+	require.NoError(err)
+	require.NoError(checkUnexpectedClose(err))
+
+	assert.Equal(msg.Id, message.Id)
+	if assert.NoError(checkMessageType(message, "error")) {
+		assert.Equal("already_joined", message.Error.Code)
+		assert.NotNil(message.Error.Details)
 	}
 
-	if msg.Id != message.Id {
-		t.Errorf("expected message id %s, got %s", msg.Id, message.Id)
-	} else if err := checkMessageType(message, "error"); err != nil {
-		t.Fatal(err)
-	} else if expected := "already_joined"; message.Error.Code != expected {
-		t.Errorf("expected error %s, got %s", expected, message.Error.Code)
-	} else if message.Error.Details == nil {
-		t.Fatal("expected error details")
-	}
-
-	var roomMsg RoomErrorDetails
-	if err := json.Unmarshal(message.Error.Details, &roomMsg); err != nil {
-		t.Fatal(err)
-	} else if roomMsg.Room == nil {
-		t.Fatalf("expected room details, got %+v", message)
-	}
-
-	if roomMsg.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %+v", roomId, roomMsg.Room)
-	} else if !bytes.Equal(testRoomProperties, roomMsg.Room.Properties) {
-		t.Fatalf("Expected room properties %s, got %s", string(testRoomProperties), string(roomMsg.Room.Properties))
+	var roomDetails RoomErrorDetails
+	if err := json.Unmarshal(message.Error.Details, &roomDetails); assert.NoError(err) {
+		if assert.NotNil(roomDetails.Room, "%+v", message) {
+			assert.Equal(roomId, roomDetails.Room.RoomId)
+			assert.Equal(string(testRoomProperties), string(roomDetails.Room.Properties))
+		}
 	}
 }
 
 func TestExpectAnonymousJoinRoom(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(authAnonymousUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(authAnonymousUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != "" {
-			t.Errorf("Expected an anonymous user, got %+v", hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
+	if assert.NoError(err) {
+		assert.Empty(hello.Hello.UserId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 	}
 
 	// Perform housekeeping in the future, this will cause the connection to
 	// be terminated because the anonymous client didn't join a room.
 	performHousekeeping(hub, time.Now().Add(anonmyousJoinRoomTimeout+time.Second))
 
-	message, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if err := checkMessageType(message, "bye"); err != nil {
-		t.Error(err)
-	} else if message.Bye.Reason != "room_join_timeout" {
-		t.Errorf("Expected \"room_join_timeout\" reason, got %+v", message.Bye)
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		if assert.NoError(checkMessageType(message, "bye")) {
+			assert.Equal("room_join_timeout", message.Bye.Reason, "%+v", message.Bye)
+		}
 	}
 
 	// Both the client and the session get removed from the hub.
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
-	if err := client.WaitForSessionRemoved(ctx, hello.Hello.SessionId); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.WaitForClientRemoved(ctx))
+	assert.NoError(client.WaitForSessionRemoved(ctx, hello.Hello.SessionId))
 }
 
 func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(authAnonymousUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(authAnonymousUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello.Hello.UserId != "" {
-			t.Errorf("Expected an anonymous user, got %+v", hello.Hello)
-		}
-		if hello.Hello.SessionId == "" {
-			t.Errorf("Expected session id, got %+v", hello.Hello)
-		}
-		if hello.Hello.ResumeId == "" {
-			t.Errorf("Expected resume id, got %+v", hello.Hello)
-		}
+	if assert.NoError(err) {
+		assert.Empty(hello.Hello.UserId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+		assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 	}
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	// Perform housekeeping in the future, this will keep the connection as the
 	// session joined a room.
@@ -3381,257 +2690,185 @@ func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel2()
 
-	if message, err := client.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-		t.Error(err)
-	} else if message != nil {
-		t.Errorf("Expected no message, got %+v", message)
+	if message, err := client.RunUntilMessage(ctx2); err == nil {
+		assert.Fail("Expected no message, got %+v", message)
+	} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+		assert.NoError(err)
 	}
 
 	// Leave room
-	if room, err := client.JoinRoom(ctx, ""); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != "" {
-		t.Fatalf("Expected room %s, got %s", "", room.Room.RoomId)
-	}
+	roomMsg, err = client.JoinRoom(ctx, "")
+	require.NoError(err)
+	require.Equal("", roomMsg.Room.RoomId)
 
 	// Perform housekeeping in the future, this will cause the connection to
 	// be terminated because the anonymous client didn't join a room.
 	performHousekeeping(hub, time.Now().Add(anonmyousJoinRoomTimeout+time.Second))
 
-	message, err := client.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if err := checkMessageType(message, "bye"); err != nil {
-		t.Error(err)
-	} else if message.Bye.Reason != "room_join_timeout" {
-		t.Errorf("Expected \"room_join_timeout\" reason, got %+v", message.Bye)
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		if assert.NoError(checkMessageType(message, "bye")) {
+			assert.Equal("room_join_timeout", message.Bye.Reason, "%+v", message.Bye)
+		}
 	}
 
 	// Both the client and the session get removed from the hub.
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
-	if err := client.WaitForSessionRemoved(ctx, hello.Hello.SessionId); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.WaitForClientRemoved(ctx))
+	assert.NoError(client.WaitForSessionRemoved(ctx, hello.Hello.SessionId))
 }
 
 func TestJoinRoomChange(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	// Change room.
 	roomId = "other-test-room"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err = client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	// Leave room.
-	if room, err := client.JoinRoom(ctx, ""); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != "" {
-		t.Fatalf("Expected empty room, got %s", room.Room.RoomId)
-	}
+	roomMsg, err = client.JoinRoom(ctx, "")
+	require.NoError(err)
+	require.Equal("", roomMsg.Room.RoomId)
 }
 
 func TestJoinMultiple(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if hello1.Hello.SessionId == hello2.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	}
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 	// Join room by id (first client).
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	// Join room by id (second client).
-	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event for the first and the second client.
-	if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 	// The first client will also receive a "joined" event from the second client.
-	if err := client1.RunUntilJoined(ctx, hello2.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.RunUntilJoined(ctx, hello2.Hello))
 
 	// Leave room.
-	if room, err := client1.JoinRoom(ctx, ""); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != "" {
-		t.Fatalf("Expected empty room, got %s", room.Room.RoomId)
-	}
+	roomMsg, err = client1.JoinRoom(ctx, "")
+	require.NoError(err)
+	require.Equal("", roomMsg.Room.RoomId)
 
 	// The second client will now receive a "left" event
-	if err := client2.RunUntilLeft(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client2.RunUntilLeft(ctx, hello1.Hello))
 
-	if room, err := client2.JoinRoom(ctx, ""); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != "" {
-		t.Fatalf("Expected empty room, got %s", room.Room.RoomId)
-	}
+	roomMsg, err = client2.JoinRoom(ctx, "")
+	require.NoError(err)
+	require.Equal("", roomMsg.Room.RoomId)
 }
 
 func TestJoinDisplaynamesPermission(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	session2 := hub.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
-	if session2 == nil {
-		t.Fatalf("Session %s does not exist", hello2.Hello.SessionId)
-	}
+	require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
 
 	// Client 2 may not receive display names.
 	session2.SetPermissions([]Permission{PERMISSION_HIDE_DISPLAYNAMES})
 
 	// Join room by id (first client).
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	// Join room by id (second client).
-	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event for the first and the second client.
-	if events, unexpected, err := client2.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello); err != nil {
-		t.Error(err)
-	} else {
-		if len(unexpected) > 0 {
-			t.Errorf("Received unexpected messages: %+v", unexpected)
-		} else if len(events) != 2 {
-			t.Errorf("Expected two event, got %+v", events)
-		} else if events[0].User != nil {
-			t.Errorf("Expected empty userdata for first event, got %+v", events[0].User)
-		} else if events[1].User != nil {
-			t.Errorf("Expected empty userdata for second event, got %+v", events[1].User)
+	if events, unexpected, err := client2.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello); assert.NoError(err) {
+		assert.Empty(unexpected)
+		if assert.Len(events, 2) {
+			assert.Nil(events[0].User)
+			assert.Nil(events[1].User)
 		}
 	}
 	// The first client will also receive a "joined" event from the second client.
-	if events, unexpected, err := client1.RunUntilJoinedAndReturn(ctx, hello2.Hello); err != nil {
-		t.Error(err)
-	} else {
-		if len(unexpected) > 0 {
-			t.Errorf("Received unexpected messages: %+v", unexpected)
-		} else if len(events) != 1 {
-			t.Errorf("Expected one event, got %+v", events)
-		} else if events[0].User == nil {
-			t.Errorf("Expected userdata for first event, got nothing")
+	if events, unexpected, err := client1.RunUntilJoinedAndReturn(ctx, hello2.Hello); assert.NoError(err) {
+		assert.Empty(unexpected)
+		if assert.Len(events, 1) {
+			assert.NotNil(events[0].User)
 		}
 	}
 }
@@ -3639,6 +2876,8 @@ func TestJoinDisplaynamesPermission(t *testing.T) {
 func TestInitialRoomPermissions(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -3647,59 +2886,43 @@ func TestInitialRoomPermissions(t *testing.T) {
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId + "1"))
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room-initial-permissions"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	session := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
-	if session == nil {
-		t.Fatalf("Session %s does not exist", hello.Hello.SessionId)
-	}
+	require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
-	if !session.HasPermission(PERMISSION_MAY_PUBLISH_AUDIO) {
-		t.Errorf("Session %s should have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_AUDIO, session.permissions)
-	}
-	if session.HasPermission(PERMISSION_MAY_PUBLISH_VIDEO) {
-		t.Errorf("Session %s should not have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_VIDEO, session.permissions)
-	}
+	assert.True(session.HasPermission(PERMISSION_MAY_PUBLISH_AUDIO), "Session %s should have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_AUDIO, session.permissions)
+	assert.False(session.HasPermission(PERMISSION_MAY_PUBLISH_VIDEO), "Session %s should not have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_VIDEO, session.permissions)
 }
 
 func TestJoinRoomSwitchClient(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room-slow"
@@ -3711,64 +2934,37 @@ func TestJoinRoomSwitchClient(t *testing.T) {
 			SessionId: roomId + "-" + hello.Hello.SessionId,
 		},
 	}
-	if err := client.WriteJSON(msg); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.WriteJSON(msg))
 	// Wait a bit to make sure request is sent before closing client.
 	time.Sleep(1 * time.Millisecond)
 	client.Close()
-	if err := client.WaitForClientRemoved(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.WaitForClientRemoved(ctx))
 
 	// The client needs some time to reconnect.
 	time.Sleep(200 * time.Millisecond)
 
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHelloResume(hello.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
-	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello2.Hello.UserId != testDefaultUserId {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId, hello2.Hello)
-		}
-		if hello2.Hello.SessionId != hello.Hello.SessionId {
-			t.Errorf("Expected session id %s, got %+v", hello.Hello.SessionId, hello2.Hello)
-		}
-		if hello2.Hello.ResumeId != hello.Hello.ResumeId {
-			t.Errorf("Expected resume id %s, got %+v", hello.Hello.ResumeId, hello2.Hello)
-		}
+	require.NoError(client2.SendHelloResume(hello.Hello.ResumeId))
+	if hello2, err := client2.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(testDefaultUserId, hello2.Hello.UserId, "%+v", hello2.Hello)
+		assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+		assert.Equal(hello.Hello.ResumeId, hello2.Hello.ResumeId, "%+v", hello2.Hello)
 	}
 
-	room, err := client2.RunUntilMessage(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := checkUnexpectedClose(err); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkMessageType(room, "room"); err != nil {
-		t.Fatal(err)
-	}
-	if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client2.RunUntilMessage(ctx)
+	require.NoError(err)
+	require.NoError(checkUnexpectedClose(err))
+	require.NoError(checkMessageType(roomMsg, "room"))
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client2.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client2.RunUntilJoined(ctx, hello.Hello))
 
 	// Leave room.
-	if room, err := client2.JoinRoom(ctx, ""); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != "" {
-		t.Fatalf("Expected empty room, got %s", room.Room.RoomId)
-	}
+	roomMsg, err = client2.JoinRoom(ctx, "")
+	require.NoError(err)
+	require.Equal("", roomMsg.Room.RoomId)
 }
 
 func TestGetRealUserIP(t *testing.T) {
@@ -3986,56 +3182,43 @@ func TestGetRealUserIP(t *testing.T) {
 
 	for _, tc := range testcases {
 		trustedProxies, err := ParseAllowedIps(tc.trusted)
-		if err != nil {
-			t.Errorf("invalid trusted proxies in %+v: %s", tc, err)
+		if !assert.NoError(t, err, "invalid trusted proxies in %+v", tc) {
 			continue
 		}
 		request := &http.Request{
 			RemoteAddr: tc.addr,
 			Header:     tc.headers,
 		}
-		if ip := GetRealUserIP(request, trustedProxies); ip != tc.expected {
-			t.Errorf("Expected %s for %+v but got %s", tc.expected, tc, ip)
-		}
+		assert.Equal(t, tc.expected, GetRealUserIP(request, trustedProxies), "failed for %+v", tc)
 	}
 }
 
 func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if hello1.Hello.SessionId == hello2.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	}
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 	client2.Close()
-	if err := client2.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client2.WaitForClientRemoved(ctx))
 
 	recipient2 := MessageClientMessageRecipient{
 		Type:      "session",
@@ -4045,9 +3228,7 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	// The two chat messages should get combined into one when receiving pending messages.
 	chat_refresh := "{\"type\":\"chat\",\"chat\":{\"refresh\":true}}"
 	var data1 map[string]interface{}
-	if err := json.Unmarshal([]byte(chat_refresh), &data1); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(json.Unmarshal([]byte(chat_refresh), &data1))
 	client1.SendMessage(recipient2, data1) // nolint
 	client1.SendMessage(recipient2, data1) // nolint
 
@@ -4056,91 +3237,64 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 
 	client2 = NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHelloResume(hello2.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
-	hello3, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello3.Hello.UserId != testDefaultUserId+"2" {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"2", hello3.Hello)
-		}
-		if hello3.Hello.SessionId != hello2.Hello.SessionId {
-			t.Errorf("Expected session id %s, got %+v", hello2.Hello.SessionId, hello3.Hello)
-		}
-		if hello3.Hello.ResumeId != hello2.Hello.ResumeId {
-			t.Errorf("Expected resume id %s, got %+v", hello2.Hello.ResumeId, hello3.Hello)
-		}
+	require.NoError(client2.SendHelloResume(hello2.Hello.ResumeId))
+	if hello3, err := client2.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(testDefaultUserId+"2", hello3.Hello.UserId, "%+v", hello3.Hello)
+		assert.Equal(hello2.Hello.SessionId, hello3.Hello.SessionId, "%+v", hello3.Hello)
+		assert.Equal(hello2.Hello.ResumeId, hello3.Hello.ResumeId, "%+v", hello3.Hello)
 	}
 
 	var payload map[string]interface{}
-	if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(payload, data1) {
-		t.Errorf("Expected payload %+v, got %+v", data1, payload)
+	if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data1, payload)
 	}
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 
-	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err != nil {
-		if err != ErrNoMessageReceived {
-			t.Error(err)
-		}
+	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err == nil {
+		assert.Fail("Expected no payload, got %+v", payload)
 	} else {
-		t.Errorf("Expected no payload, got %+v", payload)
+		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
 }
 
 func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if hello1.Hello.SessionId == hello2.Hello.SessionId {
-		t.Fatalf("Expected different session ids, got %s twice", hello1.Hello.SessionId)
-	}
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Give message processing some time.
 	time.Sleep(10 * time.Millisecond)
 
-	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
@@ -4152,18 +3306,12 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 		},
 	}
 	room := hub.getRoom(roomId)
-	if room == nil {
-		t.Fatalf("Could not find room %s", roomId)
-	}
+	require.NotNil(room, "Could not find room %s", roomId)
 	room.PublishUsersInCallChanged(users, users)
-	if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
 
 	client2.Close()
-	if err := client2.WaitForClientRemoved(ctx); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client2.WaitForClientRemoved(ctx))
 
 	room.PublishUsersInCallChanged(users, users)
 
@@ -4177,53 +3325,34 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 
 	chat_refresh := "{\"type\":\"chat\",\"chat\":{\"refresh\":true}}"
 	var data1 map[string]interface{}
-	if err := json.Unmarshal([]byte(chat_refresh), &data1); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(json.Unmarshal([]byte(chat_refresh), &data1))
 	client1.SendMessage(recipient2, data1) // nolint
 
 	client2 = NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
-	if err := client2.SendHelloResume(hello2.Hello.ResumeId); err != nil {
-		t.Fatal(err)
-	}
-	hello3, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if hello3.Hello.UserId != testDefaultUserId+"2" {
-			t.Errorf("Expected \"%s\", got %+v", testDefaultUserId+"2", hello3.Hello)
-		}
-		if hello3.Hello.SessionId != hello2.Hello.SessionId {
-			t.Errorf("Expected session id %s, got %+v", hello2.Hello.SessionId, hello3.Hello)
-		}
-		if hello3.Hello.ResumeId != hello2.Hello.ResumeId {
-			t.Errorf("Expected resume id %s, got %+v", hello2.Hello.ResumeId, hello3.Hello)
-		}
+	require.NoError(client2.SendHelloResume(hello2.Hello.ResumeId))
+	if hello3, err := client2.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(testDefaultUserId+"2", hello3.Hello.UserId, "%+v", hello3.Hello)
+		assert.Equal(hello2.Hello.SessionId, hello3.Hello.SessionId, "%+v", hello3.Hello)
+		assert.Equal(hello2.Hello.ResumeId, hello3.Hello.ResumeId, "%+v", hello3.Hello)
 	}
 
 	// The participants list update event is triggered again after the session resume.
 	// TODO(jojo): Check contents of message and try with multiple users.
-	if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
 
 	var payload map[string]interface{}
-	if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(payload, data1) {
-		t.Errorf("Expected payload %+v, got %+v", data1, payload)
+	if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data1, payload)
 	}
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 
-	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err != nil {
-		if err != ErrNoMessageReceived {
-			t.Error(err)
-		}
+	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err == nil {
+		assert.Fail("Expected no payload, got %+v", payload)
 	} else {
-		t.Errorf("Expected no payload, got %+v", payload)
+		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
 }
 
@@ -4238,6 +3367,8 @@ func TestClientTakeoverRoomSession(t *testing.T) {
 }
 
 func RunTestClientTakeoverRoomSession(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
 	var hub1 *Hub
 	var hub2 *Hub
 	var server1 *httptest.Server
@@ -4254,52 +3385,38 @@ func RunTestClientTakeoverRoomSession(t *testing.T) {
 	client1 := NewTestClient(t, server1, hub1)
 	defer client1.CloseWithBye()
 
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room-takeover-room-session"
 	roomSessionid := "room-session-id"
-	if room, err := client1.JoinRoomWithRoomSession(ctx, roomId, roomSessionid); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoomWithRoomSession(ctx, roomId, roomSessionid)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	if hubRoom := hub1.getRoom(roomId); hubRoom == nil {
-		t.Fatalf("Room %s does not exist", roomId)
-	}
+	hubRoom := hub1.getRoom(roomId)
+	require.NotNil(hubRoom, "Room %s does not exist", roomId)
 
-	if session1 := hub1.GetSessionByPublicId(hello1.Hello.SessionId); session1 == nil {
-		t.Fatalf("There should be a session %s", hello1.Hello.SessionId)
-	}
+	session1 := hub1.GetSessionByPublicId(hello1.Hello.SessionId)
+	require.NotNil(session1, "There should be a session %s", hello1.Hello.SessionId)
 
 	client3 := NewTestClient(t, server2, hub2)
 	defer client3.CloseWithBye()
 
-	if err := client3.SendHello(testDefaultUserId + "3"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client3.SendHello(testDefaultUserId + "3"))
 
 	hello3, err := client3.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if room, err := client3.JoinRoomWithRoomSession(ctx, roomId, roomSessionid+"other"); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err = client3.JoinRoomWithRoomSession(ctx, roomId, roomSessionid+"other")
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Wait until both users have joined.
 	WaitForUsersJoined(ctx, t, client1, hello1, client3, hello3)
@@ -4307,85 +3424,67 @@ func RunTestClientTakeoverRoomSession(t *testing.T) {
 	client2 := NewTestClient(t, server2, hub2)
 	defer client2.CloseWithBye()
 
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if room, err := client2.JoinRoomWithRoomSession(ctx, roomId, roomSessionid); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err = client2.JoinRoomWithRoomSession(ctx, roomId, roomSessionid)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// The first client got disconnected with a reason in a "Bye" message.
-	msg, err := client1.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	} else {
-		if msg.Type != "bye" || msg.Bye == nil {
-			t.Errorf("Expected bye message, got %+v", msg)
-		} else if msg.Bye.Reason != "room_session_reconnected" {
-			t.Errorf("Expected reason \"room_session_reconnected\", got %+v", msg.Bye.Reason)
+	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("bye", msg.Type, "%+v", msg)
+		if assert.NotNil(msg.Bye, "%+v", msg) {
+			assert.Equal("room_session_reconnected", msg.Bye.Reason, "%+v", msg)
 		}
 	}
 
 	if msg, err := client1.RunUntilMessage(ctx); err == nil {
-		t.Errorf("Expected error but received %+v", msg)
+		assert.Fail("Expected error but received %+v", msg)
 	} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-		t.Errorf("Expected close error but received %+v", err)
+		assert.Fail("Expected close error but received %+v", err)
 	}
 
 	// The first session has been closed
-	if session1 := hub1.GetSessionByPublicId(hello1.Hello.SessionId); session1 != nil {
-		t.Errorf("The session %s should have been removed", hello1.Hello.SessionId)
-	}
+	session1 = hub1.GetSessionByPublicId(hello1.Hello.SessionId)
+	assert.Nil(session1, "The session %s should have been removed", hello1.Hello.SessionId)
 
 	// The new client will receive "joined" events for the existing client3 and
 	// himself.
-	if err := client2.RunUntilJoined(ctx, hello3.Hello, hello2.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client2.RunUntilJoined(ctx, hello3.Hello, hello2.Hello))
 
 	// No message about the closing is sent to the new connection.
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel2()
 
-	if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-		t.Error(err)
-	} else if message != nil {
-		t.Errorf("Expected no message, got %+v", message)
+	if message, err := client2.RunUntilMessage(ctx2); err == nil {
+		assert.Fail("Expected no message, got %+v", message)
+	} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+		assert.NoError(err)
 	}
 
 	// The permanently connected client will receive a "left" event from the
 	// overridden session and a "joined" for the new session. In that order as
 	// both were on the same server.
-	if err := client3.RunUntilLeft(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
-	if err := client3.RunUntilJoined(ctx, hello2.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client3.RunUntilLeft(ctx, hello1.Hello))
+	assert.NoError(client3.RunUntilJoined(ctx, hello2.Hello))
 }
 
 func TestClientSendOfferPermissions(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	mcu, err := NewTestMCU()
-	if err != nil {
-		t.Fatal(err)
-	} else if err := mcu.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
@@ -4393,54 +3492,38 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
 
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
 
-	if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Give message processing some time.
 	time.Sleep(10 * time.Millisecond)
 
-	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
-	if session1 == nil {
-		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
-	}
+	require.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
 	session2 := hub.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
-	if session2 == nil {
-		t.Fatalf("Session %s does not exist", hello2.Hello.SessionId)
-	}
+	require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
 
 	// Client 1 is the moderator
 	session1.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_PUBLISH_SCREEN})
@@ -4448,26 +3531,20 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	session2.SetPermissions([]Permission{})
 
 	// Client 2 may not send an offer (he doesn't have the necessary permissions).
-	if err := client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, MessageClientMessageData{
 		Type:     "sendoffer",
 		Sid:      "12345",
 		RoomType: "screen",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if msg, err := client2.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageError(msg, "not_allowed"); err != nil {
-			t.Fatal(err)
-		}
-	}
+	msg, err := client2.RunUntilMessage(ctx)
+	require.NoError(err)
+	require.NoError(checkMessageError(msg, "not_allowed"))
 
-	if err := client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, MessageClientMessageData{
@@ -4477,56 +3554,47 @@ func TestClientSendOfferPermissions(t *testing.T) {
 		Payload: map[string]interface{}{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
 
 	// Client 1 may send an offer.
-	if err := client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
 	}, MessageClientMessageData{
 		Type:     "sendoffer",
 		Sid:      "54321",
 		RoomType: "screen",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
 	// The sender won't get a reply...
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel2()
 
-	if message, err := client1.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-		t.Error(err)
-	} else if message != nil {
-		t.Errorf("Expected no message, got %+v", message)
+	if message, err := client1.RunUntilMessage(ctx2); err == nil {
+		assert.Fail("Expected no message, got %+v", message)
+	} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+		assert.NoError(err)
 	}
 
 	// ...but the other peer will get an offer.
-	if err := client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
 }
 
 func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	mcu, err := NewTestMCU()
-	if err != nil {
-		t.Fatal(err)
-	} else if err := mcu.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
@@ -4534,37 +3602,27 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
 
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
-	if session1 == nil {
-		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
-	}
+	require.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
 
 	// Client is allowed to send audio only.
 	session1.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_AUDIO})
 
 	// Client may not send an offer with audio and video.
-	if err := client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, MessageClientMessageData{
@@ -4574,20 +3632,14 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 		Payload: map[string]interface{}{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if msg, err := client1.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageError(msg, "not_allowed"); err != nil {
-			t.Fatal(err)
-		}
-	}
+	msg, err := client1.RunUntilMessage(ctx)
+	require.NoError(err)
+	require.NoError(checkMessageError(msg, "not_allowed"))
 
 	// Client may send an offer (audio only).
-	if err := client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, MessageClientMessageData{
@@ -4597,29 +3649,24 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 		Payload: map[string]interface{}{
 			"sdp": MockSdpOfferAudioOnly,
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioOnly); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioOnly))
 }
 
 func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	mcu, err := NewTestMCU()
-	if err != nil {
-		t.Fatal(err)
-	} else if err := mcu.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
@@ -4627,36 +3674,26 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
 
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
-	if session1 == nil {
-		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
-	}
+	require.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
 
 	// Client is allowed to send audio and video.
 	session1.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO})
 
-	if err := client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, MessageClientMessageData{
@@ -4666,13 +3703,9 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 		Payload: map[string]interface{}{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
 
 	// Client is no longer allowed to send video, this will stop the publisher.
 	msg := &BackendServerRoomRequest{
@@ -4694,34 +3727,25 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if res.StatusCode != 200 {
-		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
-	}
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
 	ctx2, cancel2 := context.WithTimeout(ctx, time.Second)
 	defer cancel2()
 
 	pubs := mcu.GetPublishers()
-	if len(pubs) != 1 {
-		t.Fatalf("expected one publisher, got %+v", pubs)
-	}
+	require.Len(pubs, 1)
 
 loop:
 	for {
 		if err := ctx2.Err(); err != nil {
-			t.Errorf("publisher was not closed: %s", err)
+			assert.NoError(err, "publisher was not closed")
+			break
 		}
 
 		for _, pub := range pubs {
@@ -4738,17 +3762,16 @@ loop:
 func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	mcu, err := NewTestMCU()
-	if err != nil {
-		t.Fatal(err)
-	} else if err := mcu.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
@@ -4756,37 +3779,27 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
 
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
-	if session1 == nil {
-		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
-	}
+	require.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
 
 	// Client is allowed to send audio and video.
 	session1.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_MEDIA})
 
 	// Client may send an offer (audio and video).
-	if err := client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, MessageClientMessageData{
@@ -4796,13 +3809,9 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 		Payload: map[string]interface{}{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
 
 	// Client is no longer allowed to send video, this will stop the publisher.
 	msg := &BackendServerRoomRequest{
@@ -4824,42 +3833,31 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if res.StatusCode != 200 {
-		t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
-	}
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
 	ctx2, cancel2 := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel2()
 
 	pubs := mcu.GetPublishers()
-	if len(pubs) != 1 {
-		t.Fatalf("expected one publisher, got %+v", pubs)
-	}
+	require.Len(pubs, 1)
 
 loop:
 	for {
 		if err := ctx2.Err(); err != nil {
 			if err != context.DeadlineExceeded {
-				t.Errorf("error while waiting for publisher: %s", err)
+				assert.Fail("error while waiting for publisher")
 			}
 			break
 		}
 
 		for _, pub := range pubs {
-			if pub.isClosed() {
-				t.Errorf("publisher was closed")
+			if !assert.False(pub.isClosed(), "publisher was closed") {
 				break loop
 			}
 		}
@@ -4874,6 +3872,8 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -4891,11 +3891,8 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			defer cancel()
 
 			mcu, err := NewTestMCU()
-			if err != nil {
-				t.Fatal(err)
-			} else if err := mcu.Start(ctx); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
+			require.NoError(mcu.Start(ctx))
 			defer mcu.Stop()
 
 			hub1.SetMcu(mcu)
@@ -4904,41 +3901,29 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
 
-			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId + "1"))
 
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
 
-			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			// Join room by id.
 			roomId := "test-room"
-			if room, err := client1.JoinRoomWithRoomSession(ctx, roomId, "roomsession1"); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err := client1.JoinRoomWithRoomSession(ctx, roomId, "roomsession1")
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// We will receive a "joined" event.
-			if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
-			if err := client1.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
 			}, MessageClientMessageData{
@@ -4948,67 +3933,45 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 				Payload: map[string]interface{}{
 					"sdp": MockSdpOfferAudioAndVideo,
 				},
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 
-			if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
 
 			// Client 2 may not request an offer (he is not in the room yet).
-			if err := client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
 			}, MessageClientMessageData{
 				Type:     "requestoffer",
 				Sid:      "12345",
 				RoomType: "screen",
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
-				t.Fatal(err)
-			} else {
-				if err := checkMessageError(msg, "not_allowed"); err != nil {
-					t.Fatal(err)
-				}
-			}
+			msg, err := client2.RunUntilMessage(ctx)
+			require.NoError(err)
+			require.NoError(checkMessageError(msg, "not_allowed"))
 
-			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err = client2.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// We will receive a "joined" event.
-			if err := client1.RunUntilJoined(ctx, hello2.Hello); err != nil {
-				t.Error(err)
-			}
-			if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-				t.Error(err)
-			}
+			require.NoError(client1.RunUntilJoined(ctx, hello2.Hello))
+			require.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 
 			// Client 2 may not request an offer (he is not in the call yet).
-			if err := client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
 			}, MessageClientMessageData{
 				Type:     "requestoffer",
 				Sid:      "12345",
 				RoomType: "screen",
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
-				t.Fatal(err)
-			} else {
-				if err := checkMessageError(msg, "not_allowed"); err != nil {
-					t.Fatal(err)
-				}
-			}
+			msg, err = client2.RunUntilMessage(ctx)
+			require.NoError(err)
+			require.NoError(checkMessageError(msg, "not_allowed"))
 
 			// Simulate request from the backend that somebody joined the call.
 			users1 := []map[string]interface{}{
@@ -5018,36 +3981,24 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 				},
 			}
 			room2 := hub2.getRoom(roomId)
-			if room2 == nil {
-				t.Fatalf("Could not find room %s", roomId)
-			}
+			require.NotNil(room2, "Could not find room %s", roomId)
 			room2.PublishUsersInCallChanged(users1, users1)
-			if err := checkReceiveClientEvent(ctx, client1, "update", nil); err != nil {
-				t.Error(err)
-			}
-			if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(checkReceiveClientEvent(ctx, client1, "update", nil))
+			assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
 
 			// Client 2 may not request an offer (recipient is not in the call yet).
-			if err := client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
 			}, MessageClientMessageData{
 				Type:     "requestoffer",
 				Sid:      "12345",
 				RoomType: "screen",
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
-				t.Fatal(err)
-			} else {
-				if err := checkMessageError(msg, "not_allowed"); err != nil {
-					t.Fatal(err)
-				}
-			}
+			msg, err = client2.RunUntilMessage(ctx)
+			require.NoError(err)
+			require.NoError(checkMessageError(msg, "not_allowed"))
 
 			// Simulate request from the backend that somebody joined the call.
 			users2 := []map[string]interface{}{
@@ -5057,34 +4008,24 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 				},
 			}
 			room1 := hub1.getRoom(roomId)
-			if room1 == nil {
-				t.Fatalf("Could not find room %s", roomId)
-			}
+			require.NotNil(room1, "Could not find room %s", roomId)
 			room1.PublishUsersInCallChanged(users2, users2)
-			if err := checkReceiveClientEvent(ctx, client1, "update", nil); err != nil {
-				t.Error(err)
-			}
-			if err := checkReceiveClientEvent(ctx, client2, "update", nil); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(checkReceiveClientEvent(ctx, client1, "update", nil))
+			assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
 
 			// Client 2 may request an offer now (both are in the same room and call).
-			if err := client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
 			}, MessageClientMessageData{
 				Type:     "requestoffer",
 				Sid:      "12345",
 				RoomType: "screen",
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 
-			if err := client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
 
-			if err := client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
 			}, MessageClientMessageData{
@@ -5094,18 +4035,16 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 				Payload: map[string]interface{}{
 					"sdp": MockSdpAnswerAudioAndVideo,
 				},
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 
 			// The sender won't get a reply...
 			ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel2()
 
-			if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-				t.Error(err)
-			} else if message != nil {
-				t.Errorf("Expected no message, got %+v", message)
+			if message, err := client2.RunUntilMessage(ctx2); err == nil {
+				assert.Fail("Expected no message, got %+v", message)
+			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				assert.NoError(err)
 			}
 		})
 	}
@@ -5114,6 +4053,8 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	// Clients can't send messages to sessions connected from other backends.
 	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
@@ -5126,13 +4067,9 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	if err := client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1))
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
@@ -5140,13 +4077,9 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	if err := client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2))
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	recipient1 := MessageClientMessageRecipient{
 		Type:      "session",
@@ -5165,28 +4098,26 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	var payload string
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
-	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err != nil {
-		if err != ErrNoMessageReceived {
-			t.Error(err)
-		}
+	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err == nil {
+		assert.Fail("Expected no payload, got %+v", payload)
 	} else {
-		t.Errorf("Expected no payload, got %+v", payload)
+		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
 
 	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel3()
-	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err != nil {
-		if err != ErrNoMessageReceived {
-			t.Error(err)
-		}
+	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err == nil {
+		assert.Fail("Expected no payload, got %+v", payload)
 	} else {
-		t.Errorf("Expected no payload, got %+v", payload)
+		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
 }
 
 func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -5198,13 +4129,9 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	if err := client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1))
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	client2 := NewTestClient(t, server, hub)
 	defer client2.CloseWithBye()
@@ -5212,40 +4139,24 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	if err := client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2))
 	hello2, err := client2.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
-	msg1, err := client1.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	}
-	if err := client1.checkMessageJoined(msg1, hello1.Hello); err != nil {
-		t.Error(err)
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	if msg1, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(client1.checkMessageJoined(msg1, hello1.Hello))
 	}
 
-	if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
-	msg2, err := client2.RunUntilMessage(ctx)
-	if err != nil {
-		t.Error(err)
-	}
-	if err := client2.checkMessageJoined(msg2, hello2.Hello); err != nil {
-		t.Error(err)
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	if msg2, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(client2.checkMessageJoined(msg2, hello2.Hello))
 	}
 
 	hub.ru.RLock()
@@ -5256,12 +4167,10 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	}
 	hub.ru.RUnlock()
 
-	if len(rooms) != 2 {
-		t.Errorf("Expected 2 rooms, got %+v", rooms)
-	}
-
-	if rooms[0].IsEqual(rooms[1]) {
-		t.Errorf("Rooms should be different: %+v", rooms)
+	if assert.Len(rooms, 2) {
+		if rooms[0].IsEqual(rooms[1]) {
+			assert.Fail("Rooms should be different: %+v", rooms)
+		}
 	}
 
 	recipient := MessageClientMessageRecipient{
@@ -5276,22 +4185,18 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	var payload string
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
-	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err != nil {
-		if err != ErrNoMessageReceived {
-			t.Error(err)
-		}
+	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err == nil {
+		assert.Fail("Expected no payload, got %+v", payload)
 	} else {
-		t.Errorf("Expected no payload, got %+v", payload)
+		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
 
 	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel3()
-	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err != nil {
-		if err != ErrNoMessageReceived {
-			t.Error(err)
-		}
+	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err == nil {
+		assert.Fail("Expected no payload, got %+v", payload)
 	} else {
-		t.Errorf("Expected no payload, got %+v", payload)
+		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
 }
 
@@ -5300,6 +4205,8 @@ func TestClientSendOffer(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -5317,11 +4224,8 @@ func TestClientSendOffer(t *testing.T) {
 			defer cancel()
 
 			mcu, err := NewTestMCU()
-			if err != nil {
-				t.Fatal(err)
-			} else if err := mcu.Start(ctx); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
+			require.NoError(mcu.Start(ctx))
 			defer mcu.Stop()
 
 			hub1.SetMcu(mcu)
@@ -5330,47 +4234,35 @@ func TestClientSendOffer(t *testing.T) {
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
 
-			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId + "1"))
 
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
 
-			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			// Join room by id.
 			roomId := "test-room"
-			if room, err := client1.JoinRoomWithRoomSession(ctx, roomId, "roomsession1"); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err := client1.JoinRoomWithRoomSession(ctx, roomId, "roomsession1")
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// Give message processing some time.
 			time.Sleep(10 * time.Millisecond)
 
-			if room, err := client2.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err = client2.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
-			if err := client1.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
 			}, MessageClientMessageData{
@@ -5380,38 +4272,30 @@ func TestClientSendOffer(t *testing.T) {
 				Payload: map[string]interface{}{
 					"sdp": MockSdpOfferAudioAndVideo,
 				},
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 
-			if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
 
-			if err := client1.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello2.Hello.SessionId,
 			}, MessageClientMessageData{
 				Type:     "sendoffer",
 				RoomType: "video",
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 
 			// The sender won't get a reply...
 			ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
 			defer cancel2()
 
-			if message, err := client1.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-				t.Error(err)
-			} else if message != nil {
-				t.Errorf("Expected no message, got %+v", message)
+			if message, err := client1.RunUntilMessage(ctx2); err == nil {
+				assert.Fail("Expected no message, got %+v", message)
+			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				assert.NoError(err)
 			}
 
 			// ...but the other peer will get an offer.
-			if err := client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
 		})
 	}
 }
@@ -5419,17 +4303,16 @@ func TestClientSendOffer(t *testing.T) {
 func TestClientUnshareScreen(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	mcu, err := NewTestMCU()
-	if err != nil {
-		t.Fatal(err)
-	} else if err := mcu.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
@@ -5437,33 +4320,23 @@ func TestClientUnshareScreen(t *testing.T) {
 	client1 := NewTestClient(t, server, hub)
 	defer client1.CloseWithBye()
 
-	if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
 
 	hello1, err := client1.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client1.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
-	if session1 == nil {
-		t.Fatalf("Session %s does not exist", hello1.Hello.SessionId)
-	}
+	require.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
 
-	if err := client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, MessageClientMessageData{
@@ -5473,20 +4346,13 @@ func TestClientUnshareScreen(t *testing.T) {
 		Payload: map[string]interface{}{
 			"sdp": MockSdpOfferAudioOnly,
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if err := client1.RunUntilAnswer(ctx, MockSdpAnswerAudioOnly); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioOnly))
 
 	publisher := mcu.GetPublisher(hello1.Hello.SessionId)
-	if publisher == nil {
-		t.Fatalf("No publisher for %s found", hello1.Hello.SessionId)
-	} else if publisher.isClosed() {
-		t.Fatalf("Publisher %s should not be closed", hello1.Hello.SessionId)
-	}
+	require.NotNil(publisher, "No publisher for %s found", hello1.Hello.SessionId)
+	require.False(publisher.isClosed(), "Publisher %s should not be closed", hello1.Hello.SessionId)
 
 	old := cleanupScreenPublisherDelay
 	cleanupScreenPublisherDelay = time.Millisecond
@@ -5494,22 +4360,18 @@ func TestClientUnshareScreen(t *testing.T) {
 		cleanupScreenPublisherDelay = old
 	}()
 
-	if err := client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, MessageClientMessageData{
 		Type:     "unshareScreen",
 		Sid:      "54321",
 		RoomType: "screen",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
 	time.Sleep(10 * time.Millisecond)
 
-	if !publisher.isClosed() {
-		t.Fatalf("Publisher %s should be closed", hello1.Hello.SessionId)
-	}
+	require.True(publisher.isClosed(), "Publisher %s should be closed", hello1.Hello.SessionId)
 }
 
 func TestVirtualClientSessions(t *testing.T) {
@@ -5517,6 +4379,8 @@ func TestVirtualClientSessions(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -5536,89 +4400,58 @@ func TestVirtualClientSessions(t *testing.T) {
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
 
-			if err := client1.SendHello(testDefaultUserId); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId))
 
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			roomId := "test-room"
-			if _, err := client1.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			}
+			_, err = client1.JoinRoom(ctx, roomId)
+			require.NoError(err)
 
-			if err := client1.RunUntilJoined(ctx, hello1.Hello); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
 
-			if err := client2.SendHelloInternal(); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHelloInternal())
 
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			session2 := hub2.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
-			if session2 == nil {
-				t.Fatalf("Session %s does not exist", hello2.Hello.SessionId)
-			}
+			require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
 
-			if _, err := client2.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			}
+			_, err = client2.JoinRoom(ctx, roomId)
+			require.NoError(err)
 
-			if err := client1.RunUntilJoined(ctx, hello2.Hello); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client1.RunUntilJoined(ctx, hello2.Hello))
 
-			if msg, err := client1.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if msg, err := checkMessageParticipantsInCall(msg); err != nil {
-				t.Error(err)
-			} else if len(msg.Users) != 1 {
-				t.Errorf("Expected one user, got %+v", msg)
-			} else if v, ok := msg.Users[0]["internal"].(bool); !ok || !v {
-				t.Errorf("Expected internal flag, got %+v", msg)
-			} else if v, ok := msg.Users[0]["sessionId"].(string); !ok || v != hello2.Hello.SessionId {
-				t.Errorf("Expected session id %s, got %+v", hello2.Hello.SessionId, msg)
-			} else if v, ok := msg.Users[0]["inCall"].(float64); !ok || v != 3 {
-				t.Errorf("Expected inCall flag 3, got %+v", msg)
+			if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+				if msg, err := checkMessageParticipantsInCall(msg); assert.NoError(err) {
+					if assert.Len(msg.Users, 1) {
+						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
+						assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(3, msg.Users[0]["inCall"], "%+v", msg)
+					}
+				}
 			}
 
 			_, unexpected, err := client2.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello)
-			if err != nil {
-				t.Error(err)
-			}
+			assert.NoError(err)
 
 			if len(unexpected) == 0 {
-				if msg, err := client2.RunUntilMessage(ctx); err != nil {
-					t.Error(err)
-				} else {
+				if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
 					unexpected = append(unexpected, msg)
 				}
 			}
 
-			if len(unexpected) != 1 {
-				t.Fatalf("expected one message, got %+v", unexpected)
-			}
-
-			if msg, err := checkMessageParticipantsInCall(unexpected[0]); err != nil {
-				t.Error(err)
-			} else if len(msg.Users) != 1 {
-				t.Errorf("Expected one user, got %+v", msg)
-			} else if v, ok := msg.Users[0]["internal"].(bool); !ok || !v {
-				t.Errorf("Expected internal flag, got %+v", msg)
-			} else if v, ok := msg.Users[0]["sessionId"].(string); !ok || v != hello2.Hello.SessionId {
-				t.Errorf("Expected session id %s, got %+v", hello2.Hello.SessionId, msg)
-			} else if v, ok := msg.Users[0]["inCall"].(float64); !ok || v != FlagInCall|FlagWithAudio {
-				t.Errorf("Expected inCall flag %d, got %+v", FlagInCall|FlagWithAudio, msg)
+			require.Len(unexpected, 1)
+			if msg, err := checkMessageParticipantsInCall(unexpected[0]); assert.NoError(err) {
+				if assert.Len(msg.Users, 1) {
+					assert.Equal(true, msg.Users[0]["internal"])
+					assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"])
+					assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"])
+				}
 			}
 
 			calledCtx, calledCancel := context.WithTimeout(ctx, time.Second)
@@ -5629,30 +4462,23 @@ func TestVirtualClientSessions(t *testing.T) {
 
 			setSessionRequestHandler(t, func(request *BackendClientSessionRequest) {
 				defer calledCancel()
-				if request.Action != "add" {
-					t.Errorf("Expected action add, got %+v", request)
-				} else if request.RoomId != roomId {
-					t.Errorf("Expected room id %s, got %+v", roomId, request)
-				} else if request.SessionId == generatedSessionId {
-					t.Errorf("Expected generated session id %s, got %+v", generatedSessionId, request)
-				} else if request.UserId != virtualUserId {
-					t.Errorf("Expected session id %s, got %+v", virtualUserId, request)
-				}
+				assert.Equal("add", request.Action, "%+v", request)
+				assert.Equal(roomId, request.RoomId, "%+v", request)
+				assert.NotEqual(generatedSessionId, request.SessionId, "%+v", request)
+				assert.Equal(virtualUserId, request.UserId, "%+v", request)
 			})
 
-			if err := client2.SendInternalAddSession(&AddSessionInternalClientMessage{
+			require.NoError(client2.SendInternalAddSession(&AddSessionInternalClientMessage{
 				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
 					SessionId: virtualSessionId,
 					RoomId:    roomId,
 				},
 				UserId: virtualUserId,
 				Flags:  FLAG_MUTED_SPEAKING,
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 			<-calledCtx.Done()
-			if err := calledCtx.Err(); err != nil && !errors.Is(err, context.Canceled) {
-				t.Fatal(err)
+			if err := calledCtx.Err(); err != nil {
+				require.ErrorIs(err, context.Canceled)
 			}
 
 			virtualSessions := session2.GetVirtualSessions()
@@ -5662,131 +4488,92 @@ func TestVirtualClientSessions(t *testing.T) {
 			}
 
 			virtualSession := virtualSessions[0]
-			if msg, err := client1.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if err := client1.checkMessageJoinedSession(msg, virtualSession.PublicId(), virtualUserId); err != nil {
-				t.Error(err)
+			if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+				assert.NoError(client1.checkMessageJoinedSession(msg, virtualSession.PublicId(), virtualUserId))
 			}
 
-			if msg, err := client1.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if msg, err := checkMessageParticipantsInCall(msg); err != nil {
-				t.Error(err)
-			} else if len(msg.Users) != 2 {
-				t.Errorf("Expected two users, got %+v", msg)
-			} else if v, ok := msg.Users[0]["internal"].(bool); !ok || !v {
-				t.Errorf("Expected internal flag, got %+v", msg)
-			} else if v, ok := msg.Users[0]["sessionId"].(string); !ok || v != hello2.Hello.SessionId {
-				t.Errorf("Expected session id %s, got %+v", hello2.Hello.SessionId, msg)
-			} else if v, ok := msg.Users[0]["inCall"].(float64); !ok || v != FlagInCall|FlagWithAudio {
-				t.Errorf("Expected inCall flag %d, got %+v", FlagInCall|FlagWithAudio, msg)
-			} else if v, ok := msg.Users[1]["virtual"].(bool); !ok || !v {
-				t.Errorf("Expected virtual flag, got %+v", msg)
-			} else if v, ok := msg.Users[1]["sessionId"].(string); !ok || v != virtualSession.PublicId() {
-				t.Errorf("Expected session id %s, got %+v", virtualSession.PublicId(), msg)
-			} else if v, ok := msg.Users[1]["inCall"].(float64); !ok || v != FlagInCall|FlagWithPhone {
-				t.Errorf("Expected inCall flag %d, got %+v", FlagInCall|FlagWithPhone, msg)
+			if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+				if msg, err := checkMessageParticipantsInCall(msg); assert.NoError(err) {
+					if assert.Len(msg.Users, 2) {
+						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
+						assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"], "%+v", msg)
+
+						assert.Equal(true, msg.Users[1]["virtual"], "%+v", msg)
+						assert.Equal(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
+						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[1]["inCall"], "%+v", msg)
+					}
+				}
 			}
 
-			if msg, err := client1.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if flags, err := checkMessageParticipantFlags(msg); err != nil {
-				t.Error(err)
-			} else if flags.RoomId != roomId {
-				t.Errorf("Expected room id %s, got %+v", roomId, msg)
-			} else if flags.SessionId != virtualSession.PublicId() {
-				t.Errorf("Expected session id %s, got %+v", virtualSession.PublicId(), msg)
-			} else if flags.Flags != FLAG_MUTED_SPEAKING {
-				t.Errorf("Expected flags %d, got %+v", FLAG_MUTED_SPEAKING, msg)
+			if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+				if flags, err := checkMessageParticipantFlags(msg); assert.NoError(err) {
+					assert.Equal(roomId, flags.RoomId)
+					assert.Equal(virtualSession.PublicId(), flags.SessionId)
+					assert.EqualValues(FLAG_MUTED_SPEAKING, flags.Flags)
+				}
 			}
 
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if err := client2.checkMessageJoinedSession(msg, virtualSession.PublicId(), virtualUserId); err != nil {
-				t.Error(err)
+			if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+				assert.NoError(client2.checkMessageJoinedSession(msg, virtualSession.PublicId(), virtualUserId))
 			}
 
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if msg, err := checkMessageParticipantsInCall(msg); err != nil {
-				t.Error(err)
-			} else if len(msg.Users) != 2 {
-				t.Errorf("Expected two users, got %+v", msg)
-			} else if v, ok := msg.Users[0]["internal"].(bool); !ok || !v {
-				t.Errorf("Expected internal flag, got %+v", msg)
-			} else if v, ok := msg.Users[0]["sessionId"].(string); !ok || v != hello2.Hello.SessionId {
-				t.Errorf("Expected session id %s, got %+v", hello2.Hello.SessionId, msg)
-			} else if v, ok := msg.Users[0]["inCall"].(float64); !ok || v != FlagInCall|FlagWithAudio {
-				t.Errorf("Expected inCall flag %d, got %+v", FlagInCall|FlagWithAudio, msg)
-			} else if v, ok := msg.Users[1]["virtual"].(bool); !ok || !v {
-				t.Errorf("Expected virtual flag, got %+v", msg)
-			} else if v, ok := msg.Users[1]["sessionId"].(string); !ok || v != virtualSession.PublicId() {
-				t.Errorf("Expected session id %s, got %+v", virtualSession.PublicId(), msg)
-			} else if v, ok := msg.Users[1]["inCall"].(float64); !ok || v != FlagInCall|FlagWithPhone {
-				t.Errorf("Expected inCall flag %d, got %+v", FlagInCall|FlagWithPhone, msg)
+			if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+				if msg, err := checkMessageParticipantsInCall(msg); assert.NoError(err) {
+					if assert.Len(msg.Users, 2) {
+						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
+						assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"], "%+v", msg)
+
+						assert.Equal(true, msg.Users[1]["virtual"], "%+v", msg)
+						assert.Equal(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
+						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[1]["inCall"], "%+v", msg)
+					}
+				}
 			}
 
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if flags, err := checkMessageParticipantFlags(msg); err != nil {
-				t.Error(err)
-			} else if flags.RoomId != roomId {
-				t.Errorf("Expected room id %s, got %+v", roomId, msg)
-			} else if flags.SessionId != virtualSession.PublicId() {
-				t.Errorf("Expected session id %s, got %+v", virtualSession.PublicId(), msg)
-			} else if flags.Flags != FLAG_MUTED_SPEAKING {
-				t.Errorf("Expected flags %d, got %+v", FLAG_MUTED_SPEAKING, msg)
+			if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+				if flags, err := checkMessageParticipantFlags(msg); assert.NoError(err) {
+					assert.Equal(roomId, flags.RoomId)
+					assert.Equal(virtualSession.PublicId(), flags.SessionId)
+					assert.EqualValues(FLAG_MUTED_SPEAKING, flags.Flags)
+				}
 			}
 
 			updatedFlags := uint32(0)
-			if err := client2.SendInternalUpdateSession(&UpdateSessionInternalClientMessage{
+			require.NoError(client2.SendInternalUpdateSession(&UpdateSessionInternalClientMessage{
 				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
 					SessionId: virtualSessionId,
 					RoomId:    roomId,
 				},
 
 				Flags: &updatedFlags,
-			}); err != nil {
-				t.Fatal(err)
+			}))
+
+			if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+				if flags, err := checkMessageParticipantFlags(msg); assert.NoError(err) {
+					assert.Equal(roomId, flags.RoomId)
+					assert.Equal(virtualSession.PublicId(), flags.SessionId)
+					assert.EqualValues(0, flags.Flags)
+				}
 			}
 
-			if msg, err := client1.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if flags, err := checkMessageParticipantFlags(msg); err != nil {
-				t.Error(err)
-			} else if flags.RoomId != roomId {
-				t.Errorf("Expected room id %s, got %+v", roomId, msg)
-			} else if flags.SessionId != virtualSession.PublicId() {
-				t.Errorf("Expected session id %s, got %+v", virtualSession.PublicId(), msg)
-			} else if flags.Flags != 0 {
-				t.Errorf("Expected flags %d, got %+v", 0, msg)
-			}
-
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if flags, err := checkMessageParticipantFlags(msg); err != nil {
-				t.Error(err)
-			} else if flags.RoomId != roomId {
-				t.Errorf("Expected room id %s, got %+v", roomId, msg)
-			} else if flags.SessionId != virtualSession.PublicId() {
-				t.Errorf("Expected session id %s, got %+v", virtualSession.PublicId(), msg)
-			} else if flags.Flags != 0 {
-				t.Errorf("Expected flags %d, got %+v", 0, msg)
+			if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+				if flags, err := checkMessageParticipantFlags(msg); assert.NoError(err) {
+					assert.Equal(roomId, flags.RoomId)
+					assert.Equal(virtualSession.PublicId(), flags.SessionId)
+					assert.EqualValues(0, flags.Flags)
+				}
 			}
 
 			calledCtx, calledCancel = context.WithTimeout(ctx, time.Second)
 
 			setSessionRequestHandler(t, func(request *BackendClientSessionRequest) {
 				defer calledCancel()
-				if request.Action != "remove" {
-					t.Errorf("Expected action remove, got %+v", request)
-				} else if request.RoomId != roomId {
-					t.Errorf("Expected room id %s, got %+v", roomId, request)
-				} else if request.SessionId == generatedSessionId {
-					t.Errorf("Expected generated session id %s, got %+v", generatedSessionId, request)
-				} else if request.UserId != virtualUserId {
-					t.Errorf("Expected user id %s, got %+v", virtualUserId, request)
-				}
+				assert.Equal("remove", request.Action, "%+v", request)
+				assert.Equal(roomId, request.RoomId, "%+v", request)
+				assert.NotEqual(generatedSessionId, request.SessionId, "%+v", request)
+				assert.Equal(virtualUserId, request.UserId, "%+v", request)
 			})
 
 			// Messages to virtual sessions are sent to the associated client session.
@@ -5801,52 +4588,39 @@ func TestVirtualClientSessions(t *testing.T) {
 			var payload string
 			var sender *MessageServerMessageSender
 			var recipient *MessageClientMessageRecipient
-			if err := checkReceiveClientMessageWithSenderAndRecipient(ctx, client2, "session", hello1.Hello, &payload, &sender, &recipient); err != nil {
-				t.Error(err)
-			} else if recipient.SessionId != virtualSessionId {
-				t.Errorf("Expected session id %s, got %+v", virtualSessionId, recipient)
-			} else if payload != data {
-				t.Errorf("Expected payload %s, got %s", data, payload)
+			if err := checkReceiveClientMessageWithSenderAndRecipient(ctx, client2, "session", hello1.Hello, &payload, &sender, &recipient); assert.NoError(err) {
+				assert.Equal(virtualSessionId, recipient.SessionId, "%+v", recipient)
+				assert.Equal(data, payload)
 			}
 
 			data = "control-to-virtual"
 			client1.SendControl(virtualRecipient, data) // nolint
 
-			if err := checkReceiveClientControlWithSenderAndRecipient(ctx, client2, "session", hello1.Hello, &payload, &sender, &recipient); err != nil {
-				t.Error(err)
-			} else if recipient.SessionId != virtualSessionId {
-				t.Errorf("Expected session id %s, got %+v", virtualSessionId, recipient)
-			} else if payload != data {
-				t.Errorf("Expected payload %s, got %s", data, payload)
+			if err := checkReceiveClientControlWithSenderAndRecipient(ctx, client2, "session", hello1.Hello, &payload, &sender, &recipient); assert.NoError(err) {
+				assert.Equal(virtualSessionId, recipient.SessionId, "%+v", recipient)
+				assert.Equal(data, payload)
 			}
 
-			if err := client2.SendInternalRemoveSession(&RemoveSessionInternalClientMessage{
+			require.NoError(client2.SendInternalRemoveSession(&RemoveSessionInternalClientMessage{
 				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
 					SessionId: virtualSessionId,
 					RoomId:    roomId,
 				},
 
 				UserId: virtualUserId,
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 			<-calledCtx.Done()
 			if err := calledCtx.Err(); err != nil && !errors.Is(err, context.Canceled) {
-				t.Fatal(err)
+				require.NoError(err)
 			}
 
-			if msg, err := client1.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if err := client1.checkMessageRoomLeaveSession(msg, virtualSession.PublicId()); err != nil {
-				t.Error(err)
+			if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
+				assert.NoError(client1.checkMessageRoomLeaveSession(msg, virtualSession.PublicId()))
 			}
 
-			if msg, err := client2.RunUntilMessage(ctx); err != nil {
-				t.Error(err)
-			} else if err := client2.checkMessageRoomLeaveSession(msg, virtualSession.PublicId()); err != nil {
-				t.Error(err)
+			if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+				assert.NoError(client1.checkMessageRoomLeaveSession(msg, virtualSession.PublicId()))
 			}
-
 		})
 	}
 }
@@ -5856,6 +4630,8 @@ func DoTestSwitchToOne(t *testing.T, details map[string]interface{}) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -5872,63 +4648,45 @@ func DoTestSwitchToOne(t *testing.T, details map[string]interface{}) {
 
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
-			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId + "1"))
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
-			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			roomSessionId1 := "roomsession1"
 			roomId1 := "test-room"
-			if room, err := client1.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId1); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId1 {
-				t.Fatalf("Expected room %s, got %s", roomId1, room.Room.RoomId)
-			}
+			roomMsg, err := client1.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId1)
+			require.NoError(err)
+			require.Equal(roomId1, roomMsg.Room.RoomId)
 
 			roomSessionId2 := "roomsession2"
-			if room, err := client2.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId2); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId1 {
-				t.Fatalf("Expected room %s, got %s", roomId1, room.Room.RoomId)
-			}
+			roomMsg, err = client2.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId2)
+			require.NoError(err)
+			require.Equal(roomId1, roomMsg.Room.RoomId)
 
-			if err := client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-				t.Error(err)
-			}
-			if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
+			assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 
 			roomId2 := "test-room-2"
 			var sessions json.RawMessage
 			if details != nil {
-				if sessions, err = json.Marshal(map[string]interface{}{
+				sessions, err = json.Marshal(map[string]interface{}{
 					roomSessionId1: details,
-				}); err != nil {
-					t.Fatal(err)
-				}
+				})
+				require.NoError(err)
 			} else {
-				if sessions, err = json.Marshal([]string{
+				sessions, err = json.Marshal([]string{
 					roomSessionId1,
-				}); err != nil {
-					t.Fatal(err)
-				}
+				})
+				require.NoError(err)
 			}
 
 			// Notify first client to switch to different room.
@@ -5941,40 +4699,30 @@ func DoTestSwitchToOne(t *testing.T, details map[string]interface{}) {
 			}
 
 			data, err := json.Marshal(msg)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			res, err := performBackendRequest(server2.URL+"/api/v1/room/"+roomId1, data)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			defer res.Body.Close()
 			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				t.Error(err)
-			}
-			if res.StatusCode != 200 {
-				t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
-			}
+			assert.NoError(err)
+			assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
 			var detailsData json.RawMessage
 			if details != nil {
-				if detailsData, err = json.Marshal(details); err != nil {
-					t.Fatal(err)
-				}
+				detailsData, err = json.Marshal(details)
+				require.NoError(err)
 			}
-			if _, err := client1.RunUntilSwitchTo(ctx, roomId2, detailsData); err != nil {
-				t.Error(err)
-			}
+			_, err = client1.RunUntilSwitchTo(ctx, roomId2, detailsData)
+			assert.NoError(err)
 
 			// The other client will not receive a message.
 			ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
 			defer cancel2()
 
-			if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-				t.Error(err)
-			} else if message != nil {
-				t.Errorf("Expected no message, got %+v", message)
+			if message, err := client2.RunUntilMessage(ctx2); err == nil {
+				assert.Fail("Expected no message, got %+v", message)
+			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+				assert.NoError(err)
 			}
 		})
 	}
@@ -5995,6 +4743,8 @@ func DoTestSwitchToMultiple(t *testing.T, details1 map[string]interface{}, detai
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -6011,65 +4761,47 @@ func DoTestSwitchToMultiple(t *testing.T, details1 map[string]interface{}, detai
 
 			client1 := NewTestClient(t, server1, hub1)
 			defer client1.CloseWithBye()
-			if err := client1.SendHello(testDefaultUserId + "1"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client1.SendHello(testDefaultUserId + "1"))
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
-			if err := client2.SendHello(testDefaultUserId + "2"); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client2.SendHello(testDefaultUserId + "2"))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
 			hello1, err := client1.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			hello2, err := client2.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			roomSessionId1 := "roomsession1"
 			roomId1 := "test-room"
-			if room, err := client1.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId1); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId1 {
-				t.Fatalf("Expected room %s, got %s", roomId1, room.Room.RoomId)
-			}
+			roomMsg, err := client1.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId1)
+			require.NoError(err)
+			require.Equal(roomId1, roomMsg.Room.RoomId)
 
 			roomSessionId2 := "roomsession2"
-			if room, err := client2.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId2); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId1 {
-				t.Fatalf("Expected room %s, got %s", roomId1, room.Room.RoomId)
-			}
+			roomMsg, err = client2.JoinRoomWithRoomSession(ctx, roomId1, roomSessionId2)
+			require.NoError(err)
+			require.Equal(roomId1, roomMsg.Room.RoomId)
 
-			if err := client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-				t.Error(err)
-			}
-			if err := client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello); err != nil {
-				t.Error(err)
-			}
+			assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
+			assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 
 			roomId2 := "test-room-2"
 			var sessions json.RawMessage
 			if details1 != nil || details2 != nil {
-				if sessions, err = json.Marshal(map[string]interface{}{
+				sessions, err = json.Marshal(map[string]interface{}{
 					roomSessionId1: details1,
 					roomSessionId2: details2,
-				}); err != nil {
-					t.Fatal(err)
-				}
+				})
+				require.NoError(err)
 			} else {
-				if sessions, err = json.Marshal([]string{
+				sessions, err = json.Marshal([]string{
 					roomSessionId1,
 					roomSessionId2,
-				}); err != nil {
-					t.Fatal(err)
-				}
+				})
+				require.NoError(err)
 			}
 
 			msg := &BackendServerRoomRequest{
@@ -6081,41 +4813,29 @@ func DoTestSwitchToMultiple(t *testing.T, details1 map[string]interface{}, detai
 			}
 
 			data, err := json.Marshal(msg)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			res, err := performBackendRequest(server2.URL+"/api/v1/room/"+roomId1, data)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 			defer res.Body.Close()
 			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				t.Error(err)
-			}
-			if res.StatusCode != 200 {
-				t.Errorf("Expected successful request, got %s: %s", res.Status, string(body))
-			}
+			assert.NoError(err)
+			assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
 			var detailsData1 json.RawMessage
 			if details1 != nil {
-				if detailsData1, err = json.Marshal(details1); err != nil {
-					t.Fatal(err)
-				}
+				detailsData1, err = json.Marshal(details1)
+				require.NoError(err)
 			}
-			if _, err := client1.RunUntilSwitchTo(ctx, roomId2, detailsData1); err != nil {
-				t.Error(err)
-			}
+			_, err = client1.RunUntilSwitchTo(ctx, roomId2, detailsData1)
+			assert.NoError(err)
 
 			var detailsData2 json.RawMessage
 			if details2 != nil {
-				if detailsData2, err = json.Marshal(details2); err != nil {
-					t.Fatal(err)
-				}
+				detailsData2, err = json.Marshal(details2)
+				require.NoError(err)
 			}
-			if _, err := client2.RunUntilSwitchTo(ctx, roomId2, detailsData2); err != nil {
-				t.Error(err)
-			}
+			_, err = client2.RunUntilSwitchTo(ctx, roomId2, detailsData2)
+			assert.NoError(err)
 		})
 	}
 }
@@ -6141,6 +4861,7 @@ func TestSwitchToMultipleMixed(t *testing.T) {
 func TestGeoipOverrides(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	country1 := "DE"
 	country2 := "IT"
 	country3 := "site1"
@@ -6156,66 +4877,43 @@ func TestGeoipOverrides(t *testing.T) {
 		return conf, err
 	})
 
-	if country := hub.OnLookupCountry(&Client{addr: "127.0.0.1"}); country != loopback {
-		t.Errorf("expected country %s, got %s", loopback, country)
-	}
-
-	if country := hub.OnLookupCountry(&Client{addr: "8.8.8.8"}); country != unknownCountry {
-		t.Errorf("expected country %s, got %s", unknownCountry, country)
-	}
-
-	if country := hub.OnLookupCountry(&Client{addr: "10.1.1.2"}); country != country1 {
-		t.Errorf("expected country %s, got %s", country1, country)
-	}
-
-	if country := hub.OnLookupCountry(&Client{addr: "10.2.1.2"}); country != country2 {
-		t.Errorf("expected country %s, got %s", country2, country)
-	}
-
-	if country := hub.OnLookupCountry(&Client{addr: "192.168.10.20"}); country != strings.ToUpper(country3) {
-		t.Errorf("expected country %s, got %s", strings.ToUpper(country3), country)
-	}
+	assert.Equal(loopback, hub.OnLookupCountry(&Client{addr: "127.0.0.1"}))
+	assert.Equal(unknownCountry, hub.OnLookupCountry(&Client{addr: "8.8.8.8"}))
+	assert.Equal(country1, hub.OnLookupCountry(&Client{addr: "10.1.1.2"}))
+	assert.Equal(country2, hub.OnLookupCountry(&Client{addr: "10.2.1.2"}))
+	assert.Equal(strings.ToUpper(country3), hub.OnLookupCountry(&Client{addr: "192.168.10.20"}))
 }
 
 func TestDialoutStatus(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
 	internalClient := NewTestClient(t, server, hub)
 	defer internalClient.CloseWithBye()
-	if err := internalClient.SendHelloInternalWithFeatures([]string{"start-dialout"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(internalClient.SendHelloInternalWithFeatures([]string{"start-dialout"}))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	_, err := internalClient.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	roomId := "12345"
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
-	if _, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	}
+	_, err = client.JoinRoom(ctx, roomId)
+	require.NoError(err)
 
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	callId := "call-123"
 
@@ -6224,19 +4922,18 @@ func TestDialoutStatus(t *testing.T) {
 		defer close(stopped)
 
 		msg, err := client.RunUntilMessage(ctx)
-		if err != nil {
-			t.Error(err)
+		if !assert.NoError(err) {
 			return
 		}
 
-		if msg.Type != "internal" || msg.Internal.Type != "dialout" {
-			t.Errorf("expected internal dialout message, got %+v", msg)
+		if !assert.Equal("internal", msg.Type, "%+v", msg) ||
+			!assert.NotNil(msg.Internal, "%+v", msg) ||
+			!assert.Equal("dialout", msg.Internal.Type, "%+v", msg) ||
+			!assert.NotNil(msg.Internal.Dialout, "%+v", msg) {
 			return
 		}
 
-		if msg.Internal.Dialout.RoomId != roomId {
-			t.Errorf("expected room id %s, got %+v", roomId, msg)
-		}
+		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 
 		response := &ClientMessage{
 			Id:   msg.Id,
@@ -6253,9 +4950,7 @@ func TestDialoutStatus(t *testing.T) {
 				},
 			},
 		}
-		if err := client.WriteJSON(response); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(client.WriteJSON(response))
 	}(internalClient)
 
 	defer func() {
@@ -6270,73 +4965,48 @@ func TestDialoutStatus(t *testing.T) {
 	}
 
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("Expected error %d, got %s: %s", http.StatusOK, res.Status, string(body))
-	}
+	assert.NoError(err)
+	require.Equal(http.StatusOK, res.StatusCode, "Expected success, got %s", string(body))
 
 	var response BackendServerRoomResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		t.Fatal(err)
-	}
-
-	if response.Type != "dialout" || response.Dialout == nil {
-		t.Fatalf("expected type dialout, got %s", string(body))
-	}
-	if response.Dialout.Error != nil {
-		t.Fatalf("expected dialout success, got %s", string(body))
-	}
-	if response.Dialout.CallId != callId {
-		t.Errorf("expected call id %s, got %s", callId, string(body))
-	}
-
-	key := "callstatus_" + callId
-	if msg, err := client.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageTransientSet(msg, key, map[string]interface{}{
-			"callid": callId,
-			"status": "accepted",
-		}, nil); err != nil {
-			t.Error(err)
+	if assert.NoError(json.Unmarshal(body, &response)) {
+		assert.Equal("dialout", response.Type)
+		if assert.NotNil(response.Dialout) {
+			assert.Nil(response.Dialout.Error, "expected dialout success, got %s", string(body))
+			assert.Equal(callId, response.Dialout.CallId)
 		}
 	}
 
-	if err := internalClient.SendInternalDialout(&DialoutInternalClientMessage{
+	key := "callstatus_" + callId
+	if msg, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(checkMessageTransientSet(msg, key, map[string]interface{}{
+			"callid": callId,
+			"status": "accepted",
+		}, nil))
+	}
+
+	require.NoError(internalClient.SendInternalDialout(&DialoutInternalClientMessage{
 		RoomId: roomId,
 		Type:   "status",
 		Status: &DialoutStatusInternalClientMessage{
 			CallId: callId,
 			Status: "ringing",
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if msg, err := client.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageTransientSet(msg, key, map[string]interface{}{
+	if msg, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(checkMessageTransientSet(msg, key, map[string]interface{}{
 			"callid": callId,
 			"status": "ringing",
-		},
-			map[string]interface{}{
-				"callid": callId,
-				"status": "accepted",
-			}); err != nil {
-			t.Error(err)
-		}
+		}, map[string]interface{}{
+			"callid": callId,
+			"status": "accepted",
+		}))
 	}
 
 	old := removeCallStatusTTL
@@ -6346,7 +5016,7 @@ func TestDialoutStatus(t *testing.T) {
 	removeCallStatusTTL = 500 * time.Millisecond
 
 	clearedCause := "cleared-call"
-	if err := internalClient.SendInternalDialout(&DialoutInternalClientMessage{
+	require.NoError(internalClient.SendInternalDialout(&DialoutInternalClientMessage{
 		RoomId: roomId,
 		Type:   "status",
 		Status: &DialoutStatusInternalClientMessage{
@@ -6354,39 +5024,28 @@ func TestDialoutStatus(t *testing.T) {
 			Status: "cleared",
 			Cause:  clearedCause,
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if msg, err := client.RunUntilMessage(ctx); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageTransientSet(msg, key, map[string]interface{}{
+	if msg, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.NoError(checkMessageTransientSet(msg, key, map[string]interface{}{
 			"callid": callId,
 			"status": "cleared",
 			"cause":  clearedCause,
-		},
-			map[string]interface{}{
-				"callid": callId,
-				"status": "ringing",
-			}); err != nil {
-			t.Error(err)
-		}
+		}, map[string]interface{}{
+			"callid": callId,
+			"status": "ringing",
+		}))
 	}
 
 	ctx2, cancel := context.WithTimeout(ctx, removeCallStatusTTL*2)
 	defer cancel()
 
-	if msg, err := client.RunUntilMessage(ctx2); err != nil {
-		t.Fatal(err)
-	} else {
-		if err := checkMessageTransientRemove(msg, key, map[string]interface{}{
+	if msg, err := client.RunUntilMessage(ctx2); assert.NoError(err) {
+		assert.NoError(checkMessageTransientRemove(msg, key, map[string]interface{}{
 			"callid": callId,
 			"status": "cleared",
 			"cause":  clearedCause,
-		}); err != nil {
-			t.Error(err)
-		}
+		}))
 	}
 }
 
@@ -6402,6 +5061,8 @@ func TestGracefulShutdownInitial(t *testing.T) {
 func TestGracefulShutdownOnBye(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -6410,18 +5071,15 @@ func TestGracefulShutdownOnBye(t *testing.T) {
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
-	if _, err := client.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	}
+	_, err := client.RunUntilHello(ctx)
+	require.NoError(err)
 
 	hub.ScheduleShutdown()
 	select {
 	case <-hub.ShutdownChannel():
-		t.Error("should not have shutdown")
+		assert.Fail("should not have shutdown")
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -6430,13 +5088,15 @@ func TestGracefulShutdownOnBye(t *testing.T) {
 	select {
 	case <-hub.ShutdownChannel():
 	case <-time.After(100 * time.Millisecond):
-		t.Error("should have shutdown")
+		assert.Fail("should have shutdown")
 	}
 }
 
 func TestGracefulShutdownOnExpiration(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -6445,25 +5105,22 @@ func TestGracefulShutdownOnExpiration(t *testing.T) {
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
-	if _, err := client.RunUntilHello(ctx); err != nil {
-		t.Error(err)
-	}
+	_, err := client.RunUntilHello(ctx)
+	require.NoError(err)
 
 	hub.ScheduleShutdown()
 	select {
 	case <-hub.ShutdownChannel():
-		t.Error("should not have shutdown")
+		assert.Fail("should not have shutdown")
 	case <-time.After(100 * time.Millisecond):
 	}
 
 	client.Close()
 	select {
 	case <-hub.ShutdownChannel():
-		t.Error("should not have shutdown")
+		assert.Fail("should not have shutdown")
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -6472,6 +5129,6 @@ func TestGracefulShutdownOnExpiration(t *testing.T) {
 	select {
 	case <-hub.ShutdownChannel():
 	case <-time.After(100 * time.Millisecond):
-		t.Error("should have shutdown")
+		assert.Fail("should have shutdown")
 	}
 }

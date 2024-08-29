@@ -24,42 +24,36 @@ package signaling
 import (
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBackendChecksum(t *testing.T) {
 	t.Parallel()
+	assert := assert.New(t)
 	rnd := newRandomString(32)
 	body := []byte{1, 2, 3, 4, 5}
 	secret := []byte("shared-secret")
 
 	check1 := CalculateBackendChecksum(rnd, body, secret)
 	check2 := CalculateBackendChecksum(rnd, body, secret)
-	if check1 != check2 {
-		t.Errorf("Expected equal checksums, got %s and %s", check1, check2)
-	}
+	assert.Equal(check1, check2, "Expected equal checksums")
 
-	if !ValidateBackendChecksumValue(check1, rnd, body, secret) {
-		t.Errorf("Checksum %s could not be validated", check1)
-	}
-	if ValidateBackendChecksumValue(check1[1:], rnd, body, secret) {
-		t.Errorf("Checksum %s should not be valid", check1[1:])
-	}
-	if ValidateBackendChecksumValue(check1[:len(check1)-1], rnd, body, secret) {
-		t.Errorf("Checksum %s should not be valid", check1[:len(check1)-1])
-	}
+	assert.True(ValidateBackendChecksumValue(check1, rnd, body, secret), "Checksum should be valid")
+	assert.False(ValidateBackendChecksumValue(check1[1:], rnd, body, secret), "Checksum should not be valid")
+	assert.False(ValidateBackendChecksumValue(check1[:len(check1)-1], rnd, body, secret), "Checksum should not be valid")
 
 	request := &http.Request{
 		Header: make(http.Header),
 	}
 	request.Header.Set("Spreed-Signaling-Random", rnd)
 	request.Header.Set("Spreed-Signaling-Checksum", check1)
-	if !ValidateBackendChecksum(request, body, secret) {
-		t.Errorf("Checksum %s could not be validated from request", check1)
-	}
+	assert.True(ValidateBackendChecksum(request, body, secret), "Checksum could not be validated from request")
 }
 
 func TestValidNumbers(t *testing.T) {
 	t.Parallel()
+	assert := assert.New(t)
 	valid := []string{
 		"+12",
 		"+12345",
@@ -72,13 +66,9 @@ func TestValidNumbers(t *testing.T) {
 		"+123-45",
 	}
 	for _, number := range valid {
-		if !isValidNumber(number) {
-			t.Errorf("number %s should be valid", number)
-		}
+		assert.True(isValidNumber(number), "number %s should be valid", number)
 	}
 	for _, number := range invalid {
-		if isValidNumber(number) {
-			t.Errorf("number %s should not be valid", number)
-		}
+		assert.False(isValidNumber(number), "number %s should not be valid", number)
 	}
 }
