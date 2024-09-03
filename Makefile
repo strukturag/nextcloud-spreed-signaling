@@ -148,7 +148,7 @@ proxy: $(BINDIR)
 clean:
 	rm -f easyjson-bootstrap*.go
 
-distclean: clean
+clean-generated: clean
 	rm -f $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
 
 build: server proxy
