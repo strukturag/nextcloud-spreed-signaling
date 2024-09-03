@@ -24,6 +24,8 @@ package signaling
 import (
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCloserMulti(t *testing.T) {
@@ -39,24 +41,16 @@ func TestCloserMulti(t *testing.T) {
 		}()
 	}
 
-	if closer.IsClosed() {
-		t.Error("should not be closed")
-	}
+	assert.False(t, closer.IsClosed())
 	closer.Close()
-	if !closer.IsClosed() {
-		t.Error("should be closed")
-	}
+	assert.True(t, closer.IsClosed())
 	wg.Wait()
 }
 
 func TestCloserCloseBeforeWait(t *testing.T) {
 	closer := NewCloser()
 	closer.Close()
-	if !closer.IsClosed() {
-		t.Error("should be closed")
-	}
+	assert.True(t, closer.IsClosed())
 	<-closer.C
-	if !closer.IsClosed() {
-		t.Error("should be closed")
-	}
+	assert.True(t, closer.IsClosed())
 }

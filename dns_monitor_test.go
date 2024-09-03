@@ -30,6 +30,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockDnsLookup struct {
@@ -82,20 +85,16 @@ func (m *mockDnsLookup) lookup(host string) ([]net.IP, error) {
 
 func newDnsMonitorForTest(t *testing.T, interval time.Duration) *DnsMonitor {
 	t.Helper()
+	require := require.New(t)
 
 	monitor, err := NewDnsMonitor(interval)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	t.Cleanup(func() {
 		monitor.Stop()
 	})
 
-	if err := monitor.Start(); err != nil {
-		t.Fatal(err)
-	}
-
+	require.NoError(monitor.Start())
 	return monitor
 }
 
@@ -148,20 +147,18 @@ func (r *dnsMonitorReceiver) OnLookup(entry *DnsMonitorEntry, all, add, keep, re
 	expected := r.expected
 	r.expected = nil
 	if expected == expectNone {
-		r.t.Errorf("expected no event, got %v", received)
+		assert.Fail(r.t, "expected no event, got %v", received)
 		return
 	}
 
 	if expected == nil {
 		if r.received != nil && !r.received.Equal(received) {
-			r.t.Errorf("already received %v, got %v", r.received, received)
+			assert.Fail(r.t, "already received %v, got %v", r.received, received)
 		}
 		return
 	}
 
-	if !expected.Equal(received) {
-		r.t.Errorf("expected %v, got %v", expected, received)
-	}
+	assert.True(r.t, expected.Equal(received), "expected %v, got %v", expected, received)
 	r.received = nil
 	r.expected = nil
 }
@@ -178,7 +175,7 @@ func (r *dnsMonitorReceiver) WaitForExpected(ctx context.Context) {
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
-			r.t.Error(ctx.Err())
+			assert.NoError(r.t, ctx.Err())
 			abort = true
 		}
 		r.Lock()
@@ -191,7 +188,7 @@ func (r *dnsMonitorReceiver) Expect(all, add, keep, remove []net.IP) {
 	defer r.Unlock()
 
 	if r.expected != nil && r.expected != expectNone {
-		r.t.Errorf("didn't get previously expected %v", r.expected)
+		assert.Fail(r.t, "didn't get previously expected %v", r.expected)
 	}
 
 	expected := &dnsMonitorReceiverRecord{
@@ -214,7 +211,7 @@ func (r *dnsMonitorReceiver) ExpectNone() {
 	defer r.Unlock()
 
 	if r.expected != nil && r.expected != expectNone {
-		r.t.Errorf("didn't get previously expected %v", r.expected)
+		assert.Fail(r.t, "didn't get previously expected %v", r.expected)
 	}
 
 	r.expected = expectNone
@@ -241,9 +238,7 @@ func TestDnsMonitor(t *testing.T) {
 	rec1.Expect(ips1, ips1, nil, nil)
 
 	entry1, err := monitor.Add("https://foo:12345", rec1.OnLookup)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer monitor.Remove(entry1)
 
 	rec1.WaitForExpected(ctx)
@@ -306,9 +301,7 @@ func TestDnsMonitorIP(t *testing.T) {
 	rec1.Expect(ips, ips, nil, nil)
 
 	entry, err := monitor.Add(ip+":12345", rec1.OnLookup)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer monitor.Remove(entry)
 
 	rec1.WaitForExpected(ctx)
@@ -328,9 +321,7 @@ func TestDnsMonitorNoLookupIfEmpty(t *testing.T) {
 	}
 
 	time.Sleep(10 * interval)
-	if checked.Load() {
-		t.Error("should not have checked hostnames")
-	}
+	assert.False(t, checked.Load(), "should not have checked hostnames")
 }
 
 type deadlockMonitorReceiver struct {
@@ -355,8 +346,7 @@ func newDeadlockMonitorReceiver(t *testing.T, monitor *DnsMonitor) *deadlockMoni
 }
 
 func (r *deadlockMonitorReceiver) OnLookup(entry *DnsMonitorEntry, all []net.IP, add []net.IP, keep []net.IP, remove []net.IP) {
-	if r.closed.Load() {
-		r.t.Error("received lookup after closed")
+	if !assert.False(r.t, r.closed.Load(), "received lookup after closed") {
 		return
 	}
 
@@ -385,8 +375,7 @@ func (r *deadlockMonitorReceiver) Start() {
 	defer r.mu.Unlock()
 
 	entry, err := r.monitor.Add("foo", r.OnLookup)
-	if err != nil {
-		r.t.Errorf("error adding listener: %s", err)
+	if !assert.NoError(r.t, err) {
 		return
 	}
 
@@ -422,7 +411,5 @@ func TestDnsMonitorDeadlock(t *testing.T) {
 	time.Sleep(10 * interval)
 	monitor.mu.Lock()
 	defer monitor.mu.Unlock()
-	if len(monitor.hostnames) > 0 {
-		t.Errorf("should have cleared hostnames, got %+v", monitor.hostnames)
-	}
+	assert.Empty(t, monitor.hostnames)
 }

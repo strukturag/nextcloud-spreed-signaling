@@ -25,6 +25,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -51,7 +53,7 @@ func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
 	url := startLocalNatsServer(t)
 	events, err := NewAsyncEvents(url)
 	if err != nil {
-		t.Fatal(err)
+		require.NoError(t, err)
 	}
 	return events
 }
@@ -59,7 +61,7 @@ func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
 func getLoopbackAsyncEventsForTest(t *testing.T) AsyncEvents {
 	events, err := NewAsyncEvents(NatsLoopbackUrl)
 	if err != nil {
-		t.Fatal(err)
+		require.NoError(t, err)
 	}
 
 	t.Cleanup(func() {

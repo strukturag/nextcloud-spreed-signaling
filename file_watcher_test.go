@@ -23,10 +23,12 @@ package signaling
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -34,38 +36,31 @@ var (
 )
 
 func TestFileWatcher_NotExist(t *testing.T) {
+	assert := assert.New(t)
 	tmpdir := t.TempDir()
-	w, err := NewFileWatcher(path.Join(tmpdir, "test.txt"), func(filename string) {})
-	if err == nil {
-		t.Error("should not be able to watch non-existing files")
-		if err := w.Close(); err != nil {
-			t.Error(err)
+	if w, err := NewFileWatcher(path.Join(tmpdir, "test.txt"), func(filename string) {}); !assert.ErrorIs(err, os.ErrNotExist) {
+		if w != nil {
+			assert.NoError(w.Close())
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		t.Error(err)
 	}
 }
 
 func TestFileWatcher_File(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		require := require.New(t)
+		assert := assert.New(t)
 		tmpdir := t.TempDir()
 		filename := path.Join(tmpdir, "test.txt")
-		if err := os.WriteFile(filename, []byte("Hello world!"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
 
 		modified := make(chan struct{})
 		w, err := NewFileWatcher(filename, func(filename string) {
 			modified <- struct{}{}
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 		defer w.Close()
 
-		if err := os.WriteFile(filename, []byte("Updated"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(os.WriteFile(filename, []byte("Updated"), 0644))
 		<-modified
 
 		ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
@@ -73,13 +68,11 @@ func TestFileWatcher_File(t *testing.T) {
 
 		select {
 		case <-modified:
-			t.Error("should not have received another event")
+			assert.Fail("should not have received another event")
 		case <-ctxTimeout.Done():
 		}
 
-		if err := os.WriteFile(filename, []byte("Updated"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(os.WriteFile(filename, []byte("Updated"), 0644))
 		<-modified
 
 		ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
@@ -87,45 +80,39 @@ func TestFileWatcher_File(t *testing.T) {
 
 		select {
 		case <-modified:
-			t.Error("should not have received another event")
+			assert.Fail("should not have received another event")
 		case <-ctxTimeout.Done():
 		}
 	})
 }
 
 func TestFileWatcher_Rename(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
 	tmpdir := t.TempDir()
 	filename := path.Join(tmpdir, "test.txt")
-	if err := os.WriteFile(filename, []byte("Hello world!"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
 
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(filename, func(filename string) {
 		modified <- struct{}{}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer w.Close()
 
 	filename2 := path.Join(tmpdir, "test.txt.tmp")
-	if err := os.WriteFile(filename2, []byte("Updated"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(filename2, []byte("Updated"), 0644))
 
 	ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
 	defer cancel()
 
 	select {
 	case <-modified:
-		t.Error("should not have received another event")
+		assert.Fail("should not have received another event")
 	case <-ctxTimeout.Done():
 	}
 
-	if err := os.Rename(filename2, filename); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.Rename(filename2, filename))
 	<-modified
 
 	ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
@@ -133,35 +120,29 @@ func TestFileWatcher_Rename(t *testing.T) {
 
 	select {
 	case <-modified:
-		t.Error("should not have received another event")
+		assert.Fail("should not have received another event")
 	case <-ctxTimeout.Done():
 	}
 }
 
 func TestFileWatcher_Symlink(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
 	tmpdir := t.TempDir()
 	sourceFilename := path.Join(tmpdir, "test1.txt")
-	if err := os.WriteFile(sourceFilename, []byte("Hello world!"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(sourceFilename, []byte("Hello world!"), 0644))
 
 	filename := path.Join(tmpdir, "symlink.txt")
-	if err := os.Symlink(sourceFilename, filename); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.Symlink(sourceFilename, filename))
 
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(filename, func(filename string) {
 		modified <- struct{}{}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer w.Close()
 
-	if err := os.WriteFile(sourceFilename, []byte("Updated"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(sourceFilename, []byte("Updated"), 0644))
 	<-modified
 
 	ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
@@ -169,44 +150,34 @@ func TestFileWatcher_Symlink(t *testing.T) {
 
 	select {
 	case <-modified:
-		t.Error("should not have received another event")
+		assert.Fail("should not have received another event")
 	case <-ctxTimeout.Done():
 	}
 }
 
 func TestFileWatcher_ChangeSymlinkTarget(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
 	tmpdir := t.TempDir()
 	sourceFilename1 := path.Join(tmpdir, "test1.txt")
-	if err := os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644))
 
 	sourceFilename2 := path.Join(tmpdir, "test2.txt")
-	if err := os.WriteFile(sourceFilename2, []byte("Updated"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(sourceFilename2, []byte("Updated"), 0644))
 
 	filename := path.Join(tmpdir, "symlink.txt")
-	if err := os.Symlink(sourceFilename1, filename); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.Symlink(sourceFilename1, filename))
 
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(filename, func(filename string) {
 		modified <- struct{}{}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer w.Close()
 
 	// Replace symlink by creating new one and rename it to the original target.
-	if err := os.Symlink(sourceFilename2, filename+".tmp"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(filename+".tmp", filename); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.Symlink(sourceFilename2, filename+".tmp"))
+	require.NoError(os.Rename(filename+".tmp", filename))
 	<-modified
 
 	ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
@@ -214,89 +185,73 @@ func TestFileWatcher_ChangeSymlinkTarget(t *testing.T) {
 
 	select {
 	case <-modified:
-		t.Error("should not have received another event")
+		assert.Fail("should not have received another event")
 	case <-ctxTimeout.Done():
 	}
 }
 
 func TestFileWatcher_OtherSymlink(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
 	tmpdir := t.TempDir()
 	sourceFilename1 := path.Join(tmpdir, "test1.txt")
-	if err := os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644))
 
 	sourceFilename2 := path.Join(tmpdir, "test2.txt")
-	if err := os.WriteFile(sourceFilename2, []byte("Updated"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(sourceFilename2, []byte("Updated"), 0644))
 
 	filename := path.Join(tmpdir, "symlink.txt")
-	if err := os.Symlink(sourceFilename1, filename); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.Symlink(sourceFilename1, filename))
 
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(filename, func(filename string) {
 		modified <- struct{}{}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer w.Close()
 
-	if err := os.Symlink(sourceFilename2, filename+".tmp"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.Symlink(sourceFilename2, filename+".tmp"))
 
 	ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
 	defer cancel()
 
 	select {
 	case <-modified:
-		t.Error("should not have received event for other symlink")
+		assert.Fail("should not have received event for other symlink")
 	case <-ctxTimeout.Done():
 	}
 }
 
 func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
 	tmpdir := t.TempDir()
 	sourceFilename1 := path.Join(tmpdir, "test1.txt")
-	if err := os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644))
 
 	filename := path.Join(tmpdir, "test.txt")
-	if err := os.Symlink(sourceFilename1, filename); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.Symlink(sourceFilename1, filename))
 
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(filename, func(filename string) {
 		modified <- struct{}{}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer w.Close()
 
 	sourceFilename2 := path.Join(tmpdir, "test1.txt.tmp")
-	if err := os.WriteFile(sourceFilename2, []byte("Updated"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.WriteFile(sourceFilename2, []byte("Updated"), 0644))
 
 	ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
 	defer cancel()
 
 	select {
 	case <-modified:
-		t.Error("should not have received another event")
+		assert.Fail("should not have received another event")
 	case <-ctxTimeout.Done():
 	}
 
-	if err := os.Rename(sourceFilename2, sourceFilename1); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(os.Rename(sourceFilename2, sourceFilename1))
 	<-modified
 
 	ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
@@ -304,7 +259,7 @@ func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
 
 	select {
 	case <-modified:
-		t.Error("should not have received another event")
+		assert.Fail("should not have received another event")
 	case <-ctxTimeout.Done():
 	}
 }

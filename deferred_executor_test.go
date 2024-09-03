@@ -24,6 +24,8 @@ package signaling
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDeferredExecutor_MultiClose(t *testing.T) {
@@ -53,9 +55,7 @@ func TestDeferredExecutor_QueueSize(t *testing.T) {
 	b := time.Now()
 	delta := b.Sub(a)
 	// Allow one millisecond less delay to account for time variance on CI runners.
-	if delta+time.Millisecond < delay {
-		t.Errorf("Expected a delay of %s, got %s", delay, delta)
-	}
+	assert.GreaterOrEqual(t, delta+time.Millisecond, delay)
 }
 
 func TestDeferredExecutor_Order(t *testing.T) {
@@ -81,9 +81,7 @@ func TestDeferredExecutor_Order(t *testing.T) {
 	<-done
 
 	for x := 0; x < 10; x++ {
-		if entries[x] != x {
-			t.Errorf("Expected %d at position %d, got %d", x, x, entries[x])
-		}
+		assert.Equal(t, entries[x], x, "Unexpected at position %d", x)
 	}
 }
 
@@ -108,7 +106,7 @@ func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
 	e.Close()
 
 	e.Execute(func() {
-		t.Error("method should not have been called")
+		assert.Fail(t, "method should not have been called")
 	})
 }
 

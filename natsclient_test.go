@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	natsserver "github.com/nats-io/nats-server/v2/test"
 )
@@ -46,9 +48,7 @@ func startLocalNatsServer(t *testing.T) string {
 func CreateLocalNatsClientForTest(t *testing.T) NatsClient {
 	url := startLocalNatsServer(t)
 	result, err := NewNatsClient(url)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		result.Close()
 	})
@@ -56,11 +56,11 @@ func CreateLocalNatsClientForTest(t *testing.T) NatsClient {
 }
 
 func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
+	require := require.New(t)
+	assert := assert.New(t)
 	dest := make(chan *nats.Msg)
 	sub, err := client.Subscribe("foo", dest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	ch := make(chan struct{})
 
 	var received atomic.Int32
@@ -75,9 +75,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 			case <-dest:
 				total := received.Add(1)
 				if total == max {
-					err := sub.Unsubscribe()
-					if err != nil {
-						t.Errorf("Unsubscribe failed with err: %s", err)
+					if err := sub.Unsubscribe(); !assert.NoError(err) {
 						return
 					}
 					close(ch)
@@ -89,18 +87,14 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	}()
 	<-ready
 	for i := int32(0); i < max; i++ {
-		if err := client.Publish("foo", []byte("hello")); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(client.Publish("foo", []byte("hello")))
 
 		// Allow NATS goroutines to process messages.
 		time.Sleep(10 * time.Millisecond)
 	}
 	<-ch
 
-	if r := received.Load(); r != max {
-		t.Fatalf("Received wrong # of messages: %d vs %d", r, max)
-	}
+	require.EqualValues(max, received.Load(), "Received wrong # of messages")
 }
 
 func TestNatsClient_Subscribe(t *testing.T) {
@@ -115,9 +109,7 @@ func TestNatsClient_Subscribe(t *testing.T) {
 func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
 	client.Close()
 
-	if err := client.Publish("foo", "bar"); err != nats.ErrConnectionClosed {
-		t.Errorf("Expected %v, got %v", nats.ErrConnectionClosed, err)
-	}
+	assert.ErrorIs(t, client.Publish("foo", "bar"), nats.ErrConnectionClosed)
 }
 
 func TestNatsClient_PublishAfterClose(t *testing.T) {
@@ -133,9 +125,8 @@ func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
 	client.Close()
 
 	ch := make(chan *nats.Msg)
-	if _, err := client.Subscribe("foo", ch); err != nats.ErrConnectionClosed {
-		t.Errorf("Expected %v, got %v", nats.ErrConnectionClosed, err)
-	}
+	_, err := client.Subscribe("foo", ch)
+	assert.ErrorIs(t, err, nats.ErrConnectionClosed)
 }
 
 func TestNatsClient_SubscribeAfterClose(t *testing.T) {
@@ -148,6 +139,7 @@ func TestNatsClient_SubscribeAfterClose(t *testing.T) {
 }
 
 func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
+	assert := assert.New(t)
 	subjects := []string{
 		"foo bar",
 		"foo.",
@@ -155,9 +147,8 @@ func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
 
 	ch := make(chan *nats.Msg)
 	for _, s := range subjects {
-		if _, err := client.Subscribe(s, ch); err != nats.ErrBadSubject {
-			t.Errorf("Expected %v for subject %s, got %v", nats.ErrBadSubject, s, err)
-		}
+		_, err := client.Subscribe(s, ch)
+		assert.ErrorIs(err, nats.ErrBadSubject, "Expected error for subject %s", s)
 	}
 }
 

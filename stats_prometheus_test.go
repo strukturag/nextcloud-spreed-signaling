@@ -29,6 +29,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
 )
 
 func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64) {
@@ -37,10 +38,11 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 	desc := <-ch
 	v := testutil.ToFloat64(collector)
 	if v != value {
+		assert := assert.New(t)
 		pc := make([]uintptr, 10)
 		n := runtime.Callers(2, pc)
 		if n == 0 {
-			t.Errorf("Expected value %f for %s, got %f", value, desc, v)
+			assert.Fail("Expected value %f for %s, got %f", value, desc, v)
 			return
 		}
 
@@ -57,20 +59,20 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 				break
 			}
 		}
-		t.Errorf("Expected value %f for %s, got %f at\n%s", value, desc, v, stack)
+		assert.Fail("Expected value %f for %s, got %f at\n%s", value, desc, v, stack)
 	}
 }
 
 func collectAndLint(t *testing.T, collectors ...prometheus.Collector) {
+	assert := assert.New(t)
 	for _, collector := range collectors {
 		problems, err := testutil.CollectAndLint(collector)
-		if err != nil {
-			t.Errorf("Error linting %+v: %s", collector, err)
+		if !assert.NoError(err) {
 			continue
 		}
 
 		for _, problem := range problems {
-			t.Errorf("Problem with %s: %s", problem.Metric, problem.Text)
+			assert.Fail("Problem with %s: %s", problem.Metric, problem.Text)
 		}
 	}
 }

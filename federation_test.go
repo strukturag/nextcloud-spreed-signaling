@@ -330,10 +330,10 @@ func Test_Federation(t *testing.T) {
 		ctx2, cancel2 := context.WithTimeout(ctx, 200*time.Millisecond)
 		defer cancel2()
 
-		if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-			t.Error(err)
-		} else {
-			assert.Nil(message)
+		if message, err := client2.RunUntilMessage(ctx2); err == nil {
+			assert.Fail("expected no message, got %+v", message)
+		} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+			assert.NoError(err)
 		}
 	}
 
@@ -345,10 +345,10 @@ func Test_Federation(t *testing.T) {
 		ctx2, cancel2 := context.WithTimeout(ctx, 200*time.Millisecond)
 		defer cancel2()
 
-		if message, err := client2.RunUntilMessage(ctx2); err != nil && err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-			t.Error(err)
-		} else {
-			assert.Nil(message)
+		if message, err := client2.RunUntilMessage(ctx2); err == nil {
+			assert.Fail("expected no message, got %+v", message)
+		} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
+			assert.NoError(err)
 		}
 	}
 

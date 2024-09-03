@@ -38,6 +38,8 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
@@ -57,6 +59,7 @@ func getWebsocketUrl(url string) string {
 }
 
 func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httptest.Server) {
+	require := require.New(t)
 	tempdir := t.TempDir()
 	var proxy *ProxyServer
 	t.Cleanup(func() {
@@ -67,43 +70,32 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httpte
 
 	r := mux.NewRouter()
 	key, err := rsa.GenerateKey(rand.Reader, KeypairSizeForTest)
-	if err != nil {
-		t.Fatalf("could not generate key: %s", err)
-	}
+	require.NoError(err)
 	priv := &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	}
 	privkey, err := os.CreateTemp(tempdir, "privkey*.pem")
-	if err != nil {
-		t.Fatalf("could not create temporary file for private key: %s", err)
-	}
-	if err := pem.Encode(privkey, priv); err != nil {
-		t.Fatalf("could not encode private key: %s", err)
-	}
+	require.NoError(err)
+	require.NoError(pem.Encode(privkey, priv))
+	require.NoError(privkey.Close())
 
 	pubData, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	if err != nil {
-		t.Fatalf("could not marshal public key: %s", err)
-	}
+	require.NoError(err)
 	pub := &pem.Block{
 		Type:  "RSA PUBLIC KEY",
 		Bytes: pubData,
 	}
 	pubkey, err := os.CreateTemp(tempdir, "pubkey*.pem")
-	if err != nil {
-		t.Fatalf("could not create temporary file for public key: %s", err)
-	}
-	if err := pem.Encode(pubkey, pub); err != nil {
-		t.Fatalf("could not encode public key: %s", err)
-	}
+	require.NoError(err)
+	require.NoError(pem.Encode(pubkey, pub))
+	require.NoError(pubkey.Close())
 
 	config := goconf.NewConfigFile()
 	config.AddOption("tokens", TokenIdForTest, pubkey.Name())
 
-	if proxy, err = NewProxyServer(r, "0.0", config); err != nil {
-		t.Fatalf("could not create proxy server: %s", err)
-	}
+	proxy, err = NewProxyServer(r, "0.0", config)
+	require.NoError(err)
 
 	server := httptest.NewServer(r)
 	t.Cleanup(func() {
@@ -125,19 +117,14 @@ func TestTokenValid(t *testing.T) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	tokenString, err := token.SignedString(key)
-	if err != nil {
-		t.Fatalf("could not create token: %s", err)
-	}
+	require.NoError(t, err)
 
 	hello := &signaling.HelloProxyClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := proxy.NewSession(hello)
-	if session != nil {
+	if session, err := proxy.NewSession(hello); assert.NoError(t, err) {
 		defer session.Close()
-	} else if err != nil {
-		t.Error(err)
 	}
 }
 
@@ -153,20 +140,16 @@ func TestTokenNotSigned(t *testing.T) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodNone, claims)
 	tokenString, err := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
-	if err != nil {
-		t.Fatalf("could not create token: %s", err)
-	}
+	require.NoError(t, err)
 
 	hello := &signaling.HelloProxyClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := proxy.NewSession(hello)
-	if session != nil {
-		defer session.Close()
-		t.Errorf("should not have created session")
-	} else if err != TokenAuthFailed {
-		t.Errorf("could have failed with TokenAuthFailed, got %s", err)
+	if session, err := proxy.NewSession(hello); !assert.ErrorIs(t, err, TokenAuthFailed) {
+		if session != nil {
+			defer session.Close()
+		}
 	}
 }
 
@@ -182,20 +165,16 @@ func TestTokenUnknown(t *testing.T) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	tokenString, err := token.SignedString(key)
-	if err != nil {
-		t.Fatalf("could not create token: %s", err)
-	}
+	require.NoError(t, err)
 
 	hello := &signaling.HelloProxyClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := proxy.NewSession(hello)
-	if session != nil {
-		defer session.Close()
-		t.Errorf("should not have created session")
-	} else if err != TokenAuthFailed {
-		t.Errorf("could have failed with TokenAuthFailed, got %s", err)
+	if session, err := proxy.NewSession(hello); !assert.ErrorIs(t, err, TokenAuthFailed) {
+		if session != nil {
+			defer session.Close()
+		}
 	}
 }
 
@@ -211,20 +190,16 @@ func TestTokenInFuture(t *testing.T) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	tokenString, err := token.SignedString(key)
-	if err != nil {
-		t.Fatalf("could not create token: %s", err)
-	}
+	require.NoError(t, err)
 
 	hello := &signaling.HelloProxyClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := proxy.NewSession(hello)
-	if session != nil {
-		defer session.Close()
-		t.Errorf("should not have created session")
-	} else if err != TokenNotValidYet {
-		t.Errorf("could have failed with TokenNotValidYet, got %s", err)
+	if session, err := proxy.NewSession(hello); !assert.ErrorIs(t, err, TokenNotValidYet) {
+		if session != nil {
+			defer session.Close()
+		}
 	}
 }
 
@@ -240,24 +215,21 @@ func TestTokenExpired(t *testing.T) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	tokenString, err := token.SignedString(key)
-	if err != nil {
-		t.Fatalf("could not create token: %s", err)
-	}
+	require.NoError(t, err)
 
 	hello := &signaling.HelloProxyClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	session, err := proxy.NewSession(hello)
-	if session != nil {
-		defer session.Close()
-		t.Errorf("should not have created session")
-	} else if err != TokenExpired {
-		t.Errorf("could have failed with TokenExpired, got %s", err)
+	if session, err := proxy.NewSession(hello); !assert.ErrorIs(t, err, TokenExpired) {
+		if session != nil {
+			defer session.Close()
+		}
 	}
 }
 
 func TestPublicIPs(t *testing.T) {
+	assert := assert.New(t)
 	public := []string{
 		"8.8.8.8",
 		"172.15.1.2",
@@ -275,35 +247,30 @@ func TestPublicIPs(t *testing.T) {
 	}
 	for _, s := range public {
 		ip := net.ParseIP(s)
-		if len(ip) == 0 {
-			t.Errorf("invalid IP: %s", s)
-		} else if !IsPublicIP(ip) {
-			t.Errorf("should be public IP: %s", s)
+		if assert.NotEmpty(ip, "invalid IP: %s", s) {
+			assert.True(IsPublicIP(ip), "should be public IP: %s", s)
 		}
 	}
 
 	for _, s := range private {
 		ip := net.ParseIP(s)
-		if len(ip) == 0 {
-			t.Errorf("invalid IP: %s", s)
-		} else if IsPublicIP(ip) {
-			t.Errorf("should be private IP: %s", s)
+		if assert.NotEmpty(ip, "invalid IP: %s", s) {
+			assert.False(IsPublicIP(ip), "should be private IP: %s", s)
 		}
 	}
 }
 
 func TestWebsocketFeatures(t *testing.T) {
 	signaling.CatchLogForTest(t)
+	assert := assert.New(t)
 	_, _, server := newProxyServerForTest(t)
 
 	conn, response, err := websocket.DefaultDialer.DialContext(context.Background(), getWebsocketUrl(server.URL), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer conn.Close() // nolint
 
 	if server := response.Header.Get("Server"); !strings.HasPrefix(server, "nextcloud-spreed-signaling-proxy/") {
-		t.Errorf("expected valid server header, got \"%s\"", server)
+		assert.Fail("expected valid server header, got \"%s\"", server)
 	}
 	features := response.Header.Get("X-Spreed-Signaling-Features")
 	featuresList := make(map[string]bool)
@@ -311,19 +278,15 @@ func TestWebsocketFeatures(t *testing.T) {
 		f = strings.TrimSpace(f)
 		if f != "" {
 			if _, found := featuresList[f]; found {
-				t.Errorf("duplicate feature id \"%s\" in \"%s\"", f, features)
+				assert.Fail("duplicate feature id \"%s\" in \"%s\"", f, features)
 			}
 			featuresList[f] = true
 		}
 	}
-	if len(featuresList) == 0 {
-		t.Errorf("expected valid features header, got \"%s\"", features)
-	}
+	assert.NotEmpty(featuresList, "expected valid features header, got \"%s\"", features)
 	if _, found := featuresList["remote-streams"]; !found {
-		t.Errorf("expected feature \"remote-streams\", got \"%s\"", features)
+		assert.Fail("expected feature \"remote-streams\", got \"%s\"", features)
 	}
 
-	if err := conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}); err != nil {
-		t.Errorf("could not write close message: %s", err)
-	}
+	assert.NoError(conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}))
 }

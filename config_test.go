@@ -22,10 +22,11 @@
 package signaling
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/dlintw/goconf"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStringOptions(t *testing.T) {
@@ -46,13 +47,8 @@ func TestStringOptions(t *testing.T) {
 	config.AddOption("default", "three", "3")
 
 	options, err := GetStringOptions(config, "foo", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !reflect.DeepEqual(expected, options) {
-		t.Errorf("expected %+v, got %+v", expected, options)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, expected, options)
 }
 
 func TestStringOptionWithEnv(t *testing.T) {
@@ -82,10 +78,8 @@ func TestStringOptionWithEnv(t *testing.T) {
 	}
 	for k, v := range expected {
 		value, err := GetStringOptionWithEnv(config, "test", k)
-		if err != nil {
-			t.Errorf("expected value for %s, got %s", k, err)
-		} else if value != v {
-			t.Errorf("expected value %s for %s, got %s", v, k, value)
+		if assert.NoError(t, err, "expected value for %s", k) {
+			assert.Equal(t, v, value, "unexpected value for %s", k)
 		}
 	}
 

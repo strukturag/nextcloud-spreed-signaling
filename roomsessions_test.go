@@ -24,9 +24,11 @@ package signaling
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/url"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type DummySession struct {
@@ -107,70 +109,53 @@ func checkSession(t *testing.T, sessions RoomSessions, sessionId string, roomSes
 	session := &DummySession{
 		publicId: sessionId,
 	}
-	if err := sessions.SetRoomSession(session, roomSessionId); err != nil {
-		t.Fatalf("Expected no error, got %s", err)
-	}
-	if sid, err := sessions.GetSessionId(roomSessionId); err != nil {
-		t.Errorf("Expected session id %s, got error %s", sessionId, err)
-	} else if sid != sessionId {
-		t.Errorf("Expected session id %s, got %s", sessionId, sid)
+	require.NoError(t, sessions.SetRoomSession(session, roomSessionId))
+	if sid, err := sessions.GetSessionId(roomSessionId); assert.NoError(t, err) {
+		assert.Equal(t, sessionId, sid)
 	}
 	return session
 }
 
 func testRoomSessions(t *testing.T, sessions RoomSessions) {
-	if sid, err := sessions.GetSessionId("unknown"); err != nil && err != ErrNoSuchRoomSession {
-		t.Errorf("Expected error about invalid room session, got %s", err)
-	} else if err == nil {
-		t.Errorf("Expected error about invalid room session, got session id %s", sid)
+	assert := assert.New(t)
+	if sid, err := sessions.GetSessionId("unknown"); err == nil {
+		assert.Fail("Expected error about invalid room session, got session id %s", sid)
+	} else {
+		assert.ErrorIs(err, ErrNoSuchRoomSession)
 	}
 
 	s1 := checkSession(t, sessions, "session1", "room1")
 	s2 := checkSession(t, sessions, "session2", "room2")
 
-	if sid, err := sessions.GetSessionId("room1"); err != nil {
-		t.Errorf("Expected session id %s, got error %s", s1.PublicId(), err)
-	} else if sid != s1.PublicId() {
-		t.Errorf("Expected session id %s, got %s", s1.PublicId(), sid)
+	if sid, err := sessions.GetSessionId("room1"); assert.NoError(err) {
+		assert.Equal(s1.PublicId(), sid)
 	}
 
 	sessions.DeleteRoomSession(s1)
-	if sid, err := sessions.GetSessionId("room1"); err != nil && err != ErrNoSuchRoomSession {
-		t.Errorf("Expected error about invalid room session, got %s", err)
-	} else if err == nil {
-		t.Errorf("Expected error about invalid room session, got session id %s", sid)
+	if sid, err := sessions.GetSessionId("room1"); err == nil {
+		assert.Fail("Expected error about invalid room session, got session id %s", sid)
+	} else {
+		assert.ErrorIs(err, ErrNoSuchRoomSession)
 	}
-	if sid, err := sessions.GetSessionId("room2"); err != nil {
-		t.Errorf("Expected session id %s, got error %s", s2.PublicId(), err)
-	} else if sid != s2.PublicId() {
-		t.Errorf("Expected session id %s, got %s", s2.PublicId(), sid)
+	if sid, err := sessions.GetSessionId("room2"); assert.NoError(err) {
+		assert.Equal(s2.PublicId(), sid)
 	}
 
-	if err := sessions.SetRoomSession(s1, "room-session"); err != nil {
-		t.Error(err)
-	}
-	if err := sessions.SetRoomSession(s2, "room-session"); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(sessions.SetRoomSession(s1, "room-session"))
+	assert.NoError(sessions.SetRoomSession(s2, "room-session"))
 	sessions.DeleteRoomSession(s1)
-	if sid, err := sessions.GetSessionId("room-session"); err != nil {
-		t.Errorf("Expected session id %s, got error %s", s2.PublicId(), err)
-	} else if sid != s2.PublicId() {
-		t.Errorf("Expected session id %s, got %s", s2.PublicId(), sid)
+	if sid, err := sessions.GetSessionId("room-session"); assert.NoError(err) {
+		assert.Equal(s2.PublicId(), sid)
 	}
 
-	if err := sessions.SetRoomSession(s2, "room-session2"); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(sessions.SetRoomSession(s2, "room-session2"))
 	if sid, err := sessions.GetSessionId("room-session"); err == nil {
-		t.Errorf("expected error %s, got sid %s", ErrNoSuchRoomSession, sid)
-	} else if !errors.Is(err, ErrNoSuchRoomSession) {
-		t.Errorf("expected %s, got %s", ErrNoSuchRoomSession, err)
+		assert.Fail("Expected error about invalid room session, got session id %s", sid)
+	} else {
+		assert.ErrorIs(err, ErrNoSuchRoomSession)
 	}
 
-	if sid, err := sessions.GetSessionId("room-session2"); err != nil {
-		t.Errorf("Expected session id %s, got error %s", s2.PublicId(), err)
-	} else if sid != s2.PublicId() {
-		t.Errorf("Expected session id %s, got %s", s2.PublicId(), sid)
+	if sid, err := sessions.GetSessionId("room-session2"); assert.NoError(err) {
+		assert.Equal(s2.PublicId(), sid)
 	}
 }

@@ -25,17 +25,20 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBackoff_Exponential(t *testing.T) {
 	t.Parallel()
-	backoff, err := NewExponentialBackoff(100*time.Millisecond, 500*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert := assert.New(t)
+	minWait := 100 * time.Millisecond
+	backoff, err := NewExponentialBackoff(minWait, 500*time.Millisecond)
+	require.NoError(t, err)
 
 	waitTimes := []time.Duration{
-		100 * time.Millisecond,
+		minWait,
 		200 * time.Millisecond,
 		400 * time.Millisecond,
 		500 * time.Millisecond,
@@ -43,23 +46,17 @@ func TestBackoff_Exponential(t *testing.T) {
 	}
 
 	for _, wait := range waitTimes {
-		if backoff.NextWait() != wait {
-			t.Errorf("Wait time should be %s, got %s", wait, backoff.NextWait())
-		}
+		assert.Equal(wait, backoff.NextWait())
 
 		a := time.Now()
 		backoff.Wait(context.Background())
 		b := time.Now()
-		if b.Sub(a) < wait {
-			t.Errorf("Should have waited %s, got %s", wait, b.Sub(a))
-		}
+		assert.GreaterOrEqual(b.Sub(a), wait)
 	}
 
 	backoff.Reset()
 	a := time.Now()
 	backoff.Wait(context.Background())
 	b := time.Now()
-	if b.Sub(a) < 100*time.Millisecond {
-		t.Errorf("Should have waited %s, got %s", 100*time.Millisecond, b.Sub(a))
-	}
+	assert.GreaterOrEqual(b.Sub(a), minWait)
 }

@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
@@ -43,9 +44,7 @@ func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*embed.Etcd, ProxyConfig)
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "keyprefix", "proxies/")
 	p, err := NewProxyConfigEtcd(cfg, client, proxy)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		p.Stop()
 	})
@@ -55,9 +54,7 @@ func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*embed.Etcd, ProxyConfig)
 func SetEtcdProxy(t *testing.T, etcd *embed.Etcd, path string, proxy *TestProxyInformationEtcd) {
 	t.Helper()
 	data, err := json.Marshal(proxy)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	SetEtcdValue(etcd, path, data)
 }
 
@@ -74,9 +71,7 @@ func TestProxyConfigEtcd(t *testing.T) {
 		Address: "https://foo/",
 	})
 	proxy.Expect("add", "https://foo/")
-	if err := config.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, config.Start())
 	proxy.WaitForEvents(ctx)
 
 	proxy.Expect("add", "https://bar/")

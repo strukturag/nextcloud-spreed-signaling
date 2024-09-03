@@ -30,6 +30,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 var listenSignalOnce sync.Once
@@ -76,7 +78,7 @@ func ensureNoGoroutinesLeak(t *testing.T, f func(t *testing.T)) {
 	if after != before {
 		io.Copy(os.Stderr, &prev) // nolint
 		dumpGoroutines("After:", os.Stderr)
-		t.Fatalf("Number of Go routines has changed from %d to %d", before, after)
+		require.Equal(t, before, after, "Number of Go routines has changed")
 	}
 }
 

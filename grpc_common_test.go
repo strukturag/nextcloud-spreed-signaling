@@ -35,6 +35,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func (c *reloadableCredentials) WaitForCertificateReload(ctx context.Context) error {
@@ -72,9 +74,7 @@ func GenerateSelfSignedCertificateForTesting(t *testing.T, bits int, organizatio
 	}
 
 	data, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	data = pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
@@ -108,23 +108,15 @@ func WritePublicKey(key *rsa.PublicKey, filename string) error {
 
 func replaceFile(t *testing.T, filename string, data []byte, perm fs.FileMode) {
 	t.Helper()
+	require := require.New(t)
 	oldStat, err := os.Stat(filename)
-	if err != nil {
-		t.Fatalf("can't stat old file %s: %s", filename, err)
-		return
-	}
+	require.NoError(err, "can't stat old file %s", filename)
 
 	for {
-		if err := os.WriteFile(filename, data, perm); err != nil {
-			t.Fatalf("can't write file %s: %s", filename, err)
-			return
-		}
+		require.NoError(os.WriteFile(filename, data, perm), "can't write file %s", filename)
 
 		newStat, err := os.Stat(filename)
-		if err != nil {
-			t.Fatalf("can't stat new file %s: %s", filename, err)
-			return
-		}
+		require.NoError(err, "can't stat new file %s", filename)
 
 		// We need different modification times.
 		if !newStat.ModTime().Equal(oldStat.ModTime()) {

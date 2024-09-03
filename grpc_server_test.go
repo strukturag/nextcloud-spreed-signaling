@@ -37,6 +37,8 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -67,23 +69,19 @@ func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (se
 		server, err = NewGrpcServer(config)
 		if isErrorAddressAlreadyInUse(err) {
 			continue
-		} else if err != nil {
-			t.Fatal(err)
 		}
+
+		require.NoError(t, err)
 		break
 	}
 
-	if server == nil {
-		t.Fatal("could not find free port")
-	}
+	require.NotNil(t, server, "could not find free port")
 
 	// Don't match with own server id by default.
 	server.serverId = "dont-match"
 
 	go func() {
-		if err := server.Run(); err != nil {
-			t.Errorf("could not start GRPC server: %s", err)
-		}
+		assert.NoError(t, server.Run(), "could not start GRPC server")
 	}()
 
 	t.Cleanup(func() {
@@ -99,10 +97,10 @@ func NewGrpcServerForTest(t *testing.T) (server *GrpcServer, addr string) {
 
 func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	org1 := "Testing certificate"
 	cert1 := GenerateSelfSignedCertificateForTesting(t, 1024, org1, key)
@@ -124,24 +122,20 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 
 	cp1 := x509.NewCertPool()
 	if !cp1.AppendCertsFromPEM(cert1) {
-		t.Fatalf("could not add certificate")
+		require.Fail("could not add certificate")
 	}
 
 	cfg1 := &tls.Config{
 		RootCAs: cp1,
 	}
 	conn1, err := tls.Dial("tcp", addr, cfg1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer conn1.Close() // nolint
 	state1 := conn1.ConnectionState()
-	if certs := state1.PeerCertificates; len(certs) == 0 {
-		t.Errorf("expected certificates, got %+v", state1)
-	} else if len(certs[0].Subject.Organization) == 0 {
-		t.Errorf("expected organization, got %s", certs[0].Subject)
-	} else if certs[0].Subject.Organization[0] != org1 {
-		t.Errorf("expected organization %s, got %s", org1, certs[0].Subject)
+	if certs := state1.PeerCertificates; assert.NotEmpty(certs) {
+		if assert.NotEmpty(certs[0].Subject.Organization) {
+			assert.Equal(org1, certs[0].Subject.Organization[0])
+		}
 	}
 
 	org2 := "Updated certificate"
@@ -151,43 +145,34 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	if err := server.WaitForCertificateReload(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(server.WaitForCertificateReload(ctx))
 
 	cp2 := x509.NewCertPool()
 	if !cp2.AppendCertsFromPEM(cert2) {
-		t.Fatalf("could not add certificate")
+		require.Fail("could not add certificate")
 	}
 
 	cfg2 := &tls.Config{
 		RootCAs: cp2,
 	}
 	conn2, err := tls.Dial("tcp", addr, cfg2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer conn2.Close() // nolint
 	state2 := conn2.ConnectionState()
-	if certs := state2.PeerCertificates; len(certs) == 0 {
-		t.Errorf("expected certificates, got %+v", state2)
-	} else if len(certs[0].Subject.Organization) == 0 {
-		t.Errorf("expected organization, got %s", certs[0].Subject)
-	} else if certs[0].Subject.Organization[0] != org2 {
-		t.Errorf("expected organization %s, got %s", org2, certs[0].Subject)
+	if certs := state2.PeerCertificates; assert.NotEmpty(certs) {
+		if assert.NotEmpty(certs[0].Subject.Organization) {
+			assert.Equal(org2, certs[0].Subject.Organization[0])
+		}
 	}
 }
 
 func Test_GrpcServer_ReloadCA(t *testing.T) {
 	CatchLogForTest(t)
+	require := require.New(t)
 	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	serverCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Server cert", serverKey)
 	org1 := "Testing client"
@@ -213,65 +198,53 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(serverCert) {
-		t.Fatalf("could not add certificate")
+		require.Fail("could not add certificate")
 	}
 
 	pair1, err := tls.X509KeyPair(clientCert1, pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(clientKey),
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	cfg1 := &tls.Config{
 		RootCAs:      pool,
 		Certificates: []tls.Certificate{pair1},
 	}
 	client1, err := NewGrpcClient(addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg1)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer client1.Close() // nolint
 
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Second)
 	defer cancel1()
 
-	if _, err := client1.GetServerId(ctx1); err != nil {
-		t.Fatal(err)
-	}
+	_, err = client1.GetServerId(ctx1)
+	require.NoError(err)
 
 	org2 := "Updated client"
 	clientCert2 := GenerateSelfSignedCertificateForTesting(t, 1024, org2, clientKey)
 	replaceFile(t, caFile, clientCert2, 0755)
 
-	if err := server.WaitForCertPoolReload(ctx1); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(server.WaitForCertPoolReload(ctx1))
 
 	pair2, err := tls.X509KeyPair(clientCert2, pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(clientKey),
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	cfg2 := &tls.Config{
 		RootCAs:      pool,
 		Certificates: []tls.Certificate{pair2},
 	}
 	client2, err := NewGrpcClient(addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg2)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	defer client2.Close() // nolint
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
 	defer cancel2()
 
 	// This will fail if the CA certificate has not been reloaded by the server.
-	if _, err := client2.GetServerId(ctx2); err != nil {
-		t.Fatal(err)
-	}
+	_, err = client2.GetServerId(ctx2)
+	require.NoError(err)
 }

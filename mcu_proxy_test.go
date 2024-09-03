@@ -41,6 +41,8 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
@@ -105,7 +107,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 			sorted := sortConnectionsForCountry(test[0], country, nil)
 			for idx, conn := range sorted {
 				if test[1][idx] != conn {
-					t.Errorf("Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
+					assert.Fail(t, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
 				}
 			}
 		})
@@ -179,7 +181,7 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 			sorted := sortConnectionsForCountry(test[0], country, continentMap)
 			for idx, conn := range sorted {
 				if test[1][idx] != conn {
-					t.Errorf("Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
+					assert.Fail(t, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
 				}
 			}
 		})
@@ -342,7 +344,7 @@ func (c *testProxyServerClient) handleSendMessageError(fmt string, msg *ProxySer
 	c.t.Helper()
 
 	if !errors.Is(err, websocket.ErrCloseSent) || msg.Type != "event" || msg.Event.Type != "update-load" {
-		c.t.Errorf(fmt, msg, err)
+		assert.Fail(c.t, fmt, msg, err)
 	}
 }
 
@@ -385,6 +387,7 @@ func (c *testProxyServerClient) run() {
 		c.ws = nil
 	}()
 	c.processMessage = c.processHello
+	assert := assert.New(c.t)
 	for {
 		c.mu.Lock()
 		ws := c.ws
@@ -396,36 +399,31 @@ func (c *testProxyServerClient) run() {
 		msgType, reader, err := ws.NextReader()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure) {
-				c.t.Error(err)
+				assert.NoError(err)
 			}
 			return
 		}
 
 		body, err := io.ReadAll(reader)
-		if err != nil {
-			c.t.Error(err)
+		if !assert.NoError(err) {
 			continue
 		}
 
-		if msgType != websocket.TextMessage {
-			c.t.Errorf("unexpected message type %q (%s)", msgType, string(body))
+		if !assert.Equal(websocket.TextMessage, msgType, "unexpected message type for %s", string(body)) {
 			continue
 		}
 
 		var msg ProxyClientMessage
-		if err := json.Unmarshal(body, &msg); err != nil {
-			c.t.Errorf("could not decode message %s: %s", string(body), err)
+		if err := json.Unmarshal(body, &msg); !assert.NoError(err, "could not decode message %s", string(body)) {
 			continue
 		}
 
-		if err := msg.CheckValid(); err != nil {
-			c.t.Errorf("invalid message %s: %s", string(body), err)
+		if err := msg.CheckValid(); !assert.NoError(err, "invalid message %s", string(body)) {
 			continue
 		}
 
 		response, err := c.processMessage(&msg)
-		if err != nil {
-			c.t.Error(err)
+		if !assert.NoError(err) {
 			continue
 		}
 
@@ -605,8 +603,7 @@ func (h *TestProxyServerHandler) removeClient(client *testProxyServerClient) {
 
 func (h *TestProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ws, err := h.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		h.t.Error(err)
+	if !assert.NoError(h.t, err) {
 		return
 	}
 
@@ -658,15 +655,14 @@ type proxyTestOptions struct {
 
 func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuProxy {
 	t.Helper()
+	require := require.New(t)
 	if options.etcd == nil {
 		options.etcd = NewEtcdForTest(t)
 	}
 	grpcClients, dnsMonitor := NewGrpcClientsWithEtcdForTest(t, options.etcd)
 
 	tokenKey, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	dir := t.TempDir()
 	privkeyFile := path.Join(dir, "privkey.pem")
 	pubkeyFile := path.Join(dir, "pubkey.pem")
@@ -696,19 +692,13 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuP
 	etcdConfig.AddOption("etcd", "loglevel", "error")
 
 	etcdClient, err := NewEtcdClient(etcdConfig, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	t.Cleanup(func() {
-		if err := etcdClient.Close(); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(t, etcdClient.Close())
 	})
 
 	mcu, err := NewMcuProxy(cfg, etcdClient, grpcClients, dnsMonitor)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 	t.Cleanup(func() {
 		mcu.Stop()
 	})
@@ -716,20 +706,14 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuP
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	if err := mcu.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(mcu.Start(ctx))
 
 	proxy := mcu.(*mcuProxy)
 
-	if err := proxy.WaitForConnections(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(proxy.WaitForConnections(ctx))
 
 	for len(waitingMap) > 0 {
-		if err := ctx.Err(); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(ctx.Err())
 
 		for u := range waitingMap {
 			proxy.connectionsMu.RLock()
@@ -782,9 +766,7 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 	}
 
 	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
 
@@ -795,9 +777,7 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 		country: "DE",
 	}
 	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
 }
@@ -829,8 +809,7 @@ func Test_ProxyWaitForPublisher(t *testing.T) {
 	go func() {
 		defer close(done)
 		sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
-		if err != nil {
-			t.Error(err)
+		if !assert.NoError(t, err) {
 			return
 		}
 
@@ -841,14 +820,12 @@ func Test_ProxyWaitForPublisher(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	select {
 	case <-done:
 	case <-ctx.Done():
-		t.Error(ctx.Err())
+		assert.NoError(t, ctx.Err())
 	}
 	defer pub.Close(context.Background())
 }
@@ -875,9 +852,7 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 		country: "DE",
 	}
 	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub1Initiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub1.Close(context.Background())
 
@@ -914,15 +889,11 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 		country: "DE",
 	}
 	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub2Initiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub2.Close(context.Background())
 
-	if pub1.(*mcuProxyPublisher).conn.rawUrl == pub2.(*mcuProxyPublisher).conn.rawUrl {
-		t.Errorf("servers should be different, got %s", pub1.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.NotEqual(t, pub1.(*mcuProxyPublisher).conn.rawUrl, pub2.(*mcuProxyPublisher).conn.rawUrl)
 }
 
 func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
@@ -947,9 +918,7 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 		country: "DE",
 	}
 	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub1Initiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub1.Close(context.Background())
 
@@ -989,15 +958,11 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 		country: "DE",
 	}
 	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub2Initiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub2.Close(context.Background())
 
-	if pub1.(*mcuProxyPublisher).conn.rawUrl != pub2.(*mcuProxyPublisher).conn.rawUrl {
-		t.Errorf("servers should be the same, got %s / %s", pub1.(*mcuProxyPublisher).conn.rawUrl, pub2.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.Equal(t, pub1.(*mcuProxyPublisher).conn.rawUrl, pub2.(*mcuProxyPublisher).conn.rawUrl)
 }
 
 func Test_ProxyPublisherLoad(t *testing.T) {
@@ -1022,9 +987,7 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 		country: "DE",
 	}
 	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub1Initiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub1.Close(context.Background())
 
@@ -1041,15 +1004,11 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 		country: "DE",
 	}
 	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub2Initiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub2.Close(context.Background())
 
-	if pub1.(*mcuProxyPublisher).conn.rawUrl == pub2.(*mcuProxyPublisher).conn.rawUrl {
-		t.Errorf("servers should be different, got %s", pub1.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.NotEqual(t, pub1.(*mcuProxyPublisher).conn.rawUrl, pub2.(*mcuProxyPublisher).conn.rawUrl)
 }
 
 func Test_ProxyPublisherCountry(t *testing.T) {
@@ -1074,15 +1033,11 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 		country: "DE",
 	}
 	pubDE, err := mcu.NewPublisher(ctx, pubDEListener, pubDEId, pubDESid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubDEInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pubDE.Close(context.Background())
 
-	if pubDE.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
-		t.Errorf("expected server %s, go %s", serverDE.URL, pubDE.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.Equal(t, serverDE.URL, pubDE.(*mcuProxyPublisher).conn.rawUrl)
 
 	pubUSId := "the-publisher-us"
 	pubUSSid := "1234567890"
@@ -1093,15 +1048,11 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 		country: "US",
 	}
 	pubUS, err := mcu.NewPublisher(ctx, pubUSListener, pubUSId, pubUSSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubUSInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pubUS.Close(context.Background())
 
-	if pubUS.(*mcuProxyPublisher).conn.rawUrl != serverUS.URL {
-		t.Errorf("expected server %s, go %s", serverUS.URL, pubUS.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.Equal(t, serverUS.URL, pubUS.(*mcuProxyPublisher).conn.rawUrl)
 }
 
 func Test_ProxyPublisherContinent(t *testing.T) {
@@ -1126,15 +1077,11 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 		country: "DE",
 	}
 	pubDE, err := mcu.NewPublisher(ctx, pubDEListener, pubDEId, pubDESid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubDEInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pubDE.Close(context.Background())
 
-	if pubDE.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
-		t.Errorf("expected server %s, go %s", serverDE.URL, pubDE.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.Equal(t, serverDE.URL, pubDE.(*mcuProxyPublisher).conn.rawUrl)
 
 	pubFRId := "the-publisher-fr"
 	pubFRSid := "1234567890"
@@ -1145,15 +1092,11 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 		country: "FR",
 	}
 	pubFR, err := mcu.NewPublisher(ctx, pubFRListener, pubFRId, pubFRSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubFRInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pubFR.Close(context.Background())
 
-	if pubFR.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
-		t.Errorf("expected server %s, go %s", serverDE.URL, pubFR.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.Equal(t, serverDE.URL, pubFR.(*mcuProxyPublisher).conn.rawUrl)
 }
 
 func Test_ProxySubscriberCountry(t *testing.T) {
@@ -1178,15 +1121,11 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 		country: "DE",
 	}
 	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
 
-	if pub.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
-		t.Errorf("expected server %s, go %s", serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.Equal(t, serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
 
 	subListener := &MockMcuListener{
 		publicId: "subscriber-public",
@@ -1195,15 +1134,11 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 		country: "US",
 	}
 	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
 
-	if sub.(*mcuProxySubscriber).conn.rawUrl != serverUS.URL {
-		t.Errorf("expected server %s, go %s", serverUS.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
-	}
+	assert.Equal(t, serverUS.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
 }
 
 func Test_ProxySubscriberContinent(t *testing.T) {
@@ -1228,15 +1163,11 @@ func Test_ProxySubscriberContinent(t *testing.T) {
 		country: "DE",
 	}
 	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
 
-	if pub.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
-		t.Errorf("expected server %s, go %s", serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.Equal(t, serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
 
 	subListener := &MockMcuListener{
 		publicId: "subscriber-public",
@@ -1245,15 +1176,11 @@ func Test_ProxySubscriberContinent(t *testing.T) {
 		country: "FR",
 	}
 	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
 
-	if sub.(*mcuProxySubscriber).conn.rawUrl != serverDE.URL {
-		t.Errorf("expected server %s, go %s", serverDE.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
-	}
+	assert.Equal(t, serverDE.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
 }
 
 func Test_ProxySubscriberBandwidth(t *testing.T) {
@@ -1278,15 +1205,11 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 		country: "DE",
 	}
 	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
 
-	if pub.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
-		t.Errorf("expected server %s, go %s", serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.Equal(t, serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
 
 	serverDE.UpdateBandwidth(0, 100)
 
@@ -1315,15 +1238,11 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 		country: "US",
 	}
 	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
 
-	if sub.(*mcuProxySubscriber).conn.rawUrl != serverUS.URL {
-		t.Errorf("expected server %s, go %s", serverUS.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
-	}
+	assert.Equal(t, serverUS.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
 }
 
 func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
@@ -1348,15 +1267,11 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 		country: "DE",
 	}
 	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
 
-	if pub.(*mcuProxyPublisher).conn.rawUrl != serverDE.URL {
-		t.Errorf("expected server %s, go %s", serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
-	}
+	assert.Equal(t, serverDE.URL, pub.(*mcuProxyPublisher).conn.rawUrl)
 
 	serverDE.UpdateBandwidth(0, 100)
 	serverUS.UpdateBandwidth(0, 102)
@@ -1386,15 +1301,11 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 		country: "US",
 	}
 	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
 
-	if sub.(*mcuProxySubscriber).conn.rawUrl != serverDE.URL {
-		t.Errorf("expected server %s, go %s", serverDE.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
-	}
+	assert.Equal(t, serverDE.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
 }
 
 type mockGrpcServerHub struct {
@@ -1490,9 +1401,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	defer hub1.removeSession(session1)
 
 	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
 
@@ -1508,9 +1417,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 		country: "DE",
 	}
 	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
 }
@@ -1580,8 +1487,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	go func() {
 		defer close(done)
 		sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
-		if err != nil {
-			t.Error(err)
+		if !assert.NoError(t, err) {
 			return
 		}
 
@@ -1592,9 +1498,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
 
@@ -1606,7 +1510,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		t.Error(ctx.Err())
+		assert.NoError(t, ctx.Err())
 	}
 }
 
@@ -1663,9 +1567,7 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	defer hub1.removeSession(session1)
 
 	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
 
@@ -1677,9 +1579,7 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	mcu2.connectionsMu.RLock()
 	count := len(mcu2.connections)
 	mcu2.connectionsMu.RUnlock()
-	if expected := 1; count != expected {
-		t.Errorf("expected %d connections, got %+v", expected, count)
-	}
+	assert.Equal(t, 1, count)
 
 	subListener := &MockMcuListener{
 		publicId: "subscriber-public",
@@ -1688,23 +1588,17 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 		country: "DE",
 	}
 	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
 
-	if sub.(*mcuProxySubscriber).conn.rawUrl != server1.URL {
-		t.Errorf("expected server %s, go %s", server1.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
-	}
+	assert.Equal(t, server1.URL, sub.(*mcuProxySubscriber).conn.rawUrl)
 
 	// The temporary connection has been added
 	mcu2.connectionsMu.RLock()
 	count = len(mcu2.connections)
 	mcu2.connectionsMu.RUnlock()
-	if expected := 2; count != expected {
-		t.Errorf("expected %d connections, got %+v", expected, count)
-	}
+	assert.Equal(t, 2, count)
 
 	sub.Close(context.Background())
 
@@ -1713,7 +1607,7 @@ loop:
 	for {
 		select {
 		case <-ctx.Done():
-			t.Error(ctx.Err())
+			assert.NoError(t, ctx.Err())
 		default:
 			mcu2.connectionsMu.RLock()
 			count = len(mcu2.connections)

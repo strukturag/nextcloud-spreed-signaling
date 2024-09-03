@@ -25,6 +25,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *testing.T) {
@@ -39,7 +42,7 @@ func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *t
 		select {
 		case <-ctx.Done():
 			c.mu.Lock()
-			t.Errorf("Error waiting for subscriptions %+v to terminate: %s", c.subscriptions, ctx.Err())
+			assert.NoError(t, ctx.Err(), "Error waiting for subscriptions %+v to terminate", c.subscriptions)
 			c.mu.Unlock()
 			return
 		default:
@@ -50,9 +53,7 @@ func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *t
 
 func CreateLoopbackNatsClientForTest(t *testing.T) NatsClient {
 	result, err := NewLoopbackNatsClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		result.Close()
 	})

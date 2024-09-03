@@ -25,14 +25,15 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newMemoryThrottlerForTest(t *testing.T) *memoryThrottler {
 	t.Helper()
 	result, err := NewMemoryThrottler()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		result.Close()
@@ -54,12 +55,11 @@ func (t *throttlerTiming) getNow() time.Time {
 
 func (t *throttlerTiming) doDelay(ctx context.Context, duration time.Duration) {
 	t.t.Helper()
-	if duration != t.expectedSleep {
-		t.t.Errorf("expected sleep %s, got %s", t.expectedSleep, duration)
-	}
+	assert.Equal(t.t, t.expectedSleep, duration)
 }
 
 func TestThrottler(t *testing.T) {
+	assert := assert.New(t)
 	timing := &throttlerTiming{
 		t:   t,
 		now: time.Now(),
@@ -71,38 +71,31 @@ func TestThrottler(t *testing.T) {
 	ctx := context.Background()
 
 	throttle1, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle1(ctx)
 
 	timing.now = timing.now.Add(time.Millisecond)
 	throttle2, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 200 * time.Millisecond
 	throttle2(ctx)
 
 	timing.now = timing.now.Add(time.Millisecond)
 	throttle3, err := th.CheckBruteforce(ctx, "192.168.0.2", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle3(ctx)
 
 	timing.now = timing.now.Add(time.Millisecond)
 	throttle4, err := th.CheckBruteforce(ctx, "192.168.0.1", "action2")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle4(ctx)
 }
 
 func TestThrottlerIPv6(t *testing.T) {
+	assert := assert.New(t)
 	timing := &throttlerTiming{
 		t:   t,
 		now: time.Now(),
@@ -115,40 +108,33 @@ func TestThrottlerIPv6(t *testing.T) {
 
 	// Make sure full /64 subnets are throttled for IPv6.
 	throttle1, err := th.CheckBruteforce(ctx, "2001:db8:abcd:0012::1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle1(ctx)
 
 	timing.now = timing.now.Add(time.Millisecond)
 	throttle2, err := th.CheckBruteforce(ctx, "2001:db8:abcd:0012::2", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 200 * time.Millisecond
 	throttle2(ctx)
 
 	// A diffent /64 subnet is not throttled yet.
 	timing.now = timing.now.Add(time.Millisecond)
 	throttle3, err := th.CheckBruteforce(ctx, "2001:db8:abcd:0013::1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle3(ctx)
 
 	// A different action is not throttled.
 	timing.now = timing.now.Add(time.Millisecond)
 	throttle4, err := th.CheckBruteforce(ctx, "2001:db8:abcd:0012::1", "action2")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle4(ctx)
 }
 
 func TestThrottler_Bruteforce(t *testing.T) {
+	assert := assert.New(t)
 	timing := &throttlerTiming{
 		t:   t,
 		now: time.Now(),
@@ -162,9 +148,7 @@ func TestThrottler_Bruteforce(t *testing.T) {
 	for i := 0; i < maxBruteforceAttempts; i++ {
 		timing.now = timing.now.Add(time.Millisecond)
 		throttle, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-		if err != nil {
-			t.Error(err)
-		}
+		assert.NoError(err)
 		if i == 0 {
 			timing.expectedSleep = 100 * time.Millisecond
 		} else {
@@ -177,14 +161,12 @@ func TestThrottler_Bruteforce(t *testing.T) {
 	}
 
 	timing.now = timing.now.Add(time.Millisecond)
-	if _, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1"); err == nil {
-		t.Error("expected bruteforce error")
-	} else if err != ErrBruteforceDetected {
-		t.Errorf("expected error %s, got %s", ErrBruteforceDetected, err)
-	}
+	_, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
+	assert.ErrorIs(err, ErrBruteforceDetected)
 }
 
 func TestThrottler_Cleanup(t *testing.T) {
+	assert := assert.New(t)
 	timing := &throttlerTiming{
 		t:   t,
 		now: time.Now(),
@@ -196,59 +178,46 @@ func TestThrottler_Cleanup(t *testing.T) {
 	ctx := context.Background()
 
 	throttle1, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle1(ctx)
 
 	throttle2, err := th.CheckBruteforce(ctx, "192.168.0.2", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle2(ctx)
 
 	timing.now = timing.now.Add(time.Hour)
 	throttle3, err := th.CheckBruteforce(ctx, "192.168.0.1", "action2")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle3(ctx)
 
 	throttle4, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 200 * time.Millisecond
 	throttle4(ctx)
 
 	timing.now = timing.now.Add(-time.Hour).Add(maxBruteforceAge).Add(time.Second)
 	th.cleanup(timing.now)
 
-	if entries := th.getEntries("192.168.0.1", "action1"); len(entries) != 1 {
-		t.Errorf("should have removed one entry, got %+v", entries)
-	}
-	if entries := th.getEntries("192.168.0.1", "action2"); len(entries) != 1 {
-		t.Errorf("should have kept entry, got %+v", entries)
-	}
+	assert.Len(th.getEntries("192.168.0.1", "action1"), 1)
+	assert.Len(th.getEntries("192.168.0.1", "action2"), 1)
 
 	th.mu.RLock()
 	if _, found := th.clients["192.168.0.2"]; found {
-		t.Error("should have removed client \"192.168.0.2\"")
+		assert.Fail("should have removed client \"192.168.0.2\"")
 	}
 	th.mu.RUnlock()
 
 	throttle5, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 200 * time.Millisecond
 	throttle5(ctx)
 }
 
 func TestThrottler_ExpirePartial(t *testing.T) {
+	assert := assert.New(t)
 	timing := &throttlerTiming{
 		t:   t,
 		now: time.Now(),
@@ -260,32 +229,27 @@ func TestThrottler_ExpirePartial(t *testing.T) {
 	ctx := context.Background()
 
 	throttle1, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle1(ctx)
 
 	timing.now = timing.now.Add(time.Minute)
 
 	throttle2, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 200 * time.Millisecond
 	throttle2(ctx)
 
 	timing.now = timing.now.Add(maxBruteforceAge).Add(-time.Minute + time.Second)
 
 	throttle3, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 200 * time.Millisecond
 	throttle3(ctx)
 }
 
 func TestThrottler_ExpireAll(t *testing.T) {
+	assert := assert.New(t)
 	timing := &throttlerTiming{
 		t:   t,
 		now: time.Now(),
@@ -297,32 +261,27 @@ func TestThrottler_ExpireAll(t *testing.T) {
 	ctx := context.Background()
 
 	throttle1, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle1(ctx)
 
 	timing.now = timing.now.Add(time.Millisecond)
 
 	throttle2, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 200 * time.Millisecond
 	throttle2(ctx)
 
 	timing.now = timing.now.Add(maxBruteforceAge).Add(time.Second)
 
 	throttle3, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(err)
 	timing.expectedSleep = 100 * time.Millisecond
 	throttle3(ctx)
 }
 
 func TestThrottler_Negative(t *testing.T) {
+	assert := assert.New(t)
 	timing := &throttlerTiming{
 		t:   t,
 		now: time.Now(),
@@ -336,8 +295,8 @@ func TestThrottler_Negative(t *testing.T) {
 	for i := 0; i < maxBruteforceAttempts*10; i++ {
 		timing.now = timing.now.Add(time.Millisecond)
 		throttle, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
-		if err != nil && err != ErrBruteforceDetected {
-			t.Error(err)
+		if err != nil {
+			assert.ErrorIs(err, ErrBruteforceDetected)
 		}
 		if i == 0 {
 			timing.expectedSleep = 100 * time.Millisecond

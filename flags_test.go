@@ -25,55 +25,28 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFlags(t *testing.T) {
+	assert := assert.New(t)
 	var f Flags
-	if f.Get() != 0 {
-		t.Fatalf("Expected flags 0, got %d", f.Get())
-	}
-	if !f.Add(1) {
-		t.Error("expected true")
-	}
-	if f.Get() != 1 {
-		t.Fatalf("Expected flags 1, got %d", f.Get())
-	}
-	if f.Add(1) {
-		t.Error("expected false")
-	}
-	if f.Get() != 1 {
-		t.Fatalf("Expected flags 1, got %d", f.Get())
-	}
-	if !f.Add(2) {
-		t.Error("expected true")
-	}
-	if f.Get() != 3 {
-		t.Fatalf("Expected flags 3, got %d", f.Get())
-	}
-	if !f.Remove(1) {
-		t.Error("expected true")
-	}
-	if f.Get() != 2 {
-		t.Fatalf("Expected flags 2, got %d", f.Get())
-	}
-	if f.Remove(1) {
-		t.Error("expected false")
-	}
-	if f.Get() != 2 {
-		t.Fatalf("Expected flags 2, got %d", f.Get())
-	}
-	if !f.Add(3) {
-		t.Error("expected true")
-	}
-	if f.Get() != 3 {
-		t.Fatalf("Expected flags 3, got %d", f.Get())
-	}
-	if !f.Remove(1) {
-		t.Error("expected true")
-	}
-	if f.Get() != 2 {
-		t.Fatalf("Expected flags 2, got %d", f.Get())
-	}
+	assert.EqualValues(0, f.Get())
+	assert.True(f.Add(1))
+	assert.EqualValues(1, f.Get())
+	assert.False(f.Add(1))
+	assert.EqualValues(1, f.Get())
+	assert.True(f.Add(2))
+	assert.EqualValues(3, f.Get())
+	assert.True(f.Remove(1))
+	assert.EqualValues(2, f.Get())
+	assert.False(f.Remove(1))
+	assert.EqualValues(2, f.Get())
+	assert.True(f.Add(3))
+	assert.EqualValues(3, f.Get())
+	assert.True(f.Remove(1))
+	assert.EqualValues(2, f.Get())
 }
 
 func runConcurrentFlags(t *testing.T, count int, f func()) {
@@ -106,9 +79,7 @@ func TestFlagsConcurrentAdd(t *testing.T) {
 			added.Add(1)
 		}
 	})
-	if added.Load() != 1 {
-		t.Errorf("expected only one successfull attempt, got %d", added.Load())
-	}
+	assert.EqualValues(t, 1, added.Load(), "expected only one successfull attempt")
 }
 
 func TestFlagsConcurrentRemove(t *testing.T) {
@@ -122,9 +93,7 @@ func TestFlagsConcurrentRemove(t *testing.T) {
 			removed.Add(1)
 		}
 	})
-	if removed.Load() != 1 {
-		t.Errorf("expected only one successfull attempt, got %d", removed.Load())
-	}
+	assert.EqualValues(t, 1, removed.Load(), "expected only one successfull attempt")
 }
 
 func TestFlagsConcurrentSet(t *testing.T) {
@@ -137,7 +106,5 @@ func TestFlagsConcurrentSet(t *testing.T) {
 			set.Add(1)
 		}
 	})
-	if set.Load() != 1 {
-		t.Errorf("expected only one successfull attempt, got %d", set.Load())
-	}
+	assert.EqualValues(t, 1, set.Load(), "expected only one successfull attempt")
 }

@@ -33,6 +33,8 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
@@ -52,9 +54,7 @@ func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
 func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcClients, *DnsMonitor) {
 	dnsMonitor := newDnsMonitorForTest(t, time.Hour) // will be updated manually
 	client, err := NewGrpcClients(config, etcdClient, dnsMonitor)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		client.Close()
 	})
@@ -78,13 +78,9 @@ func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) (*GrpcClients
 	config.AddOption("grpc", "targetprefix", "/grpctargets")
 
 	etcdClient, err := NewEtcdClient(config, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
-		if err := etcdClient.Close(); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(t, etcdClient.Close())
 	})
 
 	return NewGrpcClientsForTestWithConfig(t, config, etcdClient)
@@ -107,7 +103,7 @@ func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 	case <-ch:
 		return
 	case <-ctx.Done():
-		t.Error("timeout waiting for event")
+		assert.Fail(t, "timeout waiting for event")
 	}
 }
 
@@ -125,19 +121,17 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) {
 		client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		if err := client.WaitForInitialized(ctx); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, client.WaitForInitialized(ctx))
 
-		if clients := client.GetClients(); len(clients) != 2 {
-			t.Errorf("Expected two clients, got %+v", clients)
-		}
+		clients := client.GetClients()
+		assert.Len(t, clients, 2, "Expected two clients, got %+v", clients)
 	})
 }
 
 func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	etcd := NewEtcdForTest(t)
 	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 	ch := client.getWakeupChannelForTesting()
@@ -145,55 +139,45 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	if clients := client.GetClients(); len(clients) != 0 {
-		t.Errorf("Expected no clients, got %+v", clients)
-	}
+	assert.Empty(client.GetClients())
 
 	drainWakeupChannel(ch)
 	_, addr1 := NewGrpcServerForTest(t)
 	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	waitForEvent(ctx, t, ch)
-	if clients := client.GetClients(); len(clients) != 1 {
-		t.Errorf("Expected one client, got %+v", clients)
-	} else if clients[0].Target() != addr1 {
-		t.Errorf("Expected target %s, got %s", addr1, clients[0].Target())
+	if clients := client.GetClients(); assert.Len(clients, 1) {
+		assert.Equal(addr1, clients[0].Target())
 	}
 
 	drainWakeupChannel(ch)
 	_, addr2 := NewGrpcServerForTest(t)
 	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 	waitForEvent(ctx, t, ch)
-	if clients := client.GetClients(); len(clients) != 2 {
-		t.Errorf("Expected two clients, got %+v", clients)
-	} else if clients[0].Target() != addr1 {
-		t.Errorf("Expected target %s, got %s", addr1, clients[0].Target())
-	} else if clients[1].Target() != addr2 {
-		t.Errorf("Expected target %s, got %s", addr2, clients[1].Target())
+	if clients := client.GetClients(); assert.Len(clients, 2) {
+		assert.Equal(addr1, clients[0].Target())
+		assert.Equal(addr2, clients[1].Target())
 	}
 
 	drainWakeupChannel(ch)
 	DeleteEtcdValue(etcd, "/grpctargets/one")
 	waitForEvent(ctx, t, ch)
-	if clients := client.GetClients(); len(clients) != 1 {
-		t.Errorf("Expected one client, got %+v", clients)
-	} else if clients[0].Target() != addr2 {
-		t.Errorf("Expected target %s, got %s", addr2, clients[0].Target())
+	if clients := client.GetClients(); assert.Len(clients, 1) {
+		assert.Equal(addr2, clients[0].Target())
 	}
 
 	drainWakeupChannel(ch)
 	_, addr3 := NewGrpcServerForTest(t)
 	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr3+"\"}"))
 	waitForEvent(ctx, t, ch)
-	if clients := client.GetClients(); len(clients) != 1 {
-		t.Errorf("Expected one client, got %+v", clients)
-	} else if clients[0].Target() != addr3 {
-		t.Errorf("Expected target %s, got %s", addr3, clients[0].Target())
+	if clients := client.GetClients(); assert.Len(clients, 1) {
+		assert.Equal(addr3, clients[0].Target())
 	}
 }
 
 func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	etcd := NewEtcdForTest(t)
 	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 	ch := client.getWakeupChannelForTesting()
@@ -201,18 +185,14 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	if clients := client.GetClients(); len(clients) != 0 {
-		t.Errorf("Expected no clients, got %+v", clients)
-	}
+	assert.Empty(client.GetClients())
 
 	drainWakeupChannel(ch)
 	_, addr1 := NewGrpcServerForTest(t)
 	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	waitForEvent(ctx, t, ch)
-	if clients := client.GetClients(); len(clients) != 1 {
-		t.Errorf("Expected one client, got %+v", clients)
-	} else if clients[0].Target() != addr1 {
-		t.Errorf("Expected target %s, got %s", addr1, clients[0].Target())
+	if clients := client.GetClients(); assert.Len(clients, 1) {
+		assert.Equal(addr1, clients[0].Target())
 	}
 
 	drainWakeupChannel(ch)
@@ -221,25 +201,22 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 	waitForEvent(ctx, t, ch)
 	client.selfCheckWaitGroup.Wait()
-	if clients := client.GetClients(); len(clients) != 1 {
-		t.Errorf("Expected one client, got %+v", clients)
-	} else if clients[0].Target() != addr1 {
-		t.Errorf("Expected target %s, got %s", addr1, clients[0].Target())
+	if clients := client.GetClients(); assert.Len(clients, 1) {
+		assert.Equal(addr1, clients[0].Target())
 	}
 
 	drainWakeupChannel(ch)
 	DeleteEtcdValue(etcd, "/grpctargets/two")
 	waitForEvent(ctx, t, ch)
-	if clients := client.GetClients(); len(clients) != 1 {
-		t.Errorf("Expected one client, got %+v", clients)
-	} else if clients[0].Target() != addr1 {
-		t.Errorf("Expected target %s, got %s", addr1, clients[0].Target())
+	if clients := client.GetClients(); assert.Len(clients, 1) {
+		assert.Equal(addr1, clients[0].Target())
 	}
 }
 
 func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		assert := assert.New(t)
 		lookup := newMockDnsLookupForTest(t)
 		target := "testgrpc:12345"
 		ip1 := net.ParseIP("192.168.0.1")
@@ -254,12 +231,9 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 		defer cancel()
 
 		dnsMonitor.checkHostnames()
-		if clients := client.GetClients(); len(clients) != 1 {
-			t.Errorf("Expected one client, got %+v", clients)
-		} else if clients[0].Target() != targetWithIp1 {
-			t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
-		} else if !clients[0].ip.Equal(ip1) {
-			t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
+		if clients := client.GetClients(); assert.Len(clients, 1) {
+			assert.Equal(targetWithIp1, clients[0].Target())
+			assert.True(clients[0].ip.Equal(ip1), "Expected IP %s, got %s", ip1, clients[0].ip)
 		}
 
 		lookup.Set("testgrpc", []net.IP{ip1, ip2})
@@ -267,16 +241,11 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 		dnsMonitor.checkHostnames()
 		waitForEvent(ctx, t, ch)
 
-		if clients := client.GetClients(); len(clients) != 2 {
-			t.Errorf("Expected two client, got %+v", clients)
-		} else if clients[0].Target() != targetWithIp1 {
-			t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
-		} else if !clients[0].ip.Equal(ip1) {
-			t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
-		} else if clients[1].Target() != targetWithIp2 {
-			t.Errorf("Expected target %s, got %s", targetWithIp2, clients[1].Target())
-		} else if !clients[1].ip.Equal(ip2) {
-			t.Errorf("Expected IP %s, got %s", ip2, clients[1].ip)
+		if clients := client.GetClients(); assert.Len(clients, 2) {
+			assert.Equal(targetWithIp1, clients[0].Target())
+			assert.True(clients[0].ip.Equal(ip1), "Expected IP %s, got %s", ip1, clients[0].ip)
+			assert.Equal(targetWithIp2, clients[1].Target())
+			assert.True(clients[1].ip.Equal(ip2), "Expected IP %s, got %s", ip2, clients[1].ip)
 		}
 
 		lookup.Set("testgrpc", []net.IP{ip2})
@@ -284,12 +253,9 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 		dnsMonitor.checkHostnames()
 		waitForEvent(ctx, t, ch)
 
-		if clients := client.GetClients(); len(clients) != 1 {
-			t.Errorf("Expected one client, got %+v", clients)
-		} else if clients[0].Target() != targetWithIp2 {
-			t.Errorf("Expected target %s, got %s", targetWithIp2, clients[0].Target())
-		} else if !clients[0].ip.Equal(ip2) {
-			t.Errorf("Expected IP %s, got %s", ip2, clients[0].ip)
+		if clients := client.GetClients(); assert.Len(clients, 1) {
+			assert.Equal(targetWithIp2, clients[0].Target())
+			assert.True(clients[0].ip.Equal(ip2), "Expected IP %s, got %s", ip2, clients[0].ip)
 		}
 	})
 }
@@ -297,6 +263,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	assert := assert.New(t)
 	lookup := newMockDnsLookupForTest(t)
 	target := "testgrpc:12345"
 	ip1 := net.ParseIP("192.168.0.1")
@@ -309,39 +276,29 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := client.WaitForInitialized(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, client.WaitForInitialized(ctx))
 
-	if clients := client.GetClients(); len(clients) != 0 {
-		t.Errorf("Expected no client, got %+v", clients)
-	}
+	assert.Empty(client.GetClients())
 
 	lookup.Set("testgrpc", []net.IP{ip1})
 	drainWakeupChannel(ch)
 	dnsMonitor.checkHostnames()
 	waitForEvent(testCtx, t, ch)
 
-	if clients := client.GetClients(); len(clients) != 1 {
-		t.Errorf("Expected one client, got %+v", clients)
-	} else if clients[0].Target() != targetWithIp1 {
-		t.Errorf("Expected target %s, got %s", targetWithIp1, clients[0].Target())
-	} else if !clients[0].ip.Equal(ip1) {
-		t.Errorf("Expected IP %s, got %s", ip1, clients[0].ip)
+	if clients := client.GetClients(); assert.Len(clients, 1) {
+		assert.Equal(targetWithIp1, clients[0].Target())
+		assert.True(clients[0].ip.Equal(ip1), "Expected IP %s, got %s", ip1, clients[0].ip)
 	}
 }
 
 func Test_GrpcClients_Encryption(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		require := require.New(t)
 		serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 		clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(err)
 
 		serverCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Server cert", serverKey)
 		clientCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Testing client", clientKey)
@@ -376,14 +333,11 @@ func Test_GrpcClients_Encryption(t *testing.T) {
 		ctx, cancel1 := context.WithTimeout(context.Background(), time.Second)
 		defer cancel1()
 
-		if err := clients.WaitForInitialized(ctx); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(clients.WaitForInitialized(ctx))
 
 		for _, client := range clients.GetClients() {
-			if _, err := client.GetServerId(ctx); err != nil {
-				t.Fatal(err)
-			}
+			_, err := client.GetServerId(ctx)
+			require.NoError(err)
 		}
 	})
 }

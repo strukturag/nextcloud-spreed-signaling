@@ -26,6 +26,9 @@ import (
 	"net/url"
 	"strconv"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -119,9 +122,7 @@ func Test_permissionsEqual(t *testing.T) {
 		t.Run(strconv.Itoa(idx), func(t *testing.T) {
 			t.Parallel()
 			equal := permissionsEqual(test.a, test.b)
-			if equal != test.equal {
-				t.Errorf("Expected %+v to be %s to %+v but was %s", test.a, equalStrings[test.equal], test.b, equalStrings[equal])
-			}
+			assert.Equal(t, test.equal, equal, "Expected %+v to be %s to %+v but was %s", test.a, equalStrings[test.equal], test.b, equalStrings[equal])
 		})
 	}
 }
@@ -129,17 +130,16 @@ func Test_permissionsEqual(t *testing.T) {
 func TestBandwidth_Client(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	mcu, err := NewTestMCU()
-	if err != nil {
-		t.Fatal(err)
-	} else if err := mcu.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
+	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
@@ -147,31 +147,23 @@ func TestBandwidth_Client(t *testing.T) {
 	client := NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
 
-	if err := client.SendHello(testDefaultUserId); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.SendHello(testDefaultUserId))
 
 	hello, err := client.RunUntilHello(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(err)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client.JoinRoom(ctx, roomId); err != nil {
-		t.Fatal(err)
-	} else if room.Room.RoomId != roomId {
-		t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-	}
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 	// Client may not send an offer with audio and video.
 	bitrate := 10000
-	if err := client.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
 	}, MessageClientMessageData{
@@ -182,22 +174,13 @@ func TestBandwidth_Client(t *testing.T) {
 		Payload: map[string]interface{}{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if err := client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
 
 	pub := mcu.GetPublisher(hello.Hello.SessionId)
-	if pub == nil {
-		t.Fatal("Could not find publisher")
-	}
-
-	if pub.bitrate != bitrate {
-		t.Errorf("Expected bitrate %d, got %d", bitrate, pub.bitrate)
-	}
+	require.NotNil(pub)
+	assert.Equal(bitrate, pub.bitrate)
 }
 
 func TestBandwidth_Backend(t *testing.T) {
@@ -206,13 +189,9 @@ func TestBandwidth_Backend(t *testing.T) {
 	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
 	u, err := url.Parse(server.URL + "/one")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	backend := hub.backend.GetBackend(u)
-	if backend == nil {
-		t.Fatal("Could not get backend")
-	}
+	require.NotNil(t, backend, "Could not get backend")
 
 	backend.maxScreenBitrate = 1000
 	backend.maxStreamBitrate = 2000
@@ -221,11 +200,8 @@ func TestBandwidth_Backend(t *testing.T) {
 	defer cancel()
 
 	mcu, err := NewTestMCU()
-	if err != nil {
-		t.Fatal(err)
-	} else if err := mcu.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, mcu.Start(ctx))
 	defer mcu.Stop()
 
 	hub.SetMcu(mcu)
@@ -237,37 +213,31 @@ func TestBandwidth_Backend(t *testing.T) {
 
 	for _, streamType := range streamTypes {
 		t.Run(string(streamType), func(t *testing.T) {
+			require := require.New(t)
+			assert := assert.New(t)
 			client := NewTestClient(t, server, hub)
 			defer client.CloseWithBye()
 
 			params := TestBackendClientAuthParams{
 				UserId: testDefaultUserId,
 			}
-			if err := client.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params))
 
 			hello, err := client.RunUntilHello(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(err)
 
 			// Join room by id.
 			roomId := "test-room"
-			if room, err := client.JoinRoom(ctx, roomId); err != nil {
-				t.Fatal(err)
-			} else if room.Room.RoomId != roomId {
-				t.Fatalf("Expected room %s, got %s", roomId, room.Room.RoomId)
-			}
+			roomMsg, err := client.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// We will receive a "joined" event.
-			if err := client.RunUntilJoined(ctx, hello.Hello); err != nil {
-				t.Error(err)
-			}
+			require.NoError(client.RunUntilJoined(ctx, hello.Hello))
 
 			// Client may not send an offer with audio and video.
 			bitrate := 10000
-			if err := client.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello.Hello.SessionId,
 			}, MessageClientMessageData{
@@ -278,18 +248,12 @@ func TestBandwidth_Backend(t *testing.T) {
 				Payload: map[string]interface{}{
 					"sdp": MockSdpOfferAudioAndVideo,
 				},
-			}); err != nil {
-				t.Fatal(err)
-			}
+			}))
 
-			if err := client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
 
 			pub := mcu.GetPublisher(hello.Hello.SessionId)
-			if pub == nil {
-				t.Fatal("Could not find publisher")
-			}
+			require.NotNil(pub, "Could not find publisher")
 
 			var expectBitrate int
 			if streamType == StreamTypeVideo {
@@ -297,9 +261,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			} else {
 				expectBitrate = backend.maxScreenBitrate
 			}
-			if pub.bitrate != expectBitrate {
-				t.Errorf("Expected bitrate %d, got %d", expectBitrate, pub.bitrate)
-			}
+			assert.Equal(expectBitrate, pub.bitrate)
 		})
 	}
 }
