@@ -40,6 +40,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest"
+
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
@@ -94,7 +96,8 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httpte
 	config := goconf.NewConfigFile()
 	config.AddOption("tokens", TokenIdForTest, pubkey.Name())
 
-	proxy, err = NewProxyServer(r, "0.0", config)
+	log := zaptest.NewLogger(t)
+	proxy, err = NewProxyServer(log, r, "0.0", config)
 	require.NoError(err)
 
 	server := httptest.NewServer(r)
@@ -106,7 +109,6 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httpte
 }
 
 func TestTokenValid(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -129,7 +131,6 @@ func TestTokenValid(t *testing.T) {
 }
 
 func TestTokenNotSigned(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, _, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -154,7 +155,6 @@ func TestTokenNotSigned(t *testing.T) {
 }
 
 func TestTokenUnknown(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -179,7 +179,6 @@ func TestTokenUnknown(t *testing.T) {
 }
 
 func TestTokenInFuture(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -204,7 +203,6 @@ func TestTokenInFuture(t *testing.T) {
 }
 
 func TestTokenExpired(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -261,7 +259,6 @@ func TestPublicIPs(t *testing.T) {
 }
 
 func TestWebsocketFeatures(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	_, _, server := newProxyServerForTest(t)
 

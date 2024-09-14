@@ -22,9 +22,9 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -36,6 +36,8 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
@@ -56,7 +58,6 @@ const (
 )
 
 func main() {
-	log.SetFlags(log.Lshortfile)
 	flag.Parse()
 
 	if *showVersion {
@@ -69,26 +70,54 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGHUP)
 	signal.Notify(sigChan, syscall.SIGUSR1)
 
-	log.Printf("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
+	fmt.Printf("Starting up version %s/%s as pid %d\n", version, runtime.Version(), os.Getpid())
 
 	config, err := goconf.ReadConfigFile(*configFlag)
 	if err != nil {
-		log.Fatal("Could not read configuration: ", err)
+		fmt.Printf("Could not read configuration: %s\n", err)
+		os.Exit(1)
 	}
+
+	var logConfig zap.Config
+	if debug, _ := config.GetBool("app", "debug"); debug {
+		logConfig = zap.NewDevelopmentConfig()
+	} else {
+		logConfig = zap.NewProductionConfig()
+		logConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	}
+	log, err := logConfig.Build(
+		// Only log stack traces when panicing.
+		zap.AddStacktrace(zap.DPanicLevel),
+	)
+	if err != nil {
+		fmt.Printf("Could not create logger: %s\n", err)
+		os.Exit(1)
+	}
+
+	restoreGlobalLogs := zap.ReplaceGlobals(log)
+	defer restoreGlobalLogs()
 
 	cpus := runtime.NumCPU()
 	runtime.GOMAXPROCS(cpus)
-	log.Printf("Using a maximum of %d CPUs", cpus)
+	log.Debug("Using number of CPUs",
+		zap.Int("cpus", cpus),
+	)
 
 	r := mux.NewRouter()
 
-	proxy, err := NewProxyServer(r, version, config)
+	proxy, err := NewProxyServer(log, r, version, config)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Error creating proxy server",
+			zap.Error(err),
+		)
 	}
 
 	if err := proxy.Start(config); err != nil {
-		log.Fatal(err)
+		if !errors.Is(err, ErrCancelled) {
+			log.Fatal("Error starting proxy server",
+				zap.Error(err),
+			)
+		}
 	}
 	defer proxy.Stop()
 
@@ -104,10 +133,13 @@ func main() {
 
 		for _, address := range strings.Split(addr, " ") {
 			go func(address string) {
-				log.Println("Listening on", address)
+				log := log.With(zap.String("addr", address))
+				log.Debug("Listening")
 				listener, err := net.Listen("tcp", address)
 				if err != nil {
-					log.Fatal("Could not start listening: ", err)
+					log.Fatal("Could not start listening",
+						zap.Error(err),
+					)
 				}
 				srv := &http.Server{
 					Handler: r,
@@ -117,7 +149,9 @@ func main() {
 					WriteTimeout: time.Duration(writeTimeout) * time.Second,
 				}
 				if err := srv.Serve(listener); err != nil {
-					log.Fatal("Could not start server: ", err)
+					log.Fatal("Could not start server",
+						zap.Error(err),
+					)
 				}
 			}(address)
 		}
@@ -129,21 +163,26 @@ loop:
 		case sig := <-sigChan:
 			switch sig {
 			case os.Interrupt:
-				log.Println("Interrupted")
+				log.Debug("Interrupted")
 				break loop
 			case syscall.SIGHUP:
-				log.Printf("Received SIGHUP, reloading %s", *configFlag)
+				log.Info("Received SIGHUP, reloading",
+					zap.String("filename", *configFlag),
+				)
 				if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
-					log.Printf("Could not read configuration from %s: %s", *configFlag, err)
+					log.Error("Could not read configuration",
+						zap.String("filename", *configFlag),
+						zap.Error(err),
+					)
 				} else {
 					proxy.Reload(config)
 				}
 			case syscall.SIGUSR1:
-				log.Printf("Received SIGUSR1, scheduling server to shutdown")
+				log.Info("Received SIGUSR1, scheduling server to shutdown")
 				proxy.ScheduleShutdown()
 			}
 		case <-proxy.ShutdownChannel():
-			log.Printf("All clients disconnected, shutting down")
+			log.Info("All clients disconnected, shutting down")
 			break loop
 		}
 	}
