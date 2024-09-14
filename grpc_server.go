@@ -27,12 +27,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/url"
 	"os"
 
 	"github.com/dlintw/goconf"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -69,6 +69,7 @@ type GrpcServer struct {
 	UnimplementedRpcMcuServer
 	UnimplementedRpcSessionsServer
 
+	log      *zap.Logger
 	creds    credentials.TransportCredentials
 	conn     *grpc.Server
 	listener net.Listener
@@ -77,7 +78,7 @@ type GrpcServer struct {
 	hub GrpcServerHub
 }
 
-func NewGrpcServer(config *goconf.ConfigFile) (*GrpcServer, error) {
+func NewGrpcServer(log *zap.Logger, config *goconf.ConfigFile) (*GrpcServer, error) {
 	var listener net.Listener
 	if addr, _ := GetStringOptionWithEnv(config, "grpc", "listen"); addr != "" {
 		var err error
@@ -87,13 +88,14 @@ func NewGrpcServer(config *goconf.ConfigFile) (*GrpcServer, error) {
 		}
 	}
 
-	creds, err := NewReloadableCredentials(config, true)
+	creds, err := NewReloadableCredentials(log, config, true)
 	if err != nil {
 		return nil, err
 	}
 
 	conn := grpc.NewServer(grpc.Creds(creds))
 	result := &GrpcServer{
+		log:      log,
 		creds:    creds,
 		conn:     conn,
 		listener: listener,
@@ -123,8 +125,9 @@ func (s *GrpcServer) Close() {
 
 func (s *GrpcServer) LookupResumeId(ctx context.Context, request *LookupResumeIdRequest) (*LookupResumeIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("LookupResumeId").Inc()
-	// TODO: Remove debug logging
-	log.Printf("Lookup session for resume id %s", request.ResumeId)
+	s.log.Debug("Lookup session for resume id",
+		zap.String("resumeid", request.ResumeId),
+	)
 	session := s.hub.GetSessionByResumeId(request.ResumeId)
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such room session id")
@@ -137,8 +140,9 @@ func (s *GrpcServer) LookupResumeId(ctx context.Context, request *LookupResumeId
 
 func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSessionIdRequest) (*LookupSessionIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("LookupSessionId").Inc()
-	// TODO: Remove debug logging
-	log.Printf("Lookup session id for room session id %s", request.RoomSessionId)
+	s.log.Debug("Lookup session id for room session id",
+		zap.String("roomsessionid", request.RoomSessionId),
+	)
 	sid, err := s.hub.GetSessionIdByRoomSessionId(request.RoomSessionId)
 	if errors.Is(err, ErrNoSuchRoomSession) {
 		return nil, status.Error(codes.NotFound, "no such room session id")
@@ -148,7 +152,10 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 
 	if sid != "" && request.DisconnectReason != "" {
 		if session := s.hub.GetSessionByPublicId(sid); session != nil {
-			log.Printf("Closing session %s because same room session %s connected", session.PublicId(), request.RoomSessionId)
+			s.log.Info("Closing session because same room session connected",
+				zap.String("sessionid", session.PublicId()),
+				zap.String("roomsessionid", request.RoomSessionId),
+			)
 			session.LeaveRoom(false)
 			switch sess := session.(type) {
 			case *ClientSession:
@@ -166,8 +173,11 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 
 func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCallRequest) (*IsSessionInCallReply, error) {
 	statsGrpcServerCalls.WithLabelValues("IsSessionInCall").Inc()
-	// TODO: Remove debug logging
-	log.Printf("Check if session %s is in call %s on %s", request.SessionId, request.RoomId, request.BackendUrl)
+	s.log.Debug("Check if session is in call",
+		zap.String("sessionid", request.SessionId),
+		zap.String("room", request.RoomId),
+		zap.String("backend", request.BackendUrl),
+	)
 	session := s.hub.GetSessionByPublicId(request.SessionId)
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such session id")
@@ -187,8 +197,10 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 
 func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherIdRequest) (*GetPublisherIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetPublisherId").Inc()
-	// TODO: Remove debug logging
-	log.Printf("Get %s publisher id for session %s", request.StreamType, request.SessionId)
+	s.log.Debug("Get publisher id for session",
+		zap.Any("streamtype", request.StreamType),
+		zap.String("sessionid", request.SessionId),
+	)
 	session := s.hub.GetSessionByPublicId(request.SessionId)
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such session")
@@ -246,7 +258,7 @@ func (s *GrpcServer) ProxySession(request RpcSessions_ProxySessionServer) error 
 		return status.Error(codes.Internal, "invalid hub type")
 
 	}
-	client, err := newRemoteGrpcClient(hub, request)
+	client, err := newRemoteGrpcClient(s.log, hub, request)
 	if err != nil {
 		return err
 	}

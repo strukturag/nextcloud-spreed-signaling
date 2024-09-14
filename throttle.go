@@ -24,11 +24,12 @@ package signaling
 import (
 	"context"
 	"errors"
-	"log"
 	"net"
 	"strconv"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -91,6 +92,7 @@ type throttleEntry struct {
 }
 
 type memoryThrottler struct {
+	log     *zap.Logger
 	getNow  func() time.Time
 	doDelay func(context.Context, time.Duration)
 
@@ -100,8 +102,9 @@ type memoryThrottler struct {
 	closer *Closer
 }
 
-func NewMemoryThrottler() (Throttler, error) {
+func NewMemoryThrottler(log *zap.Logger) (Throttler, error) {
 	result := &memoryThrottler{
+		log:    log,
 		getNow: time.Now,
 
 		clients: make(map[string]map[string][]throttleEntry),
@@ -279,7 +282,10 @@ func (t *memoryThrottler) CheckBruteforce(ctx context.Context, client string, ac
 	if l >= maxBruteforceAttempts {
 		delta := now.Sub(entries[l-maxBruteforceAttempts].ts)
 		if delta <= maxBruteforceDurationThreshold {
-			log.Printf("Detected bruteforce attempt on \"%s\" from %s", action, client)
+			t.log.Info("Detected bruteforce attempt",
+				zap.String("action", action),
+				zap.String("client", client),
+			)
 			statsThrottleBruteforceTotal.WithLabelValues(action).Inc()
 			return doThrottle, ErrBruteforceDetected
 		}
@@ -303,7 +309,11 @@ func (t *memoryThrottler) throttle(ctx context.Context, client string, action st
 	}
 	count := t.addEntry(client, action, entry)
 	delay := t.getDelay(count - 1)
-	log.Printf("Failed attempt on \"%s\" from %s, throttling by %s", action, client, delay)
+	t.log.Info("Failed attempt, throttling",
+		zap.String("action", action),
+		zap.String("client", client),
+		zap.Duration("delay", delay),
+	)
 	statsThrottleDelayedTotal.WithLabelValues(action, strconv.FormatInt(delay.Milliseconds(), 10)).Inc()
 	t.doDelay(ctx, delay)
 }

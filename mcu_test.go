@@ -25,11 +25,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
+	"testing"
 
 	"github.com/dlintw/goconf"
+	"go.uber.org/zap"
 )
 
 const (
@@ -38,13 +39,17 @@ const (
 )
 
 type TestMCU struct {
-	mu          sync.Mutex
+	t  *testing.T
+	mu sync.Mutex
+
 	publishers  map[string]*TestMCUPublisher
 	subscribers map[string]*TestMCUSubscriber
 }
 
-func NewTestMCU() (*TestMCU, error) {
+func NewTestMCU(t *testing.T) (*TestMCU, error) {
 	return &TestMCU{
+		t: t,
+
 		publishers:  make(map[string]*TestMCUPublisher),
 		subscribers: make(map[string]*TestMCUSubscriber),
 	}, nil
@@ -84,6 +89,7 @@ func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id str
 	}
 	pub := &TestMCUPublisher{
 		TestMCUClient: TestMCUClient{
+			t:          m.t,
 			id:         id,
 			sid:        sid,
 			streamType: streamType,
@@ -130,6 +136,7 @@ func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publi
 	id := newRandomString(8)
 	sub := &TestMCUSubscriber{
 		TestMCUClient: TestMCUClient{
+			t:          m.t,
 			id:         id,
 			streamType: streamType,
 		},
@@ -140,6 +147,7 @@ func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publi
 }
 
 type TestMCUClient struct {
+	t      *testing.T
 	closed atomic.Bool
 
 	id         string
@@ -165,7 +173,10 @@ func (c *TestMCUClient) MaxBitrate() int {
 
 func (c *TestMCUClient) Close(ctx context.Context) {
 	if c.closed.CompareAndSwap(false, true) {
-		log.Printf("Close MCU client %s", c.id)
+		log := GetLoggerForTest(c.t)
+		log.Info("Close MCU client",
+			zap.String("id", c.id),
+		)
 	}
 }
 

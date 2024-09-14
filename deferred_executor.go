@@ -22,26 +22,28 @@
 package signaling
 
 import (
-	"log"
 	"reflect"
 	"runtime"
-	"runtime/debug"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 // DeferredExecutor will asynchronously execute functions while maintaining
 // their order.
 type DeferredExecutor struct {
+	log       *zap.Logger
 	queue     chan func()
 	closed    chan struct{}
 	closeOnce sync.Once
 }
 
-func NewDeferredExecutor(queueSize int) *DeferredExecutor {
+func NewDeferredExecutor(log *zap.Logger, queueSize int) *DeferredExecutor {
 	if queueSize < 0 {
 		queueSize = 0
 	}
 	result := &DeferredExecutor{
+		log:    log,
 		queue:  make(chan func(), queueSize),
 		closed: make(chan struct{}),
 	}
@@ -68,9 +70,12 @@ func getFunctionName(i interface{}) string {
 
 func (e *DeferredExecutor) Execute(f func()) {
 	defer func() {
-		if e := recover(); e != nil {
-			log.Printf("Could not defer function %v: %+v", getFunctionName(f), e)
-			log.Printf("Called from %s", string(debug.Stack()))
+		if err := recover(); err != nil {
+			e.log.Error("Could not defer",
+				zap.String("function", getFunctionName(f)),
+				zap.Any("error", err),
+				zap.StackSkip("stack", 1),
+			)
 		}
 	}()
 

@@ -26,7 +26,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -37,6 +36,7 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/oschwald/maxminddb-golang"
+	"go.uber.org/zap"
 )
 
 var (
@@ -56,6 +56,7 @@ func GetGeoIpDownloadUrl(license string) string {
 }
 
 type GeoLookup struct {
+	log    *zap.Logger
 	url    string
 	isFile bool
 	client http.Client
@@ -67,15 +68,21 @@ type GeoLookup struct {
 	reader *maxminddb.Reader
 }
 
-func NewGeoLookupFromUrl(url string) (*GeoLookup, error) {
+func NewGeoLookupFromUrl(log *zap.Logger, url string) (*GeoLookup, error) {
 	geoip := &GeoLookup{
+		log: log.With(
+			zap.String("url", url),
+		),
 		url: url,
 	}
 	return geoip, nil
 }
 
-func NewGeoLookupFromFile(filename string) (*GeoLookup, error) {
+func NewGeoLookupFromFile(log *zap.Logger, filename string) (*GeoLookup, error) {
 	geoip := &GeoLookup{
+		log: log.With(
+			zap.String("filename", filename),
+		),
 		url:    filename,
 		isFile: true,
 	}
@@ -123,7 +130,10 @@ func (g *GeoLookup) updateFile() error {
 	}
 
 	metadata := reader.Metadata
-	log.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
+	g.log.Info("Using GeoIP database",
+		zap.String("type", metadata.DatabaseType),
+		zap.Time("built", time.Unix(int64(metadata.BuildEpoch), 0).UTC()),
+	)
 
 	g.mu.Lock()
 	if g.reader != nil {
@@ -150,7 +160,7 @@ func (g *GeoLookup) updateUrl() error {
 	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusNotModified {
-		log.Printf("GeoIP database at %s has not changed", g.url)
+		g.log.Debug("GeoIP database has not changed")
 		return nil
 	} else if response.StatusCode/100 != 2 {
 		return fmt.Errorf("downloading %s returned an error: %s", g.url, response.Status)
@@ -208,7 +218,10 @@ func (g *GeoLookup) updateUrl() error {
 	}
 
 	metadata := reader.Metadata
-	log.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
+	g.log.Info("Using GeoIP database",
+		zap.String("type", metadata.DatabaseType),
+		zap.Time("built", time.Unix(int64(metadata.BuildEpoch), 0).UTC()),
+	)
 
 	g.mu.Lock()
 	if g.reader != nil {
@@ -278,7 +291,7 @@ func IsValidContinent(continent string) bool {
 	}
 }
 
-func LoadGeoIPOverrides(config *goconf.ConfigFile, ignoreErrors bool) (map[*net.IPNet]string, error) {
+func LoadGeoIPOverrides(log *zap.Logger, config *goconf.ConfigFile, ignoreErrors bool) (map[*net.IPNet]string, error) {
 	options, _ := GetStringOptions(config, "geoip-overrides", true)
 	if len(options) == 0 {
 		return nil, nil
@@ -293,7 +306,10 @@ func LoadGeoIPOverrides(config *goconf.ConfigFile, ignoreErrors bool) (map[*net.
 			_, ipNet, err = net.ParseCIDR(option)
 			if err != nil {
 				if ignoreErrors {
-					log.Printf("could not parse CIDR %s (%s), skipping", option, err)
+					log.Error("could not parse CIDR, skipping",
+						zap.String("cidr", option),
+						zap.Error(err),
+					)
 					continue
 				}
 
@@ -303,7 +319,9 @@ func LoadGeoIPOverrides(config *goconf.ConfigFile, ignoreErrors bool) (map[*net.
 			ip = net.ParseIP(option)
 			if ip == nil {
 				if ignoreErrors {
-					log.Printf("could not parse IP %s, skipping", option)
+					log.Error("could not parse IP, skipping",
+						zap.String("ip", option),
+					)
 					continue
 				}
 
@@ -324,14 +342,22 @@ func LoadGeoIPOverrides(config *goconf.ConfigFile, ignoreErrors bool) (map[*net.
 
 		value = strings.ToUpper(strings.TrimSpace(value))
 		if value == "" {
-			log.Printf("IP %s doesn't have a country assigned, skipping", option)
+			log.Warn("IP doesn't have a country assigned, skipping",
+				zap.String("ip", option),
+			)
 			continue
 		} else if !IsValidCountry(value) {
-			log.Printf("Country %s for IP %s is invalid, skipping", value, option)
+			log.Warn("Country for IP is invalid, skipping",
+				zap.String("country", value),
+				zap.String("ip", option),
+			)
 			continue
 		}
 
-		log.Printf("Using country %s for %s", value, ipNet)
+		log.Info("Using country for IP",
+			zap.String("country", value),
+			zap.Stringer("ip", ipNet),
+		)
 		geoipOverrides[ipNet] = value
 	}
 

@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"sort"
 	"strings"
@@ -33,6 +32,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/pion/sdp/v3"
+	"go.uber.org/zap"
 )
 
 const (
@@ -265,7 +265,12 @@ func NewErrorDetail(code string, message string, details interface{}) *Error {
 	if details != nil {
 		var err error
 		if rawDetails, err = json.Marshal(details); err != nil {
-			log.Printf("Could not marshal details %+v for error %s with %s: %s", details, code, message, err)
+			zap.L().Error("Could not marshal error details",
+				zap.String("code", code),
+				zap.String("message", message),
+				zap.Any("details", details),
+				zap.Error(err),
+			)
 			return NewError("internal_error", "Could not marshal error details")
 		}
 	}

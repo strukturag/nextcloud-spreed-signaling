@@ -432,7 +432,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 	for {
 		switch mcuType {
 		case signaling.McuTypeJanus:
-			mcu, err = signaling.NewMcuJanus(ctx, s.url, config)
+			mcu, err = signaling.NewMcuJanus(ctx, s.log, s.url, config)
 			if err == nil {
 				signaling.RegisterJanusMcuStats()
 			}
@@ -691,7 +691,7 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewProxyClient(s, conn, addr)
+	client, err := NewProxyClient(s.log, s, conn, addr)
 	if err != nil {
 		log.Error("Could not create client",
 			zap.String("addr", addr),

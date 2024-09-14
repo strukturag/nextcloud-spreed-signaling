@@ -23,13 +23,14 @@ package signaling
 
 import (
 	"context"
-	"log"
 	"net"
 	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 var (
@@ -140,6 +141,7 @@ func (e *dnsMonitorEntry) runCallbacks(all []net.IP, add []net.IP, keep []net.IP
 }
 
 type DnsMonitor struct {
+	log      *zap.Logger
 	interval time.Duration
 
 	stopCtx  context.Context
@@ -156,13 +158,14 @@ type DnsMonitor struct {
 	checkHostnames func()
 }
 
-func NewDnsMonitor(interval time.Duration) (*DnsMonitor, error) {
+func NewDnsMonitor(log *zap.Logger, interval time.Duration) (*DnsMonitor, error) {
 	if interval < 0 {
 		interval = defaultDnsMonitorInterval
 	}
 
 	stopCtx, stopFunc := context.WithCancel(context.Background())
 	monitor := &DnsMonitor{
+		log:      log,
 		interval: interval,
 
 		stopCtx:  stopCtx,
@@ -335,7 +338,10 @@ func (m *DnsMonitor) checkHostname(entry *dnsMonitorEntry) {
 
 	ips, err := lookupDnsMonitorIP(entry.hostname)
 	if err != nil {
-		log.Printf("Could not lookup %s: %s", entry.hostname, err)
+		m.log.Error("Could not lookup",
+			zap.String("hostname", entry.hostname),
+			zap.Error(err),
+		)
 		return
 	}
 

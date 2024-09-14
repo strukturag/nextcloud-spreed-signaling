@@ -28,7 +28,8 @@ import (
 )
 
 func TestBuiltinRoomSessions(t *testing.T) {
-	sessions, err := NewBuiltinRoomSessions(nil)
+	log := GetLoggerForTest(t)
+	sessions, err := NewBuiltinRoomSessions(log, nil)
 	require.NoError(t, err)
 
 	testRoomSessions(t, sessions)

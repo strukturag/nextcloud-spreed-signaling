@@ -43,9 +43,10 @@ import (
 
 func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*CapabilitiesResponse, http.ResponseWriter) error) (*url.URL, *Capabilities) {
 	require := require.New(t)
+	log := GetLoggerForTest(t)
 	pool, err := NewHttpClientPool(1, false)
 	require.NoError(err)
-	capabilities, err := NewCapabilities("0.0", pool)
+	capabilities, err := NewCapabilities(log, "0.0", pool)
 	require.NoError(err)
 
 	r := mux.NewRouter()
@@ -171,7 +172,6 @@ func SetCapabilitiesGetNow(t *testing.T, capabilities *Capabilities, f func() ti
 
 func TestCapabilities(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	url, capabilities := NewCapabilitiesForTest(t)
 
@@ -214,7 +214,6 @@ func TestCapabilities(t *testing.T) {
 
 func TestInvalidateCapabilities(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -274,7 +273,6 @@ func TestInvalidateCapabilities(t *testing.T) {
 
 func TestCapabilitiesNoCache(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -318,7 +316,6 @@ func TestCapabilitiesNoCache(t *testing.T) {
 
 func TestCapabilitiesShortCache(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -372,7 +369,6 @@ func TestCapabilitiesShortCache(t *testing.T) {
 
 func TestCapabilitiesNoCacheETag(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -413,7 +409,6 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 
 func TestCapabilitiesCacheNoMustRevalidate(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -453,7 +448,6 @@ func TestCapabilitiesCacheNoMustRevalidate(t *testing.T) {
 
 func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -493,7 +487,6 @@ func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 
 func TestCapabilitiesNoCacheMustRevalidate(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {

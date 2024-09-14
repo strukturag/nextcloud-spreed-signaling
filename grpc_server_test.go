@@ -62,11 +62,12 @@ func (s *GrpcServer) WaitForCertPoolReload(ctx context.Context) error {
 }
 
 func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (server *GrpcServer, addr string) {
+	log := GetLoggerForTest(t)
 	for port := 50000; port < 50100; port++ {
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 		config.AddOption("grpc", "listen", addr)
 		var err error
-		server, err = NewGrpcServer(config)
+		server, err = NewGrpcServer(log, config)
 		if isErrorAddressAlreadyInUse(err) {
 			continue
 		}
@@ -96,7 +97,6 @@ func NewGrpcServerForTest(t *testing.T) (server *GrpcServer, addr string) {
 }
 
 func Test_GrpcServer_ReloadCerts(t *testing.T) {
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
@@ -167,8 +167,8 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 }
 
 func Test_GrpcServer_ReloadCA(t *testing.T) {
-	CatchLogForTest(t)
 	require := require.New(t)
+	log := GetLoggerForTest(t)
 	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	require.NoError(err)
 	clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
@@ -211,7 +211,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 		RootCAs:      pool,
 		Certificates: []tls.Certificate{pair1},
 	}
-	client1, err := NewGrpcClient(addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg1)))
+	client1, err := NewGrpcClient(log, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg1)))
 	require.NoError(err)
 	defer client1.Close() // nolint
 
@@ -237,7 +237,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 		RootCAs:      pool,
 		Certificates: []tls.Certificate{pair2},
 	}
-	client2, err := NewGrpcClient(addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg2)))
+	client2, err := NewGrpcClient(log, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg2)))
 	require.NoError(err)
 	defer client2.Close() // nolint
 

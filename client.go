@@ -26,7 +26,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -36,6 +35,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
+	"go.uber.org/zap"
 )
 
 const (
@@ -126,6 +126,7 @@ type ClientGeoIpHandler interface {
 
 type Client struct {
 	ctx     context.Context
+	log     *zap.Logger
 	conn    *websocket.Conn
 	addr    string
 	agent   string
@@ -147,7 +148,7 @@ type Client struct {
 	messageChan  chan *bytes.Buffer
 }
 
-func NewClient(ctx context.Context, conn *websocket.Conn, remoteAddress string, agent string, handler ClientHandler) (*Client, error) {
+func NewClient(ctx context.Context, log *zap.Logger, conn *websocket.Conn, remoteAddress string, agent string, handler ClientHandler) (*Client, error) {
 	remoteAddress = strings.TrimSpace(remoteAddress)
 	if remoteAddress == "" {
 		remoteAddress = "unknown remote address"
@@ -162,11 +163,12 @@ func NewClient(ctx context.Context, conn *websocket.Conn, remoteAddress string, 
 		agent:  agent,
 		logRTT: true,
 	}
-	client.SetConn(conn, remoteAddress, handler)
+	client.SetConn(log, conn, remoteAddress, handler)
 	return client, nil
 }
 
-func (c *Client) SetConn(conn *websocket.Conn, remoteAddress string, handler ClientHandler) {
+func (c *Client) SetConn(log *zap.Logger, conn *websocket.Conn, remoteAddress string, handler ClientHandler) {
+	c.log = log
 	c.conn = conn
 	c.addr = remoteAddress
 	c.SetHandler(handler)
@@ -330,11 +332,15 @@ func (c *Client) ReadPump() {
 	go c.processMessages()
 
 	addr := c.RemoteAddr()
+	log := c.log.With(
+		zap.String("addr", addr),
+	)
+
 	c.mu.Lock()
 	conn := c.conn
 	c.mu.Unlock()
 	if conn == nil {
-		log.Printf("Connection from %s closed while starting readPump", addr)
+		log.Debug("Connection closed while starting readPump")
 		return
 	}
 
@@ -349,11 +355,17 @@ func (c *Client) ReadPump() {
 			rtt := now.Sub(time.Unix(0, ts))
 			if c.logRTT {
 				rtt_ms := rtt.Nanoseconds() / time.Millisecond.Nanoseconds()
+				pongLog := log
 				if sessionId := c.GetSessionId(); sessionId != "" {
-					log.Printf("Client %s has RTT of %d ms (%s)", sessionId, rtt_ms, rtt)
-				} else {
-					log.Printf("Client from %s has RTT of %d ms (%s)", addr, rtt_ms, rtt)
+					pongLog = pongLog.With(
+						zap.String("sessionid", sessionId),
+					)
 				}
+
+				pongLog.Info("Client has RTT",
+					zap.Int64("rttms", rtt_ms),
+					zap.Duration("rtt", rtt),
+				)
 			}
 			c.getHandler().OnRTTReceived(c, rtt)
 		}
@@ -371,21 +383,29 @@ func (c *Client) ReadPump() {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
+				errLog := log
 				if sessionId := c.GetSessionId(); sessionId != "" {
-					log.Printf("Error reading from client %s: %v", sessionId, err)
-				} else {
-					log.Printf("Error reading from %s: %v", addr, err)
+					errLog = errLog.With(
+						zap.String("sessionid", sessionId),
+					)
 				}
+				errLog.Error("Error reading from client",
+					zap.Error(err),
+				)
 			}
 			break
 		}
 
 		if messageType != websocket.TextMessage {
+			errLog := log
 			if sessionId := c.GetSessionId(); sessionId != "" {
-				log.Printf("Unsupported message type %v from client %s", messageType, sessionId)
-			} else {
-				log.Printf("Unsupported message type %v from %s", messageType, addr)
+				errLog = errLog.With(
+					zap.String("sessionid", sessionId),
+				)
 			}
+			errLog.Debug("Unsupported message type",
+				zap.Int("type", messageType),
+			)
 			c.SendError(InvalidFormat)
 			continue
 		}
@@ -394,11 +414,15 @@ func (c *Client) ReadPump() {
 		decodeBuffer.Reset()
 		if _, err := decodeBuffer.ReadFrom(reader); err != nil {
 			bufferPool.Put(decodeBuffer)
+			errLog := log
 			if sessionId := c.GetSessionId(); sessionId != "" {
-				log.Printf("Error reading message from client %s: %v", sessionId, err)
-			} else {
-				log.Printf("Error reading message from %s: %v", addr, err)
+				errLog = errLog.With(
+					zap.String("sessionid", sessionId),
+				)
 			}
+			errLog.Error("Error reading message",
+				zap.Error(err),
+			)
 			break
 		}
 
@@ -448,11 +472,19 @@ func (c *Client) writeInternal(message json.Marshaler) bool {
 			return false
 		}
 
+		log := c.log.With(
+			zap.String("addr", c.RemoteAddr()),
+		)
 		if sessionId := c.GetSessionId(); sessionId != "" {
-			log.Printf("Could not send message %+v to client %s: %v", message, sessionId, err)
-		} else {
-			log.Printf("Could not send message %+v to %s: %v", message, c.RemoteAddr(), err)
+			log = log.With(
+				zap.String("sessionid", sessionId),
+			)
 		}
+
+		log.Error("Could not send message",
+			zap.Any("message", message),
+			zap.Error(err),
+		)
 		closeData = websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "")
 		goto close
 	}
@@ -461,11 +493,18 @@ func (c *Client) writeInternal(message json.Marshaler) bool {
 close:
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.CloseMessage, closeData); err != nil {
+		log := c.log.With(
+			zap.String("addr", c.RemoteAddr()),
+		)
 		if sessionId := c.GetSessionId(); sessionId != "" {
-			log.Printf("Could not send close message to client %s: %v", sessionId, err)
-		} else {
-			log.Printf("Could not send close message to %s: %v", c.RemoteAddr(), err)
+			log = log.With(
+				zap.String("sessionid", sessionId),
+			)
 		}
+
+		log.Error("Could not send close message",
+			zap.Error(err),
+		)
 	}
 	return false
 }
@@ -488,11 +527,17 @@ func (c *Client) writeError(e error) bool { // nolint
 	closeData := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, e.Error())
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.CloseMessage, closeData); err != nil {
+		log := c.log.With(
+			zap.String("addr", c.RemoteAddr()),
+		)
 		if sessionId := c.GetSessionId(); sessionId != "" {
-			log.Printf("Could not send close message to client %s: %v", sessionId, err)
-		} else {
-			log.Printf("Could not send close message to %s: %v", c.RemoteAddr(), err)
+			log = log.With(
+				zap.String("sessionid", sessionId),
+			)
 		}
+		log.Error("Could not send close message",
+			zap.Error(err),
+		)
 	}
 	return false
 }
@@ -536,11 +581,17 @@ func (c *Client) sendPing() bool {
 	msg := strconv.FormatInt(now, 10)
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
+		log := c.log.With(
+			zap.String("addr", c.RemoteAddr()),
+		)
 		if sessionId := c.GetSessionId(); sessionId != "" {
-			log.Printf("Could not send ping to client %s: %v", sessionId, err)
-		} else {
-			log.Printf("Could not send ping to %s: %v", c.RemoteAddr(), err)
+			log = log.With(
+				zap.String("sessionid", sessionId),
+			)
 		}
+		log.Error("Could not send ping",
+			zap.Error(err),
+		)
 		return false
 	}
 

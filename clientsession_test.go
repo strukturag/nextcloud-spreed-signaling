@@ -129,7 +129,6 @@ func Test_permissionsEqual(t *testing.T) {
 
 func TestBandwidth_Client(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
@@ -137,7 +136,7 @@ func TestBandwidth_Client(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu, err := NewTestMCU()
+	mcu, err := NewTestMCU(t)
 	require.NoError(err)
 	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
@@ -185,7 +184,6 @@ func TestBandwidth_Client(t *testing.T) {
 
 func TestBandwidth_Backend(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
 	u, err := url.Parse(server.URL + "/one")
@@ -199,7 +197,7 @@ func TestBandwidth_Backend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu, err := NewTestMCU()
+	mcu, err := NewTestMCU(t)
 	require.NoError(t, err)
 	require.NoError(t, mcu.Start(ctx))
 	defer mcu.Stop()

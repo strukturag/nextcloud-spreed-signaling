@@ -25,10 +25,10 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"log"
 	"net"
 
 	"github.com/dlintw/goconf"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -134,7 +134,7 @@ func (c *reloadableCredentials) Close() {
 	}
 }
 
-func NewReloadableCredentials(config *goconf.ConfigFile, server bool) (credentials.TransportCredentials, error) {
+func NewReloadableCredentials(log *zap.Logger, config *goconf.ConfigFile, server bool) (credentials.TransportCredentials, error) {
 	var prefix string
 	var caPrefix string
 	if server {
@@ -153,7 +153,7 @@ func NewReloadableCredentials(config *goconf.ConfigFile, server bool) (credentia
 	var loader *CertificateReloader
 	var err error
 	if certificateFile != "" && keyFile != "" {
-		loader, err = NewCertificateReloader(certificateFile, keyFile)
+		loader, err = NewCertificateReloader(log, certificateFile, keyFile)
 		if err != nil {
 			return nil, fmt.Errorf("invalid GRPC %s certificate / key in %s / %s: %w", prefix, certificateFile, keyFile, err)
 		}
@@ -161,7 +161,7 @@ func NewReloadableCredentials(config *goconf.ConfigFile, server bool) (credentia
 
 	var pool *CertPoolReloader
 	if caFile != "" {
-		pool, err = NewCertPoolReloader(caFile)
+		pool, err = NewCertPoolReloader(log, caFile)
 		if err != nil {
 			return nil, err
 		}
@@ -173,9 +173,9 @@ func NewReloadableCredentials(config *goconf.ConfigFile, server bool) (credentia
 
 	if loader == nil && pool == nil {
 		if server {
-			log.Printf("WARNING: No GRPC server certificate and/or key configured, running unencrypted")
+			log.Warn("No GRPC server certificate and/or key configured, running unencrypted")
 		} else {
-			log.Printf("WARNING: No GRPC CA configured, expecting unencrypted connections")
+			log.Warn("No GRPC CA configured, expecting unencrypted connections")
 		}
 		return insecure.NewCredentials(), nil
 	}

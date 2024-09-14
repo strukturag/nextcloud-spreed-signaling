@@ -77,14 +77,14 @@ func TestRoom_InCall(t *testing.T) {
 
 func TestRoom_Update(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
+	log := GetLoggerForTest(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(log, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(router))
 
@@ -180,14 +180,14 @@ loop:
 
 func TestRoom_Delete(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
+	log := GetLoggerForTest(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(log, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(router))
 
@@ -294,14 +294,14 @@ loop:
 
 func TestRoom_RoomSessionData(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
+	log := GetLoggerForTest(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(log, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(router))
 
@@ -344,14 +344,14 @@ func TestRoom_RoomSessionData(t *testing.T) {
 
 func TestRoom_InCallAll(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
+	log := GetLoggerForTest(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(log, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(router))
 

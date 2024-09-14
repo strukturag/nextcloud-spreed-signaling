@@ -68,6 +68,7 @@ func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *Back
 
 func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	require := require.New(t)
+	log := GetLoggerForTest(t)
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
@@ -97,9 +98,9 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
 	events := getAsyncEventsForTest(t)
-	hub, err := NewHub(config, events, nil, nil, nil, r, "no-version")
+	hub, err := NewHub(log, config, events, nil, nil, nil, r, "no-version")
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(log, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(r))
 
@@ -121,6 +122,7 @@ func CreateBackendServerWithClusteringForTest(t *testing.T) (*BackendServer, *Ba
 
 func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *goconf.ConfigFile, config2 *goconf.ConfigFile) (*BackendServer, *BackendServer, *Hub, *Hub, *httptest.Server, *httptest.Server) {
 	require := require.New(t)
+	log := GetLoggerForTest(t)
 	r1 := mux.NewRouter()
 	registerBackendHandler(t, r1)
 
@@ -156,13 +158,13 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	config1.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config1.AddOption("geoip", "url", "none")
 
-	events1, err := NewAsyncEvents(nats)
+	events1, err := NewAsyncEvents(log, nats)
 	require.NoError(err)
 	t.Cleanup(func() {
 		events1.Close()
 	})
 	client1, _ := NewGrpcClientsForTest(t, addr2)
-	hub1, err := NewHub(config1, events1, grpcServer1, client1, nil, r1, "no-version")
+	hub1, err := NewHub(log, config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	require.NoError(err)
 
 	if config2 == nil {
@@ -179,19 +181,19 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	config2.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config2.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config2.AddOption("geoip", "url", "none")
-	events2, err := NewAsyncEvents(nats)
+	events2, err := NewAsyncEvents(log, nats)
 	require.NoError(err)
 	t.Cleanup(func() {
 		events2.Close()
 	})
 	client2, _ := NewGrpcClientsForTest(t, addr1)
-	hub2, err := NewHub(config2, events2, grpcServer2, client2, nil, r2, "no-version")
+	hub2, err := NewHub(log, config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	require.NoError(err)
 
-	b1, err := NewBackendServer(config1, hub1, "no-version")
+	b1, err := NewBackendServer(log, config1, hub1, "no-version")
 	require.NoError(err)
 	require.NoError(b1.Start(r1))
-	b2, err := NewBackendServer(config2, hub2, "no-version")
+	b2, err := NewBackendServer(log, config2, hub2, "no-version")
 	require.NoError(err)
 	require.NoError(b2.Start(r2))
 
@@ -252,7 +254,6 @@ func expectRoomlistEvent(ch chan *AsyncMessage, msgType string) (*EventServerMes
 
 func TestBackendServer_NoAuth(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -274,7 +275,6 @@ func TestBackendServer_NoAuth(t *testing.T) {
 
 func TestBackendServer_InvalidAuth(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -298,7 +298,6 @@ func TestBackendServer_InvalidAuth(t *testing.T) {
 
 func TestBackendServer_OldCompatAuth(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -341,7 +340,6 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 
 func TestBackendServer_InvalidBody(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -358,7 +356,6 @@ func TestBackendServer_InvalidBody(t *testing.T) {
 
 func TestBackendServer_UnsupportedRequest(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -379,7 +376,6 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 }
 
 func TestBackendServer_RoomInvite(t *testing.T) {
-	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -447,7 +443,6 @@ func RunTestBackendServer_RoomInvite(t *testing.T) {
 }
 
 func TestBackendServer_RoomDisinvite(t *testing.T) {
-	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -538,7 +533,6 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 
 func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -629,7 +623,6 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 }
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
-	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -699,7 +692,6 @@ func RunTestBackendServer_RoomUpdate(t *testing.T) {
 }
 
 func TestBackendServer_RoomDelete(t *testing.T) {
-	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -766,7 +758,6 @@ func RunTestBackendServer_RoomDelete(t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
-	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -874,7 +865,6 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 
 func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -943,7 +933,6 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 
 func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1119,7 +1108,6 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 }
 
 func TestBackendServer_InCallAll(t *testing.T) {
-	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -1318,7 +1306,6 @@ func TestBackendServer_InCallAll(t *testing.T) {
 
 func TestBackendServer_RoomMessage(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1367,7 +1354,6 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 
 func TestBackendServer_TurnCredentials(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTestWithTurn(t)
@@ -1397,7 +1383,6 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 }
 
 func TestBackendServer_StatsAllowedIps(t *testing.T) {
-	CatchLogForTest(t)
 	config := goconf.NewConfigFile()
 	config.AddOption("app", "trustedproxies", "1.2.3.4")
 	config.AddOption("stats", "allowed_ips", "127.0.0.1, 192.168.0.1, 192.168.1.1/24")
@@ -1495,7 +1480,6 @@ func Test_IsNumeric(t *testing.T) {
 
 func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1539,7 +1523,6 @@ func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 
 func TestBackendServer_DialoutAccepted(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1626,7 +1609,6 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 
 func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1713,7 +1695,6 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 
 func TestBackendServer_DialoutRejected(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)

@@ -52,8 +52,9 @@ func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
 }
 
 func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcClients, *DnsMonitor) {
+	log := GetLoggerForTest(t)
 	dnsMonitor := newDnsMonitorForTest(t, time.Hour) // will be updated manually
-	client, err := NewGrpcClients(config, etcdClient, dnsMonitor)
+	client, err := NewGrpcClients(log, config, etcdClient, dnsMonitor)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		client.Close()
@@ -77,7 +78,8 @@ func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) (*GrpcClients
 	config.AddOption("grpc", "targettype", "etcd")
 	config.AddOption("grpc", "targetprefix", "/grpctargets")
 
-	etcdClient, err := NewEtcdClient(config, "")
+	log := GetLoggerForTest(t)
+	etcdClient, err := NewEtcdClient(log, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, etcdClient.Close())
@@ -108,7 +110,6 @@ func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 }
 
 func Test_GrpcClients_EtcdInitial(t *testing.T) {
-	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, addr1 := NewGrpcServerForTest(t)
 		_, addr2 := NewGrpcServerForTest(t)
@@ -130,7 +131,6 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) {
 
 func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	etcd := NewEtcdForTest(t)
 	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
@@ -176,7 +176,6 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 
 func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	etcd := NewEtcdForTest(t)
 	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
@@ -214,7 +213,6 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 }
 
 func Test_GrpcClients_DnsDiscovery(t *testing.T) {
-	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		lookup := newMockDnsLookupForTest(t)
@@ -262,7 +260,6 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 
 func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	lookup := newMockDnsLookupForTest(t)
 	target := "testgrpc:12345"
@@ -292,7 +289,6 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 }
 
 func Test_GrpcClients_Encryption(t *testing.T) {
-	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		require := require.New(t)
 		serverKey, err := rsa.GenerateKey(rand.Reader, 1024)

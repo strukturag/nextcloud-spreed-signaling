@@ -86,8 +86,9 @@ func (m *mockDnsLookup) lookup(host string) ([]net.IP, error) {
 func newDnsMonitorForTest(t *testing.T, interval time.Duration) *DnsMonitor {
 	t.Helper()
 	require := require.New(t)
+	log := GetLoggerForTest(t)
 
-	monitor, err := NewDnsMonitor(interval)
+	monitor, err := NewDnsMonitor(log, interval)
 	require.NoError(err)
 
 	t.Cleanup(func() {

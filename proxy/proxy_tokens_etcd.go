@@ -54,7 +54,7 @@ type tokensEtcd struct {
 }
 
 func NewProxyTokensEtcd(log *zap.Logger, config *goconf.ConfigFile) (ProxyTokens, error) {
-	client, err := signaling.NewEtcdClient(config, "tokens")
+	client, err := signaling.NewEtcdClient(log, config, "tokens")
 	if err != nil {
 		return nil, err
 	}

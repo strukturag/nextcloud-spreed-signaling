@@ -22,37 +22,39 @@
 package signaling
 
 import (
-	"io"
-	"log"
+	"sync"
 	"testing"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 )
 
 var (
-	prevWriter io.Writer
-	prevFlags  int
+	loggers   map[*testing.T]*zap.Logger
+	loggersMu sync.Mutex
 )
 
-func init() {
-	prevWriter = log.Writer()
-	prevFlags = log.Flags()
+func removeLoggerForTest(t *testing.T) {
+	loggersMu.Lock()
+	defer loggersMu.Unlock()
+
+	delete(loggers, t)
 }
 
-type testLogWriter struct {
-	t testing.TB
-}
+func GetLoggerForTest(t *testing.T) *zap.Logger {
+	loggersMu.Lock()
+	defer loggersMu.Unlock()
 
-func (w *testLogWriter) Write(b []byte) (int, error) {
-	w.t.Helper()
-	w.t.Logf("%s", string(b))
-	return len(b), nil
-}
-
-func CatchLogForTest(t testing.TB) {
-	t.Cleanup(func() {
-		log.SetOutput(prevWriter)
-		log.SetFlags(prevFlags)
-	})
-
-	log.SetOutput(&testLogWriter{t})
-	log.SetFlags(prevFlags | log.Lshortfile)
+	log, found := loggers[t]
+	if !found {
+		if loggers == nil {
+			loggers = make(map[*testing.T]*zap.Logger)
+		}
+		log = zaptest.NewLogger(t)
+		loggers[t] = log
+		t.Cleanup(func() {
+			removeLoggerForTest(t)
+		})
+	}
+	return log
 }

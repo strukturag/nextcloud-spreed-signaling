@@ -33,7 +33,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"sync"
@@ -42,6 +41,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/notedit/janus-go"
+	"go.uber.org/zap"
 )
 
 const (
@@ -221,6 +221,7 @@ func (l *dummyGatewayListener) ConnectionInterrupted() {
 
 // Gateway represents a connection to an instance of the Janus Gateway.
 type JanusGateway struct {
+	log      *zap.Logger
 	listener GatewayListener
 
 	// Sessions is a map of the currently active sessions to the gateway.
@@ -258,7 +259,7 @@ type JanusGateway struct {
 // 	return gateway, nil
 // }
 
-func NewJanusGateway(ctx context.Context, wsURL string, listener GatewayListener) (*JanusGateway, error) {
+func NewJanusGateway(ctx context.Context, log *zap.Logger, wsURL string, listener GatewayListener) (*JanusGateway, error) {
 	conn, _, err := janusDialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
 		return nil, err
@@ -268,6 +269,7 @@ func NewJanusGateway(ctx context.Context, wsURL string, listener GatewayListener
 		listener = new(dummyGatewayListener)
 	}
 	gateway := &JanusGateway{
+		log:          log,
 		conn:         conn,
 		listener:     listener,
 		transactions: make(map[uint64]*transaction),
@@ -376,7 +378,9 @@ loop:
 			err := gateway.conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(20*time.Second))
 			gateway.writeMu.Unlock()
 			if err != nil {
-				log.Println("Error sending ping to MCU:", err)
+				gateway.log.Error("Error sending ping to MCU",
+					zap.Error(err),
+				)
 			}
 		case <-gateway.closer.C:
 			break loop
@@ -401,7 +405,9 @@ func (gateway *JanusGateway) recv() {
 
 		_, reader, err := conn.NextReader()
 		if err != nil {
-			log.Printf("conn.NextReader: %s", err)
+			gateway.log.Error("conn.NextReader",
+				zap.Error(err),
+			)
 			gateway.writeMu.Lock()
 			gateway.conn = nil
 			gateway.writeMu.Unlock()
@@ -412,7 +418,9 @@ func (gateway *JanusGateway) recv() {
 
 		decodeBuffer.Reset()
 		if _, err := decodeBuffer.ReadFrom(reader); err != nil {
-			log.Printf("decodeBuffer.ReadFrom: %s", err)
+			gateway.log.Error("decodeBuffer.ReadFrom",
+				zap.Error(err),
+			)
 			gateway.writeMu.Lock()
 			gateway.conn = nil
 			gateway.writeMu.Unlock()
@@ -425,13 +433,18 @@ func (gateway *JanusGateway) recv() {
 		decoder := json.NewDecoder(data)
 		decoder.UseNumber()
 		if err := decoder.Decode(&base); err != nil {
-			log.Printf("json.Unmarshal of %s: %s", decodeBuffer.String(), err)
+			gateway.log.Error("json.Unmarshal",
+				zap.ByteString("data", decodeBuffer.Bytes()),
+				zap.Error(err),
+			)
 			continue
 		}
 
 		typeFunc, ok := msgtypes[base.Type]
 		if !ok {
-			log.Printf("Unknown message type received: %s", decodeBuffer.String())
+			gateway.log.Error("Unknown message type received",
+				zap.ByteString("data", decodeBuffer.Bytes()),
+			)
 			continue
 		}
 
@@ -440,7 +453,10 @@ func (gateway *JanusGateway) recv() {
 		decoder = json.NewDecoder(data)
 		decoder.UseNumber()
 		if err := decoder.Decode(&msg); err != nil {
-			log.Printf("json.Unmarshal of %s: %s", decodeBuffer.String(), err)
+			gateway.log.Error("json.Unmarshal",
+				zap.ByteString("data", decodeBuffer.Bytes()),
+				zap.Error(err),
+			)
 			continue // Decode error
 		}
 
@@ -450,14 +466,19 @@ func (gateway *JanusGateway) recv() {
 			if base.Handle == 0 {
 				// Nope. No idea what's going on...
 				// Error()
-				log.Printf("Received event without handle, ignoring: %s", decodeBuffer.String())
+				gateway.log.Warn("Received event without handle, ignoring",
+					zap.ByteString("data", decodeBuffer.Bytes()),
+				)
 			} else {
 				// Lookup Session
 				gateway.Lock()
 				session := gateway.Sessions[base.Session]
 				gateway.Unlock()
 				if session == nil {
-					log.Printf("Unable to deliver message %s. Session %d gone?", decodeBuffer.String(), base.Session)
+					gateway.log.Warn("Unable to deliver message. Session gone?",
+						zap.ByteString("data", decodeBuffer.Bytes()),
+						zap.Uint64("sessionid", base.Session),
+					)
 					continue
 				}
 
@@ -466,7 +487,10 @@ func (gateway *JanusGateway) recv() {
 				handle := session.Handles[base.Handle]
 				session.Unlock()
 				if handle == nil {
-					log.Printf("Unable to deliver message %s. Handle %d gone?", decodeBuffer.String(), base.Handle)
+					gateway.log.Warn("Unable to deliver message. Handle gone?",
+						zap.ByteString("data", decodeBuffer.Bytes()),
+						zap.Uint64("handle", base.Handle),
+					)
 					continue
 				}
 
@@ -476,7 +500,10 @@ func (gateway *JanusGateway) recv() {
 		} else {
 			id, err := strconv.ParseUint(base.ID, 10, 64)
 			if err != nil {
-				log.Printf("Could not decode transaction id %s: %s", base.ID, err)
+				gateway.log.Warn("Could not decode transaction id",
+					zap.String("id", base.ID),
+					zap.Error(err),
+				)
 				continue
 			}
 
@@ -486,7 +513,9 @@ func (gateway *JanusGateway) recv() {
 			gateway.Unlock()
 			if transaction == nil {
 				// Error()
-				log.Printf("Received event for unknown transaction, ignoring: %s", decodeBuffer.String())
+				gateway.log.Warn("Received event for unknown transaction, ignoring",
+					zap.ByteString("data", decodeBuffer.Bytes()),
+				)
 				continue
 			}
 

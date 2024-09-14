@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -34,6 +33,7 @@ import (
 	"time"
 
 	"github.com/marcw/cachecontrol"
+	"go.uber.org/zap"
 )
 
 const (
@@ -103,12 +103,16 @@ func (e *capabilitiesEntry) errorIfMustRevalidate(err error) error {
 	return err
 }
 
-func (e *capabilitiesEntry) update(response *http.Response, now time.Time) error {
+func (e *capabilitiesEntry) update(log *zap.Logger, response *http.Response, now time.Time) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	url := response.Request.URL
 	e.etag = response.Header.Get("ETag")
+
+	log = log.With(
+		zap.Stringer("url", url),
+	)
 
 	var maxAge time.Duration
 	if cacheControl := response.Header.Get("Cache-Control"); cacheControl != "" {
@@ -126,55 +130,81 @@ func (e *capabilitiesEntry) update(response *http.Response, now time.Time) error
 	e.nextUpdate = now.Add(maxAge)
 
 	if response.StatusCode == http.StatusNotModified {
-		log.Printf("Capabilities %+v from %s have not changed", e.capabilities, url)
+		log.Debug("Capabilities have not changed",
+			zap.Any("capabilities", e.capabilities),
+		)
 		return nil
 	} else if response.StatusCode != http.StatusOK {
-		log.Printf("Received unexpected HTTP status from %s: %s", url, response.Status)
+		log.Error("Received unexpected HTTP status",
+			zap.String("status", response.Status),
+		)
 		return e.errorIfMustRevalidate(ErrUnexpectedHttpStatus)
 	}
 
 	ct := response.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
-		log.Printf("Received unsupported content-type from %s: %s (%s)", url, ct, response.Status)
+		log.Error("Received unsupported content-type",
+			zap.String("contenttype", ct),
+			zap.String("status", response.Status),
+		)
 		return e.errorIfMustRevalidate(ErrUnsupportedContentType)
 	}
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Printf("Could not read response body from %s: %s", url, err)
+		log.Error("Could not read response body",
+			zap.Error(err),
+		)
 		return e.errorIfMustRevalidate(err)
 	}
 
 	var ocs OcsResponse
 	if err := json.Unmarshal(body, &ocs); err != nil {
-		log.Printf("Could not decode OCS response %s from %s: %s", string(body), url, err)
+		log.Error("Could not decode OCS response",
+			zap.ByteString("body", body),
+			zap.Error(err),
+		)
 		return e.errorIfMustRevalidate(err)
 	} else if ocs.Ocs == nil || len(ocs.Ocs.Data) == 0 {
-		log.Printf("Incomplete OCS response %s from %s", string(body), url)
+		log.Error("Incomplete OCS response",
+			zap.ByteString("body", body),
+		)
 		return e.errorIfMustRevalidate(ErrIncompleteResponse)
 	}
 
 	var capaResponse CapabilitiesResponse
 	if err := json.Unmarshal(ocs.Ocs.Data, &capaResponse); err != nil {
-		log.Printf("Could not decode OCS response body %s from %s: %s", string(ocs.Ocs.Data), url, err)
+		log.Error("Could not decode OCS response body",
+			zap.ByteString("body", ocs.Ocs.Data),
+			zap.Error(err),
+		)
 		return e.errorIfMustRevalidate(err)
 	}
 
 	capaObj, found := capaResponse.Capabilities[AppNameSpreed]
 	if !found || len(capaObj) == 0 {
-		log.Printf("No capabilities received for app spreed from %s: %+v", url, capaResponse)
+		log.Warn("No capabilities received for app",
+			zap.String("app", AppNameSpreed),
+			zap.Any("capabilities", capaResponse),
+		)
 		e.capabilities = nil
 		return nil
 	}
 
 	var capa map[string]interface{}
 	if err := json.Unmarshal(capaObj, &capa); err != nil {
-		log.Printf("Unsupported capabilities received for app spreed from %s: %+v", url, capaResponse)
+		log.Warn("Unsupported capabilities received for app",
+			zap.String("app", AppNameSpreed),
+			zap.Any("capabilities", capaResponse),
+			zap.Error(err),
+		)
 		e.capabilities = nil
 		return nil
 	}
 
-	log.Printf("Received capabilities %+v from %s", capa, url)
+	log.Info("Received capabilities",
+		zap.Any("capabilities", capa),
+	)
 	e.capabilities = capa
 	return nil
 }
@@ -187,7 +217,8 @@ func (e *capabilitiesEntry) GetCapabilities() map[string]interface{} {
 }
 
 type Capabilities struct {
-	mu sync.RWMutex
+	log *zap.Logger
+	mu  sync.RWMutex
 
 	// Can be overwritten by tests.
 	getNow func() time.Time
@@ -198,8 +229,9 @@ type Capabilities struct {
 	nextInvalidate map[string]time.Time
 }
 
-func NewCapabilities(version string, pool *HttpClientPool) (*Capabilities, error) {
+func NewCapabilities(log *zap.Logger, version string, pool *HttpClientPool) (*Capabilities, error) {
 	result := &Capabilities{
+		log:    log,
 		getNow: time.Now,
 
 		version:        version,
@@ -289,18 +321,26 @@ func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (map[st
 		capUrl.Path = capUrl.Path[:pos+11] + "/cloud/capabilities"
 	}
 
-	log.Printf("Capabilities expired for %s, updating", capUrl.String())
+	c.log.Debug("Capabilities expired, updating",
+		zap.Stringer("url", &capUrl),
+	)
 
 	client, pool, err := c.pool.Get(ctx, &capUrl)
 	if err != nil {
-		log.Printf("Could not get client for host %s: %s", capUrl.Host, err)
+		c.log.Error("Could not get client",
+			zap.String("host", capUrl.Host),
+			zap.Error(err),
+		)
 		return nil, false, err
 	}
 	defer pool.Put(client)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", capUrl.String(), nil)
 	if err != nil {
-		log.Printf("Could not create request to %s: %s", &capUrl, err)
+		c.log.Error("Could not create request",
+			zap.Stringer("url", &capUrl),
+			zap.Error(err),
+		)
 		return nil, false, err
 	}
 	req.Header.Set("Accept", "application/json")
@@ -320,7 +360,7 @@ func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (map[st
 		entry = c.newCapabilitiesEntry(key)
 	}
 
-	if err := entry.update(resp, c.getNow()); err != nil {
+	if err := entry.update(c.log, resp, c.getNow()); err != nil {
 		return nil, false, err
 	}
 
@@ -330,7 +370,10 @@ func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (map[st
 func (c *Capabilities) HasCapabilityFeature(ctx context.Context, u *url.URL, feature string) bool {
 	caps, _, err := c.loadCapabilities(ctx, u)
 	if err != nil {
-		log.Printf("Could not get capabilities for %s: %s", u, err)
+		c.log.Error("Could not get capabilities",
+			zap.Stringer("url", u),
+			zap.Error(err),
+		)
 		return false
 	}
 
@@ -341,7 +384,10 @@ func (c *Capabilities) HasCapabilityFeature(ctx context.Context, u *url.URL, fea
 
 	features, ok := featuresInterface.([]interface{})
 	if !ok {
-		log.Printf("Invalid features list received for %s: %+v", u, featuresInterface)
+		c.log.Error("Invalid features list received",
+			zap.Stringer("url", u),
+			zap.Any("list", featuresInterface),
+		)
 		return false
 	}
 
@@ -356,7 +402,10 @@ func (c *Capabilities) HasCapabilityFeature(ctx context.Context, u *url.URL, fea
 func (c *Capabilities) getConfigGroup(ctx context.Context, u *url.URL, group string) (map[string]interface{}, bool, bool) {
 	caps, cached, err := c.loadCapabilities(ctx, u)
 	if err != nil {
-		log.Printf("Could not get capabilities for %s: %s", u, err)
+		c.log.Error("Could not get capabilities",
+			zap.Stringer("url", u),
+			zap.Error(err),
+		)
 		return nil, cached, false
 	}
 
@@ -367,7 +416,10 @@ func (c *Capabilities) getConfigGroup(ctx context.Context, u *url.URL, group str
 
 	config, ok := configInterface.(map[string]interface{})
 	if !ok {
-		log.Printf("Invalid config mapping received from %s: %+v", u, configInterface)
+		c.log.Error("Invalid config mapping received",
+			zap.Stringer("url", u),
+			zap.Any("mapping", configInterface),
+		)
 		return nil, cached, false
 	}
 
@@ -378,7 +430,11 @@ func (c *Capabilities) getConfigGroup(ctx context.Context, u *url.URL, group str
 
 	groupConfig, ok := groupInterface.(map[string]interface{})
 	if !ok {
-		log.Printf("Invalid group mapping \"%s\" received from %s: %+v", group, u, groupInterface)
+		c.log.Error("Invalid group mapping received",
+			zap.String("group", group),
+			zap.Stringer("url", u),
+			zap.Any("mapping", groupInterface),
+		)
 		return nil, cached, false
 	}
 
@@ -404,7 +460,11 @@ func (c *Capabilities) GetIntegerConfig(ctx context.Context, u *url.URL, group, 
 	case float64:
 		return int(value), cached, true
 	default:
-		log.Printf("Invalid config value for \"%s\" received from %s: %+v", key, u, value)
+		c.log.Error("Invalid config value received",
+			zap.String("key", key),
+			zap.Stringer("url", u),
+			zap.Any("value", value),
+		)
 	}
 
 	return 0, cached, false
@@ -425,7 +485,11 @@ func (c *Capabilities) GetStringConfig(ctx context.Context, u *url.URL, group, k
 	case string:
 		return value, cached, true
 	default:
-		log.Printf("Invalid config value for \"%s\" received from %s: %+v", key, u, value)
+		c.log.Error("Invalid config value received",
+			zap.String("key", key),
+			zap.Stringer("url", u),
+			zap.Any("value", value),
+		)
 	}
 
 	return "", cached, false

@@ -34,7 +34,6 @@ import (
 
 func TestVirtualSession(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
@@ -262,7 +261,6 @@ func checkHasEntryWithInCall(message *RoomEventServerMessage, sessionId string, 
 
 func TestVirtualSessionCustomInCall(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
@@ -417,7 +415,6 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 
 func TestVirtualSessionCleanup(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)

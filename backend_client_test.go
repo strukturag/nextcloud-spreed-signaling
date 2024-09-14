@@ -67,7 +67,7 @@ func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
 
 func TestPostOnRedirect(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	log := GetLoggerForTest(t)
 	require := require.New(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +96,7 @@ func TestPostOnRedirect(t *testing.T) {
 	if u.Scheme == "http" {
 		config.AddOption("backend", "allowhttp", "true")
 	}
-	client, err := NewBackendClient(config, 1, "0.0", nil)
+	client, err := NewBackendClient(log, config, 1, "0.0", nil)
 	require.NoError(err)
 
 	ctx := context.Background()
@@ -114,7 +114,7 @@ func TestPostOnRedirect(t *testing.T) {
 
 func TestPostOnRedirectDifferentHost(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	log := GetLoggerForTest(t)
 	require := require.New(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +132,7 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 	if u.Scheme == "http" {
 		config.AddOption("backend", "allowhttp", "true")
 	}
-	client, err := NewBackendClient(config, 1, "0.0", nil)
+	client, err := NewBackendClient(log, config, 1, "0.0", nil)
 	require.NoError(err)
 
 	ctx := context.Background()
@@ -151,7 +151,7 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 
 func TestPostOnRedirectStatusFound(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	log := GetLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	r := mux.NewRouter()
@@ -177,7 +177,7 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 	if u.Scheme == "http" {
 		config.AddOption("backend", "allowhttp", "true")
 	}
-	client, err := NewBackendClient(config, 1, "0.0", nil)
+	client, err := NewBackendClient(log, config, 1, "0.0", nil)
 	require.NoError(err)
 
 	ctx := context.Background()
@@ -193,7 +193,7 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 
 func TestHandleThrottled(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	log := GetLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	r := mux.NewRouter()
@@ -212,7 +212,7 @@ func TestHandleThrottled(t *testing.T) {
 	if u.Scheme == "http" {
 		config.AddOption("backend", "allowhttp", "true")
 	}
-	client, err := NewBackendClient(config, 1, "0.0", nil)
+	client, err := NewBackendClient(log, config, 1, "0.0", nil)
 	require.NoError(err)
 
 	ctx := context.Background()
