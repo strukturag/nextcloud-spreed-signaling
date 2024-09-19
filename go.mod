@@ -24,7 +24,7 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.15
 	go.etcd.io/etcd/server/v3 v3.5.15
 	go.uber.org/zap v1.27.0
-	google.golang.org/grpc v1.66.0
+	google.golang.org/grpc v1.66.2
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1
 	google.golang.org/protobuf v1.34.2
 )
