@@ -25,13 +25,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v4"
+	"go.uber.org/zap"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
@@ -46,14 +46,15 @@ type tokenCacheEntry struct {
 }
 
 type tokensEtcd struct {
+	log    *zap.Logger
 	client *signaling.EtcdClient
 
 	tokenFormats atomic.Value
 	tokenCache   *signaling.LruCache
 }
 
-func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
-	client, err := signaling.NewEtcdClient(config, "tokens")
+func NewProxyTokensEtcd(log *zap.Logger, config *goconf.ConfigFile) (ProxyTokens, error) {
+	client, err := signaling.NewEtcdClient(log, config, "tokens")
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +64,7 @@ func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
 	}
 
 	result := &tokensEtcd{
+		log:        log,
 		client:     client,
 		tokenCache: signaling.NewLruCache(tokenCacheSize),
 	}
@@ -94,7 +96,9 @@ func (t *tokensEtcd) getByKey(id string, key string) (*ProxyToken, error) {
 	if len(resp.Kvs) == 0 {
 		return nil, nil
 	} else if len(resp.Kvs) > 1 {
-		log.Printf("Received multiple keys for %s, using last", key)
+		t.log.Warn("Received multiple entries, using last",
+			zap.String("key", key),
+		)
 	}
 
 	keyValue := resp.Kvs[len(resp.Kvs)-1].Value
@@ -123,7 +127,11 @@ func (t *tokensEtcd) Get(id string) (*ProxyToken, error) {
 	for _, k := range t.getKeys(id) {
 		token, err := t.getByKey(id, k)
 		if err != nil {
-			log.Printf("Could not get public key from %s for %s: %s", k, id, err)
+			t.log.Error("Could not get public key",
+				zap.String("id", id),
+				zap.String("key", k),
+				zap.Error(err),
+			)
 			continue
 		} else if token == nil {
 			continue
@@ -151,18 +159,24 @@ func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 	}
 
 	t.tokenFormats.Store(tokenFormats)
-	log.Printf("Using %v as token formats", tokenFormats)
+	t.log.Info("Using token formats",
+		zap.Any("formats", tokenFormats),
+	)
 	return nil
 }
 
 func (t *tokensEtcd) Reload(config *goconf.ConfigFile) {
 	if err := t.load(config, true); err != nil {
-		log.Printf("Error reloading etcd tokens: %s", err)
+		t.log.Error("Error reloading etcd tokens",
+			zap.Error(err),
+		)
 	}
 }
 
 func (t *tokensEtcd) Close() {
 	if err := t.client.Close(); err != nil {
-		log.Printf("Error while closing etcd client: %s", err)
+		t.log.Error("Error closing etcd client",
+			zap.Error(err),
+		)
 	}
 }

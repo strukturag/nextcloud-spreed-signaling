@@ -27,9 +27,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"sync/atomic"
 
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -49,6 +49,7 @@ func getMD(md metadata.MD, key string) string {
 
 // remoteGrpcClient is a remote client connecting from a GRPC proxy to a Hub.
 type remoteGrpcClient struct {
+	log    *zap.Logger
 	hub    *Hub
 	client RpcSessions_ProxySessionServer
 
@@ -64,7 +65,7 @@ type remoteGrpcClient struct {
 	messages chan WritableClientMessage
 }
 
-func newRemoteGrpcClient(hub *Hub, request RpcSessions_ProxySessionServer) (*remoteGrpcClient, error) {
+func newRemoteGrpcClient(log *zap.Logger, hub *Hub, request RpcSessions_ProxySessionServer) (*remoteGrpcClient, error) {
 	md, found := metadata.FromIncomingContext(request.Context())
 	if !found {
 		return nil, errors.New("no metadata provided")
@@ -73,6 +74,7 @@ func newRemoteGrpcClient(hub *Hub, request RpcSessions_ProxySessionServer) (*rem
 	closeCtx, closeFunc := context.WithCancelCause(context.Background())
 
 	result := &remoteGrpcClient{
+		log:    log,
 		hub:    hub,
 		client: request,
 
@@ -105,7 +107,10 @@ func (c *remoteGrpcClient) readPump() {
 			}
 
 			if status.Code(err) != codes.Canceled {
-				log.Printf("Error reading from remote client for session %s: %s", c.sessionId, err)
+				c.log.Error("Error reading from remote client for session",
+					zap.String("sessionid", c.sessionId),
+					zap.Error(err),
+				)
 				closeError = err
 			}
 			break
@@ -193,7 +198,10 @@ func (c *remoteGrpcClient) SendMessage(message WritableClientMessage) bool {
 	case c.messages <- message:
 		return true
 	default:
-		log.Printf("Message queue for remote client of session %s is full, not sending %+v", c.sessionId, message)
+		c.log.Warn("Message queue for remote client of session is full, not sending",
+			zap.String("sessionid", c.sessionId),
+			zap.Any("message", message),
+		)
 		return false
 	}
 }
@@ -215,7 +223,11 @@ func (c *remoteGrpcClient) run() error {
 		case msg := <-c.messages:
 			data, err := json.Marshal(msg)
 			if err != nil {
-				log.Printf("Error marshalling %+v for remote client for session %s: %s", msg, c.sessionId, err)
+				c.log.Error("Error marshalling message for remote client for session",
+					zap.Any("message", msg),
+					zap.String("sessionid", c.sessionId),
+					zap.Error(err),
+				)
 				continue
 			}
 

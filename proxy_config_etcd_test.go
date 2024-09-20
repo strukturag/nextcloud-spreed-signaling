@@ -40,10 +40,11 @@ type TestProxyInformationEtcd struct {
 
 func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*embed.Etcd, ProxyConfig) {
 	t.Helper()
+	log := GetLoggerForTest(t)
 	etcd, client := NewEtcdClientForTest(t)
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "keyprefix", "proxies/")
-	p, err := NewProxyConfigEtcd(cfg, client, proxy)
+	p, err := NewProxyConfigEtcd(log, cfg, client, proxy)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		p.Stop()
@@ -60,7 +61,6 @@ func SetEtcdProxy(t *testing.T, etcd *embed.Etcd, path string, proxy *TestProxyI
 
 func TestProxyConfigEtcd(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	proxy := newMcuProxyForConfig(t)
 	etcd, config := newProxyConfigEtcd(t, proxy)
 

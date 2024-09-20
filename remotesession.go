@@ -26,12 +26,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type RemoteSession struct {
+	log          *zap.Logger
 	hub          *Hub
 	client       *Client
 	remoteClient *GrpcClient
@@ -40,8 +42,12 @@ type RemoteSession struct {
 	proxy atomic.Pointer[SessionProxy]
 }
 
-func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessionId string) (*RemoteSession, error) {
+func NewRemoteSession(log *zap.Logger, hub *Hub, client *Client, remoteClient *GrpcClient, sessionId string) (*RemoteSession, error) {
 	remoteSession := &RemoteSession{
+		log: log.With(
+			zap.String("sessionid", sessionId),
+			zap.String("target", remoteClient.Target()),
+		),
 		hub:          hub,
 		client:       client,
 		remoteClient: remoteClient,
@@ -97,7 +103,9 @@ func (s *RemoteSession) OnProxyMessage(msg *ServerSessionMessage) error {
 
 func (s *RemoteSession) OnProxyClose(err error) {
 	if err != nil {
-		log.Printf("Proxy connection for session %s to %s was closed with error: %s", s.sessionId, s.remoteClient.Target(), err)
+		s.log.Error("Proxy connection for session was closed with error",
+			zap.Error(err),
+		)
 	}
 	s.Close()
 }
@@ -145,7 +153,10 @@ func (s *RemoteSession) OnClosed(client HandlerClient) {
 
 func (s *RemoteSession) OnMessageReceived(client HandlerClient, message []byte) {
 	if err := s.sendProxyMessage(message); err != nil {
-		log.Printf("Error sending %s to the proxy for session %s: %s", string(message), s.sessionId, err)
+		s.log.Error("Error sending message to the remote session proxy",
+			zap.ByteString("message", message),
+			zap.Error(err),
+		)
 		s.Close()
 	}
 }

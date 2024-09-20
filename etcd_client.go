@@ -25,7 +25,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,6 +49,7 @@ type EtcdClientWatcher interface {
 }
 
 type EtcdClient struct {
+	log           *zap.Logger
 	compatSection string
 
 	mu        sync.Mutex
@@ -57,8 +57,9 @@ type EtcdClient struct {
 	listeners map[EtcdClientListener]bool
 }
 
-func NewEtcdClient(config *goconf.ConfigFile, compatSection string) (*EtcdClient, error) {
+func NewEtcdClient(log *zap.Logger, config *goconf.ConfigFile, compatSection string) (*EtcdClient, error) {
 	result := &EtcdClient{
+		log:           log,
 		compatSection: compatSection,
 	}
 	if err := result.load(config, false); err != nil {
@@ -73,7 +74,10 @@ func (c *EtcdClient) getConfigStringWithFallback(config *goconf.ConfigFile, opti
 	if value == "" && c.compatSection != "" {
 		value, _ = config.GetString(c.compatSection, option)
 		if value != "" {
-			log.Printf("WARNING: Configuring etcd option \"%s\" in section \"%s\" is deprecated, use section \"etcd\" instead", option, c.compatSection)
+			c.log.Warn("Configured etcd option is deprecated, use section \"etcd\" instead",
+				zap.String("option", option),
+				zap.String("section", c.compatSection),
+			)
 		}
 	}
 
@@ -106,7 +110,7 @@ func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 			return nil
 		}
 
-		log.Printf("No etcd endpoints configured, not changing client")
+		c.log.Info("No etcd endpoints configured, not changing client")
 	} else {
 		cfg := clientv3.Config{
 			Endpoints: endpoints,
@@ -141,7 +145,9 @@ func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 					return fmt.Errorf("Could not setup etcd TLS configuration: %w", err)
 				}
 
-				log.Printf("Could not setup TLS configuration, will be disabled (%s)", err)
+				c.log.Warn("Could not setup TLS configuration, will be disabled",
+					zap.Error(err),
+				)
 			} else {
 				cfg.TLS = tlsConfig
 			}
@@ -153,14 +159,19 @@ func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 				return err
 			}
 
-			log.Printf("Could not create new client from etd endpoints %+v: %s", endpoints, err)
+			c.log.Error("Could not create new client from etd endpoints",
+				zap.Any("endpoints", endpoints),
+				zap.Error(err),
+			)
 		} else {
 			prev := c.getEtcdClient()
 			if prev != nil {
 				prev.Close()
 			}
 			c.client.Store(client)
-			log.Printf("Using etcd endpoints %+v", endpoints)
+			c.log.Info("Using etcd endpoints",
+				zap.Any("endpoints", endpoints),
+			)
 			c.notifyListeners()
 		}
 	}
@@ -241,16 +252,23 @@ func (c *EtcdClient) WaitForConnection(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) {
 				return err
 			} else if errors.Is(err, context.DeadlineExceeded) {
-				log.Printf("Timeout waiting for etcd client to connect to the cluster, retry in %s", backoff.NextWait())
+				c.log.Error("Timeout waiting for etcd client to connect to the cluster, retry",
+					zap.Duration("wait", backoff.NextWait()),
+				)
 			} else {
-				log.Printf("Could not sync etcd client with the cluster, retry in %s: %s", backoff.NextWait(), err)
+				c.log.Error("Could not sync etcd client with the cluster, retry",
+					zap.Duration("wait", backoff.NextWait()),
+					zap.Error(err),
+				)
 			}
 
 			backoff.Wait(ctx)
 			continue
 		}
 
-		log.Printf("Client synced, using endpoints %+v", c.getEtcdClient().Endpoints())
+		c.log.Info("Client synced, using endpoints",
+			zap.Any("endpoints", c.getEtcdClient().Endpoints()),
+		)
 		return nil
 	}
 }
@@ -260,10 +278,15 @@ func (c *EtcdClient) Get(ctx context.Context, key string, opts ...clientv3.OpOpt
 }
 
 func (c *EtcdClient) Watch(ctx context.Context, key string, nextRevision int64, watcher EtcdClientWatcher, opts ...clientv3.OpOption) (int64, error) {
-	log.Printf("Wait for leader and start watching on %s (rev=%d)", key, nextRevision)
+	c.log.Debug("Wait for leader and start watching",
+		zap.String("key", key),
+		zap.Int64("rev", nextRevision),
+	)
 	opts = append(opts, clientv3.WithRev(nextRevision), clientv3.WithPrevKV())
 	ch := c.getEtcdClient().Watch(clientv3.WithRequireLeader(ctx), key, opts...)
-	log.Printf("Watch created for %s", key)
+	c.log.Debug("Watch created",
+		zap.String("key", key),
+	)
 	watcher.EtcdWatchCreated(c, key)
 	for response := range ch {
 		if err := response.Err(); err != nil {
@@ -286,7 +309,11 @@ func (c *EtcdClient) Watch(ctx context.Context, key string, nextRevision int64, 
 				}
 				watcher.EtcdKeyDeleted(c, string(ev.Kv.Key), prevValue)
 			default:
-				log.Printf("Unsupported watch event %s %q -> %q", ev.Type, ev.Kv.Key, ev.Kv.Value)
+				c.log.Error("Unsupported watch event",
+					zap.Any("type", ev.Type),
+					zap.ByteString("key", ev.Kv.Key),
+					zap.ByteString("value", ev.Kv.Value),
+				)
 			}
 		}
 	}

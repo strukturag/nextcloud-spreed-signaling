@@ -24,12 +24,15 @@ package signaling
 import (
 	"context"
 	"errors"
-	"log"
 	"sync"
 	"sync/atomic"
+
+	"go.uber.org/zap"
 )
 
 type BuiltinRoomSessions struct {
+	log *zap.Logger
+
 	sessionIdToRoomSession map[string]string
 	roomSessionToSessionid map[string]string
 	mu                     sync.RWMutex
@@ -37,8 +40,10 @@ type BuiltinRoomSessions struct {
 	clients *GrpcClients
 }
 
-func NewBuiltinRoomSessions(clients *GrpcClients) (RoomSessions, error) {
+func NewBuiltinRoomSessions(log *zap.Logger, clients *GrpcClients) (RoomSessions, error) {
 	return &BuiltinRoomSessions{
+		log: log,
+
 		sessionIdToRoomSession: make(map[string]string),
 		roomSessionToSessionid: make(map[string]string),
 
@@ -124,10 +129,17 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 			if errors.Is(err, context.Canceled) {
 				return
 			} else if err != nil {
-				log.Printf("Received error while checking for room session id %s on %s: %s", roomSessionId, client.Target(), err)
+				r.log.Error("Received error while checking for room session id",
+					zap.String("roomsessionid", roomSessionId),
+					zap.String("target", client.Target()),
+					zap.Error(err),
+				)
 				return
 			} else if sid == "" {
-				log.Printf("Received empty session id for room session id %s from %s", roomSessionId, client.Target())
+				r.log.Warn("Received empty session id for room session id",
+					zap.String("roomsessionid", roomSessionId),
+					zap.String("target", client.Target()),
+				)
 				return
 			}
 

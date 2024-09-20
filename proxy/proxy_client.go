@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
@@ -37,11 +39,11 @@ type ProxyClient struct {
 	session atomic.Pointer[ProxySession]
 }
 
-func NewProxyClient(proxy *ProxyServer, conn *websocket.Conn, addr string) (*ProxyClient, error) {
+func NewProxyClient(log *zap.Logger, proxy *ProxyServer, conn *websocket.Conn, addr string) (*ProxyClient, error) {
 	client := &ProxyClient{
 		proxy: proxy,
 	}
-	client.SetConn(conn, addr, client)
+	client.SetConn(log, conn, addr, client)
 	return client, nil
 }
 

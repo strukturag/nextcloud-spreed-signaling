@@ -27,7 +27,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -37,6 +36,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
@@ -60,6 +60,7 @@ var (
 )
 
 type RemoteConnection struct {
+	log    *zap.Logger
 	mu     sync.Mutex
 	url    *url.URL
 	conn   *websocket.Conn
@@ -82,13 +83,18 @@ type RemoteConnection struct {
 	messageCallbacks map[string]chan *signaling.ProxyServerMessage
 }
 
-func NewRemoteConnection(proxyUrl string, tokenId string, tokenKey *rsa.PrivateKey, tlsConfig *tls.Config) (*RemoteConnection, error) {
+func NewRemoteConnection(log *zap.Logger, proxyUrl string, tokenId string, tokenKey *rsa.PrivateKey, tlsConfig *tls.Config) (*RemoteConnection, error) {
 	u, err := url.Parse(proxyUrl)
 	if err != nil {
 		return nil, err
 	}
 
+	log = log.With(
+		zap.Stringer("url", u),
+	)
+
 	result := &RemoteConnection{
+		log:    log,
 		url:    u,
 		closer: signaling.NewCloser(),
 
@@ -114,7 +120,9 @@ func (c *RemoteConnection) String() string {
 func (c *RemoteConnection) reconnect() {
 	u, err := c.url.Parse("proxy")
 	if err != nil {
-		log.Printf("Could not resolve url to proxy at %s: %s", c, err)
+		c.log.Error("Could not resolve url to proxy",
+			zap.Error(err),
+		)
 		c.scheduleReconnect()
 		return
 	}
@@ -131,12 +139,14 @@ func (c *RemoteConnection) reconnect() {
 
 	conn, _, err := dialer.DialContext(context.TODO(), u.String(), nil)
 	if err != nil {
-		log.Printf("Error connecting to proxy at %s: %s", c, err)
+		c.log.Error("Error connecting to proxy",
+			zap.Error(err),
+		)
 		c.scheduleReconnect()
 		return
 	}
 
-	log.Printf("Connected to %s", c)
+	c.log.Debug("Connected")
 	c.closed.Store(false)
 
 	c.mu.Lock()
@@ -147,7 +157,9 @@ func (c *RemoteConnection) reconnect() {
 	c.reconnectInterval.Store(int64(initialReconnectInterval))
 
 	if err := c.sendHello(); err != nil {
-		log.Printf("Error sending hello request to proxy at %s: %s", c, err)
+		c.log.Error("Error sending hello request to proxy",
+			zap.Error(err),
+		)
 		c.scheduleReconnect()
 		return
 	}
@@ -161,7 +173,9 @@ func (c *RemoteConnection) reconnect() {
 
 func (c *RemoteConnection) scheduleReconnect() {
 	if err := c.sendClose(); err != nil && err != ErrNotConnected {
-		log.Printf("Could not send close message to %s: %s", c, err)
+		c.log.Error("Could not send close message",
+			zap.Error(err),
+		)
 	}
 	c.close()
 
@@ -314,19 +328,27 @@ func (c *RemoteConnection) readPump(conn *websocket.Conn) {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				log.Printf("Error reading from %s: %v", c, err)
+				c.log.Error("Error reading",
+					zap.Error(err),
+				)
 			}
 			break
 		}
 
 		if msgType != websocket.TextMessage {
-			log.Printf("unexpected message type %q (%s)", msgType, string(msg))
+			c.log.Warn("Unexpected message type",
+				zap.Int("type", msgType),
+				zap.Binary("message", msg),
+			)
 			continue
 		}
 
 		var message signaling.ProxyServerMessage
 		if err := json.Unmarshal(msg, &message); err != nil {
-			log.Printf("could not decode message %s: %s", string(msg), err)
+			c.log.Error("Error decoding",
+				zap.ByteString("message", msg),
+				zap.Error(err),
+			)
 			continue
 		}
 
@@ -353,7 +375,9 @@ func (c *RemoteConnection) sendPing() bool {
 	msg := strconv.FormatInt(now.UnixNano(), 10)
 	c.conn.SetWriteDeadline(now.Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
-		log.Printf("Could not send ping to proxy at %s: %v", c, err)
+		c.log.Error("Could not send ping",
+			zap.Error(err),
+		)
 		go c.scheduleReconnect()
 		return false
 	}
@@ -385,16 +409,22 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 	switch msg.Type {
 	case "error":
 		if msg.Error.Code == "no_such_session" {
-			log.Printf("Session %s could not be resumed on %s, registering new", c.sessionId, c)
+			c.log.Info("Session could not be resumed, registering new",
+				zap.String("sessionid", c.sessionId),
+			)
 			c.sessionId = ""
 			if err := c.sendHello(); err != nil {
-				log.Printf("Could not send hello request to %s: %s", c, err)
+				c.log.Error("Error sending hello request to proxy",
+					zap.Error(err),
+				)
 				c.scheduleReconnect()
 			}
 			return
 		}
 
-		log.Printf("Hello connection to %s failed with %+v, reconnecting", c, msg.Error)
+		c.log.Warn("Hello connection failed, reconnecting",
+			zap.Any("error", msg.Error),
+		)
 		c.scheduleReconnect()
 	case "hello":
 		resumed := c.sessionId == msg.Hello.SessionId
@@ -402,16 +432,25 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 		country := ""
 		if msg.Hello.Server != nil {
 			if country = msg.Hello.Server.Country; country != "" && !signaling.IsValidCountry(country) {
-				log.Printf("Proxy %s sent invalid country %s in hello response", c, country)
+				c.log.Warn("Proxy sent invalid country in hello response",
+					zap.String("country", country),
+				)
 				country = ""
 			}
 		}
 		if resumed {
-			log.Printf("Resumed session %s on %s", c.sessionId, c)
+			c.log.Info("Resumed session",
+				zap.String("sessionid", c.sessionId),
+			)
 		} else if country != "" {
-			log.Printf("Received session %s from %s (in %s)", c.sessionId, c, country)
+			c.log.Info("Received session",
+				zap.String("sessionid", c.sessionId),
+				zap.String("country", country),
+			)
 		} else {
-			log.Printf("Received session %s from %s", c.sessionId, c)
+			c.log.Info("Received session",
+				zap.String("sessionid", c.sessionId),
+			)
 		}
 
 		pending := c.pendingMessages
@@ -422,11 +461,16 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 			}
 
 			if err := c.sendMessageLocked(context.Background(), m); err != nil {
-				log.Printf("Could not send pending message %+v to %s: %s", m, c, err)
+				c.log.Error("Could not send pending message",
+					zap.Any("message", m),
+					zap.Error(err),
+				)
 			}
 		}
 	default:
-		log.Printf("Received unsupported hello response %+v from %s, reconnecting", msg, c)
+		c.log.Warn("Received unsupported hello response, reconnecting",
+			zap.Any("message", msg),
+		)
 		c.scheduleReconnect()
 	}
 }
@@ -448,7 +492,9 @@ func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
 	case "event":
 		c.processEvent(msg)
 	default:
-		log.Printf("Received unsupported message %+v from %s", msg, c)
+		c.log.Warn("Received unsupported message",
+			zap.Any("message", msg),
+		)
 	}
 }
 
@@ -456,7 +502,9 @@ func (c *RemoteConnection) processEvent(msg *signaling.ProxyServerMessage) {
 	switch msg.Event.Type {
 	case "update-load":
 	default:
-		log.Printf("Received unsupported event %+v from %s", msg, c)
+		c.log.Warn("Received unsupported event",
+			zap.Any("message", msg),
+		)
 	}
 }
 

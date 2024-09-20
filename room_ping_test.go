@@ -34,6 +34,7 @@ import (
 
 func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
 	require := require.New(t)
+	log := GetLoggerForTest(t)
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
 
@@ -45,10 +46,10 @@ func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
 	config, err := getTestConfig(server)
 	require.NoError(err)
 
-	backend, err := NewBackendClient(config, 1, "0.0", nil)
+	backend, err := NewBackendClient(log, config, 1, "0.0", nil)
 	require.NoError(err)
 
-	p, err := NewRoomPing(backend, backend.capabilities)
+	p, err := NewRoomPing(log, backend, backend.capabilities)
 	require.NoError(err)
 
 	u, err := url.Parse(server.URL)
@@ -58,7 +59,6 @@ func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
 }
 
 func TestSingleRoomPing(t *testing.T) {
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(t)
 
@@ -100,7 +100,6 @@ func TestSingleRoomPing(t *testing.T) {
 }
 
 func TestMultiRoomPing(t *testing.T) {
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(t)
 
@@ -138,7 +137,6 @@ func TestMultiRoomPing(t *testing.T) {
 }
 
 func TestMultiRoomPing_Separate(t *testing.T) {
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(t)
 
@@ -172,7 +170,6 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 }
 
 func TestMultiRoomPing_DeleteRoom(t *testing.T) {
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(t)
 

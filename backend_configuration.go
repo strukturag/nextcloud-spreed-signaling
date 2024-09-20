@@ -28,6 +28,7 @@ import (
 	"sync"
 
 	"github.com/dlintw/goconf"
+	"go.uber.org/zap"
 )
 
 const (
@@ -140,6 +141,7 @@ type BackendStorage interface {
 }
 
 type backendStorageCommon struct {
+	log      *zap.Logger
 	mu       sync.RWMutex
 	backends map[string][]*Backend
 }
@@ -188,7 +190,7 @@ type BackendConfiguration struct {
 	storage BackendStorage
 }
 
-func NewBackendConfiguration(config *goconf.ConfigFile, etcdClient *EtcdClient) (*BackendConfiguration, error) {
+func NewBackendConfiguration(log *zap.Logger, config *goconf.ConfigFile, etcdClient *EtcdClient) (*BackendConfiguration, error) {
 	backendType, _ := config.GetString("backend", "backendtype")
 	if backendType == "" {
 		backendType = DefaultBackendType
@@ -200,9 +202,9 @@ func NewBackendConfiguration(config *goconf.ConfigFile, etcdClient *EtcdClient) 
 	var err error
 	switch backendType {
 	case BackendTypeStatic:
-		storage, err = NewBackendStorageStatic(config)
+		storage, err = NewBackendStorageStatic(log, config)
 	case BackendTypeEtcd:
-		storage, err = NewBackendStorageEtcd(config, etcdClient)
+		storage, err = NewBackendStorageEtcd(log, config, etcdClient)
 	default:
 		err = fmt.Errorf("unknown backend type: %s", backendType)
 	}

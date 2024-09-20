@@ -25,13 +25,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"sync/atomic"
 
 	"github.com/notedit/janus-go"
 	"github.com/pion/sdp/v3"
+	"go.uber.org/zap"
 )
 
 const (
@@ -57,43 +57,63 @@ type mcuJanusPublisher struct {
 	answerSdp  atomic.Pointer[sdp.SessionDescription]
 }
 
+func (p *mcuJanusPublisher) updateLogger() {
+	p.mcuJanusClient.updateLogger()
+	p.log = p.log.With(
+		zap.String("publisherid", p.id),
+	)
+}
+
 func (p *mcuJanusPublisher) handleEvent(event *janus.EventMsg) {
 	if videoroom := getPluginStringValue(event.Plugindata, pluginVideoRoom, "videoroom"); videoroom != "" {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Publisher %d: associated room has been destroyed, closing", p.handleId)
+			p.log.Info("Publisher: associated room has been destroyed, closing")
 			go p.Close(ctx)
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom publisher event in %d: %+v", p.handleId, event)
+			p.log.Warn("Unsupported videoroom event for publisher",
+				zap.String("videoroom", videoroom),
+				zap.Any("event", event),
+			)
 		}
 	} else {
-		log.Printf("Unsupported publisher event in %d: %+v", p.handleId, event)
+		p.log.Warn("Unsupported event for publisher",
+			zap.Any("event", event),
+		)
 	}
 }
 
 func (p *mcuJanusPublisher) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Publisher %d received hangup (%s), closing", p.handleId, event.Reason)
+	p.log.Info("Publisher received hangup, closing",
+		zap.String("reason", event.Reason),
+	)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusPublisher) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Publisher %d received detached, closing", p.handleId)
+	p.log.Info("Publisher received detached, closing")
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusPublisher) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Publisher %d received connected", p.handleId)
+	p.log.Info("Publisher received connected")
 	p.mcu.publisherConnected.Notify(getStreamId(p.id, p.streamType))
 }
 
 func (p *mcuJanusPublisher) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Publisher %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.log.Info("Publisher is reporting lost packets on the uplink (Janus -> client)",
+			zap.String("sessionid", p.listener.PublicId()),
+			zap.Int64("lost", event.Lost),
+		)
 	} else {
-		log.Printf("Publisher %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.log.Info("Publisher is reporting lost packets on the downlink (client -> Janus)",
+			zap.String("sessionid", p.listener.PublicId()),
+			zap.Int64("lost", event.Lost),
+		)
 	}
 }
 
@@ -119,7 +139,9 @@ func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
 	handle, session, roomId, _, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
 	if err != nil {
-		log.Printf("Could not reconnect publisher %s: %s", p.id, err)
+		p.log.Error("Could not reconnect publisher",
+			zap.Error(err),
+		)
 		// TODO(jojo): Retry
 		return
 	}
@@ -128,8 +150,9 @@ func (p *mcuJanusPublisher) NotifyReconnected() {
 	p.handleId = handle.Id
 	p.session = session
 	p.roomId = roomId
+	p.updateLogger()
 
-	log.Printf("Publisher %s reconnected on handle %d", p.id, p.handleId)
+	p.log.Info("Publisher reconnected")
 }
 
 func (p *mcuJanusPublisher) Close(ctx context.Context) {
@@ -141,9 +164,11 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 			"room":    p.roomId,
 		}
 		if _, err := handle.Request(ctx, destroy_msg); err != nil {
-			log.Printf("Error destroying room %d: %s", p.roomId, err)
+			p.log.Error("Error destroying room",
+				zap.Error(err),
+			)
 		} else {
-			log.Printf("Room %d destroyed", p.roomId)
+			p.log.Info("Room destroyed")
 		}
 		p.mcu.mu.Lock()
 		delete(p.mcu.publishers, getStreamId(p.id, p.streamType))
@@ -195,15 +220,22 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 
 				sdpData, found := jsep["sdp"]
 				if !found {
-					log.Printf("No sdp found in answer %+v", jsep)
+					p.log.Warn("No sdp found in answer",
+						zap.Any("jsep", jsep),
+					)
 				} else {
 					sdpString, ok := sdpData.(string)
 					if !ok {
-						log.Printf("Invalid sdp found in answer %+v", jsep)
+						p.log.Warn("Invalid sdp found in answer",
+							zap.Any("jsep", jsep),
+						)
 					} else {
 						var answerSdp sdp.SessionDescription
 						if err := answerSdp.UnmarshalString(sdpString); err != nil {
-							log.Printf("Error parsing answer sdp %+v: %s", sdpString, err)
+							p.log.Error("Error parsing answer",
+								zap.String("sdp", sdpString),
+								zap.Error(err),
+							)
 							p.answerSdp.Store(nil)
 							p.sdpFlags.Remove(sdpHasAnswer)
 						} else {
@@ -338,7 +370,10 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 				switch a.Key {
 				case sdp.AttrKeyExtMap:
 					if err := extmap.Unmarshal(extmap.Name() + ":" + a.Value); err != nil {
-						log.Printf("Error parsing extmap %s: %s", a.Value, err)
+						p.log.Error("Error parsing extmap",
+							zap.String("value", a.Value),
+							zap.Error(err),
+						)
 						continue
 					}
 
@@ -371,7 +406,9 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 		} else if strings.EqualFold(s.Type, "data") { // nolint
 			// Already handled above.
 		} else {
-			log.Printf("Skip type %s", s.Type)
+			p.log.Debug("Skip stream type",
+				zap.String("type", s.Type),
+			)
 			continue
 		}
 
@@ -418,7 +455,12 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, 
 		}
 	}
 
-	log.Printf("Publishing %s to %s (port=%d, rtcpPort=%d) for %s", p.id, hostname, port, rtcpPort, remoteId)
+	p.log.Info("Publishing remote stream",
+		zap.String("hostname", hostname),
+		zap.Int("port", port),
+		zap.Int("rtcpport", rtcpPort),
+		zap.String("remoteid", remoteId),
+	)
 	return nil
 }
 
@@ -452,6 +494,8 @@ func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId string
 		}
 	}
 
-	log.Printf("Unpublished remote %s for %s", p.id, remoteId)
+	p.log.Info("Unpublished remote stream",
+		zap.String("remoteid", remoteId),
+	)
 	return nil
 }

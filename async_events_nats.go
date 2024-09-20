@@ -22,11 +22,11 @@
 package signaling
 
 import (
-	"log"
 	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"go.uber.org/zap"
 )
 
 func GetSubjectForBackendRoomId(roomId string, backend *Backend) string {
@@ -58,6 +58,7 @@ func GetSubjectForSessionId(sessionId string, backend *Backend) string {
 }
 
 type asyncSubscriberNats struct {
+	log    *zap.Logger
 	key    string
 	client NatsClient
 
@@ -68,7 +69,7 @@ type asyncSubscriberNats struct {
 	processMessage func(*nats.Msg)
 }
 
-func newAsyncSubscriberNats(key string, client NatsClient) (*asyncSubscriberNats, error) {
+func newAsyncSubscriberNats(log *zap.Logger, key string, client NatsClient) (*asyncSubscriberNats, error) {
 	receiver := make(chan *nats.Msg, 64)
 	sub, err := client.Subscribe(key, receiver)
 	if err != nil {
@@ -76,6 +77,9 @@ func newAsyncSubscriberNats(key string, client NatsClient) (*asyncSubscriberNats
 	}
 
 	result := &asyncSubscriberNats{
+		log: log.With(
+			zap.String("key", key),
+		),
 		key:    key,
 		client: client,
 
@@ -89,7 +93,9 @@ func newAsyncSubscriberNats(key string, client NatsClient) (*asyncSubscriberNats
 func (s *asyncSubscriberNats) run() {
 	defer func() {
 		if err := s.subscription.Unsubscribe(); err != nil {
-			log.Printf("Error unsubscribing %s: %s", s.key, err)
+			s.log.Error("Error unsubscribing",
+				zap.Error(err),
+			)
 		}
 	}()
 
@@ -115,8 +121,8 @@ type asyncBackendRoomSubscriberNats struct {
 	asyncBackendRoomSubscriber
 }
 
-func newAsyncBackendRoomSubscriberNats(key string, client NatsClient) (*asyncBackendRoomSubscriberNats, error) {
-	sub, err := newAsyncSubscriberNats(key, client)
+func newAsyncBackendRoomSubscriberNats(log *zap.Logger, key string, client NatsClient) (*asyncBackendRoomSubscriberNats, error) {
+	sub, err := newAsyncSubscriberNats(log, key, client)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +138,10 @@ func newAsyncBackendRoomSubscriberNats(key string, client NatsClient) (*asyncBac
 func (s *asyncBackendRoomSubscriberNats) doProcessMessage(msg *nats.Msg) {
 	var message AsyncMessage
 	if err := s.client.Decode(msg, &message); err != nil {
-		log.Printf("Could not decode NATS message %+v, %s", msg, err)
+		s.log.Error("Could not decode NATS message",
+			zap.Any("message", msg),
+			zap.Error(err),
+		)
 		return
 	}
 
@@ -144,8 +153,8 @@ type asyncRoomSubscriberNats struct {
 	*asyncSubscriberNats
 }
 
-func newAsyncRoomSubscriberNats(key string, client NatsClient) (*asyncRoomSubscriberNats, error) {
-	sub, err := newAsyncSubscriberNats(key, client)
+func newAsyncRoomSubscriberNats(log *zap.Logger, key string, client NatsClient) (*asyncRoomSubscriberNats, error) {
+	sub, err := newAsyncSubscriberNats(log, key, client)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +170,10 @@ func newAsyncRoomSubscriberNats(key string, client NatsClient) (*asyncRoomSubscr
 func (s *asyncRoomSubscriberNats) doProcessMessage(msg *nats.Msg) {
 	var message AsyncMessage
 	if err := s.client.Decode(msg, &message); err != nil {
-		log.Printf("Could not decode nats message %+v, %s", msg, err)
+		s.log.Error("Could not decode NATS message",
+			zap.Any("message", msg),
+			zap.Error(err),
+		)
 		return
 	}
 
@@ -173,8 +185,8 @@ type asyncUserSubscriberNats struct {
 	asyncUserSubscriber
 }
 
-func newAsyncUserSubscriberNats(key string, client NatsClient) (*asyncUserSubscriberNats, error) {
-	sub, err := newAsyncSubscriberNats(key, client)
+func newAsyncUserSubscriberNats(log *zap.Logger, key string, client NatsClient) (*asyncUserSubscriberNats, error) {
+	sub, err := newAsyncSubscriberNats(log, key, client)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +202,10 @@ func newAsyncUserSubscriberNats(key string, client NatsClient) (*asyncUserSubscr
 func (s *asyncUserSubscriberNats) doProcessMessage(msg *nats.Msg) {
 	var message AsyncMessage
 	if err := s.client.Decode(msg, &message); err != nil {
-		log.Printf("Could not decode nats message %+v, %s", msg, err)
+		s.log.Error("Could not decode NATS message",
+			zap.Any("message", msg),
+			zap.Error(err),
+		)
 		return
 	}
 
@@ -202,8 +217,8 @@ type asyncSessionSubscriberNats struct {
 	asyncSessionSubscriber
 }
 
-func newAsyncSessionSubscriberNats(key string, client NatsClient) (*asyncSessionSubscriberNats, error) {
-	sub, err := newAsyncSubscriberNats(key, client)
+func newAsyncSessionSubscriberNats(log *zap.Logger, key string, client NatsClient) (*asyncSessionSubscriberNats, error) {
+	sub, err := newAsyncSubscriberNats(log, key, client)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +234,10 @@ func newAsyncSessionSubscriberNats(key string, client NatsClient) (*asyncSession
 func (s *asyncSessionSubscriberNats) doProcessMessage(msg *nats.Msg) {
 	var message AsyncMessage
 	if err := s.client.Decode(msg, &message); err != nil {
-		log.Printf("Could not decode nats message %+v, %s", msg, err)
+		s.log.Error("Could not decode NATS message",
+			zap.Any("message", msg),
+			zap.Error(err),
+		)
 		return
 	}
 
@@ -227,6 +245,7 @@ func (s *asyncSessionSubscriberNats) doProcessMessage(msg *nats.Msg) {
 }
 
 type asyncEventsNats struct {
+	log    *zap.Logger
 	mu     sync.Mutex
 	client NatsClient
 
@@ -236,8 +255,9 @@ type asyncEventsNats struct {
 	sessionSubscriptions     map[string]*asyncSessionSubscriberNats
 }
 
-func NewAsyncEventsNats(client NatsClient) (AsyncEvents, error) {
+func NewAsyncEventsNats(log *zap.Logger, client NatsClient) (AsyncEvents, error) {
 	events := &asyncEventsNats{
+		log:    log,
 		client: client,
 
 		backendRoomSubscriptions: make(map[string]*asyncBackendRoomSubscriberNats),
@@ -298,7 +318,7 @@ func (e *asyncEventsNats) RegisterBackendRoomListener(roomId string, backend *Ba
 	sub, found := e.backendRoomSubscriptions[key]
 	if !found {
 		var err error
-		if sub, err = newAsyncBackendRoomSubscriberNats(key, e.client); err != nil {
+		if sub, err = newAsyncBackendRoomSubscriberNats(e.log, key, e.client); err != nil {
 			return err
 		}
 
@@ -332,7 +352,7 @@ func (e *asyncEventsNats) RegisterRoomListener(roomId string, backend *Backend, 
 	sub, found := e.roomSubscriptions[key]
 	if !found {
 		var err error
-		if sub, err = newAsyncRoomSubscriberNats(key, e.client); err != nil {
+		if sub, err = newAsyncRoomSubscriberNats(e.log, key, e.client); err != nil {
 			return err
 		}
 
@@ -366,7 +386,7 @@ func (e *asyncEventsNats) RegisterUserListener(roomId string, backend *Backend, 
 	sub, found := e.userSubscriptions[key]
 	if !found {
 		var err error
-		if sub, err = newAsyncUserSubscriberNats(key, e.client); err != nil {
+		if sub, err = newAsyncUserSubscriberNats(e.log, key, e.client); err != nil {
 			return err
 		}
 
@@ -400,7 +420,7 @@ func (e *asyncEventsNats) RegisterSessionListener(sessionId string, backend *Bac
 	sub, found := e.sessionSubscriptions[key]
 	if !found {
 		var err error
-		if sub, err = newAsyncSessionSubscriberNats(key, e.client); err != nil {
+		if sub, err = newAsyncSessionSubscriberNats(e.log, key, e.client); err != nil {
 			return err
 		}
 

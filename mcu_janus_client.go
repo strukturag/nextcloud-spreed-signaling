@@ -23,15 +23,17 @@ package signaling
 
 import (
 	"context"
-	"log"
 	"reflect"
 	"strconv"
 	"sync"
 
 	"github.com/notedit/janus-go"
+	"go.uber.org/zap"
 )
 
 type mcuJanusClient struct {
+	baseLog  *zap.Logger
+	log      *zap.Logger
 	mcu      *mcuJanus
 	listener McuListener
 	mu       sync.Mutex // nolint
@@ -54,6 +56,15 @@ type mcuJanusClient struct {
 	handleConnected func(event *janus.WebRTCUpMsg)
 	handleSlowLink  func(event *janus.SlowLinkMsg)
 	handleMedia     func(event *janus.MediaMsg)
+}
+
+func (c *mcuJanusClient) updateLogger() {
+	c.log = c.baseLog.With(
+		zap.Uint64("id", c.id),
+		zap.Uint64("handle", c.handleId),
+		zap.Uint64("roomid", c.roomId),
+		zap.Any("streamtype", c.streamType),
+	)
 }
 
 func (c *mcuJanusClient) Id() string {
@@ -84,7 +95,10 @@ func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
 		close(c.closeChan)
 		if _, err := handle.Detach(ctx); err != nil {
 			if e, ok := err.(*janus.ErrorMsg); !ok || e.Err.Code != JANUS_ERROR_HANDLE_NOT_FOUND {
-				log.Println("Could not detach client", handle.Id, err)
+				c.log.Error("Could not detach client",
+					zap.Uint64("handle", handle.Id),
+					zap.Error(err),
+				)
 			}
 		}
 		return true
@@ -114,7 +128,10 @@ loop:
 			case *TrickleMsg:
 				c.handleTrickle(t)
 			default:
-				log.Println("Received unsupported event type", msg, reflect.TypeOf(msg))
+				c.log.Error("Received unsupported event type",
+					zap.Any("message", msg),
+					zap.Any("type", reflect.TypeOf(msg)),
+				)
 			}
 		case f := <-c.deferred:
 			f()
@@ -162,7 +179,9 @@ func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer map[string]inter
 		callback(err, nil)
 		return
 	}
-	log.Println("Started listener", start_response)
+	c.log.Info("Started listener",
+		zap.Any("response", start_response),
+	)
 	callback(nil, nil)
 }
 

@@ -23,22 +23,26 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"sort"
 	"sync/atomic"
 
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v4"
+	"go.uber.org/zap"
+
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 type tokensStatic struct {
+	log       *zap.Logger
 	tokenKeys atomic.Value
 }
 
-func NewProxyTokensStatic(config *goconf.ConfigFile) (ProxyTokens, error) {
-	result := &tokensStatic{}
+func NewProxyTokensStatic(log *zap.Logger, config *goconf.ConfigFile) (ProxyTokens, error) {
+	result := &tokensStatic{
+		log: log,
+	}
 	if err := result.load(config, false); err != nil {
 		return nil, err
 	}
@@ -68,14 +72,21 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 
 	tokenKeys := make(map[string]*ProxyToken)
 	for id, filename := range options {
+		log := t.log.With(
+			zap.String("tokenid", id),
+		)
 		if filename == "" {
 			if !ignoreErrors {
 				return fmt.Errorf("No filename given for token %s", id)
 			}
 
-			log.Printf("No filename given for token %s, ignoring", id)
+			log.Warn("No filename given for token, ignoring")
 			continue
 		}
+
+		log = log.With(
+			zap.String("filename", filename),
+		)
 
 		keyData, err := os.ReadFile(filename)
 		if err != nil {
@@ -83,7 +94,9 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 				return fmt.Errorf("Could not read public key from %s: %s", filename, err)
 			}
 
-			log.Printf("Could not read public key from %s, ignoring: %s", filename, err)
+			log.Error("Could not read public key for token, ignoring",
+				zap.Error(err),
+			)
 			continue
 		}
 		key, err := jwt.ParseRSAPublicKeyFromPEM(keyData)
@@ -92,7 +105,9 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 				return fmt.Errorf("Could not parse public key from %s: %s", filename, err)
 			}
 
-			log.Printf("Could not parse public key from %s, ignoring: %s", filename, err)
+			log.Error("Could not parse public key for token, ignoring",
+				zap.Error(err),
+			)
 			continue
 		}
 
@@ -103,14 +118,16 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 	}
 
 	if len(tokenKeys) == 0 {
-		log.Printf("No token keys loaded")
+		t.log.Warn("No token keys loaded")
 	} else {
 		var keyIds []string
 		for k := range tokenKeys {
 			keyIds = append(keyIds, k)
 		}
 		sort.Strings(keyIds)
-		log.Printf("Enabled token keys: %v", keyIds)
+		t.log.Info("Enabled token keys",
+			zap.Any("tokenids", keyIds),
+		)
 	}
 	t.setTokenKeys(tokenKeys)
 	return nil
@@ -118,7 +135,9 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 
 func (t *tokensStatic) Reload(config *goconf.ConfigFile) {
 	if err := t.load(config, true); err != nil {
-		log.Printf("Error reloading static tokens: %s", err)
+		t.log.Error("Error reloading static tokens",
+			zap.Error(err),
+		)
 	}
 }
 

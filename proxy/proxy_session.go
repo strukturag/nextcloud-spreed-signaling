@@ -23,10 +23,11 @@ package main
 
 import (
 	"context"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
@@ -37,6 +38,7 @@ const (
 )
 
 type ProxySession struct {
+	log      *zap.Logger
 	proxy    *ProxyServer
 	id       string
 	sid      uint64
@@ -55,8 +57,12 @@ type ProxySession struct {
 	subscriberIds   map[signaling.McuSubscriber]string
 }
 
-func NewProxySession(proxy *ProxyServer, sid uint64, id string) *ProxySession {
+func NewProxySession(log *zap.Logger, proxy *ProxyServer, sid uint64, id string) *ProxySession {
+	log = log.With(
+		zap.String("sessionid", id),
+	)
 	result := &ProxySession{
+		log:   log,
 		proxy: proxy,
 		id:    id,
 		sid:   sid,
@@ -124,7 +130,12 @@ func (s *ProxySession) SetClient(client *ProxyClient) *ProxyClient {
 func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer map[string]interface{}) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
-		log.Printf("Received offer %+v from unknown %s client %s (%+v)", offer, client.StreamType(), client.Id(), client)
+		s.log.Warn("Received offer from unknown client",
+			zap.Any("offer", offer),
+			zap.Any("streamtype", client.StreamType()),
+			zap.String("id", client.Id()),
+			zap.Any("client", client),
+		)
 		return
 	}
 
@@ -144,7 +155,12 @@ func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer map[strin
 func (s *ProxySession) OnIceCandidate(client signaling.McuClient, candidate interface{}) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
-		log.Printf("Received candidate %+v from unknown %s client %s (%+v)", candidate, client.StreamType(), client.Id(), client)
+		s.log.Warn("Received candidate from unknown client",
+			zap.Any("candidate", candidate),
+			zap.Any("streamtype", client.StreamType()),
+			zap.String("id", client.Id()),
+			zap.Any("client", client),
+		)
 		return
 	}
 
@@ -177,7 +193,11 @@ func (s *ProxySession) sendMessage(message *signaling.ProxyServerMessage) {
 func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
-		log.Printf("Received ice completed event from unknown %s client %s (%+v)", client.StreamType(), client.Id(), client)
+		s.log.Warn("Received ice completed event from unknown client",
+			zap.Any("streamtype", client.StreamType()),
+			zap.String("id", client.Id()),
+			zap.Any("client", client),
+		)
 		return
 	}
 
@@ -194,7 +214,11 @@ func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
 func (s *ProxySession) SubscriberSidUpdated(subscriber signaling.McuSubscriber) {
 	id := s.proxy.GetClientId(subscriber)
 	if id == "" {
-		log.Printf("Received subscriber sid updated event from unknown %s subscriber %s (%+v)", subscriber.StreamType(), subscriber.Id(), subscriber)
+		s.log.Warn("Received subscriber sid updated event from unknown subscriber",
+			zap.Any("streamtype", subscriber.StreamType()),
+			zap.String("id", subscriber.Id()),
+			zap.Any("subscriber", subscriber),
+		)
 		return
 	}
 

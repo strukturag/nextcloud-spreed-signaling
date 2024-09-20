@@ -30,7 +30,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -50,6 +49,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/notedit/janus-go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
@@ -77,6 +77,8 @@ var (
 	defaultProxyFeatures = []string{
 		ProxyFeatureRemoteStreams,
 	}
+
+	ErrCancelled = errors.New("cancelled")
 )
 
 type ContextKey string
@@ -98,6 +100,7 @@ var (
 )
 
 type ProxyServer struct {
+	log            *zap.Logger
 	version        string
 	country        string
 	welcomeMessage string
@@ -175,30 +178,38 @@ func GetLocalIP() (string, error) {
 	return "", nil
 }
 
-func getTargetBandwidths(config *goconf.ConfigFile) (int, int) {
+func getTargetBandwidths(log *zap.Logger, config *goconf.ConfigFile) (int, int) {
 	maxIncoming, _ := config.GetInt("bandwidth", "incoming")
 	if maxIncoming < 0 {
 		maxIncoming = 0
 	}
 	if maxIncoming > 0 {
-		log.Printf("Target bandwidth for incoming streams: %d MBit/s", maxIncoming)
+		log.Info("Target bandwidth for incoming streams",
+			zap.Int("mbits", maxIncoming),
+		)
 	} else {
-		log.Printf("Target bandwidth for incoming streams: unlimited")
+		log.Info("Target bandwidth for incoming streams",
+			zap.String("mbits", "unlimited"),
+		)
 	}
 	maxOutgoing, _ := config.GetInt("bandwidth", "outgoing")
 	if maxOutgoing < 0 {
 		maxOutgoing = 0
 	}
 	if maxIncoming > 0 {
-		log.Printf("Target bandwidth for outgoing streams: %d MBit/s", maxOutgoing)
+		log.Info("Target bandwidth for outgoing streams",
+			zap.Int("mbits", maxOutgoing),
+		)
 	} else {
-		log.Printf("Target bandwidth for outgoing streams: unlimited")
+		log.Info("Target bandwidth for outgoing streams",
+			zap.String("mbits", "unlimited"),
+		)
 	}
 
 	return maxIncoming, maxOutgoing
 }
 
-func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*ProxyServer, error) {
+func NewProxyServer(log *zap.Logger, r *mux.Router, version string, config *goconf.ConfigFile) (*ProxyServer, error) {
 	hashKey := make([]byte, 64)
 	if _, err := rand.Read(hashKey); err != nil {
 		return nil, fmt.Errorf("Could not generate random hash key: %s", err)
@@ -218,9 +229,9 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 
 	switch tokenType {
 	case TokenTypeEtcd:
-		tokens, err = NewProxyTokensEtcd(config)
+		tokens, err = NewProxyTokensEtcd(log, config)
 	case TokenTypeStatic:
-		tokens, err = NewProxyTokensStatic(config)
+		tokens, err = NewProxyTokensStatic(log, config)
 	default:
 		return nil, fmt.Errorf("Unsupported token type configured: %s", tokenType)
 	}
@@ -235,10 +246,14 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 	}
 
 	if !statsAllowedIps.Empty() {
-		log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
+		log.Info("Access to the stats endpoint only allowed from ips",
+			zap.Stringer("ips", statsAllowedIps),
+		)
 	} else {
-		log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
 		statsAllowedIps = signaling.DefaultAllowedIps()
+		log.Info("No IPs configured for the stats endpoint, only allowing access from default ips",
+			zap.Stringer("ips", statsAllowedIps),
+		)
 	}
 
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
@@ -248,20 +263,26 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 	}
 
 	if !trustedProxiesIps.Empty() {
-		log.Printf("Trusted proxies: %s", trustedProxiesIps)
+		log.Info("Trusted proxies",
+			zap.Any("proxies", trustedProxiesIps),
+		)
 	} else {
 		trustedProxiesIps = signaling.DefaultTrustedProxies
-		log.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
+		log.Info("No trusted proxies configured, allowing for default list",
+			zap.Any("proxies", trustedProxiesIps),
+		)
 	}
 
 	country, _ := config.GetString("app", "country")
 	country = strings.ToUpper(country)
 	if signaling.IsValidCountry(country) {
-		log.Printf("Sending %s as country information", country)
+		log.Info("Sending country information",
+			zap.String("country", country),
+		)
 	} else if country != "" {
 		return nil, fmt.Errorf("Invalid country: %s", country)
 	} else {
-		log.Printf("Not sending country information")
+		log.Info("Not sending country information")
 	}
 
 	welcome := map[string]string{
@@ -291,7 +312,9 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		if err != nil {
 			return nil, fmt.Errorf("Could not parse private key from %s: %s", tokenKeyFilename, err)
 		}
-		log.Printf("Using \"%s\" as token id for remote streams", tokenId)
+		log.Info("Using token id for remote streams",
+			zap.String("tokenid", tokenId),
+		)
 
 		remoteHostname, _ = config.GetString("app", "hostname")
 		if remoteHostname == "" {
@@ -301,25 +324,28 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 			}
 		}
 		if remoteHostname == "" {
-			log.Printf("WARNING: Could not determine hostname for remote streams, will be disabled. Please configure manually.")
+			log.Warn("Could not determine hostname for remote streams, will be disabled. Please configure manually.")
 		} else {
-			log.Printf("Using \"%s\" as hostname for remote streams", remoteHostname)
+			log.Info("Using hostname for remote streams",
+				zap.String("hostname", remoteHostname),
+			)
 		}
 
 		skipverify, _ := config.GetBool("backend", "skipverify")
 		if skipverify {
-			log.Println("WARNING: Remote stream requests verification is disabled!")
+			log.Warn("Remote stream requests verification is disabled!")
 			remoteTlsConfig = &tls.Config{
 				InsecureSkipVerify: skipverify,
 			}
 		}
 	} else {
-		log.Printf("No token id configured, remote streams will be disabled")
+		log.Warn("No token id configured, remote streams will be disabled")
 	}
 
-	maxIncoming, maxOutgoing := getTargetBandwidths(config)
+	maxIncoming, maxOutgoing := getTargetBandwidths(log, config)
 
 	result := &ProxyServer{
+		log:            log,
 		version:        version,
 		country:        country,
 		welcomeMessage: string(welcomeMessage) + "\n",
@@ -359,7 +385,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 	result.upgrader.CheckOrigin = result.checkOrigin
 
 	if debug, _ := config.GetBool("app", "debug"); debug {
-		log.Println("Installing debug handlers in \"/debug/pprof\"")
+		log.Debug("Installing debug handlers in \"/debug/pprof\"")
 		r.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
 		r.Handle("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
 		r.Handle("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
@@ -406,7 +432,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 	for {
 		switch mcuType {
 		case signaling.McuTypeJanus:
-			mcu, err = signaling.NewMcuJanus(ctx, s.url, config)
+			mcu, err = signaling.NewMcuJanus(ctx, s.log, s.url, config)
 			if err == nil {
 				signaling.RegisterJanusMcuStats()
 			}
@@ -418,17 +444,26 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 			mcu.SetOnDisconnected(s.onMcuDisconnected)
 			err = mcu.Start(ctx)
 			if err != nil {
-				log.Printf("Could not create %s MCU at %s: %s", mcuType, s.url, err)
+				s.log.Error("Could not create MCU",
+					zap.String("type", mcuType),
+					zap.String("url", s.url),
+					zap.Error(err),
+				)
 			}
 		}
 		if err == nil {
 			break
 		}
 
-		log.Printf("Could not initialize %s MCU at %s (%s) will retry in %s", mcuType, s.url, err, backoff.NextWait())
+		s.log.Error("Could not initialize MCU, will retry",
+			zap.String("type", mcuType),
+			zap.String("url", s.url),
+			zap.Duration("wait", backoff.NextWait()),
+			zap.Error(err),
+		)
 		backoff.Wait(ctx)
 		if ctx.Err() != nil {
-			return fmt.Errorf("Cancelled")
+			return ErrCancelled
 		}
 	}
 
@@ -531,7 +566,9 @@ func (s *ProxyServer) expireSessions() {
 			continue
 		}
 
-		log.Printf("Delete expired session %s", session.PublicId())
+		s.log.Info("Delete expired session",
+			zap.String("sessionid", session.PublicId()),
+		)
 		s.deleteSessionLocked(session.Sid())
 	}
 }
@@ -575,30 +612,44 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
 	if statsAllowedIps, err := signaling.ParseAllowedIps(statsAllowed); err == nil {
 		if !statsAllowedIps.Empty() {
-			log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
+			s.log.Info("Access to the stats endpoint only allowed from ips",
+				zap.Stringer("ips", statsAllowedIps),
+			)
 		} else {
-			log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
 			statsAllowedIps = signaling.DefaultAllowedIps()
+			s.log.Info("No IPs configured for the stats endpoint, only allowing access from default ips",
+				zap.Stringer("ips", statsAllowedIps),
+			)
 		}
 		s.statsAllowedIps.Store(statsAllowedIps)
 	} else {
-		log.Printf("Error parsing allowed stats ips from \"%s\": %s", statsAllowedIps, err)
+		s.log.Error("Error parsing allowed stats ips",
+			zap.String("allowed", statsAllowed),
+			zap.Error(err),
+		)
 	}
 
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
 	if trustedProxiesIps, err := signaling.ParseAllowedIps(trustedProxies); err == nil {
 		if !trustedProxiesIps.Empty() {
-			log.Printf("Trusted proxies: %s", trustedProxiesIps)
+			s.log.Info("Trusted proxies",
+				zap.Any("proxies", trustedProxiesIps),
+			)
 		} else {
 			trustedProxiesIps = signaling.DefaultTrustedProxies
-			log.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
+			s.log.Info("No trusted proxies configured, allowing for default list",
+				zap.Any("proxies", trustedProxiesIps),
+			)
 		}
 		s.trustedProxies.Store(trustedProxiesIps)
 	} else {
-		log.Printf("Error parsing trusted proxies from \"%s\": %s", trustedProxies, err)
+		s.log.Error("Error parsing trusted proxies",
+			zap.String("trusted", trustedProxies),
+			zap.Error(err),
+		)
 	}
 
-	maxIncoming, maxOutgoing := getTargetBandwidths(config)
+	maxIncoming, maxOutgoing := getTargetBandwidths(s.log, config)
 	oldIncoming := s.maxIncoming.Swap(int64(maxIncoming))
 	oldOutgoing := s.maxOutgoing.Swap(int64(maxOutgoing))
 	if oldIncoming != int64(maxIncoming) || oldOutgoing != int64(maxOutgoing) {
@@ -625,18 +676,27 @@ func (s *ProxyServer) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	addr := signaling.GetRealUserIP(r, s.trustedProxies.Load())
+	log := s.log.With(
+		zap.String("addr", addr),
+	)
 	header := http.Header{}
 	header.Set("Server", "nextcloud-spreed-signaling-proxy/"+s.version)
 	header.Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Features, ", "))
 	conn, err := s.upgrader.Upgrade(w, r, header)
 	if err != nil {
-		log.Printf("Could not upgrade request from %s: %s", addr, err)
+		log.Error("Could not upgrade request",
+			zap.String("addr", addr),
+			zap.Error(err),
+		)
 		return
 	}
 
-	client, err := NewProxyClient(s, conn, addr)
+	client, err := NewProxyClient(s.log, s, conn, addr)
 	if err != nil {
-		log.Printf("Could not create client for %s: %s", addr, err)
+		log.Error("Could not create client",
+			zap.String("addr", addr),
+			zap.Error(err),
+		)
 		return
 	}
 
@@ -645,11 +705,15 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *ProxyServer) clientClosed(client *signaling.Client) {
-	log.Printf("Connection from %s closed", client.RemoteAddr())
+	s.log.Info("Connection closed",
+		zap.String("addr", client.RemoteAddr()),
+	)
 }
 
 func (s *ProxyServer) onMcuConnected() {
-	log.Printf("Connection to %s established", s.url)
+	s.log.Info("Connection established",
+		zap.String("url", s.url),
+	)
 	msg := &signaling.ProxyServerMessage{
 		Type: "event",
 		Event: &signaling.EventProxyServerMessage{
@@ -668,7 +732,9 @@ func (s *ProxyServer) onMcuDisconnected() {
 		return
 	}
 
-	log.Printf("Connection to %s lost", s.url)
+	s.log.Info("Connection lost",
+		zap.String("url", s.url),
+	)
 	msg := &signaling.ProxyServerMessage{
 		Type: "event",
 		Event: &signaling.EventProxyServerMessage{
@@ -698,31 +764,38 @@ func (s *ProxyServer) sendShutdownScheduled(session *ProxySession) {
 }
 
 func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
+	log := s.log.With(
+		zap.String("addr", client.RemoteAddr()),
+	)
+	session := client.GetSession()
+	if session != nil {
+		log = log.With(
+			zap.String("sessionid", session.PublicId()),
+		)
+	}
 	if proxyDebugMessages {
-		log.Printf("Message: %s", string(data))
+		log.Debug("Message received",
+			zap.ByteString("message", data),
+		)
 	}
 	var message signaling.ProxyClientMessage
 	if err := message.UnmarshalJSON(data); err != nil {
-		if session := client.GetSession(); session != nil {
-			log.Printf("Error decoding message from client %s: %v", session.PublicId(), err)
-		} else {
-			log.Printf("Error decoding message from %s: %v", client.RemoteAddr(), err)
-		}
+		log.Error("Error decoding message",
+			zap.Error(err),
+		)
 		client.SendError(signaling.InvalidFormat)
 		return
 	}
 
 	if err := message.CheckValid(); err != nil {
-		if session := client.GetSession(); session != nil {
-			log.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
-		} else {
-			log.Printf("Invalid message %+v from %s: %v", message, client.RemoteAddr(), err)
-		}
+		log.Error("Invalid message",
+			zap.Any("message", message),
+			zap.Error(err),
+		)
 		client.SendMessage(message.NewErrorServerMessage(signaling.InvalidFormat))
 		return
 	}
 
-	session := client.GetSession()
 	if session == nil {
 		if message.Type != "hello" {
 			client.SendMessage(message.NewErrorServerMessage(signaling.HelloExpected))
@@ -741,7 +814,10 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 				return
 			}
 
-			log.Printf("Resumed session %s", session.PublicId())
+			log = log.With(
+				zap.String("sessionid", session.PublicId()),
+			)
+			log.Debug("Resumed session")
 			session.MarkUsed()
 			if s.shutdownScheduled.Load() {
 				s.sendShutdownScheduled(session)
@@ -866,6 +942,10 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 
 	statsCommandMessagesTotal.WithLabelValues(cmd.Type).Inc()
 
+	log := s.log.With(
+		zap.String("sessionid", session.PublicId()),
+	)
+
 	switch cmd.Type {
 	case "create-publisher":
 		if s.shutdownScheduled.Load() {
@@ -874,18 +954,26 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		id := uuid.New().String()
+		log := log.With(
+			zap.Any("streamtype", cmd.StreamType),
+			zap.String("id", id),
+		)
 		publisher, err := s.mcu.NewPublisher(ctx, session, id, cmd.Sid, cmd.StreamType, cmd.Bitrate, cmd.MediaTypes, &emptyInitiator{})
 		if err == context.DeadlineExceeded {
-			log.Printf("Timeout while creating %s publisher %s for %s", cmd.StreamType, id, session.PublicId())
+			log.Warn("Timeout creating publisher")
 			session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingPublisher))
 			return
 		} else if err != nil {
-			log.Printf("Error while creating %s publisher %s for %s: %s", cmd.StreamType, id, session.PublicId(), err)
+			log.Error("Error creating publisher",
+				zap.Error(err),
+			)
 			session.sendMessage(message.NewWrappedErrorServerMessage(err))
 			return
 		}
 
-		log.Printf("Created %s publisher %s as %s for %s", cmd.StreamType, publisher.Id(), id, session.PublicId())
+		log.Info("Created publisher",
+			zap.String("publisherid", publisher.Id()),
+		)
 		session.StorePublisher(ctx, id, publisher)
 		s.StoreClient(id, publisher)
 
@@ -906,9 +994,15 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		var subscriber signaling.McuSubscriber
 		var err error
 
-		handleCreateError := func(err error) {
+		log := log.With(
+			zap.Any("streamtype", cmd.StreamType),
+			zap.String("id", id),
+			zap.String("publisherid", publisherId),
+		)
+
+		handleCreateError := func(log *zap.Logger, err error) {
 			if err == context.DeadlineExceeded {
-				log.Printf("Timeout while creating %s subscriber on %s for %s", cmd.StreamType, publisherId, session.PublicId())
+				log.Warn("Timeout creating subscriber")
 				session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingSubscriber))
 				return
 			} else if errors.Is(err, signaling.ErrRemoteStreamsNotSupported) {
@@ -916,11 +1010,16 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				return
 			}
 
-			log.Printf("Error while creating %s subscriber on %s for %s: %s", cmd.StreamType, publisherId, session.PublicId(), err)
+			log.Error("Error creating subscriber",
+				zap.Error(err),
+			)
 			session.sendMessage(message.NewWrappedErrorServerMessage(err))
 		}
 
 		if cmd.RemoteUrl != "" {
+			log = log.With(
+				zap.String("remoteurl", cmd.RemoteUrl),
+			)
 			if s.tokenId == "" || s.tokenKey == nil || s.remoteHostname == "" {
 				session.sendMessage(message.NewErrorServerMessage(RemoteSubscribersNotSupported))
 				return
@@ -950,7 +1049,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			subCtx, cancel := context.WithTimeout(ctx, remotePublisherTimeout)
 			defer cancel()
 
-			log.Printf("Creating remote subscriber for %s on %s", publisherId, cmd.RemoteUrl)
+			log.Info("Creating remote subscriber")
 
 			controller := &proxyRemotePublisher{
 				proxy:       s,
@@ -961,7 +1060,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			var publisher signaling.McuRemotePublisher
 			publisher, err = remoteMcu.NewRemotePublisher(subCtx, session, controller, cmd.StreamType)
 			if err != nil {
-				handleCreateError(err)
+				handleCreateError(log, err)
 				return
 			}
 
@@ -971,19 +1070,23 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 
 			subscriber, err = remoteMcu.NewRemoteSubscriber(subCtx, session, publisher)
 			if err != nil {
-				handleCreateError(err)
+				handleCreateError(log, err)
 				return
 			}
 
-			log.Printf("Created remote %s subscriber %s as %s for %s on %s", cmd.StreamType, subscriber.Id(), id, session.PublicId(), cmd.RemoteUrl)
+			log.Info("Created remote subscriber",
+				zap.String("subscriberid", subscriber.Id()),
+			)
 		} else {
 			subscriber, err = s.mcu.NewSubscriber(ctx, session, publisherId, cmd.StreamType, &emptyInitiator{})
 			if err != nil {
-				handleCreateError(err)
+				handleCreateError(log, err)
 				return
 			}
 
-			log.Printf("Created %s subscriber %s as %s for %s", cmd.StreamType, subscriber.Id(), id, session.PublicId())
+			log.Info("Created subscriber",
+				zap.String("subscriberid", subscriber.Id()),
+			)
 		}
 
 		session.StoreSubscriber(ctx, id, subscriber)
@@ -1023,7 +1126,11 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		go func() {
-			log.Printf("Closing %s publisher %s as %s", client.StreamType(), client.Id(), cmd.ClientId)
+			s.log.Info("Closing publisher",
+				zap.Any("streamtype", cmd.StreamType),
+				zap.String("id", client.Id()),
+				zap.String("clientid", cmd.ClientId),
+			)
 			client.Close(context.Background())
 		}()
 
@@ -1058,7 +1165,11 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		go func() {
-			log.Printf("Closing %s subscriber %s as %s", client.StreamType(), client.Id(), cmd.ClientId)
+			s.log.Info("Closing subscriber",
+				zap.Any("streamtype", cmd.StreamType),
+				zap.String("id", client.Id()),
+				zap.String("clientid", cmd.ClientId),
+			)
 			client.Close(context.Background())
 		}()
 
@@ -1083,22 +1194,36 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
+		log := s.log.With(
+			zap.Any("streamtype", publisher.StreamType()),
+			zap.String("clientid", cmd.ClientId),
+			zap.String("hostname", cmd.Hostname),
+			zap.Int("port", cmd.Port),
+			zap.Int("rtcpport", cmd.RtcpPort),
+		)
+
 		if err := publisher.PublishRemote(ctx, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
 			var je *janus.ErrorMsg
 			if !errors.As(err, &je) || je.Err.Code != signaling.JANUS_VIDEOROOM_ERROR_ID_EXISTS {
-				log.Printf("Error publishing %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
+				log.Error("Error publishing to remote",
+					zap.Error(err),
+				)
 				session.sendMessage(message.NewWrappedErrorServerMessage(err))
 				return
 			}
 
 			if err := publisher.UnpublishRemote(ctx, session.PublicId()); err != nil {
-				log.Printf("Error unpublishing old %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
+				log.Error("Error unpublishing old to remote",
+					zap.Error(err),
+				)
 				session.sendMessage(message.NewWrappedErrorServerMessage(err))
 				return
 			}
 
 			if err := publisher.PublishRemote(ctx, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
-				log.Printf("Error publishing %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
+				log.Error("Error publishing to remote",
+					zap.Error(err),
+				)
 				session.sendMessage(message.NewWrappedErrorServerMessage(err))
 				return
 			}
@@ -1127,7 +1252,10 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 
 		streams, err := publisher.GetStreams(ctx)
 		if err != nil {
-			log.Printf("Could not get streams of publisher %s: %s", publisher.Id(), err)
+			s.log.Error("Could not get streams of publisher",
+				zap.String("publisherid", publisher.Id()),
+				zap.Error(err),
+			)
 			session.sendMessage(message.NewWrappedErrorServerMessage(err))
 			return
 		}
@@ -1142,7 +1270,9 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 		session.sendMessage(response)
 	default:
-		log.Printf("Unsupported command %+v", message.Command)
+		s.log.Warn("Unsupported command",
+			zap.Any("command", message.Command),
+		)
 		session.sendMessage(message.NewErrorServerMessage(UnsupportedCommand))
 	}
 }
@@ -1196,8 +1326,16 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 		return
 	}
 
+	log := s.log.With(
+		zap.Any("streamtype", mcuClient.StreamType()),
+		zap.String("clientid", payload.ClientId),
+	)
+
 	if err := mcuData.CheckValid(); err != nil {
-		log.Printf("Received invalid payload %+v for %s client %s: %s", mcuData, mcuClient.StreamType(), payload.ClientId, err)
+		log.Error("Received invalid payload",
+			zap.Any("payload", mcuData),
+			zap.Error(err),
+		)
 		session.sendMessage(message.NewErrorServerMessage(UnsupportedPayload))
 		return
 	}
@@ -1205,7 +1343,10 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 	mcuClient.SendMessage(ctx, nil, mcuData, func(err error, response map[string]interface{}) {
 		var responseMsg *signaling.ProxyServerMessage
 		if err != nil {
-			log.Printf("Error sending %+v to %s client %s: %s", mcuData, mcuClient.StreamType(), payload.ClientId, err)
+			log.Error("Error processing request for client",
+				zap.Any("request", mcuData),
+				zap.Error(err),
+			)
 			responseMsg = message.NewWrappedErrorServerMessage(err)
 		} else {
 			responseMsg = &signaling.ProxyServerMessage{
@@ -1228,27 +1369,36 @@ func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, str
 	token, err := jwt.ParseWithClaims(tokenValue, &signaling.TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		// Don't forget to validate the alg is what you expect:
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			log.Printf("Unexpected signing method: %v", token.Header["alg"])
+			s.log.Warn("Unexpected signing method",
+				zap.Any("method", token.Header["alg"]),
+			)
 			reason = "unsupported-signing-method"
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 		}
 
 		claims, ok := token.Claims.(*signaling.TokenClaims)
 		if !ok {
-			log.Printf("Unsupported claims type: %+v", token.Claims)
+			s.log.Warn("Unsupported claims type",
+				zap.Any("claims", token.Claims),
+			)
 			reason = "unsupported-claims"
 			return nil, fmt.Errorf("Unsupported claims type")
 		}
 
+		log := s.log.With(
+			zap.String("issuer", claims.Issuer),
+		)
 		tokenKey, err := s.tokens.Get(claims.Issuer)
 		if err != nil {
-			log.Printf("Could not get token for %s: %s", claims.Issuer, err)
+			s.log.Error("Could not get token",
+				zap.Error(err),
+			)
 			reason = "missing-issuer"
 			return nil, err
 		}
 
 		if tokenKey == nil || tokenKey.key == nil {
-			log.Printf("Issuer %s is not supported", claims.Issuer)
+			log.Warn("Issuer is not supported")
 			reason = "unsupported-issuer"
 			return nil, fmt.Errorf("No key found for issuer")
 		}
@@ -1279,7 +1429,9 @@ func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, str
 
 func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*ProxySession, error) {
 	if proxyDebugMessages {
-		log.Printf("Hello: %+v", hello)
+		s.log.Debug("Hello received",
+			zap.Any("hello", hello),
+		)
 	}
 
 	claims, reason, err := s.parseToken(hello.Token)
@@ -1303,8 +1455,11 @@ func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*Pro
 		return nil, err
 	}
 
-	log.Printf("Created session %s for %+v", encoded, claims)
-	session := NewProxySession(s, sid, encoded)
+	s.log.Info("Created session",
+		zap.String("sessionid", encoded),
+		zap.Any("claims", claims),
+	)
+	session := NewProxySession(s.log, s, sid, encoded)
 	s.StoreSession(sid, session)
 	statsSessionsCurrent.Inc()
 	statsSessionsTotal.Inc()
@@ -1461,7 +1616,10 @@ func (s *ProxyServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := s.getStats()
 	statsData, err := json.MarshalIndent(stats, "", "  ")
 	if err != nil {
-		log.Printf("Could not serialize stats %+v: %s", stats, err)
+		s.log.Error("Could not serialize stats",
+			zap.Any("stats", stats),
+			zap.Error(err),
+		)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -1486,7 +1644,7 @@ func (s *ProxyServer) getRemoteConnection(url string) (*RemoteConnection, error)
 		return conn, nil
 	}
 
-	conn, err := NewRemoteConnection(url, s.tokenId, s.tokenKey, s.remoteTlsConfig)
+	conn, err := NewRemoteConnection(s.log, url, s.tokenId, s.tokenKey, s.remoteTlsConfig)
 	if err != nil {
 		return nil, err
 	}

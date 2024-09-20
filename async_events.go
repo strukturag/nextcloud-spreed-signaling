@@ -21,7 +21,11 @@
  */
 package signaling
 
-import "sync"
+import (
+	"sync"
+
+	"go.uber.org/zap"
+)
 
 type AsyncBackendRoomEventListener interface {
 	ProcessBackendRoomRequest(message *AsyncMessage)
@@ -60,13 +64,13 @@ type AsyncEvents interface {
 	PublishSessionMessage(sessionId string, backend *Backend, message *AsyncMessage) error
 }
 
-func NewAsyncEvents(url string) (AsyncEvents, error) {
-	client, err := NewNatsClient(url)
+func NewAsyncEvents(log *zap.Logger, url string) (AsyncEvents, error) {
+	client, err := NewNatsClient(log, url)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewAsyncEventsNats(client)
+	return NewAsyncEventsNats(log, client)
 }
 
 type asyncBackendRoomSubscriber struct {

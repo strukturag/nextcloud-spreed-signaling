@@ -31,7 +31,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -45,6 +44,7 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 )
 
 const (
@@ -56,6 +56,7 @@ const (
 )
 
 type BackendServer struct {
+	log          *zap.Logger
 	hub          *Hub
 	events       AsyncEvents
 	roomSessions RoomSessions
@@ -72,7 +73,7 @@ type BackendServer struct {
 	invalidSecret   []byte
 }
 
-func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
+func NewBackendServer(log *zap.Logger, config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
 	turnapikey, _ := config.GetString("turn", "apikey")
 	turnsecret, _ := config.GetString("turn", "secret")
 	turnservers, _ := config.GetString("turn", "servers")
@@ -95,10 +96,12 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 			return nil, fmt.Errorf("need a shared TURN secret if TURN servers are configured")
 		}
 
-		log.Printf("Using configured TURN API key")
-		log.Printf("Using configured shared TURN secret")
+		log.Info("Using configured TURN API key")
+		log.Info("Using configured shared TURN secret")
 		for _, s := range turnserverslist {
-			log.Printf("Adding \"%s\" as TURN server", s)
+			log.Info("Adding TURN server",
+				zap.String("server", s),
+			)
 		}
 	}
 
@@ -109,10 +112,14 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 	}
 
 	if !statsAllowedIps.Empty() {
-		log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
+		log.Info("Access to the stats endpoint only allowed from ips",
+			zap.Stringer("ips", statsAllowedIps),
+		)
 	} else {
-		log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
 		statsAllowedIps = DefaultAllowedIps()
+		log.Info("No IPs configured for the stats endpoint, only allowing access from default ips",
+			zap.Stringer("ips", statsAllowedIps),
+		)
 	}
 
 	invalidSecret := make([]byte, 32)
@@ -121,6 +128,7 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 	}
 
 	result := &BackendServer{
+		log:          log,
 		hub:          hub,
 		events:       hub.events,
 		roomSessions: hub.roomSessions,
@@ -143,14 +151,21 @@ func (b *BackendServer) Reload(config *goconf.ConfigFile) {
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
 	if statsAllowedIps, err := ParseAllowedIps(statsAllowed); err == nil {
 		if !statsAllowedIps.Empty() {
-			log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
+			b.log.Info("Access to the stats endpoint only allowed from ips",
+				zap.Stringer("ips", statsAllowedIps),
+			)
 		} else {
-			log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
 			statsAllowedIps = DefaultAllowedIps()
+			b.log.Info("No IPs configured for the stats endpoint, only allowing access from default ips",
+				zap.Stringer("ips", statsAllowedIps),
+			)
 		}
 		b.statsAllowedIps.Store(statsAllowedIps)
 	} else {
-		log.Printf("Error parsing allowed stats ips from \"%s\": %s", statsAllowedIps, err)
+		b.log.Error("Error parsing allowed stats ips",
+			zap.String("allowed", statsAllowed),
+			zap.Error(err),
+		)
 	}
 }
 
@@ -246,7 +261,9 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 
 	data, err := json.Marshal(result)
 	if err != nil {
-		log.Printf("Could not serialize TURN credentials: %s", err)
+		b.log.Error("Could not serialize TURN credentials",
+			zap.Error(err),
+		)
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, "Could not serialize credentials.") // nolint
 		return
@@ -273,7 +290,9 @@ func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Reque
 		}
 		ct := r.Header.Get("Content-Type")
 		if !strings.HasPrefix(ct, "application/json") {
-			log.Printf("Received unsupported content-type: %s", ct)
+			b.log.Warn("Received unsupported content-type",
+				zap.String("contenttype", ct),
+			)
 			http.Error(w, "Unsupported Content-Type", http.StatusBadRequest)
 			return
 		}
@@ -286,7 +305,9 @@ func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Reque
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			log.Println("Error reading body: ", err)
+			b.log.Error("Error reading body",
+				zap.Error(err),
+			)
 			http.Error(w, "Could not read body", http.StatusBadRequest)
 			return
 		}
@@ -310,9 +331,16 @@ func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids 
 			},
 		},
 	}
+	log := b.log.With(
+		zap.String("room", roomid),
+		zap.String("backend", backend.Id()),
+	)
 	for _, userid := range userids {
 		if err := b.events.PublishUserMessage(userid, backend, msg); err != nil {
-			log.Printf("Could not publish room invite for user %s in backend %s: %s", userid, backend.Id(), err)
+			log.Error("Could not publish room invite",
+				zap.String("userid", userid),
+				zap.Error(err),
+			)
 		}
 	}
 }
@@ -334,9 +362,16 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 			},
 		},
 	}
+	log := b.log.With(
+		zap.String("room", roomid),
+		zap.String("backend", backend.Id()),
+	)
 	for _, userid := range userids {
 		if err := b.events.PublishUserMessage(userid, backend, msg); err != nil {
-			log.Printf("Could not publish room disinvite for user %s in backend %s: %s", userid, backend.Id(), err)
+			log.Error("Could not publish room disinvite",
+				zap.String("userid", userid),
+				zap.Error(err),
+			)
 		}
 	}
 
@@ -354,10 +389,16 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 		go func(sessionid string) {
 			defer wg.Done()
 			if sid, err := b.lookupByRoomSessionId(ctx, sessionid, nil); err != nil {
-				log.Printf("Could not lookup by room session %s: %s", sessionid, err)
+				log.Error("Could not lookup by room session",
+					zap.String("roomsessionid", sessionid),
+					zap.Error(err),
+				)
 			} else if sid != "" {
 				if err := b.events.PublishSessionMessage(sid, backend, msg); err != nil {
-					log.Printf("Could not publish room disinvite for session %s: %s", sid, err)
+					log.Error("Could not publish room disinvite",
+						zap.String("sessionid", sid),
+						zap.Error(err),
+					)
 				}
 			}
 		}(sessionid)
@@ -380,6 +421,10 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified
 			},
 		},
 	}
+	log := b.log.With(
+		zap.String("room", roomid),
+		zap.String("backend", backend.Id()),
+	)
 	notified := make(map[string]bool)
 	for _, userid := range notified_userids {
 		notified[userid] = true
@@ -391,14 +436,19 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified
 		}
 
 		if err := b.events.PublishUserMessage(userid, backend, msg); err != nil {
-			log.Printf("Could not publish room update for user %s in backend %s: %s", userid, backend.Id(), err)
+			log.Error("Could not publish room update",
+				zap.String("userid", userid),
+				zap.Error(err),
+			)
 		}
 	}
 }
 
 func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId string, cache *ConcurrentStringStringMap) (string, error) {
 	if roomSessionId == sessionIdNotInMeeting {
-		log.Printf("Trying to lookup empty room session id: %s", roomSessionId)
+		b.log.Debug("Trying to lookup empty room session id",
+			zap.String("roomsessionid", roomSessionId),
+		)
 		return "", nil
 	}
 
@@ -435,13 +485,17 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 
 		roomSessionId, ok := roomSessionIdOb.(string)
 		if !ok {
-			log.Printf("User %+v has invalid room session id, ignoring", user)
+			b.log.Warn("User has invalid room session id, ignoring",
+				zap.Any("user", user),
+			)
 			delete(user, "sessionId")
 			continue
 		}
 
 		if roomSessionId == sessionIdNotInMeeting {
-			log.Printf("User %+v is not in the meeting, ignoring", user)
+			b.log.Warn("User is not in the meeting, ignoring",
+				zap.Any("user", user),
+			)
 			delete(user, "sessionId")
 			continue
 		}
@@ -450,7 +504,10 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 		go func(roomSessionId string, u map[string]interface{}) {
 			defer wg.Done()
 			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
-				log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
+				b.log.Error("Could not lookup by room session",
+					zap.String("roomsessionid", roomSessionId),
+					zap.Error(err),
+				)
 				delete(u, "sessionId")
 			} else if sessionId != "" {
 				u["sessionId"] = sessionId
@@ -518,16 +575,26 @@ loop:
 		}
 
 		sessionId := user["sessionId"].(string)
+		log := b.log.With(
+			zap.String("sessionid", sessionId),
+		)
 		permissionsList, ok := permissionsInterface.([]interface{})
 		if !ok {
-			log.Printf("Received invalid permissions %+v (%s) for session %s", permissionsInterface, reflect.TypeOf(permissionsInterface), sessionId)
+			log.Warn("Received invalid permissions for session, ignoring",
+				zap.Any("permissions", permissionsInterface),
+				zap.Any("type", reflect.TypeOf(permissionsInterface)),
+			)
 			continue
 		}
 		var permissions []Permission
 		for idx, ob := range permissionsList {
 			permission, ok := ob.(string)
 			if !ok {
-				log.Printf("Received invalid permission at position %d %+v (%s) for session %s", idx, ob, reflect.TypeOf(ob), sessionId)
+				log.Warn("Received invalid permission at position for session, ignoring",
+					zap.Int("index", idx),
+					zap.Any("permission", ob),
+					zap.Any("type", reflect.TypeOf(ob)),
+				)
 				continue loop
 			}
 			permissions = append(permissions, Permission(permission))
@@ -541,7 +608,10 @@ loop:
 				Permissions: permissions,
 			}
 			if err := b.events.PublishSessionMessage(sessionId, backend, message); err != nil {
-				log.Printf("Could not send permissions update (%+v) to session %s: %s", permissions, sessionId, err)
+				log.Error("Could not send permissions update",
+					zap.Any("permissions", permissions),
+					zap.Error(err),
+				)
 			}
 		}(sessionId, permissions)
 	}
@@ -593,7 +663,10 @@ func (b *BackendServer) sendRoomSwitchTo(roomid string, backend *Backend, reques
 				go func(roomSessionId string) {
 					defer wg.Done()
 					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
-						log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
+						b.log.Error("Could not lookup by room session",
+							zap.String("roomsessionid", roomSessionId),
+							zap.Error(err),
+						)
 					} else if sessionId != "" {
 						mu.Lock()
 						defer mu.Unlock()
@@ -631,7 +704,10 @@ func (b *BackendServer) sendRoomSwitchTo(roomid string, backend *Backend, reques
 				go func(roomSessionId string, details json.RawMessage) {
 					defer wg.Done()
 					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
-						log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
+						b.log.Error("Could not lookup by room session",
+							zap.String("roomsessionid", roomSessionId),
+							zap.Error(err),
+						)
 					} else if sessionId != "" {
 						mu.Lock()
 						defer mu.Unlock()
@@ -762,7 +838,9 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, backendUrl
 		return returnDialoutError(http.StatusBadGateway, dialout.Error)
 	case "status":
 		if dialout.Status.Status != DialoutStatusAccepted {
-			log.Printf("Received unsupported dialout status when triggering dialout: %+v", dialout)
+			b.log.Warn("Received unsupported dialout status when triggering dialout",
+				zap.Any("status", dialout),
+			)
 			return returnDialoutError(http.StatusBadGateway, NewError("unsupported_status", "Unsupported dialout status received."))
 		}
 
@@ -774,7 +852,9 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, backendUrl
 		}, nil
 	}
 
-	log.Printf("Received unsupported dialout type when triggering dialout: %+v", dialout)
+	b.log.Warn("Received unsupported dialout type when triggering dialout",
+		zap.Any("status", dialout),
+	)
 	return returnDialoutError(http.StatusBadGateway, NewError("unsupported_type", "Unsupported dialout type received."))
 }
 
@@ -784,7 +864,9 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 		http.Error(w, "Too many requests", http.StatusTooManyRequests)
 		return
 	} else if err != nil {
-		log.Printf("Error checking for bruteforce: %s", err)
+		b.log.Error("Error checking for bruteforce",
+			zap.Error(err),
+		)
 		http.Error(w, "Could not check for bruteforce", http.StatusInternalServerError)
 		return
 	}
@@ -837,7 +919,10 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 
 	var request BackendServerRoomRequest
 	if err := json.Unmarshal(body, &request); err != nil {
-		log.Printf("Error decoding body %s: %s", string(body), err)
+		b.log.Error("Error decoding body",
+			zap.Binary("body", body),
+			zap.Error(err),
+		)
 		http.Error(w, "Could not read body", http.StatusBadRequest)
 		return
 	}
@@ -882,7 +967,11 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 	}
 
 	if err != nil {
-		log.Printf("Error processing %s for room %s: %s", string(body), roomid, err)
+		b.log.Error("Error processing room request",
+			zap.ByteString("request", body),
+			zap.String("room", roomid),
+			zap.Error(err),
+		)
 		http.Error(w, "Error while processing", http.StatusInternalServerError)
 		return
 	}
@@ -898,7 +987,10 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 		}
 		responseData, err = json.Marshal(response)
 		if err != nil {
-			log.Printf("Could not serialize backend response %+v: %s", response, err)
+			b.log.Error("Could not serialize backend response",
+				zap.Any("response", response),
+				zap.Error(err),
+			)
 			responseStatus = http.StatusInternalServerError
 			responseData = []byte("{\"error\":\"could_not_serialize\"}")
 		}
@@ -936,7 +1028,10 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := b.hub.GetStats()
 	statsData, err := json.MarshalIndent(stats, "", "  ")
 	if err != nil {
-		log.Printf("Could not serialize stats %+v: %s", stats, err)
+		b.log.Error("Could not serialize stats",
+			zap.Any("stats", stats),
+			zap.Error(err),
+		)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}

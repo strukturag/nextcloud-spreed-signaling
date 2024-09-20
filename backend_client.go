@@ -28,12 +28,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/dlintw/goconf"
+	"go.uber.org/zap"
 )
 
 var (
@@ -45,6 +45,7 @@ var (
 )
 
 type BackendClient struct {
+	log      *zap.Logger
 	hub      *Hub
 	version  string
 	backends *BackendConfiguration
@@ -53,15 +54,15 @@ type BackendClient struct {
 	capabilities *Capabilities
 }
 
-func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient *EtcdClient) (*BackendClient, error) {
-	backends, err := NewBackendConfiguration(config, etcdClient)
+func NewBackendClient(log *zap.Logger, config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient *EtcdClient) (*BackendClient, error) {
+	backends, err := NewBackendConfiguration(log, config, etcdClient)
 	if err != nil {
 		return nil, err
 	}
 
 	skipverify, _ := config.GetBool("backend", "skipverify")
 	if skipverify {
-		log.Println("WARNING: Backend verification is disabled!")
+		log.Warn("Backend verification is disabled!")
 	}
 
 	pool, err := NewHttpClientPool(maxConcurrentRequestsPerHost, skipverify)
@@ -69,12 +70,13 @@ func NewBackendClient(config *goconf.ConfigFile, maxConcurrentRequestsPerHost in
 		return nil, err
 	}
 
-	capabilities, err := NewCapabilities(version, pool)
+	capabilities, err := NewCapabilities(log, version, pool)
 	if err != nil {
 		return nil, err
 	}
 
 	return &BackendClient{
+		log:      log,
 		version:  version,
 		backends: backends,
 
@@ -135,20 +137,30 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	c, pool, err := b.pool.Get(ctx, u)
 	if err != nil {
-		log.Printf("Could not get client for host %s: %s", u.Host, err)
+		b.log.Error("Could not get client",
+			zap.String("host", u.Host),
+			zap.Error(err),
+		)
 		return err
 	}
 	defer pool.Put(c)
 
 	data, err := json.Marshal(request)
 	if err != nil {
-		log.Printf("Could not marshal request %+v: %s", request, err)
+		b.log.Error("Could not marshal request",
+			zap.Any("request", request),
+			zap.Error(err),
+		)
 		return err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", requestUrl.String(), bytes.NewReader(data))
 	if err != nil {
-		log.Printf("Could not create request to %s: %s", requestUrl, err)
+		b.log.Error("Could not create request",
+			zap.Stringer("url", requestUrl),
+			zap.ByteString("body", data),
+			zap.Error(err),
+		)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -162,22 +174,34 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	// Add checksum so the backend can validate the request.
 	AddBackendChecksum(req, data, secret)
 
+	log := b.log.With(
+		zap.Stringer("url", req.URL),
+	)
+
 	resp, err := c.Do(req)
 	if err != nil {
-		log.Printf("Could not send request %s to %s: %s", string(data), req.URL, err)
+		log.Error("Could not send request",
+			zap.ByteString("body", data),
+			zap.Error(err),
+		)
 		return err
 	}
 	defer resp.Body.Close()
 
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
-		log.Printf("Received unsupported content-type from %s: %s (%s)", req.URL, ct, resp.Status)
+		log.Error("Received unsupported content-type",
+			zap.String("contenttype", ct),
+			zap.String("status", resp.Status),
+		)
 		return ErrUnsupportedContentType
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Could not read response body from %s: %s", req.URL, err)
+		log.Error("Could not read response body",
+			zap.Error(err),
+		)
 		return err
 	}
 
@@ -192,25 +216,38 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		// }
 		var ocs OcsResponse
 		if err := json.Unmarshal(body, &ocs); err != nil {
-			log.Printf("Could not decode OCS response %s from %s: %s", string(body), req.URL, err)
+			log.Error("Could not decode OCS response",
+				zap.ByteString("response", body),
+				zap.Error(err),
+			)
 			return err
 		} else if ocs.Ocs == nil || len(ocs.Ocs.Data) == 0 {
-			log.Printf("Incomplete OCS response %s from %s", string(body), req.URL)
+			log.Error("Incomplete OCS response",
+				zap.ByteString("response", body),
+			)
 			return ErrIncompleteResponse
 		}
 
 		switch ocs.Ocs.Meta.StatusCode {
 		case http.StatusTooManyRequests:
-			log.Printf("Throttled OCS response %s from %s", string(body), req.URL)
+			log.Error("Throttled OCS response",
+				zap.ByteString("response", body),
+			)
 			return ErrThrottledResponse
 		}
 
 		if err := json.Unmarshal(ocs.Ocs.Data, response); err != nil {
-			log.Printf("Could not decode OCS response body %s from %s: %s", string(ocs.Ocs.Data), req.URL, err)
+			log.Error("Could not decode OCS response body",
+				zap.ByteString("response", body),
+				zap.Error(err),
+			)
 			return err
 		}
 	} else if err := json.Unmarshal(body, response); err != nil {
-		log.Printf("Could not decode response body %s from %s: %s", string(body), req.URL, err)
+		log.Error("Could not decode response body",
+			zap.ByteString("response", body),
+			zap.Error(err),
+		)
 		return err
 	}
 	return nil

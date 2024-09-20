@@ -24,7 +24,6 @@ package signaling
 import (
 	"context"
 	"errors"
-	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -34,6 +33,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"go.uber.org/zap"
 )
 
 const (
@@ -51,6 +51,7 @@ func init() {
 type FileWatcherCallback func(filename string)
 
 type FileWatcher struct {
+	log      *zap.Logger
 	filename string
 	target   string
 	callback FileWatcherCallback
@@ -60,7 +61,7 @@ type FileWatcher struct {
 	closeFunc context.CancelFunc
 }
 
-func NewFileWatcher(filename string, callback FileWatcherCallback) (*FileWatcher, error) {
+func NewFileWatcher(log *zap.Logger, filename string, callback FileWatcherCallback) (*FileWatcher, error) {
 	realFilename, err := filepath.EvalSymlinks(filename)
 	if err != nil {
 		return nil, err
@@ -84,6 +85,7 @@ func NewFileWatcher(filename string, callback FileWatcherCallback) (*FileWatcher
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 
 	w := &FileWatcher{
+		log:      log,
 		filename: filename,
 		target:   realFilename,
 		callback: callback,
@@ -141,7 +143,10 @@ func (f *FileWatcher) run() {
 
 			if stat, err := os.Lstat(event.Name); err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
-					log.Printf("Could not lstat %s: %s", event.Name, err)
+					f.log.Error("Could not lstat",
+						zap.String("filename", event.Name),
+						zap.Error(err),
+					)
 				}
 			} else if stat.Mode()&os.ModeSymlink != 0 {
 				target, err := filepath.EvalSymlinks(event.Name)
@@ -160,7 +165,10 @@ func (f *FileWatcher) run() {
 				return
 			}
 
-			log.Printf("Error watching %s: %s", f.filename, err)
+			f.log.Error("Error watching",
+				zap.String("filename", f.filename),
+				zap.Error(err),
+			)
 		case <-f.closeCtx.Done():
 			return
 		}

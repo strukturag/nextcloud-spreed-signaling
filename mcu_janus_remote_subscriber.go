@@ -23,11 +23,11 @@ package signaling
 
 import (
 	"context"
-	"log"
 	"strconv"
 	"sync/atomic"
 
 	"github.com/notedit/janus-go"
+	"go.uber.org/zap"
 )
 
 type mcuJanusRemoteSubscriber struct {
@@ -36,12 +36,16 @@ type mcuJanusRemoteSubscriber struct {
 	remote atomic.Pointer[mcuJanusRemotePublisher]
 }
 
+func (p *mcuJanusRemoteSubscriber) updateLogger() {
+	p.mcuJanusSubscriber.updateLogger()
+}
+
 func (p *mcuJanusRemoteSubscriber) handleEvent(event *janus.EventMsg) {
 	if videoroom := getPluginStringValue(event.Plugindata, pluginVideoRoom, "videoroom"); videoroom != "" {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Remote subscriber %d: associated room has been destroyed, closing", p.handleId)
+			p.log.Info("Remote subscriber: associated room has been destroyed, closing")
 			go p.Close(ctx)
 		case "event":
 			// Handle renegotiations, but ignore other events like selected
@@ -53,33 +57,46 @@ func (p *mcuJanusRemoteSubscriber) handleEvent(event *janus.EventMsg) {
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom event %s for remote subscriber %d: %+v", videoroom, p.handleId, event)
+			p.log.Warn("Unsupported videoroom event for remote subscriber",
+				zap.String("videoroom", videoroom),
+				zap.Any("event", event),
+			)
 		}
 	} else {
-		log.Printf("Unsupported event for remote subscriber %d: %+v", p.handleId, event)
+		p.log.Warn("Unsupported event for remote subscriber",
+			zap.Any("event", event),
+		)
 	}
 }
 
 func (p *mcuJanusRemoteSubscriber) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Remote subscriber %d received hangup (%s), closing", p.handleId, event.Reason)
+	p.log.Info("Remote subscriber received hangup, closing",
+		zap.String("reason", event.Reason),
+	)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusRemoteSubscriber) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Remote subscriber %d received detached, closing", p.handleId)
+	p.log.Info("Remote subscriber received detached, closing")
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusRemoteSubscriber) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Remote subscriber %d received connected", p.handleId)
+	p.log.Info("Remote subscriber received connected")
 	p.mcu.SubscriberConnected(p.Id(), p.publisher, p.streamType)
 }
 
 func (p *mcuJanusRemoteSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Remote subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.log.Info("Remote subscriber is reporting lost packets on the uplink (Janus -> client)",
+			zap.String("sessionid", p.listener.PublicId()),
+			zap.Int64("lost", event.Lost),
+		)
 	} else {
-		log.Printf("Remote subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.log.Info("Remote subscriber is reporting lost packets on the downlink (client -> Janus)",
+			zap.String("sessionid", p.listener.PublicId()),
+			zap.Int64("lost", event.Lost),
+		)
 	}
 }
 
@@ -93,7 +110,10 @@ func (p *mcuJanusRemoteSubscriber) NotifyReconnected() {
 	handle, pub, err := p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
 	if err != nil {
 		// TODO(jojo): Retry?
-		log.Printf("Could not reconnect remote subscriber for publisher %s: %s", p.publisher, err)
+		p.log.Info("Could not reconnect remote subscriber",
+			zap.String("publisher", p.publisher),
+			zap.Error(err),
+		)
 		p.Close(context.Background())
 		return
 	}
@@ -102,8 +122,11 @@ func (p *mcuJanusRemoteSubscriber) NotifyReconnected() {
 	p.handleId = handle.Id
 	p.roomId = pub.roomId
 	p.sid = strconv.FormatUint(handle.Id, 10)
+	p.updateLogger()
 	p.listener.SubscriberSidUpdated(p)
-	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId)
+	p.log.Info("Remote subscriber reconnected",
+		zap.String("publisher", p.publisher),
+	)
 }
 
 func (p *mcuJanusRemoteSubscriber) Close(ctx context.Context) {

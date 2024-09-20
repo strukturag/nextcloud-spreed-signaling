@@ -86,7 +86,6 @@ func Test_TransientData(t *testing.T) {
 
 func Test_TransientMessages(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)

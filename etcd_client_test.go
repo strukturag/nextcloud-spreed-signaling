@@ -113,13 +113,14 @@ func NewEtcdForTest(t *testing.T) *embed.Etcd {
 }
 
 func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
+	log := GetLoggerForTest(t)
 	etcd := NewEtcdForTest(t)
 
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 	config.AddOption("etcd", "loglevel", "error")
 
-	client, err := NewEtcdClient(config, "")
+	client, err := NewEtcdClient(log, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, client.Close())
@@ -143,7 +144,6 @@ func DeleteEtcdValue(etcd *embed.Etcd, key string) {
 
 func Test_EtcdClient_Get(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 
@@ -163,7 +163,6 @@ func Test_EtcdClient_Get(t *testing.T) {
 
 func Test_EtcdClient_GetPrefix(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 
@@ -274,7 +273,6 @@ func (l *EtcdClientTestListener) EtcdKeyDeleted(client *EtcdClient, key string, 
 
 func Test_EtcdClient_Watch(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 

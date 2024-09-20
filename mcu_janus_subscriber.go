@@ -24,10 +24,10 @@ package signaling
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 
 	"github.com/notedit/janus-go"
+	"go.uber.org/zap"
 )
 
 type mcuJanusSubscriber struct {
@@ -40,12 +40,16 @@ func (p *mcuJanusSubscriber) Publisher() string {
 	return p.publisher
 }
 
+func (p *mcuJanusSubscriber) updateLogger() {
+	p.mcuJanusClient.updateLogger()
+}
+
 func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 	if videoroom := getPluginStringValue(event.Plugindata, pluginVideoRoom, "videoroom"); videoroom != "" {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Subscriber %d: associated room has been destroyed, closing", p.handleId)
+			p.log.Info("Subscriber: associated room has been destroyed, closing")
 			go p.Close(ctx)
 		case "event":
 			// Handle renegotiations, but ignore other events like selected
@@ -57,33 +61,46 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom event %s for subscriber %d: %+v", videoroom, p.handleId, event)
+			p.log.Warn("Unsupported videoroom event for subscriber",
+				zap.String("videoroom", videoroom),
+				zap.Any("event", event),
+			)
 		}
 	} else {
-		log.Printf("Unsupported event for subscriber %d: %+v", p.handleId, event)
+		p.log.Warn("Unsupported event for subscriber",
+			zap.Any("event", event),
+		)
 	}
 }
 
 func (p *mcuJanusSubscriber) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Subscriber %d received hangup (%s), closing", p.handleId, event.Reason)
+	p.log.Info("Subscriber received hangup, closing",
+		zap.String("reason", event.Reason),
+	)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusSubscriber) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Subscriber %d received detached, closing", p.handleId)
+	p.log.Info("Subscriber received detached, closing")
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusSubscriber) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Subscriber %d received connected", p.handleId)
+	p.log.Info("Subscriber received connected")
 	p.mcu.SubscriberConnected(p.Id(), p.publisher, p.streamType)
 }
 
 func (p *mcuJanusSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.log.Info("Subscriber is reporting lost packets on the uplink (Janus -> client)",
+			zap.String("sessionid", p.listener.PublicId()),
+			zap.Int64("lost", event.Lost),
+		)
 	} else {
-		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
+		p.log.Info("Subscriber is reporting lost packets on the downlink (client -> Janus)",
+			zap.String("sessionid", p.listener.PublicId()),
+			zap.Int64("lost", event.Lost),
+		)
 	}
 }
 
@@ -97,7 +114,10 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 	handle, pub, err := p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
 	if err != nil {
 		// TODO(jojo): Retry?
-		log.Printf("Could not reconnect subscriber for publisher %s: %s", p.publisher, err)
+		p.log.Error("Could not reconnect subscriber",
+			zap.String("publisher", p.publisher),
+			zap.Error(err),
+		)
 		p.Close(context.Background())
 		return
 	}
@@ -106,8 +126,11 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 	p.handleId = handle.Id
 	p.roomId = pub.roomId
 	p.sid = strconv.FormatUint(handle.Id, 10)
+	p.updateLogger()
 	p.listener.SubscriberSidUpdated(p)
-	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId)
+	p.log.Info("Subscriber reconnected",
+		zap.String("publisher", p.publisher),
+	)
 }
 
 func (p *mcuJanusSubscriber) Close(ctx context.Context) {
@@ -187,19 +210,29 @@ retry:
 			p.handleId = handle.Id
 			p.roomId = pub.roomId
 			p.sid = strconv.FormatUint(handle.Id, 10)
+			p.updateLogger()
 			p.listener.SubscriberSidUpdated(p)
 			p.closeChan = make(chan struct{}, 1)
 			go p.run(p.handle, p.closeChan)
-			log.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId)
+			p.log.Warn("Already connected subscriber, leaving and re-joining",
+				zap.String("publisher", p.publisher),
+				zap.Any("streamtype", p.streamType),
+			)
 			goto retry
 		case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
 			fallthrough
 		case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
 			switch error_code {
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
-				log.Printf("Publisher %s not created yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
+				p.log.Info("Publisher not created yet, wait and retry to join room as subscriber",
+					zap.String("publisher", p.publisher),
+					zap.Any("streamtype", p.streamType),
+				)
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
-				log.Printf("Publisher %s not sending yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
+				p.log.Info("Publisher not sending yet, wait and retry to join room as subscriber",
+					zap.String("publisher", p.publisher),
+					zap.Any("streamtype", p.streamType),
+				)
 			}
 
 			if !loggedNotPublishingYet {
@@ -211,7 +244,10 @@ retry:
 				callback(err, nil)
 				return
 			}
-			log.Printf("Retry subscribing %s from %s", p.streamType, p.publisher)
+			p.log.Info("Retry subscribing",
+				zap.String("publisher", p.publisher),
+				zap.Any("streamtype", p.streamType),
+			)
 			goto retry
 		default:
 			// TODO(jojo): Should we handle other errors, too?

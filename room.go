@@ -26,13 +26,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/zap"
 )
 
 const (
@@ -60,6 +60,7 @@ func init() {
 }
 
 type Room struct {
+	log     *zap.Logger
 	id      string
 	hub     *Hub
 	events  AsyncEvents
@@ -95,8 +96,11 @@ func getRoomIdForBackend(id string, backend *Backend) string {
 	return backend.Id() + "|" + id
 }
 
-func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEvents, backend *Backend) (*Room, error) {
+func NewRoom(log *zap.Logger, roomId string, properties json.RawMessage, hub *Hub, events AsyncEvents, backend *Backend) (*Room, error) {
 	room := &Room{
+		log: log.With(
+			zap.String("roomid", roomId),
+		),
 		id:      roomId,
 		hub:     hub,
 		events:  events,
@@ -213,7 +217,10 @@ func (r *Room) ProcessBackendRoomRequest(message *AsyncMessage) {
 	case "asyncroom":
 		r.processBackendRoomRequestAsyncRoom(message.AsyncRoom)
 	default:
-		log.Printf("Unsupported backend room request with type %s in %s: %+v", message.Type, r.id, message)
+		r.log.Warn("Unsupported backend room request",
+			zap.String("type", message.Type),
+			zap.Any("message", message),
+		)
 	}
 }
 
@@ -221,9 +228,13 @@ func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) 
 	received := message.ReceivedTime
 	if last, found := r.lastRoomRequests[message.Type]; found && last > received {
 		if msg, err := json.Marshal(message); err == nil {
-			log.Printf("Ignore old backend room request for %s: %s", r.Id(), string(msg))
+			r.log.Debug("Ignore old backend room request",
+				zap.ByteString("message", msg),
+			)
 		} else {
-			log.Printf("Ignore old backend room request for %s: %+v", r.Id(), message)
+			r.log.Debug("Ignore old backend room request",
+				zap.Any("message", message),
+			)
 		}
 		return
 	}
@@ -251,10 +262,15 @@ func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) 
 		case TransientActionDelete:
 			r.RemoveTransientData(message.Transient.Key)
 		default:
-			log.Printf("Unsupported transient action in room %s: %+v", r.Id(), message.Transient)
+			r.log.Warn("Unsupported transient action in room",
+				zap.Any("message", message.Transient),
+			)
 		}
 	default:
-		log.Printf("Unsupported backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
+		r.log.Warn("Unsupported backend room request",
+			zap.String("type", message.Type),
+			zap.Any("message", message),
+		)
 	}
 }
 
@@ -266,7 +282,10 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *AsyncRoomMessage) {
 			r.publishUsersChangedWithInternal()
 		}
 	default:
-		log.Printf("Unsupported async room request with type %s in %s: %+v", message.Type, r.Id(), message)
+		r.log.Warn("Unsupported async room request",
+			zap.String("type", message.Type),
+			zap.Any("message", message),
+		)
 	}
 }
 
@@ -275,7 +294,10 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 	if len(sessionData) > 0 {
 		roomSessionData = &RoomSessionData{}
 		if err := json.Unmarshal(sessionData, roomSessionData); err != nil {
-			log.Printf("Error decoding room session data \"%s\": %s", string(sessionData), err)
+			r.log.Error("Error decoding room session data",
+				zap.ByteString("data", sessionData),
+				zap.Error(err),
+			)
 			roomSessionData = nil
 		}
 	}
@@ -303,7 +325,10 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 	}
 	if roomSessionData != nil {
 		r.roomSessionData[sid] = roomSessionData
-		log.Printf("Session %s sent room session data %+v", session.PublicId(), roomSessionData)
+		r.log.Info("Session sent room session data",
+			zap.String("sessionid", session.PublicId()),
+			zap.Any("sessiondata", roomSessionData),
+		)
 	}
 	r.mu.Unlock()
 	if !found {
@@ -328,7 +353,10 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 			ClientType: session.ClientType(),
 		},
 	}); err != nil {
-		log.Printf("Error publishing joined event for session %s: %s", sid, err)
+		r.log.Error("Error publishing joined event for session",
+			zap.String("sessionid", sid),
+			zap.Error(err),
+		)
 	}
 }
 
@@ -385,7 +413,10 @@ func (r *Room) notifySessionJoined(sessionId string) {
 		Type:    "message",
 		Message: msg,
 	}); err != nil {
-		log.Printf("Error publishing joined events to session %s: %s", sessionId, err)
+		r.log.Error("Error publishing joined events to session",
+			zap.String("sessionid", sessionId),
+			zap.Error(err),
+		)
 	}
 
 	// Notify about initial flags of virtual sessions.
@@ -417,7 +448,10 @@ func (r *Room) notifySessionJoined(sessionId string) {
 			Type:    "message",
 			Message: msg,
 		}); err != nil {
-			log.Printf("Error publishing initial flags to session %s: %s", sessionId, err)
+			r.log.Error("Error publishing initial flags to session",
+				zap.String("sessionid", sessionId),
+				zap.Error(err),
+			)
 		}
 	}
 }
@@ -499,7 +533,9 @@ func (r *Room) UpdateProperties(properties json.RawMessage) {
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish update properties message in room %s: %s", r.Id(), err)
+		r.log.Error("Could not publish update properties message in room",
+			zap.Error(err),
+		)
 	}
 }
 
@@ -539,7 +575,9 @@ func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionDat
 		message.Event.Join[0].Federated = session.ClientType() == HelloClientTypeFederation
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish session joined message in room %s: %s", r.Id(), err)
+		r.log.Error("Could not publish session joined message in room",
+			zap.Error(err),
+		)
 	}
 }
 
@@ -560,7 +598,9 @@ func (r *Room) PublishSessionLeft(session Session) {
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish session left message in room %s: %s", r.Id(), err)
+		r.log.Error("Could not publish session left message in room",
+			zap.Error(err),
+		)
 	}
 
 	if session.ClientType() == HelloClientTypeInternal {
@@ -664,7 +704,9 @@ func (r *Room) PublishUsersInCallChanged(changed []map[string]interface{}, users
 			r.mu.Lock()
 			if !r.inCallSessions[session] {
 				r.inCallSessions[session] = true
-				log.Printf("Session %s joined call %s", session.PublicId(), r.id)
+				r.log.Info("Session joined call",
+					zap.String("sessionid", session.PublicId()),
+				)
 			}
 			r.mu.Unlock()
 		} else {
@@ -693,7 +735,9 @@ func (r *Room) PublishUsersInCallChanged(changed []map[string]interface{}, users
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+		r.log.Error("Could not publish incall message in room",
+			zap.Error(err),
+		)
 	}
 }
 
@@ -727,7 +771,9 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 			return
 		}
 
-		log.Printf("Sessions %v joined call %s", joined, r.id)
+		r.log.Info("Sessions joined call",
+			zap.Any("sessions", joined),
+		)
 	} else if len(r.inCallSessions) > 0 {
 		// Perform actual leaving asynchronously.
 		ch := make(chan *ClientSession, 1)
@@ -780,7 +826,9 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 
 	for _, session := range notify {
 		if !session.SendMessage(message) {
-			log.Printf("Could not send incall message from room %s to %s", r.Id(), session.PublicId())
+			r.log.Error("Could not send incall message from room to session",
+				zap.String("sessionid", session.PublicId()),
+			)
 		}
 	}
 }
@@ -802,7 +850,9 @@ func (r *Room) PublishUsersChanged(changed []map[string]interface{}, users []map
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
+		r.log.Error("Could not publish users changed message in room",
+			zap.Error(err),
+		)
 	}
 }
 
@@ -861,7 +911,9 @@ func (r *Room) NotifySessionChanged(session Session, flags SessionChangeFlag) {
 				r.mu.Lock()
 				if !r.inCallSessions[session] {
 					r.inCallSessions[session] = true
-					log.Printf("Session %s joined call %s", session.PublicId(), r.id)
+					r.log.Info("Session joined call",
+						zap.String("sessionid", session.PublicId()),
+					)
 				}
 				r.mu.Unlock()
 			} else if joinLeave == 2 {
@@ -886,7 +938,9 @@ func (r *Room) publishUsersChangedWithInternal() {
 	}
 
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
+		r.log.Error("Could not publish users changed message in room",
+			zap.Error(err),
+		)
 	}
 }
 
@@ -904,7 +958,9 @@ func (r *Room) publishSessionFlagsChanged(session *VirtualSession) {
 		},
 	}
 	if err := r.publish(message); err != nil {
-		log.Printf("Could not publish flags changed message in room %s: %s", r.Id(), err)
+		r.log.Error("Could not publish flags changed message in room",
+			zap.Error(err),
+		)
 	}
 }
 
@@ -966,7 +1022,10 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 			defer cancel()
 
 			if err := r.hub.roomPing.SendPings(ctx, r.id, url, entries); err != nil {
-				log.Printf("Error pinging room %s for active entries %+v: %s", r.id, entries, err)
+				r.log.Error("Error pinging room for active entries",
+					zap.Any("entries", entries),
+					zap.Error(err),
+				)
 			}
 		}(urls[u], e)
 	}
@@ -990,7 +1049,9 @@ func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
 		},
 	}
 	if err := r.publish(msg); err != nil {
-		log.Printf("Could not publish room message in room %s: %s", r.Id(), err)
+		r.log.Error("Could not publish room message in room",
+			zap.Error(err),
+		)
 	}
 }
 
@@ -1017,7 +1078,10 @@ func (r *Room) publishSwitchTo(message *BackendRoomSwitchToMessageRequest) {
 					Type:    "message",
 					Message: msg,
 				}); err != nil {
-					log.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
+					r.log.Error("Error publishing switchto event to session",
+						zap.String("sessionid", sessionId),
+						zap.Error(err),
+					)
 				}
 			}(sessionId)
 		}
@@ -1045,7 +1109,10 @@ func (r *Room) publishSwitchTo(message *BackendRoomSwitchToMessageRequest) {
 					Type:    "message",
 					Message: msg,
 				}); err != nil {
-					log.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
+					r.log.Error("Error publishing switchto event to session",
+						zap.String("sessionid", sessionId),
+						zap.Error(err),
+					)
 				}
 			}(sessionId, details)
 		}

@@ -23,13 +23,13 @@ package signaling
 
 import (
 	"errors"
-	"log"
 	"net"
 	"net/url"
 	"strings"
 	"sync"
 
 	"github.com/dlintw/goconf"
+	"go.uber.org/zap"
 )
 
 type ipList struct {
@@ -40,6 +40,7 @@ type ipList struct {
 }
 
 type proxyConfigStatic struct {
+	log   *zap.Logger
 	mu    sync.Mutex
 	proxy McuProxy
 
@@ -49,8 +50,9 @@ type proxyConfigStatic struct {
 	connectionsMap map[string]*ipList
 }
 
-func NewProxyConfigStatic(config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *DnsMonitor) (ProxyConfig, error) {
+func NewProxyConfigStatic(log *zap.Logger, config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *DnsMonitor) (ProxyConfig, error) {
 	result := &proxyConfigStatic{
+		log:            log,
 		proxy:          proxy,
 		dnsMonitor:     dnsMonitor,
 		connectionsMap: make(map[string]*ipList),
@@ -106,7 +108,10 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 				return err
 			}
 
-			log.Printf("Could not parse URL %s: %s", u, err)
+			p.log.Error("Could not parse URL",
+				zap.String("url", u),
+				zap.Error(err),
+			)
 			continue
 		}
 
@@ -127,7 +132,10 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 					return err
 				}
 
-				log.Printf("Could not create proxy connection to %s: %s", u, err)
+				p.log.Error("Could not create proxy connection",
+					zap.String("url", u),
+					zap.Error(err),
+				)
 				continue
 			}
 		}
@@ -204,7 +212,11 @@ func (p *proxyConfigStatic) onLookup(entry *DnsMonitorEntry, all []net.IP, added
 
 	if len(added) > 0 {
 		if err := p.proxy.AddConnection(true, u, added...); err != nil {
-			log.Printf("Could not add proxy connection to %s with %+v: %s", u, added, err)
+			p.log.Error("Could not add proxy connection",
+				zap.String("url", u),
+				zap.Stringers("ips", added),
+				zap.Error(err),
+			)
 		}
 	}
 

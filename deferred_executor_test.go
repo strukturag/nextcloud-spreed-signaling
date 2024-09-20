@@ -28,8 +28,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func NewDeferredExecutorForTest(t *testing.T, queueSize int) *DeferredExecutor {
+	log := GetLoggerForTest(t)
+	return NewDeferredExecutor(log, queueSize)
+}
+
 func TestDeferredExecutor_MultiClose(t *testing.T) {
-	e := NewDeferredExecutor(0)
+	e := NewDeferredExecutorForTest(t, 0)
 	defer e.waitForStop()
 
 	e.Close()
@@ -38,7 +43,7 @@ func TestDeferredExecutor_MultiClose(t *testing.T) {
 
 func TestDeferredExecutor_QueueSize(t *testing.T) {
 	t.Parallel()
-	e := NewDeferredExecutor(0)
+	e := NewDeferredExecutorForTest(t, 0)
 	defer e.waitForStop()
 	defer e.Close()
 
@@ -59,7 +64,7 @@ func TestDeferredExecutor_QueueSize(t *testing.T) {
 }
 
 func TestDeferredExecutor_Order(t *testing.T) {
-	e := NewDeferredExecutor(64)
+	e := NewDeferredExecutorForTest(t, 64)
 	defer e.waitForStop()
 	defer e.Close()
 
@@ -86,7 +91,7 @@ func TestDeferredExecutor_Order(t *testing.T) {
 }
 
 func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
-	e := NewDeferredExecutor(64)
+	e := NewDeferredExecutorForTest(t, 64)
 	defer e.waitForStop()
 
 	done := make(chan struct{})
@@ -99,8 +104,7 @@ func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
 }
 
 func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
-	CatchLogForTest(t)
-	e := NewDeferredExecutor(64)
+	e := NewDeferredExecutorForTest(t, 64)
 	defer e.waitForStop()
 
 	e.Close()
@@ -111,7 +115,7 @@ func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
 }
 
 func TestDeferredExecutor_WaitForStopTwice(t *testing.T) {
-	e := NewDeferredExecutor(64)
+	e := NewDeferredExecutorForTest(t, 64)
 	defer e.waitForStop()
 
 	e.Close()

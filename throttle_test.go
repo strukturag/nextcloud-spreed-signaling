@@ -32,7 +32,8 @@ import (
 
 func newMemoryThrottlerForTest(t *testing.T) *memoryThrottler {
 	t.Helper()
-	result, err := NewMemoryThrottler()
+	log := GetLoggerForTest(t)
+	result, err := NewMemoryThrottler(log)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

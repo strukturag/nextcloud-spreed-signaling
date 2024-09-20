@@ -23,10 +23,11 @@ package signaling
 
 import (
 	"context"
-	"log"
 	"net/url"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type pingEntries struct {
@@ -63,6 +64,7 @@ func (e *pingEntries) RemoveRoom(roomId string) {
 // For that, all ping requests across rooms of enabled instances are combined
 // and sent out batched every "updateActiveSessionsInterval" seconds.
 type RoomPing struct {
+	log    *zap.Logger
 	mu     sync.Mutex
 	closer *Closer
 
@@ -72,8 +74,9 @@ type RoomPing struct {
 	entries map[string]*pingEntries
 }
 
-func NewRoomPing(backend *BackendClient, capabilities *Capabilities) (*RoomPing, error) {
+func NewRoomPing(log *zap.Logger, backend *BackendClient, capabilities *Capabilities) (*RoomPing, error) {
 	result := &RoomPing{
+		log:          log,
 		closer:       NewCloser(),
 		backend:      backend,
 		capabilities: capabilities,
@@ -125,7 +128,11 @@ func (p *RoomPing) publishEntries(entries *pingEntries, timeout time.Duration) {
 			defer cancel2()
 
 			if err := p.sendPingsDirect(ctx2, roomId, entries.url, e); err != nil {
-				log.Printf("Error pinging room %s for active entries %+v: %s", roomId, e, err)
+				p.log.Error("Error pinging room for active entries",
+					zap.String("roomid", roomId),
+					zap.Any("entries", e),
+					zap.Error(err),
+				)
 			}
 		}
 		return
@@ -179,7 +186,11 @@ func (p *RoomPing) sendPingsCombined(url *url.URL, entries []BackendPingEntry, l
 		request := NewBackendClientPingRequest("", tosend)
 		var response BackendClientResponse
 		if err := p.backend.PerformJSONRequest(ctx, url, request, &response); err != nil {
-			log.Printf("Error sending combined ping session entries %+v to %s: %s", tosend, url, err)
+			p.log.Error("Error sending combined ping session entries",
+				zap.Any("entries", tosend),
+				zap.Stringer("url", url),
+				zap.Error(err),
+			)
 		}
 	}
 }

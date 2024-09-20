@@ -51,7 +51,8 @@ func getAsyncEventsForTest(t *testing.T) AsyncEvents {
 
 func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
 	url := startLocalNatsServer(t)
-	events, err := NewAsyncEvents(url)
+	log := GetLoggerForTest(t)
+	events, err := NewAsyncEvents(log, url)
 	if err != nil {
 		require.NoError(t, err)
 	}
@@ -59,7 +60,8 @@ func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
 }
 
 func getLoopbackAsyncEventsForTest(t *testing.T) AsyncEvents {
-	events, err := NewAsyncEvents(NatsLoopbackUrl)
+	log := GetLoggerForTest(t)
+	events, err := NewAsyncEvents(log, NatsLoopbackUrl)
 	if err != nil {
 		require.NoError(t, err)
 	}

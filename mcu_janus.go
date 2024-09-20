@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -34,6 +33,7 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/notedit/janus-go"
+	"go.uber.org/zap"
 )
 
 const (
@@ -107,7 +107,11 @@ func getPluginIntValue(data janus.PluginData, pluginName string, key string) uin
 
 	result, err := convertIntValue(val)
 	if err != nil {
-		log.Printf("Invalid value %+v for %s: %s", val, key, err)
+		zap.L().Warn("Invalid integer value",
+			zap.String("key", key),
+			zap.Any("value", val),
+			zap.Error(err),
+		)
 		result = 0
 	}
 	return result
@@ -134,6 +138,7 @@ type clientInterface interface {
 }
 
 type mcuJanus struct {
+	log *zap.Logger
 	url string
 	mu  sync.Mutex
 
@@ -169,7 +174,7 @@ type mcuJanus struct {
 func emptyOnConnected()    {}
 func emptyOnDisconnected() {}
 
-func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mcu, error) {
+func NewMcuJanus(ctx context.Context, log *zap.Logger, url string, config *goconf.ConfigFile) (Mcu, error) {
 	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
 	if maxStreamBitrate <= 0 {
 		maxStreamBitrate = defaultMaxStreamBitrate
@@ -185,6 +190,7 @@ func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mc
 	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
 
 	mcu := &mcuJanus{
+		log:        log,
 		url:        url,
 		mcuTimeout: mcuTimeout,
 		closeChan:  make(chan struct{}, 1),
@@ -215,18 +221,26 @@ func (m *mcuJanus) disconnect() {
 		m.handle = nil
 		m.closeChan <- struct{}{}
 		if _, err := handle.Detach(context.TODO()); err != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err)
+			m.log.Error("Error detaching Janus handle",
+				zap.Uint64("handle", handle.Id),
+				zap.Error(err),
+			)
 		}
 	}
 	if m.session != nil {
 		if _, err := m.session.Destroy(context.TODO()); err != nil {
-			log.Printf("Error destroying session %d: %s", m.session.Id, err)
+			m.log.Error("Error destroying Janus session",
+				zap.Uint64("sessionid", m.session.Id),
+				zap.Error(err),
+			)
 		}
 		m.session = nil
 	}
 	if m.gw != nil {
 		if err := m.gw.Close(); err != nil {
-			log.Println("Error while closing connection to MCU", err)
+			m.log.Error("Error while closing connection to Janus",
+				zap.Error(err),
+			)
 		}
 		m.gw = nil
 	}
@@ -234,7 +248,7 @@ func (m *mcuJanus) disconnect() {
 
 func (m *mcuJanus) reconnect(ctx context.Context) error {
 	m.disconnect()
-	gw, err := NewJanusGateway(ctx, m.url, m)
+	gw, err := NewJanusGateway(ctx, m.log, m.url, m)
 	if err != nil {
 		return err
 	}
@@ -254,7 +268,7 @@ func (m *mcuJanus) doReconnect(ctx context.Context) {
 		return
 	}
 
-	log.Println("Reconnection to Janus gateway successful")
+	m.log.Info("Reconnection to Janus gateway successful")
 	m.mu.Lock()
 	clear(m.publishers)
 	m.publisherCreated.Reset()
@@ -274,9 +288,14 @@ func (m *mcuJanus) scheduleReconnect(err error) {
 	defer m.mu.Unlock()
 	m.reconnectTimer.Reset(m.reconnectInterval)
 	if err == nil {
-		log.Printf("Connection to Janus gateway was interrupted, reconnecting in %s", m.reconnectInterval)
+		m.log.Warn("Connection to Janus gateway was interrupted, reconnecting",
+			zap.Duration("wait", m.reconnectInterval),
+		)
 	} else {
-		log.Printf("Reconnect to Janus gateway failed (%s), reconnecting in %s", err, m.reconnectInterval)
+		m.log.Error("Reconnect to Janus gateway failed, reconnecting",
+			zap.Duration("wait", m.reconnectInterval),
+			zap.Error(err),
+		)
 	}
 
 	m.reconnectInterval = m.reconnectInterval * 2
@@ -304,7 +323,11 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("Connected to %s %s by %s", info.Name, info.VersionString, info.Author)
+	m.log.Info("Connected to Janus",
+		zap.String("name", info.Name),
+		zap.String("version", info.VersionString),
+		zap.String("author", info.Author),
+	)
 	plugin, found := info.Plugins[pluginVideoRoom]
 	if !found {
 		return fmt.Errorf("Plugin %s is not supported", pluginVideoRoom)
@@ -312,32 +335,44 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 
 	m.version = info.Version
 
-	log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
+	m.log.Info("Found Janus plugin",
+		zap.String("name", plugin.Name),
+		zap.String("version", plugin.VersionString),
+		zap.String("author", plugin.Author),
+	)
 	if !info.DataChannels {
 		return fmt.Errorf("Data channels are not supported")
 	}
 
-	log.Println("Data channels are supported")
+	m.log.Info("Data channels are supported")
 	if !info.FullTrickle {
-		log.Println("WARNING: Full-Trickle is NOT enabled in Janus!")
+		m.log.Warn("Full-Trickle is NOT enabled in Janus!")
 	} else {
-		log.Println("Full-Trickle is enabled")
+		m.log.Info("Full-Trickle is enabled")
 	}
-	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate.Load())
-	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate.Load())
+	m.log.Info("Maximum bandwidth per publishing stream",
+		zap.Int32("bitrate", m.maxStreamBitrate.Load()),
+	)
+	m.log.Info("Maximum bandwidth per screensharing stream",
+		zap.Int32("bitrate", m.maxScreenBitrate.Load()),
+	)
 
 	if m.session, err = m.gw.Create(ctx); err != nil {
 		m.disconnect()
 		return err
 	}
-	log.Println("Created Janus session", m.session.Id)
+	m.log.Info("Created Janus session",
+		zap.Uint64("sessionid", m.session.Id),
+	)
 	m.connectedSince = time.Now()
 
 	if m.handle, err = m.session.Attach(ctx, pluginVideoRoom); err != nil {
 		m.disconnect()
 		return err
 	}
-	log.Println("Created Janus handle", m.handle.Id)
+	m.log.Info("Created Janus handle",
+		zap.Uint64("handle", m.handle.Id),
+	)
 
 	go m.run()
 
@@ -382,14 +417,18 @@ func (m *mcuJanus) Reload(config *goconf.ConfigFile) {
 	if maxStreamBitrate <= 0 {
 		maxStreamBitrate = defaultMaxStreamBitrate
 	}
-	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate.Load())
+	m.log.Info("Maximum bandwidth per publishing stream",
+		zap.Int32("bitrate", m.maxStreamBitrate.Load()),
+	)
 	m.maxStreamBitrate.Store(int32(maxStreamBitrate))
 
 	maxScreenBitrate, _ := config.GetInt("mcu", "maxscreenbitrate")
 	if maxScreenBitrate <= 0 {
 		maxScreenBitrate = defaultMaxScreenBitrate
 	}
-	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate.Load())
+	m.log.Info("Maximum bandwidth per screensharing stream",
+		zap.Int32("bitrate", m.maxScreenBitrate.Load()),
+	)
 	m.maxScreenBitrate.Store(int32(maxScreenBitrate))
 }
 
@@ -446,7 +485,9 @@ func (m *mcuJanus) GetStats() interface{} {
 
 func (m *mcuJanus) sendKeepalive(ctx context.Context) {
 	if _, err := m.session.KeepAlive(ctx); err != nil {
-		log.Println("Could not send keepalive request", err)
+		m.log.Error("Could not send Janus keepalive request",
+			zap.Error(err),
+		)
 		if e, ok := err.(*janus.ErrorMsg); ok {
 			switch e.Err.Code {
 			case JANUS_ERROR_SESSION_NOT_FOUND:
@@ -499,7 +540,10 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	create_response, err := handle.Request(ctx, create_msg)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.log.Error("Error detaching Janus handle",
+				zap.Uint64("handle", handle.Id),
+				zap.Error(err2),
+			)
 		}
 		return 0, 0, err
 	}
@@ -507,12 +551,18 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	roomId := getPluginIntValue(create_response.PluginData, pluginVideoRoom, "room")
 	if roomId == 0 {
 		if _, err := handle.Detach(ctx); err != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err)
+			m.log.Error("Error detaching Janus handle",
+				zap.Uint64("handle", handle.Id),
+				zap.Error(err),
+			)
 		}
 		return 0, 0, fmt.Errorf("No room id received: %+v", create_response)
 	}
 
-	log.Println("Created room", roomId, create_response.PluginData)
+	m.log.Info("Created Janus room",
+		zap.Uint64("roomid", roomId),
+		zap.Any("data", create_response.PluginData),
+	)
 	return roomId, bitrate, nil
 }
 
@@ -526,12 +576,20 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		return nil, 0, 0, 0, err
 	}
 
-	log.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
+	m.log.Info("Attached Janus publisher",
+		zap.Uint64("sessionid", session.Id),
+		zap.Any("streamtype", streamType),
+		zap.Uint64("handle", handle.Id),
+		zap.String("plugin", pluginVideoRoom),
+	)
 
 	roomId, bitrate, err := m.createPublisherRoom(ctx, handle, id, streamType, bitrate)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.log.Error("Error detaching Janus handle",
+				zap.Uint64("handle", handle.Id),
+				zap.Error(err2),
+			)
 		}
 		return nil, 0, 0, 0, err
 	}
@@ -546,7 +604,10 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 	response, err := handle.Message(ctx, msg, nil)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.log.Error("Error detaching Janus handle",
+				zap.Uint64("handle", handle.Id),
+				zap.Error(err2),
+			)
 		}
 		return nil, 0, 0, 0, err
 	}
@@ -566,6 +627,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 
 	client := &mcuJanusPublisher{
 		mcuJanusClient: mcuJanusClient{
+			baseLog:  m.log,
 			mcu:      m,
 			listener: listener,
 
@@ -592,9 +654,13 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 	client.mcuJanusClient.handleConnected = client.handleConnected
 	client.mcuJanusClient.handleSlowLink = client.handleSlowLink
 	client.mcuJanusClient.handleMedia = client.handleMedia
+	client.updateLogger()
 
 	m.registerClient(client)
-	log.Printf("Publisher %s is using handle %d", client.id, client.handleId)
+	m.log.Info("Publisher is using handle",
+		zap.String("publisherid", client.id),
+		zap.Uint64("handle", client.handleId),
+	)
 	go client.run(handle, client.closeChan)
 	m.mu.Lock()
 	m.publishers[getStreamId(id, streamType)] = client
@@ -649,7 +715,13 @@ func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher st
 		return nil, nil, err
 	}
 
-	log.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, publisher, pluginVideoRoom, session.Id, handle.Id)
+	m.log.Info("Attached Janus subscriber",
+		zap.Uint64("sessionid", session.Id),
+		zap.Uint64("roomid", pub.roomId),
+		zap.String("publisher", publisher),
+		zap.String("plugin", pluginVideoRoom),
+		zap.Uint64("handle", handle.Id),
+	)
 	return handle, pub, nil
 }
 
@@ -665,6 +737,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 
 	client := &mcuJanusSubscriber{
 		mcuJanusClient: mcuJanusClient{
+			baseLog:  m.log,
 			mcu:      m,
 			listener: listener,
 
@@ -687,6 +760,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 	client.mcuJanusClient.handleConnected = client.handleConnected
 	client.mcuJanusClient.handleSlowLink = client.handleSlowLink
 	client.mcuJanusClient.handleMedia = client.handleMedia
+	client.updateLogger()
 	m.registerClient(client)
 	go client.run(handle, client.closeChan)
 	statsSubscribersCurrent.WithLabelValues(string(streamType)).Inc()
@@ -724,7 +798,10 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 	roomId, bitrate, err := m.createPublisherRoom(ctx, handle, controller.PublisherId(), streamType, bitrate)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.log.Error("Error detaching Janus handle",
+				zap.Uint64("handle", handle.Id),
+				zap.Error(err2),
+			)
 		}
 		return nil, err
 	}
@@ -737,7 +814,10 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 	})
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.log.Error("Error detaching Janus handle",
+				zap.Uint64("handle", handle.Id),
+				zap.Error(err2),
+			)
 		}
 		return nil, err
 	}
@@ -749,7 +829,8 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 	pub = &mcuJanusRemotePublisher{
 		mcuJanusPublisher: mcuJanusPublisher{
 			mcuJanusClient: mcuJanusClient{
-				mcu: m,
+				baseLog: m.log,
+				mcu:     m,
 
 				id:         id,
 				session:    response.Session,
@@ -777,6 +858,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 	pub.mcuJanusClient.handleConnected = pub.handleConnected
 	pub.mcuJanusClient.handleSlowLink = pub.handleSlowLink
 	pub.mcuJanusClient.handleMedia = pub.handleMedia
+	pub.updateLogger()
 
 	if err := controller.StartPublishing(ctx, pub); err != nil {
 		go pub.Close(context.Background())
@@ -822,11 +904,18 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 		return nil, err
 	}
 
-	log.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, pub.id, pluginVideoRoom, session.Id, handle.Id)
+	m.log.Info("Attached remote Janus subscriber",
+		zap.Uint64("sessionid", session.Id),
+		zap.Uint64("roomid", pub.roomId),
+		zap.String("publisher", pub.id),
+		zap.String("plugin", pluginVideoRoom),
+		zap.Uint64("handle", handle.Id),
+	)
 
 	client := &mcuJanusRemoteSubscriber{
 		mcuJanusSubscriber: mcuJanusSubscriber{
 			mcuJanusClient: mcuJanusClient{
+				baseLog:  m.log,
 				mcu:      m,
 				listener: listener,
 
@@ -852,6 +941,7 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 	client.mcuJanusClient.handleConnected = client.handleConnected
 	client.mcuJanusClient.handleSlowLink = client.handleSlowLink
 	client.mcuJanusClient.handleMedia = client.handleMedia
+	client.updateLogger()
 	m.registerClient(client)
 	go client.run(handle, client.closeChan)
 	statsSubscribersCurrent.WithLabelValues(string(publisher.StreamType())).Inc()

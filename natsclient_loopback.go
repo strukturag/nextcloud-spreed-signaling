@@ -24,14 +24,15 @@ package signaling
 import (
 	"container/list"
 	"encoding/json"
-	"log"
 	"strings"
 	"sync"
 
 	"github.com/nats-io/nats.go"
+	"go.uber.org/zap"
 )
 
 type LoopbackNatsClient struct {
+	log           *zap.Logger
 	mu            sync.Mutex
 	subscriptions map[string]map[*loopbackNatsSubscription]bool
 
@@ -39,8 +40,9 @@ type LoopbackNatsClient struct {
 	incoming list.List
 }
 
-func NewLoopbackNatsClient() (NatsClient, error) {
+func NewLoopbackNatsClient(log *zap.Logger) (NatsClient, error) {
 	client := &LoopbackNatsClient{
+		log:           log,
 		subscriptions: make(map[string]map[*loopbackNatsSubscription]bool),
 	}
 	client.wakeup.L = &client.mu
@@ -81,7 +83,9 @@ func (c *LoopbackNatsClient) processMessage(msg *nats.Msg) {
 		select {
 		case ch <- msg:
 		default:
-			log.Printf("Slow consumer %s, dropping message", msg.Subject)
+			c.log.Warn("Slow consumer, dropping message",
+				zap.String("subject", msg.Subject),
+			)
 		}
 	}
 }

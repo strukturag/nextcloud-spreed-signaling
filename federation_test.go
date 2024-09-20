@@ -33,8 +33,6 @@ import (
 )
 
 func Test_FederationInvalidToken(t *testing.T) {
-	CatchLogForTest(t)
-
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -73,8 +71,6 @@ func Test_FederationInvalidToken(t *testing.T) {
 }
 
 func Test_Federation(t *testing.T) {
-	CatchLogForTest(t)
-
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -492,8 +488,6 @@ func Test_Federation(t *testing.T) {
 }
 
 func Test_FederationJoinRoomTwice(t *testing.T) {
-	CatchLogForTest(t)
-
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -603,8 +597,6 @@ func Test_FederationJoinRoomTwice(t *testing.T) {
 }
 
 func Test_FederationChangeRoom(t *testing.T) {
-	CatchLogForTest(t)
-
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -716,8 +708,6 @@ func Test_FederationChangeRoom(t *testing.T) {
 }
 
 func Test_FederationMedia(t *testing.T) {
-	CatchLogForTest(t)
-
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -726,14 +716,14 @@ func Test_FederationMedia(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu1, err := NewTestMCU()
+	mcu1, err := NewTestMCU(t)
 	require.NoError(err)
 	require.NoError(mcu1.Start(ctx))
 	defer mcu1.Stop()
 
 	hub1.SetMcu(mcu1)
 
-	mcu2, err := NewTestMCU()
+	mcu2, err := NewTestMCU(t)
 	require.NoError(err)
 	require.NoError(mcu2.Start(ctx))
 	defer mcu2.Stop()
@@ -827,8 +817,6 @@ func Test_FederationMedia(t *testing.T) {
 }
 
 func Test_FederationResume(t *testing.T) {
-	CatchLogForTest(t)
-
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -960,8 +948,6 @@ func Test_FederationResume(t *testing.T) {
 }
 
 func Test_FederationResumeNewSession(t *testing.T) {
-	CatchLogForTest(t)
-
 	assert := assert.New(t)
 	require := require.New(t)
 

@@ -691,13 +691,14 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuP
 	etcdConfig.AddOption("etcd", "endpoints", options.etcd.Config().ListenClientUrls[0].String())
 	etcdConfig.AddOption("etcd", "loglevel", "error")
 
-	etcdClient, err := NewEtcdClient(etcdConfig, "")
+	log := GetLoggerForTest(t)
+	etcdClient, err := NewEtcdClient(log, etcdConfig, "")
 	require.NoError(err)
 	t.Cleanup(func() {
 		assert.NoError(t, etcdClient.Close())
 	})
 
-	mcu, err := NewMcuProxy(cfg, etcdClient, grpcClients, dnsMonitor)
+	mcu, err := NewMcuProxy(log, cfg, etcdClient, grpcClients, dnsMonitor)
 	require.NoError(err)
 	t.Cleanup(func() {
 		mcu.Stop()
@@ -749,7 +750,6 @@ func newMcuProxyForTest(t *testing.T) *mcuProxy {
 }
 
 func Test_ProxyPublisherSubscriber(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	mcu := newMcuProxyForTest(t)
 
@@ -783,7 +783,6 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 }
 
 func Test_ProxyWaitForPublisher(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	mcu := newMcuProxyForTest(t)
 
@@ -831,7 +830,6 @@ func Test_ProxyWaitForPublisher(t *testing.T) {
 }
 
 func Test_ProxyPublisherBandwidth(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
@@ -897,7 +895,6 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 }
 
 func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
@@ -966,7 +963,6 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 }
 
 func Test_ProxyPublisherLoad(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
@@ -1012,7 +1008,6 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 }
 
 func Test_ProxyPublisherCountry(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1056,7 +1051,6 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 }
 
 func Test_ProxyPublisherContinent(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1100,7 +1094,6 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 }
 
 func Test_ProxySubscriberCountry(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1142,7 +1135,6 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 }
 
 func Test_ProxySubscriberContinent(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1184,7 +1176,6 @@ func Test_ProxySubscriberContinent(t *testing.T) {
 }
 
 func Test_ProxySubscriberBandwidth(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1246,7 +1237,6 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 }
 
 func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1347,7 +1337,6 @@ func (h *mockGrpcServerHub) GetBackend(u *url.URL) *Backend {
 }
 
 func Test_ProxyRemotePublisher(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 
 	etcd := NewEtcdForTest(t)
@@ -1423,7 +1412,6 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 }
 
 func Test_ProxyRemotePublisherWait(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 
 	etcd := NewEtcdForTest(t)
@@ -1515,7 +1503,6 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 }
 
 func Test_ProxyRemotePublisherTemporary(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 
 	etcd := NewEtcdForTest(t)

@@ -37,8 +37,9 @@ var (
 
 func TestFileWatcher_NotExist(t *testing.T) {
 	assert := assert.New(t)
+	log := GetLoggerForTest(t)
 	tmpdir := t.TempDir()
-	if w, err := NewFileWatcher(path.Join(tmpdir, "test.txt"), func(filename string) {}); !assert.ErrorIs(err, os.ErrNotExist) {
+	if w, err := NewFileWatcher(log, path.Join(tmpdir, "test.txt"), func(filename string) {}); !assert.ErrorIs(err, os.ErrNotExist) {
 		if w != nil {
 			assert.NoError(w.Close())
 		}
@@ -49,12 +50,13 @@ func TestFileWatcher_File(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		require := require.New(t)
 		assert := assert.New(t)
+		log := GetLoggerForTest(t)
 		tmpdir := t.TempDir()
 		filename := path.Join(tmpdir, "test.txt")
 		require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
 
 		modified := make(chan struct{})
-		w, err := NewFileWatcher(filename, func(filename string) {
+		w, err := NewFileWatcher(log, filename, func(filename string) {
 			modified <- struct{}{}
 		})
 		require.NoError(err)
@@ -90,11 +92,12 @@ func TestFileWatcher_Rename(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
+	log := GetLoggerForTest(t)
 	filename := path.Join(tmpdir, "test.txt")
 	require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
 
 	modified := make(chan struct{})
-	w, err := NewFileWatcher(filename, func(filename string) {
+	w, err := NewFileWatcher(log, filename, func(filename string) {
 		modified <- struct{}{}
 	})
 	require.NoError(err)
@@ -129,6 +132,7 @@ func TestFileWatcher_Symlink(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
+	log := GetLoggerForTest(t)
 	sourceFilename := path.Join(tmpdir, "test1.txt")
 	require.NoError(os.WriteFile(sourceFilename, []byte("Hello world!"), 0644))
 
@@ -136,7 +140,7 @@ func TestFileWatcher_Symlink(t *testing.T) {
 	require.NoError(os.Symlink(sourceFilename, filename))
 
 	modified := make(chan struct{})
-	w, err := NewFileWatcher(filename, func(filename string) {
+	w, err := NewFileWatcher(log, filename, func(filename string) {
 		modified <- struct{}{}
 	})
 	require.NoError(err)
@@ -159,6 +163,7 @@ func TestFileWatcher_ChangeSymlinkTarget(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
+	log := GetLoggerForTest(t)
 	sourceFilename1 := path.Join(tmpdir, "test1.txt")
 	require.NoError(os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644))
 
@@ -169,7 +174,7 @@ func TestFileWatcher_ChangeSymlinkTarget(t *testing.T) {
 	require.NoError(os.Symlink(sourceFilename1, filename))
 
 	modified := make(chan struct{})
-	w, err := NewFileWatcher(filename, func(filename string) {
+	w, err := NewFileWatcher(log, filename, func(filename string) {
 		modified <- struct{}{}
 	})
 	require.NoError(err)
@@ -194,6 +199,7 @@ func TestFileWatcher_OtherSymlink(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
+	log := GetLoggerForTest(t)
 	sourceFilename1 := path.Join(tmpdir, "test1.txt")
 	require.NoError(os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644))
 
@@ -204,7 +210,7 @@ func TestFileWatcher_OtherSymlink(t *testing.T) {
 	require.NoError(os.Symlink(sourceFilename1, filename))
 
 	modified := make(chan struct{})
-	w, err := NewFileWatcher(filename, func(filename string) {
+	w, err := NewFileWatcher(log, filename, func(filename string) {
 		modified <- struct{}{}
 	})
 	require.NoError(err)
@@ -226,6 +232,7 @@ func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
+	log := GetLoggerForTest(t)
 	sourceFilename1 := path.Join(tmpdir, "test1.txt")
 	require.NoError(os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644))
 
@@ -233,7 +240,7 @@ func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
 	require.NoError(os.Symlink(sourceFilename1, filename))
 
 	modified := make(chan struct{})
-	w, err := NewFileWatcher(filename, func(filename string) {
+	w, err := NewFileWatcher(log, filename, func(filename string) {
 		modified <- struct{}{}
 	})
 	require.NoError(err)
