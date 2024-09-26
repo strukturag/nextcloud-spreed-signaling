@@ -68,6 +68,7 @@ The running container can be configured through different environment variables:
 - `GRPC_ETCD`: Set to `1` if etcd should be used to configure GRPC peers.
 - `GRPC_TARGET_PREFIX`: Key prefix of GRPC target entries.
 - `SKIP_VERIFY`: Set to `true` to skip certificate validation of backends and proxy servers. This should only be enabled during development, e.g. to work with self-signed certificates.
+- `CA_CERTIFICATES_FOLDER`: Folder containing certificates that should be added to the system wide CA trust store during startup. Mount a folder from the host as volume in the container and specify the volume.
 
 Example with two backends:
 
@@ -120,6 +121,7 @@ The running container can be configured through different environment variables:
 - `TOKEN_KEY_FORMAT`: Format of key name to retrieve the public key from, "%s" will be replaced with the token id.
 - `TOKENS`: Space-separated list of token ids.
 - `TOKEN_<ID>_KEY`: Filename of public key for token `ID` (where `ID` is the uppercase token id).
+- `CA_CERTIFICATES_FOLDER`: Folder containing certificates that should be added to the system wide CA trust store during startup. Mount a folder from the host as volume in the container and specify the volume.
 
 Example with two tokens:
 
