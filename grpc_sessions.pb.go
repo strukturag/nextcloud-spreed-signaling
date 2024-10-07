@@ -48,11 +48,9 @@ type LookupResumeIdRequest struct {
 
 func (x *LookupResumeIdRequest) Reset() {
 	*x = LookupResumeIdRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_sessions_proto_msgTypes[0]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_sessions_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *LookupResumeIdRequest) String() string {
@@ -63,7 +61,7 @@ func (*LookupResumeIdRequest) ProtoMessage() {}
 
 func (x *LookupResumeIdRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_sessions_proto_msgTypes[0]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -95,11 +93,9 @@ type LookupResumeIdReply struct {
 
 func (x *LookupResumeIdReply) Reset() {
 	*x = LookupResumeIdReply{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_sessions_proto_msgTypes[1]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_sessions_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *LookupResumeIdReply) String() string {
@@ -110,7 +106,7 @@ func (*LookupResumeIdReply) ProtoMessage() {}
 
 func (x *LookupResumeIdReply) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_sessions_proto_msgTypes[1]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -144,11 +140,9 @@ type LookupSessionIdRequest struct {
 
 func (x *LookupSessionIdRequest) Reset() {
 	*x = LookupSessionIdRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_sessions_proto_msgTypes[2]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_sessions_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *LookupSessionIdRequest) String() string {
@@ -159,7 +153,7 @@ func (*LookupSessionIdRequest) ProtoMessage() {}
 
 func (x *LookupSessionIdRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_sessions_proto_msgTypes[2]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -198,11 +192,9 @@ type LookupSessionIdReply struct {
 
 func (x *LookupSessionIdReply) Reset() {
 	*x = LookupSessionIdReply{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_sessions_proto_msgTypes[3]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_sessions_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *LookupSessionIdReply) String() string {
@@ -213,7 +205,7 @@ func (*LookupSessionIdReply) ProtoMessage() {}
 
 func (x *LookupSessionIdReply) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_sessions_proto_msgTypes[3]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -247,11 +239,9 @@ type IsSessionInCallRequest struct {
 
 func (x *IsSessionInCallRequest) Reset() {
 	*x = IsSessionInCallRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_sessions_proto_msgTypes[4]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_sessions_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *IsSessionInCallRequest) String() string {
@@ -262,7 +252,7 @@ func (*IsSessionInCallRequest) ProtoMessage() {}
 
 func (x *IsSessionInCallRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_sessions_proto_msgTypes[4]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -308,11 +298,9 @@ type IsSessionInCallReply struct {
 
 func (x *IsSessionInCallReply) Reset() {
 	*x = IsSessionInCallReply{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_sessions_proto_msgTypes[5]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_sessions_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *IsSessionInCallReply) String() string {
@@ -323,7 +311,7 @@ func (*IsSessionInCallReply) ProtoMessage() {}
 
 func (x *IsSessionInCallReply) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_sessions_proto_msgTypes[5]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -355,11 +343,9 @@ type ClientSessionMessage struct {
 
 func (x *ClientSessionMessage) Reset() {
 	*x = ClientSessionMessage{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_sessions_proto_msgTypes[6]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_sessions_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *ClientSessionMessage) String() string {
@@ -370,7 +356,7 @@ func (*ClientSessionMessage) ProtoMessage() {}
 
 func (x *ClientSessionMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_sessions_proto_msgTypes[6]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -402,11 +388,9 @@ type ServerSessionMessage struct {
 
 func (x *ServerSessionMessage) Reset() {
 	*x = ServerSessionMessage{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_sessions_proto_msgTypes[7]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_sessions_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *ServerSessionMessage) String() string {
@@ -417,7 +401,7 @@ func (*ServerSessionMessage) ProtoMessage() {}
 
 func (x *ServerSessionMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_sessions_proto_msgTypes[7]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -550,104 +534,6 @@ func init() { file_grpc_sessions_proto_init() }
 func file_grpc_sessions_proto_init() {
 	if File_grpc_sessions_proto != nil {
 		return
-	}
-	if !protoimpl.UnsafeEnabled {
-		file_grpc_sessions_proto_msgTypes[0].Exporter = func(v any, i int) any {
-			switch v := v.(*LookupResumeIdRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_sessions_proto_msgTypes[1].Exporter = func(v any, i int) any {
-			switch v := v.(*LookupResumeIdReply); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_sessions_proto_msgTypes[2].Exporter = func(v any, i int) any {
-			switch v := v.(*LookupSessionIdRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_sessions_proto_msgTypes[3].Exporter = func(v any, i int) any {
-			switch v := v.(*LookupSessionIdReply); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_sessions_proto_msgTypes[4].Exporter = func(v any, i int) any {
-			switch v := v.(*IsSessionInCallRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_sessions_proto_msgTypes[5].Exporter = func(v any, i int) any {
-			switch v := v.(*IsSessionInCallReply); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_sessions_proto_msgTypes[6].Exporter = func(v any, i int) any {
-			switch v := v.(*ClientSessionMessage); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_sessions_proto_msgTypes[7].Exporter = func(v any, i int) any {
-			switch v := v.(*ServerSessionMessage); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
