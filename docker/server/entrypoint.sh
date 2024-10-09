@@ -269,5 +269,11 @@ if [ ! -f "$CONFIG" ]; then
   fi
 fi
 
+if [ -n "$CA_CERTIFICATES_FOLDER" ]; then
+  echo "Adding files from $CA_CERTIFICATES_FOLDER to the CA store ..."
+  cp "$CA_CERTIFICATES_FOLDER"/* /usr/local/share/ca-certificates/
+  update-ca-certificates
+fi
+
 echo "Starting signaling server with $CONFIG ..."
-exec /usr/bin/nextcloud-spreed-signaling -config "$CONFIG"
+exec su-exec spreedbackend /usr/bin/nextcloud-spreed-signaling -config "$CONFIG"
