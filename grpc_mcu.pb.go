@@ -49,11 +49,9 @@ type GetPublisherIdRequest struct {
 
 func (x *GetPublisherIdRequest) Reset() {
 	*x = GetPublisherIdRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_mcu_proto_msgTypes[0]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_mcu_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GetPublisherIdRequest) String() string {
@@ -64,7 +62,7 @@ func (*GetPublisherIdRequest) ProtoMessage() {}
 
 func (x *GetPublisherIdRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_mcu_proto_msgTypes[0]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -105,11 +103,9 @@ type GetPublisherIdReply struct {
 
 func (x *GetPublisherIdReply) Reset() {
 	*x = GetPublisherIdReply{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_mcu_proto_msgTypes[1]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_mcu_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GetPublisherIdReply) String() string {
@@ -120,7 +116,7 @@ func (*GetPublisherIdReply) ProtoMessage() {}
 
 func (x *GetPublisherIdReply) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_mcu_proto_msgTypes[1]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -216,32 +212,6 @@ func init() { file_grpc_mcu_proto_init() }
 func file_grpc_mcu_proto_init() {
 	if File_grpc_mcu_proto != nil {
 		return
-	}
-	if !protoimpl.UnsafeEnabled {
-		file_grpc_mcu_proto_msgTypes[0].Exporter = func(v any, i int) any {
-			switch v := v.(*GetPublisherIdRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_mcu_proto_msgTypes[1].Exporter = func(v any, i int) any {
-			switch v := v.(*GetPublisherIdReply); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

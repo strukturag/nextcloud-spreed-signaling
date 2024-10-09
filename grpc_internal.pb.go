@@ -46,11 +46,9 @@ type GetServerIdRequest struct {
 
 func (x *GetServerIdRequest) Reset() {
 	*x = GetServerIdRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_internal_proto_msgTypes[0]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_internal_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GetServerIdRequest) String() string {
@@ -61,7 +59,7 @@ func (*GetServerIdRequest) ProtoMessage() {}
 
 func (x *GetServerIdRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_internal_proto_msgTypes[0]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -86,11 +84,9 @@ type GetServerIdReply struct {
 
 func (x *GetServerIdReply) Reset() {
 	*x = GetServerIdReply{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_internal_proto_msgTypes[1]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_internal_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GetServerIdReply) String() string {
@@ -101,7 +97,7 @@ func (*GetServerIdReply) ProtoMessage() {}
 
 func (x *GetServerIdReply) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_internal_proto_msgTypes[1]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -176,32 +172,6 @@ func init() { file_grpc_internal_proto_init() }
 func file_grpc_internal_proto_init() {
 	if File_grpc_internal_proto != nil {
 		return
-	}
-	if !protoimpl.UnsafeEnabled {
-		file_grpc_internal_proto_msgTypes[0].Exporter = func(v any, i int) any {
-			switch v := v.(*GetServerIdRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_internal_proto_msgTypes[1].Exporter = func(v any, i int) any {
-			switch v := v.(*GetServerIdReply); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

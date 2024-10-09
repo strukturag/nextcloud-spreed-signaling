@@ -48,11 +48,9 @@ type GetSessionCountRequest struct {
 
 func (x *GetSessionCountRequest) Reset() {
 	*x = GetSessionCountRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_backend_proto_msgTypes[0]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_backend_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GetSessionCountRequest) String() string {
@@ -63,7 +61,7 @@ func (*GetSessionCountRequest) ProtoMessage() {}
 
 func (x *GetSessionCountRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_backend_proto_msgTypes[0]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -95,11 +93,9 @@ type GetSessionCountReply struct {
 
 func (x *GetSessionCountReply) Reset() {
 	*x = GetSessionCountReply{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_grpc_backend_proto_msgTypes[1]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_grpc_backend_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GetSessionCountReply) String() string {
@@ -110,7 +106,7 @@ func (*GetSessionCountReply) ProtoMessage() {}
 
 func (x *GetSessionCountReply) ProtoReflect() protoreflect.Message {
 	mi := &file_grpc_backend_proto_msgTypes[1]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -187,32 +183,6 @@ func init() { file_grpc_backend_proto_init() }
 func file_grpc_backend_proto_init() {
 	if File_grpc_backend_proto != nil {
 		return
-	}
-	if !protoimpl.UnsafeEnabled {
-		file_grpc_backend_proto_msgTypes[0].Exporter = func(v any, i int) any {
-			switch v := v.(*GetSessionCountRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_grpc_backend_proto_msgTypes[1].Exporter = func(v any, i int) any {
-			switch v := v.(*GetSessionCountReply); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
