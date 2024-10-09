@@ -32,6 +32,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -404,7 +405,7 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 
 	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); assert.True(found) {
 		assert.Equal(expectedString, value)
-		assert.False(cached)
+		assert.True(cached)
 	}
 
 	value = called.Load()
@@ -444,7 +445,7 @@ func TestCapabilitiesCacheNoMustRevalidate(t *testing.T) {
 	// "must-revalidate" is not set.
 	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); assert.True(found) {
 		assert.Equal(expectedString, value)
-		assert.False(cached)
+		assert.True(cached)
 	}
 
 	value = called.Load()
@@ -484,7 +485,7 @@ func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 	// "must-revalidate" is not set.
 	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); assert.True(found) {
 		assert.Equal(expectedString, value)
-		assert.False(cached)
+		assert.True(cached)
 	}
 
 	value = called.Load()
@@ -527,4 +528,57 @@ func TestCapabilitiesNoCacheMustRevalidate(t *testing.T) {
 
 	value = called.Load()
 	assert.EqualValues(2, value)
+}
+
+func TestConcurrentExpired(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	assert := assert.New(t)
+	var called atomic.Uint32
+	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
+		called.Add(1)
+		return nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	expectedString := "bar"
+	if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); assert.True(found) {
+		assert.Equal(expectedString, value)
+		assert.False(cached)
+	}
+
+	count := 100
+	start := make(chan struct{})
+	var numCached atomic.Uint32
+	var numFetched atomic.Uint32
+	var finished sync.WaitGroup
+	for i := 0; i < count; i++ {
+		finished.Add(1)
+		go func() {
+			defer finished.Done()
+			<-start
+			if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); assert.True(found) {
+				assert.Equal(expectedString, value)
+				if cached {
+					numCached.Add(1)
+				} else {
+					numFetched.Add(1)
+				}
+			}
+		}()
+	}
+
+	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
+		return time.Now().Add(minCapabilitiesCacheDuration)
+	})
+
+	close(start)
+	finished.Wait()
+
+	assert.EqualValues(2, called.Load())
+	assert.EqualValues(count, numFetched.Load()+numCached.Load())
+	assert.EqualValues(1, numFetched.Load())
+	assert.EqualValues(count-1, numCached.Load())
 }
