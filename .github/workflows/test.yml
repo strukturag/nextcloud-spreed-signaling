@@ -54,7 +54,7 @@ jobs:
         echo "GOROOT=$(go env GOROOT)" >> $GITHUB_ENV
 
     - name: Convert coverage to lcov
-      uses: jandelgado/gcov2lcov-action@v1.0.9
+      uses: jandelgado/gcov2lcov-action@v1.1.1
       with:
         infile: cover.out
         outfile: cover.lcov
