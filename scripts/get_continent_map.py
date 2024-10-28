@@ -30,7 +30,7 @@ import csv
 import subprocess
 import sys
 
-URL = 'https://github.com/datasets/country-codes/raw/master/data/country-codes.csv'
+URL = 'https://raw.githubusercontent.com/datasets/country-codes/refs/heads/main/data/country-codes.csv'
 
 def tostr(s):
   if isinstance(s, bytes) and not isinstance(s, str):
@@ -49,6 +49,26 @@ else:
   def opentextfile(filename, mode):
     return open(filename, mode)
 
+def country_fallback(entry):
+  country = entry['ISO3166-1-Alpha-3']
+  if not country:
+    return ''
+
+  if country == 'NAM':
+    # Special case for Namibia
+    return 'NA'
+  else:
+    return ''
+
+def continent_fallback(entry):
+  country = entry['ISO3166-1-Alpha-2']
+  if not country:
+    return ''
+
+  region = entry['Region Name']
+  assert region == 'Americas', 'Unknown entry: %r' % (entry)
+  return 'NA'
+
 def generate_map(filename):
   data = subprocess.check_output([
     'curl',
@@ -59,9 +79,9 @@ def generate_map(filename):
   reader = csv.DictReader(StringIO(tostr(data)), delimiter=',')
   continents = {}
   for entry in reader:
-    country = entry['ISO3166-1-Alpha-2']
-    continent = entry['Continent']
-    if not country and not continent:
+    country = entry['ISO3166-1-Alpha-2'] or country_fallback(entry)
+    continent = entry['Continent'] or continent_fallback(entry)
+    if not country or not continent:
       continue
 
     continents.setdefault(country, []).append(continent)
@@ -77,7 +97,9 @@ def generate_map(filename):
   for country, continents in sorted(continents.items()):
     value = []
     for continent in continents:
-      value.append('"%s"' % (continent))
+      continent = '"%s"' % (continent)
+      if not continent in value:
+        value.append(continent)
     out.write('\t\t"%s": {%s},\n' % (country, ', '.join(value)))
   out.write('\t}\n')
   out.write(')\n')
