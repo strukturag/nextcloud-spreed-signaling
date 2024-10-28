@@ -21,6 +21,14 @@ EASYJSON_GO_FILES := \
 	api_grpc_easyjson.go \
 	api_proxy_easyjson.go \
 	api_signaling_easyjson.go
+TEST_GO_FILES := $(wildcard *_test.go))
+COMMON_GO_FILES := $(filter-out continentmap.go $(PROTO_GO_FILES) $(EASYJSON_GO_FILES) $(TEST_GO_FILES),$(wildcard *.go))
+CLIENT_TEST_GO_FILES := $(wildcard client/*_test.go))
+CLIENT_GO_FILES := $(filter-out $(CLIENT_TEST_GO_FILES),$(wildcard client/*.go))
+SERVER_TEST_GO_FILES := $(wildcard server/*_test.go))
+SERVER_GO_FILES := $(filter-out $(SERVER_TEST_GO_FILES),$(wildcard server/*.go))
+PROXY_TEST_GO_FILES := $(wildcard proxy/*_test.go))
+PROXY_GO_FILES := $(filter-out $(PROXY_TEST_GO_FILES),$(wildcard proxy/*.go))
 
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
@@ -136,17 +144,26 @@ common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
 $(BINDIR):
 	mkdir -p "$(BINDIR)"
 
-client: $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/client" ./client/...
+client: $(BINDIR)/client
 
-server: $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/signaling" ./server/...
+$(BINDIR)/client: go.mod go.sum $(CLIENT_GO_FILES) $(COMMON_GO_FILES) | $(BINDIR)
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $@ ./client/...
 
-proxy: $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o "$(BINDIR)/proxy" ./proxy/...
+server: $(BINDIR)/signaling
+
+$(BINDIR)/signaling: go.mod go.sum $(SERVER_GO_FILES) $(COMMON_GO_FILES) | $(BINDIR)
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $@ ./server/...
+
+proxy: $(BINDIR)/proxy
+
+$(BINDIR)/proxy: go.mod go.sum $(PROXY_GO_FILES) $(COMMON_GO_FILES) | $(BINDIR)
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $@ ./proxy/...
 
 clean:
 	rm -f easyjson-bootstrap*.go
+	rm -f "$(BINDIR)/client"
+	rm -f "$(BINDIR)/signaling"
+	rm -f "$(BINDIR)/proxy"
 
 clean-generated: clean
 	rm -f $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
