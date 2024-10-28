@@ -37,10 +37,12 @@ const (
 )
 
 type ProxySession struct {
-	proxy    *ProxyServer
-	id       string
-	sid      uint64
-	lastUsed atomic.Int64
+	proxy     *ProxyServer
+	id        string
+	sid       uint64
+	lastUsed  atomic.Int64
+	ctx       context.Context
+	closeFunc context.CancelFunc
 
 	clientLock      sync.Mutex
 	client          *ProxyClient
@@ -56,10 +58,13 @@ type ProxySession struct {
 }
 
 func NewProxySession(proxy *ProxyServer, sid uint64, id string) *ProxySession {
+	ctx, closeFunc := context.WithCancel(context.Background())
 	result := &ProxySession{
-		proxy: proxy,
-		id:    id,
-		sid:   sid,
+		proxy:     proxy,
+		id:        id,
+		sid:       sid,
+		ctx:       ctx,
+		closeFunc: closeFunc,
 
 		publishers:   make(map[string]signaling.McuPublisher),
 		publisherIds: make(map[signaling.McuPublisher]string),
@@ -69,6 +74,10 @@ func NewProxySession(proxy *ProxyServer, sid uint64, id string) *ProxySession {
 	}
 	result.MarkUsed()
 	return result
+}
+
+func (s *ProxySession) Context() context.Context {
+	return s.ctx
 }
 
 func (s *ProxySession) PublicId() string {
@@ -95,6 +104,7 @@ func (s *ProxySession) MarkUsed() {
 }
 
 func (s *ProxySession) Close() {
+	s.closeFunc()
 	s.clearPublishers()
 	s.clearSubscribers()
 }

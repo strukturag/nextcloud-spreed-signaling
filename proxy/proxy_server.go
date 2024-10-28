@@ -62,6 +62,9 @@ const (
 	initialMcuRetry = time.Second
 	maxMcuRetry     = time.Second * 16
 
+	// MCU requests will be cancelled if they take too long.
+	defaultMcuTimeoutSeconds = 10
+
 	updateLoadInterval     = time.Second
 	expireSessionsInterval = 10 * time.Second
 
@@ -103,6 +106,7 @@ type ProxyServer struct {
 	welcomeMessage string
 	welcomeMsg     *signaling.WelcomeServerMessage
 	config         *goconf.ConfigFile
+	mcuTimeout     time.Duration
 
 	url     string
 	mcu     signaling.Mcu
@@ -319,6 +323,12 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 
 	maxIncoming, maxOutgoing := getTargetBandwidths(config)
 
+	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
+	if mcuTimeoutSeconds <= 0 {
+		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
+	}
+	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
+
 	result := &ProxyServer{
 		version:        version,
 		country:        country,
@@ -328,7 +338,8 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 			Country:  country,
 			Features: defaultProxyFeatures,
 		},
-		config: config,
+		config:     config,
+		mcuTimeout: mcuTimeout,
 
 		shutdownChannel: make(chan struct{}),
 
@@ -634,14 +645,14 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewProxyClient(s, conn, addr)
+	client, err := NewProxyClient(r.Context(), s, conn, addr)
 	if err != nil {
 		log.Printf("Could not create client for %s: %s", addr, err)
 		return
 	}
 
 	go client.WritePump()
-	go client.ReadPump()
+	client.ReadPump()
 }
 
 func (s *ProxyServer) clientClosed(client *signaling.Client) {
@@ -789,7 +800,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 		return
 	}
 
-	ctx := context.WithValue(context.Background(), ContextKeySession, session)
+	ctx := context.WithValue(session.Context(), ContextKeySession, session)
 	session.MarkUsed()
 
 	switch message.Type {
@@ -797,6 +808,8 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 		s.processCommand(ctx, client, session, &message)
 	case "payload":
 		s.processPayload(ctx, client, session, &message)
+	case "bye":
+		s.processBye(ctx, client, session, &message)
 	default:
 		session.sendMessage(message.NewErrorServerMessage(UnsupportedMessage))
 	}
@@ -873,8 +886,11 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
+		ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+		defer cancel()
+
 		id := uuid.New().String()
-		publisher, err := s.mcu.NewPublisher(ctx, session, id, cmd.Sid, cmd.StreamType, cmd.Bitrate, cmd.MediaTypes, &emptyInitiator{})
+		publisher, err := s.mcu.NewPublisher(ctx2, session, id, cmd.Sid, cmd.StreamType, cmd.Bitrate, cmd.MediaTypes, &emptyInitiator{})
 		if err == context.DeadlineExceeded {
 			log.Printf("Timeout while creating %s publisher %s for %s", cmd.StreamType, id, session.PublicId())
 			session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingPublisher))
@@ -977,7 +993,10 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 
 			log.Printf("Created remote %s subscriber %s as %s for %s on %s", cmd.StreamType, subscriber.Id(), id, session.PublicId(), cmd.RemoteUrl)
 		} else {
-			subscriber, err = s.mcu.NewSubscriber(ctx, session, publisherId, cmd.StreamType, &emptyInitiator{})
+			ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+			defer cancel()
+
+			subscriber, err = s.mcu.NewSubscriber(ctx2, session, publisherId, cmd.StreamType, &emptyInitiator{})
 			if err != nil {
 				handleCreateError(err)
 				return
@@ -1083,7 +1102,10 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		if err := publisher.PublishRemote(ctx, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
+		ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+		defer cancel()
+
+		if err := publisher.PublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
 			var je *janus.ErrorMsg
 			if !errors.As(err, &je) || je.Err.Code != signaling.JANUS_VIDEOROOM_ERROR_ID_EXISTS {
 				log.Printf("Error publishing %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
@@ -1091,13 +1113,19 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				return
 			}
 
-			if err := publisher.UnpublishRemote(ctx, session.PublicId()); err != nil {
+			ctx2, cancel = context.WithTimeout(ctx, s.mcuTimeout)
+			defer cancel()
+
+			if err := publisher.UnpublishRemote(ctx2, session.PublicId()); err != nil {
 				log.Printf("Error unpublishing old %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
 				session.sendMessage(message.NewWrappedErrorServerMessage(err))
 				return
 			}
 
-			if err := publisher.PublishRemote(ctx, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
+			ctx2, cancel = context.WithTimeout(ctx, s.mcuTimeout)
+			defer cancel()
+
+			if err := publisher.PublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
 				log.Printf("Error publishing %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
 				session.sendMessage(message.NewWrappedErrorServerMessage(err))
 				return
@@ -1202,7 +1230,10 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 		return
 	}
 
-	mcuClient.SendMessage(ctx, nil, mcuData, func(err error, response map[string]interface{}) {
+	ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+	defer cancel()
+
+	mcuClient.SendMessage(ctx2, nil, mcuData, func(err error, response map[string]interface{}) {
 		var responseMsg *signaling.ProxyServerMessage
 		if err != nil {
 			log.Printf("Error sending %+v to %s client %s: %s", mcuData, mcuClient.StreamType(), payload.ClientId, err)
@@ -1221,6 +1252,11 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 
 		session.sendMessage(responseMsg)
 	})
+}
+
+func (s *ProxyServer) processBye(ctx context.Context, client *ProxyClient, session *ProxySession, message *signaling.ProxyClientMessage) {
+	log.Printf("Closing session %s", session.PublicId())
+	s.DeleteSession(session.Sid())
 }
 
 func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, string, error) {

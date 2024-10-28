@@ -158,15 +158,15 @@ func NewClient(ctx context.Context, conn *websocket.Conn, remoteAddress string, 
 	}
 
 	client := &Client{
-		ctx:    ctx,
 		agent:  agent,
 		logRTT: true,
 	}
-	client.SetConn(conn, remoteAddress, handler)
+	client.SetConn(ctx, conn, remoteAddress, handler)
 	return client, nil
 }
 
-func (c *Client) SetConn(conn *websocket.Conn, remoteAddress string, handler ClientHandler) {
+func (c *Client) SetConn(ctx context.Context, conn *websocket.Conn, remoteAddress string, handler ClientHandler) {
+	c.ctx = ctx
 	c.conn = conn
 	c.addr = remoteAddress
 	c.SetHandler(handler)
