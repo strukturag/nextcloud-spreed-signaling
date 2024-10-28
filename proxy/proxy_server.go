@@ -808,6 +808,8 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 		s.processCommand(ctx, client, session, &message)
 	case "payload":
 		s.processPayload(ctx, client, session, &message)
+	case "bye":
+		s.processBye(ctx, client, session, &message)
 	default:
 		session.sendMessage(message.NewErrorServerMessage(UnsupportedMessage))
 	}
@@ -1250,6 +1252,11 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 
 		session.sendMessage(responseMsg)
 	})
+}
+
+func (s *ProxyServer) processBye(ctx context.Context, client *ProxyClient, session *ProxySession, message *signaling.ProxyClientMessage) {
+	log.Printf("Closing session %s", session.PublicId())
+	s.DeleteSession(session.Sid())
 }
 
 func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, string, error) {
