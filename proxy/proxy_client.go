@@ -22,6 +22,7 @@
 package main
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 
@@ -37,11 +38,11 @@ type ProxyClient struct {
 	session atomic.Pointer[ProxySession]
 }
 
-func NewProxyClient(proxy *ProxyServer, conn *websocket.Conn, addr string) (*ProxyClient, error) {
+func NewProxyClient(ctx context.Context, proxy *ProxyServer, conn *websocket.Conn, addr string) (*ProxyClient, error) {
 	client := &ProxyClient{
 		proxy: proxy,
 	}
-	client.SetConn(conn, addr, client)
+	client.SetConn(ctx, conn, addr, client)
 	return client, nil
 }
 
