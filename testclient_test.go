@@ -66,7 +66,7 @@ func getWebsocketUrl(url string) string {
 }
 
 func getPubliceSessionIdData(h *Hub, publicId string) *SessionIdData {
-	decodedPublic := h.decodeSessionId(publicId, publicSessionName)
+	decodedPublic := h.decodePublicSessionId(publicId)
 	if decodedPublic == nil {
 		panic("invalid public session id")
 	}
@@ -333,7 +333,7 @@ func (c *TestClient) WaitForClientRemoved(ctx context.Context) error {
 }
 
 func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId string) error {
-	data := c.hub.decodeSessionId(sessionId, publicSessionName)
+	data := c.hub.decodePublicSessionId(sessionId)
 	if data == nil {
 		return fmt.Errorf("Invalid session id passed")
 	}

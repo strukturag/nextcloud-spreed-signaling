@@ -49,8 +49,8 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
-	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var (
@@ -114,11 +114,6 @@ var (
 	DefaultTrustedProxies = DefaultPrivateIps()
 )
 
-const (
-	privateSessionName = "private-session"
-	publicSessionName  = "public-session"
-)
-
 func init() {
 	RegisterHubStats()
 }
@@ -127,7 +122,7 @@ type Hub struct {
 	version      string
 	events       AsyncEvents
 	upgrader     websocket.Upgrader
-	cookie       *securecookie.SecureCookie
+	cookie       *SessionIdCodec
 	info         *WelcomeServerMessage
 	infoInternal *WelcomeServerMessage
 	welcome      atomic.Value // *ServerMessage
@@ -325,7 +320,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 			ReadBufferSize:  websocketReadBufferSize,
 			WriteBufferSize: websocketWriteBufferSize,
 		},
-		cookie:       securecookie.New([]byte(hashKey), blockBytes).MaxAge(0),
+		cookie:       NewSessionIdCodec([]byte(hashKey), blockBytes),
 		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
 		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
 
@@ -531,35 +526,6 @@ func (h *Hub) Reload(config *goconf.ConfigFile) {
 	h.rpcClients.Reload(config)
 }
 
-func reverseSessionId(s string) (string, error) {
-	// Note that we are assuming base64 encoded strings here.
-	decoded, err := base64.URLEncoding.DecodeString(s)
-	if err != nil {
-		return "", err
-	}
-
-	for i, j := 0, len(decoded)-1; i < j; i, j = i+1, j-1 {
-		decoded[i], decoded[j] = decoded[j], decoded[i]
-	}
-	return base64.URLEncoding.EncodeToString(decoded), nil
-}
-
-func (h *Hub) encodeSessionId(data *SessionIdData, sessionType string) (string, error) {
-	encoded, err := h.cookie.Encode(sessionType, data)
-	if err != nil {
-		return "", err
-	}
-	if sessionType == publicSessionName {
-		// We are reversing the public session ids because clients compare them
-		// to decide who calls whom. The prefix of the session id is increasing
-		// (a timestamp) but the suffix the (random) hash.
-		// By reversing we move the hash to the front, making the comparison of
-		// session ids "random".
-		encoded, err = reverseSessionId(encoded)
-	}
-	return encoded, err
-}
-
 func (h *Hub) getDecodeCache(cache_key string) *LruCache {
 	hash := fnv.New32a()
 	hash.Write([]byte(cache_key)) // nolint
@@ -587,36 +553,48 @@ func (h *Hub) setDecodedSessionId(id string, sessionType string, data *SessionId
 	cache.Set(cache_key, data)
 }
 
-func (h *Hub) decodeSessionId(id string, sessionType string) *SessionIdData {
+func (h *Hub) decodePrivateSessionId(id string) *SessionIdData {
 	if len(id) == 0 {
 		return nil
 	}
 
-	cache_key := id + "|" + sessionType
+	cache_key := id + "|" + privateSessionName
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result.(*SessionIdData)
 	}
 
-	if sessionType == publicSessionName {
-		var err error
-		id, err = reverseSessionId(id)
-		if err != nil {
-			return nil
-		}
-	}
-
-	var data SessionIdData
-	if h.cookie.Decode(sessionType, id, &data) != nil {
+	data, err := h.cookie.DecodePrivate(id)
+	if err != nil {
 		return nil
 	}
 
-	cache.Set(cache_key, &data)
-	return &data
+	cache.Set(cache_key, data)
+	return data
+}
+
+func (h *Hub) decodePublicSessionId(id string) *SessionIdData {
+	if len(id) == 0 {
+		return nil
+	}
+
+	cache_key := id + "|" + publicSessionName
+	cache := h.getDecodeCache(cache_key)
+	if result := cache.Get(cache_key); result != nil {
+		return result.(*SessionIdData)
+	}
+
+	data, err := h.cookie.DecodePublic(id)
+	if err != nil {
+		return nil
+	}
+
+	cache.Set(cache_key, data)
+	return data
 }
 
 func (h *Hub) GetSessionByPublicId(sessionId string) Session {
-	data := h.decodeSessionId(sessionId, publicSessionName)
+	data := h.decodePublicSessionId(sessionId)
 	if data == nil {
 		return nil
 	}
@@ -632,7 +610,7 @@ func (h *Hub) GetSessionByPublicId(sessionId string) Session {
 }
 
 func (h *Hub) GetSessionByResumeId(resumeId string) Session {
-	data := h.decodeSessionId(resumeId, privateSessionName)
+	data := h.decodePrivateSessionId(resumeId)
 	if data == nil {
 		return nil
 	}
@@ -834,7 +812,7 @@ func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
 	}
 	sessionIdData := &SessionIdData{
 		Sid:       sid,
-		Created:   time.Now(),
+		Created:   timestamppb.Now(),
 		BackendId: backend.Id(),
 	}
 	return sessionIdData
@@ -862,12 +840,12 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 	}
 
 	sessionIdData := h.newSessionIdData(backend)
-	privateSessionId, err := h.encodeSessionId(sessionIdData, privateSessionName)
+	privateSessionId, err := h.cookie.EncodePrivate(sessionIdData)
 	if err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		return
 	}
-	publicSessionId, err := h.encodeSessionId(sessionIdData, publicSessionName)
+	publicSessionId, err := h.cookie.EncodePublic(sessionIdData)
 	if err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		return
@@ -1172,7 +1150,7 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 			return
 		}
 
-		data := h.decodeSessionId(resumeId, privateSessionName)
+		data := h.decodePrivateSessionId(resumeId)
 		if data == nil {
 			statsHubSessionResumeFailed.Inc()
 			if h.tryProxyResume(client, resumeId, message) {
@@ -2165,7 +2143,7 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 	var room *Room
 	switch msg.Recipient.Type {
 	case RecipientTypeSession:
-		data := h.decodeSessionId(msg.Recipient.SessionId, publicSessionName)
+		data := h.decodePublicSessionId(msg.Recipient.SessionId)
 		if data != nil {
 			if msg.Recipient.SessionId == session.PublicId() {
 				// Don't loop messages to the sender.
@@ -2285,12 +2263,12 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		}
 
 		sessionIdData := h.newSessionIdData(session.Backend())
-		privateSessionId, err := h.encodeSessionId(sessionIdData, privateSessionName)
+		privateSessionId, err := h.cookie.EncodePrivate(sessionIdData)
 		if err != nil {
 			log.Printf("Could not encode private virtual session id: %s", err)
 			return
 		}
-		publicSessionId, err := h.encodeSessionId(sessionIdData, publicSessionName)
+		publicSessionId, err := h.cookie.EncodePublic(sessionIdData)
 		if err != nil {
 			log.Printf("Could not encode public virtual session id: %s", err)
 			return

@@ -46,10 +46,10 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
 	"github.com/notedit/janus-go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
@@ -128,7 +128,7 @@ type ProxyServer struct {
 	trustedProxies  atomic.Pointer[signaling.AllowedIps]
 
 	sid          atomic.Uint64
-	cookie       *securecookie.SecureCookie
+	cookie       *signaling.SessionIdCodec
 	sessions     map[uint64]*ProxySession
 	sessionsLock sync.RWMutex
 
@@ -350,7 +350,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 
 		tokens: tokens,
 
-		cookie:   securecookie.New(hashKey, blockKey).MaxAge(0),
+		cookie:   signaling.NewSessionIdCodec(hashKey, blockKey),
 		sessions: make(map[uint64]*ProxySession),
 
 		clients:   make(map[string]signaling.McuClient),
@@ -742,8 +742,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 
 		var session *ProxySession
 		if resumeId := message.Hello.ResumeId; resumeId != "" {
-			var data signaling.SessionIdData
-			if s.cookie.Decode("session", resumeId, &data) == nil {
+			if data, err := s.cookie.DecodePublic(resumeId); err == nil {
 				session = s.GetSession(data.Sid)
 			}
 
@@ -1331,10 +1330,10 @@ func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*Pro
 
 	sessionIdData := &signaling.SessionIdData{
 		Sid:     sid,
-		Created: time.Now(),
+		Created: timestamppb.Now(),
 	}
 
-	encoded, err := s.cookie.Encode("session", sessionIdData)
+	encoded, err := s.cookie.EncodePublic(sessionIdData)
 	if err != nil {
 		return nil, err
 	}

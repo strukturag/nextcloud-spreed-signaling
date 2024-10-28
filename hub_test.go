@@ -907,7 +907,7 @@ func TestClientHelloV2(t *testing.T) {
 			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
 			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 
-			data := hub.decodeSessionId(hello.Hello.SessionId, publicSessionName)
+			data := hub.decodePublicSessionId(hello.Hello.SessionId)
 			require.NotNil(data, "Could not decode session id: %s", hello.Hello.SessionId)
 
 			hub.mu.RLock()
@@ -1281,7 +1281,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
 			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 
-			data := hub.decodeSessionId(hello.Hello.SessionId, publicSessionName)
+			data := hub.decodePublicSessionId(hello.Hello.SessionId)
 			if !assert.NotNil(data, "Could not decode session id: %s", hello.Hello.SessionId) {
 				break
 			}

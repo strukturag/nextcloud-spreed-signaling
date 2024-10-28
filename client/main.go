@@ -23,7 +23,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -43,7 +42,6 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
-	"github.com/gorilla/securecookie"
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
 
@@ -75,9 +73,6 @@ const (
 
 	// Maximum message size allowed from peer.
 	maxMessageSize = 64 * 1024
-
-	privateSessionName = "private-session"
-	publicSessionName  = "public-session"
 )
 
 type Stats struct {
@@ -120,7 +115,7 @@ type MessagePayload struct {
 
 type SignalingClient struct {
 	readyWg *sync.WaitGroup
-	cookie  *securecookie.SecureCookie
+	cookie  *signaling.SessionIdCodec
 
 	conn *websocket.Conn
 
@@ -135,7 +130,7 @@ type SignalingClient struct {
 	userId           string
 }
 
-func NewSignalingClient(cookie *securecookie.SecureCookie, url string, stats *Stats, readyWg *sync.WaitGroup, doneWg *sync.WaitGroup) (*SignalingClient, error) {
+func NewSignalingClient(cookie *signaling.SessionIdCodec, url string, stats *Stats, readyWg *sync.WaitGroup, doneWg *sync.WaitGroup) (*SignalingClient, error) {
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		return nil, err
@@ -215,19 +210,15 @@ func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
 }
 
 func (c *SignalingClient) privateToPublicSessionId(privateId string) string {
-	var data signaling.SessionIdData
-	if err := c.cookie.Decode(privateSessionName, privateId, &data); err != nil {
+	data, err := c.cookie.DecodePrivate(privateId)
+	if err != nil {
 		panic(fmt.Sprintf("could not decode private session id: %s", err))
 	}
-	encoded, err := c.cookie.Encode(publicSessionName, data)
+	publicId, err := c.cookie.EncodePublic(data)
 	if err != nil {
 		panic(fmt.Sprintf("could not encode public id: %s", err))
 	}
-	reversed, err := reverseSessionId(encoded)
-	if err != nil {
-		panic(fmt.Sprintf("could not reverse session id: %s", err))
-	}
-	return reversed
+	return publicId
 }
 
 func (c *SignalingClient) processHelloMessage(message *signaling.ServerMessage) {
@@ -493,19 +484,6 @@ func getLocalIP() string {
 	return ""
 }
 
-func reverseSessionId(s string) (string, error) {
-	// Note that we are assuming base64 encoded strings here.
-	decoded, err := base64.URLEncoding.DecodeString(s)
-	if err != nil {
-		return "", err
-	}
-
-	for i, j := 0, len(decoded)-1; i < j; i, j = i+1, j-1 {
-		decoded[i], decoded[j] = decoded[j], decoded[i]
-	}
-	return base64.URLEncoding.EncodeToString(decoded), nil
-}
-
 func main() {
 	flag.Parse()
 	log.SetFlags(0)
@@ -537,7 +515,7 @@ func main() {
 	default:
 		log.Fatalf("The sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
 	}
-	cookie := securecookie.New([]byte(hashKey), blockBytes).MaxAge(0)
+	cookie := signaling.NewSessionIdCodec([]byte(hashKey), blockBytes)
 
 	cpus := runtime.NumCPU()
 	runtime.GOMAXPROCS(cpus)
