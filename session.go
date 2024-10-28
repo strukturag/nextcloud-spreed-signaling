@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"net/url"
 	"sync"
-	"time"
 )
 
 type Permission string
@@ -47,12 +46,6 @@ var (
 		PERMISSION_HIDE_DISPLAYNAMES: false,
 	}
 )
-
-type SessionIdData struct {
-	Sid       uint64
-	Created   time.Time
-	BackendId string
-}
 
 type Session interface {
 	Context() context.Context

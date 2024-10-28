@@ -13,8 +13,10 @@ VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
 PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
 ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
-PROTO_FILES := $(basename $(wildcard *.proto))
-PROTO_GO_FILES := $(addsuffix .pb.go,$(PROTO_FILES)) $(addsuffix _grpc.pb.go,$(PROTO_FILES))
+GRPC_PROTO_FILES := $(basename $(wildcard grpc_*.proto))
+PROTO_FILES := $(filter-out $(GRPC_PROTO_FILES),$(basename $(wildcard *.proto)))
+PROTO_GO_FILES := $(addsuffix .pb.go,$(PROTO_FILES))
+GRPC_PROTO_GO_FILES := $(addsuffix .pb.go,$(GRPC_PROTO_FILES)) $(addsuffix _grpc.pb.go,$(GRPC_PROTO_FILES))
 EASYJSON_GO_FILES := \
 	api_async_easyjson.go \
 	api_backend_easyjson.go \
@@ -22,7 +24,7 @@ EASYJSON_GO_FILES := \
 	api_proxy_easyjson.go \
 	api_signaling_easyjson.go
 TEST_GO_FILES := $(wildcard *_test.go))
-COMMON_GO_FILES := $(filter-out continentmap.go $(PROTO_GO_FILES) $(EASYJSON_GO_FILES) $(TEST_GO_FILES),$(wildcard *.go))
+COMMON_GO_FILES := $(filter-out continentmap.go $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES) $(EASYJSON_GO_FILES) $(TEST_GO_FILES),$(wildcard *.go))
 CLIENT_TEST_GO_FILES := $(wildcard client/*_test.go))
 CLIENT_GO_FILES := $(filter-out $(CLIENT_TEST_GO_FILES),$(wildcard client/*.go))
 SERVER_TEST_GO_FILES := $(wildcard server/*_test.go))
@@ -139,7 +141,7 @@ coverhtml: vet
 		$*.proto
 	sed -i -e '1h;2,$$H;$$!d;g' -re 's|// versions.+// source:|// source:|' $*_grpc.pb.go
 
-common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
+common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES)
 
 $(BINDIR):
 	mkdir -p "$(BINDIR)"
@@ -166,7 +168,7 @@ clean:
 	rm -f "$(BINDIR)/proxy"
 
 clean-generated: clean
-	rm -f $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
+	rm -f $(EASYJSON_GO_FILES) $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES)
 
 build: server proxy
 
