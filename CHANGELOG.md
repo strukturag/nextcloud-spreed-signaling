@@ -2,6 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.0.1 - 2024-10-28
+
+### Added
+- docker: Support adding CA certificates to system trust store.
+  [#825](https://github.com/strukturag/nextcloud-spreed-signaling/pull/825)
+- proxy: Add timeouts to requests to Janus and cancel if session is closed.
+  [#847](https://github.com/strukturag/nextcloud-spreed-signaling/pull/847)
+
+### Changed
+- make: Rename "distclean" target to "clean-generated".
+  [#814](https://github.com/strukturag/nextcloud-spreed-signaling/pull/814)
+- Don't update capabilities concurrently from same host.
+  [#833](https://github.com/strukturag/nextcloud-spreed-signaling/pull/833)
+- make: Improve dependency tracking.
+  [#848](https://github.com/strukturag/nextcloud-spreed-signaling/pull/848)
+- Encode session ids using protobufs.
+  [#850](https://github.com/strukturag/nextcloud-spreed-signaling/pull/850)
+
+### Fixed
+- Fetch country information for continentmap from correct location.
+  [#849](https://github.com/strukturag/nextcloud-spreed-signaling/pull/849)
+
+### Dependencies
+- Bump github.com/prometheus/client_golang from 1.20.2 to 1.20.3
+  [#815](https://github.com/strukturag/nextcloud-spreed-signaling/pull/815)
+- Bump github.com/prometheus/client_golang from 1.20.3 to 1.20.4
+  [#823](https://github.com/strukturag/nextcloud-spreed-signaling/pull/823)
+- Bump google.golang.org/grpc from 1.66.0 to 1.66.2
+  [#818](https://github.com/strukturag/nextcloud-spreed-signaling/pull/818)
+- Bump google.golang.org/grpc from 1.66.2 to 1.67.1
+  [#827](https://github.com/strukturag/nextcloud-spreed-signaling/pull/827)
+- Bump golangci/golangci-lint-action from 6.1.0 to 6.1.1
+  [#829](https://github.com/strukturag/nextcloud-spreed-signaling/pull/829)
+- Bump sphinx-rtd-theme from 2.0.0 to 3.0.0 in /docs
+  [#830](https://github.com/strukturag/nextcloud-spreed-signaling/pull/830)
+- Bump sphinx from 7.4.7 to 8.0.2 in /docs
+  [#789](https://github.com/strukturag/nextcloud-spreed-signaling/pull/789)
+- Bump github.com/nats-io/nats-server/v2 from 2.10.20 to 2.10.21
+  [#826](https://github.com/strukturag/nextcloud-spreed-signaling/pull/826)
+- Bump google.golang.org/protobuf from 1.34.2 to 1.35.1
+  [#831](https://github.com/strukturag/nextcloud-spreed-signaling/pull/831)
+- Bump jandelgado/gcov2lcov-action from 1.0.9 to 1.1.1
+  [#840](https://github.com/strukturag/nextcloud-spreed-signaling/pull/840)
+- Bump sphinx-rtd-theme from 3.0.0 to 3.0.1 in /docs
+  [#834](https://github.com/strukturag/nextcloud-spreed-signaling/pull/834)
+- Bump github.com/prometheus/client_golang from 1.20.4 to 1.20.5
+  [#839](https://github.com/strukturag/nextcloud-spreed-signaling/pull/839)
+- Bump github.com/nats-io/nats-server/v2 from 2.10.21 to 2.10.22
+  [#843](https://github.com/strukturag/nextcloud-spreed-signaling/pull/843)
+- Bump sphinx from 8.0.2 to 8.1.3 in /docs
+  [#838](https://github.com/strukturag/nextcloud-spreed-signaling/pull/838)
+- Bump coverallsapp/github-action from 2.3.0 to 2.3.4
+  [#846](https://github.com/strukturag/nextcloud-spreed-signaling/pull/846)
+
+
 ## 2.0.0 - 2024-09-03
 
 ### Added
