@@ -1346,6 +1346,10 @@ func (h *mockGrpcServerHub) GetBackend(u *url.URL) *Backend {
 	return nil
 }
 
+func (h *mockGrpcServerHub) GetRoomForBackend(roomId string, backend *Backend) *Room {
+	return nil
+}
+
 func Test_ProxyRemotePublisher(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()

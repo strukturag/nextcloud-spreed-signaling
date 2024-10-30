@@ -37,10 +37,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RpcSessions_LookupResumeId_FullMethodName  = "/signaling.RpcSessions/LookupResumeId"
-	RpcSessions_LookupSessionId_FullMethodName = "/signaling.RpcSessions/LookupSessionId"
-	RpcSessions_IsSessionInCall_FullMethodName = "/signaling.RpcSessions/IsSessionInCall"
-	RpcSessions_ProxySession_FullMethodName    = "/signaling.RpcSessions/ProxySession"
+	RpcSessions_LookupResumeId_FullMethodName      = "/signaling.RpcSessions/LookupResumeId"
+	RpcSessions_LookupSessionId_FullMethodName     = "/signaling.RpcSessions/LookupSessionId"
+	RpcSessions_IsSessionInCall_FullMethodName     = "/signaling.RpcSessions/IsSessionInCall"
+	RpcSessions_GetInternalSessions_FullMethodName = "/signaling.RpcSessions/GetInternalSessions"
+	RpcSessions_ProxySession_FullMethodName        = "/signaling.RpcSessions/ProxySession"
 )
 
 // RpcSessionsClient is the client API for RpcSessions service.
@@ -50,6 +51,7 @@ type RpcSessionsClient interface {
 	LookupResumeId(ctx context.Context, in *LookupResumeIdRequest, opts ...grpc.CallOption) (*LookupResumeIdReply, error)
 	LookupSessionId(ctx context.Context, in *LookupSessionIdRequest, opts ...grpc.CallOption) (*LookupSessionIdReply, error)
 	IsSessionInCall(ctx context.Context, in *IsSessionInCallRequest, opts ...grpc.CallOption) (*IsSessionInCallReply, error)
+	GetInternalSessions(ctx context.Context, in *GetInternalSessionsRequest, opts ...grpc.CallOption) (*GetInternalSessionsReply, error)
 	ProxySession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ClientSessionMessage, ServerSessionMessage], error)
 }
 
@@ -91,6 +93,16 @@ func (c *rpcSessionsClient) IsSessionInCall(ctx context.Context, in *IsSessionIn
 	return out, nil
 }
 
+func (c *rpcSessionsClient) GetInternalSessions(ctx context.Context, in *GetInternalSessionsRequest, opts ...grpc.CallOption) (*GetInternalSessionsReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetInternalSessionsReply)
+	err := c.cc.Invoke(ctx, RpcSessions_GetInternalSessions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *rpcSessionsClient) ProxySession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ClientSessionMessage, ServerSessionMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &RpcSessions_ServiceDesc.Streams[0], RpcSessions_ProxySession_FullMethodName, cOpts...)
@@ -111,6 +123,7 @@ type RpcSessionsServer interface {
 	LookupResumeId(context.Context, *LookupResumeIdRequest) (*LookupResumeIdReply, error)
 	LookupSessionId(context.Context, *LookupSessionIdRequest) (*LookupSessionIdReply, error)
 	IsSessionInCall(context.Context, *IsSessionInCallRequest) (*IsSessionInCallReply, error)
+	GetInternalSessions(context.Context, *GetInternalSessionsRequest) (*GetInternalSessionsReply, error)
 	ProxySession(grpc.BidiStreamingServer[ClientSessionMessage, ServerSessionMessage]) error
 	mustEmbedUnimplementedRpcSessionsServer()
 }
@@ -130,6 +143,9 @@ func (UnimplementedRpcSessionsServer) LookupSessionId(context.Context, *LookupSe
 }
 func (UnimplementedRpcSessionsServer) IsSessionInCall(context.Context, *IsSessionInCallRequest) (*IsSessionInCallReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IsSessionInCall not implemented")
+}
+func (UnimplementedRpcSessionsServer) GetInternalSessions(context.Context, *GetInternalSessionsRequest) (*GetInternalSessionsReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInternalSessions not implemented")
 }
 func (UnimplementedRpcSessionsServer) ProxySession(grpc.BidiStreamingServer[ClientSessionMessage, ServerSessionMessage]) error {
 	return status.Errorf(codes.Unimplemented, "method ProxySession not implemented")
@@ -209,6 +225,24 @@ func _RpcSessions_IsSessionInCall_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RpcSessions_GetInternalSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInternalSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RpcSessionsServer).GetInternalSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RpcSessions_GetInternalSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RpcSessionsServer).GetInternalSessions(ctx, req.(*GetInternalSessionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RpcSessions_ProxySession_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(RpcSessionsServer).ProxySession(&grpc.GenericServerStream[ClientSessionMessage, ServerSessionMessage]{ServerStream: stream})
 }
@@ -234,6 +268,10 @@ var RpcSessions_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IsSessionInCall",
 			Handler:    _RpcSessions_IsSessionInCall_Handler,
+		},
+		{
+			MethodName: "GetInternalSessions",
+			Handler:    _RpcSessions_GetInternalSessions_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

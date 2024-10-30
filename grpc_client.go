@@ -249,6 +249,36 @@ func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId string, room
 	return response.GetInCall(), nil
 }
 
+func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, backend *Backend) (internal map[string]*InternalSessionData, virtual map[string]*VirtualSessionData, err error) {
+	statsGrpcClientCalls.WithLabelValues("GetInternalSessions").Inc()
+	// TODO: Remove debug logging
+	log.Printf("Get internal sessions for %s@%s on %s", roomId, backend.Id(), c.Target())
+	response, err := c.impl.GetInternalSessions(ctx, &GetInternalSessionsRequest{
+		RoomId:     roomId,
+		BackendUrl: backend.Url(),
+	}, grpc.WaitForReady(true))
+	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		return nil, nil, nil
+	} else if err != nil {
+		return nil, nil, err
+	}
+
+	if len(response.InternalSessions) > 0 {
+		internal = make(map[string]*InternalSessionData, len(response.InternalSessions))
+		for _, s := range response.InternalSessions {
+			internal[s.SessionId] = s
+		}
+	}
+	if len(response.VirtualSessions) > 0 {
+		virtual = make(map[string]*VirtualSessionData, len(response.VirtualSessions))
+		for _, s := range response.VirtualSessions {
+			virtual[s.SessionId] = s
+		}
+	}
+
+	return
+}
+
 func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, streamType StreamType) (string, string, net.IP, error) {
 	statsGrpcClientCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging

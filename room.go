@@ -71,7 +71,7 @@ type Room struct {
 	mu       *sync.RWMutex
 	sessions map[string]Session
 
-	internalSessions map[Session]bool
+	internalSessions map[*ClientSession]bool
 	virtualSessions  map[*VirtualSession]bool
 	inCallSessions   map[Session]bool
 	roomSessionData  map[string]*RoomSessionData
@@ -108,7 +108,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEv
 		mu:       &sync.RWMutex{},
 		sessions: make(map[string]Session),
 
-		internalSessions: make(map[Session]bool),
+		internalSessions: make(map[*ClientSession]bool),
 		virtualSessions:  make(map[*VirtualSession]bool),
 		inCallSessions:   make(map[Session]bool),
 		roomSessionData:  make(map[string]*RoomSessionData),
@@ -290,13 +290,19 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 	var publishUsersChanged bool
 	switch session.ClientType() {
 	case HelloClientTypeInternal:
-		r.internalSessions[session] = true
+		clientSession, ok := session.(*ClientSession)
+		if !ok {
+			delete(r.sessions, sid)
+			r.mu.Unlock()
+			panic(fmt.Sprintf("Expected a client session, got %v (%T)", session, session))
+		}
+		r.internalSessions[clientSession] = true
 	case HelloClientTypeVirtual:
 		virtualSession, ok := session.(*VirtualSession)
 		if !ok {
 			delete(r.sessions, sid)
 			r.mu.Unlock()
-			panic(fmt.Sprintf("Expected a virtual session, got %v", session))
+			panic(fmt.Sprintf("Expected a virtual session, got %v (%T)", session, session))
 		}
 		r.virtualSessions[virtualSession] = true
 		publishUsersChanged = true
@@ -447,11 +453,21 @@ func (r *Room) RemoveSession(session Session) bool {
 	sid := session.PublicId()
 	r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": session.ClientType()}).Dec()
 	delete(r.sessions, sid)
-	delete(r.internalSessions, session)
 	if virtualSession, ok := session.(*VirtualSession); ok {
 		delete(r.virtualSessions, virtualSession)
+		// Handle case where virtual session was also sent by Nextcloud.
+		users := make([]map[string]interface{}, 0, len(r.users))
+		for _, u := range r.users {
+			if u["sessionId"] != sid {
+				users = append(users, u)
+			}
+		}
+		if len(users) != len(r.users) {
+			r.users = users
+		}
 	}
 	if clientSession, ok := session.(*ClientSession); ok {
+		delete(r.internalSessions, clientSession)
 		r.transientData.RemoveListener(clientSession)
 	}
 	delete(r.inCallSessions, session)
@@ -568,10 +584,66 @@ func (r *Room) PublishSessionLeft(session Session) {
 	}
 }
 
+func (r *Room) getClusteredInternalSessionsRLocked() (internal map[string]*InternalSessionData, virtual map[string]*VirtualSessionData) {
+	if r.hub.rpcClients == nil {
+		return nil, nil
+	}
+
+	r.mu.RUnlock()
+	defer r.mu.RLock()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, client := range r.hub.rpcClients.GetClients() {
+		wg.Add(1)
+		go func(c *GrpcClient) {
+			defer wg.Done()
+
+			clientInternal, clientVirtual, err := c.GetInternalSessions(ctx, r.Id(), r.Backend())
+			if err != nil {
+				log.Printf("Received error while getting internal sessions for %s@%s from %s: %s", r.Id(), r.Backend().Id(), c.Target(), err)
+				return
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if internal == nil {
+				internal = make(map[string]*InternalSessionData, len(clientInternal))
+			}
+			for sid, s := range clientInternal {
+				internal[sid] = s
+			}
+			if virtual == nil {
+				virtual = make(map[string]*VirtualSessionData, len(clientVirtual))
+			}
+			for sid, s := range clientVirtual {
+				virtual[sid] = s
+			}
+		}(client)
+	}
+	wg.Wait()
+
+	return
+}
+
 func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]interface{} {
 	now := time.Now().Unix()
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(users) == 0 && len(r.internalSessions) == 0 && len(r.virtualSessions) == 0 {
+		return users
+	}
+
+	clusteredInternalSessions, clusteredVirtualSessions := r.getClusteredInternalSessionsRLocked()
+
+	// Local sessions might have changed while waiting for clustered information.
+	if len(users) == 0 && len(r.internalSessions) == 0 && len(r.virtualSessions) == 0 {
+		return users
+	}
+
+	skipSession := make(map[string]bool)
 	for _, user := range users {
 		sessionid, found := user["sessionId"]
 		if !found || sessionid == "" {
@@ -581,21 +653,69 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 		if userid, found := user["userId"]; !found || userid == "" {
 			if roomSessionData, found := r.roomSessionData[sessionid.(string)]; found {
 				user["userId"] = roomSessionData.UserId
+			} else if sid, ok := sessionid.(string); ok {
+				if entry, found := clusteredVirtualSessions[sid]; found {
+					user["virtual"] = true
+					user["inCall"] = entry.GetInCall()
+					skipSession[sid] = true
+				} else {
+					for session := range r.virtualSessions {
+						if session.PublicId() == sid {
+							user["virtual"] = true
+							user["inCall"] = session.GetInCall()
+							skipSession[sid] = true
+							break
+						}
+					}
+				}
 			}
 		}
 	}
 	for session := range r.internalSessions {
-		users = append(users, map[string]interface{}{
-			"inCall":    session.(*ClientSession).GetInCall(),
+		u := map[string]interface{}{
+			"inCall":    session.GetInCall(),
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
 			"internal":  true,
-		})
+		}
+		if f := session.GetFeatures(); len(f) > 0 {
+			u["features"] = f
+		}
+		users = append(users, u)
+	}
+	for _, session := range clusteredInternalSessions {
+		u := map[string]interface{}{
+			"inCall":    session.GetInCall(),
+			"sessionId": session.GetSessionId(),
+			"lastPing":  now,
+			"internal":  true,
+		}
+		if f := session.GetFeatures(); len(f) > 0 {
+			u["features"] = f
+		}
+		users = append(users, u)
 	}
 	for session := range r.virtualSessions {
+		sid := session.PublicId()
+		if skipSession[sid] {
+			continue
+		}
+		skipSession[sid] = true
 		users = append(users, map[string]interface{}{
 			"inCall":    session.GetInCall(),
-			"sessionId": session.PublicId(),
+			"sessionId": sid,
+			"lastPing":  now,
+			"virtual":   true,
+		})
+	}
+	for sid, session := range clusteredVirtualSessions {
+		if skipSession[sid] {
+			continue
+		}
+
+		users = append(users, map[string]interface{}{
+			"inCall":    session.GetInCall(),
+			"sessionId": sid,
 			"lastPing":  now,
 			"virtual":   true,
 		})
@@ -974,7 +1094,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 }
 
 func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
-	if message == nil || message.Data == nil {
+	if message == nil || len(message.Data) == 0 {
 		return
 	}
 
@@ -1062,10 +1182,10 @@ func (r *Room) notifyInternalRoomDeleted() {
 		},
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	for s := range r.internalSessions {
-		s.(*ClientSession).SendMessage(msg)
+		s.SendMessage(msg)
 	}
 }
 

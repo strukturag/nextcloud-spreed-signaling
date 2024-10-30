@@ -648,6 +648,9 @@ func (h *Hub) GetDialoutSession(roomId string, backend *Backend) *ClientSession 
 }
 
 func (h *Hub) GetBackend(u *url.URL) *Backend {
+	if u == nil {
+		return h.backend.GetCompatBackend()
+	}
 	return h.backend.GetBackend(u)
 }
 
@@ -1629,7 +1632,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		return
 	}
 
-	if room := h.getRoomForBackend(roomId, session.Backend()); room != nil && room.HasSession(session) {
+	if room := h.GetRoomForBackend(roomId, session.Backend()); room != nil && room.HasSession(session) {
 		// Session already is in that room, no action needed.
 		roomSessionId := message.Room.SessionId
 		if roomSessionId == "" {
@@ -1770,7 +1773,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 	return count, &wg
 }
 
-func (h *Hub) getRoomForBackend(id string, backend *Backend) *Room {
+func (h *Hub) GetRoomForBackend(id string, backend *Backend) *Room {
 	internalRoomId := getRoomIdForBackend(id, backend)
 
 	h.ru.RLock()
@@ -2256,7 +2259,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 	switch msg.Type {
 	case "addsession":
 		msg := msg.AddSession
-		room := h.getRoomForBackend(msg.RoomId, session.Backend())
+		room := h.GetRoomForBackend(msg.RoomId, session.Backend())
 		if room == nil {
 			log.Printf("Ignore add session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
 			return
@@ -2333,7 +2336,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		room.AddSession(sess, nil)
 	case "updatesession":
 		msg := msg.UpdateSession
-		room := h.getRoomForBackend(msg.RoomId, session.Backend())
+		room := h.GetRoomForBackend(msg.RoomId, session.Backend())
 		if room == nil {
 			log.Printf("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
 			return
@@ -2371,7 +2374,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		}
 	case "removesession":
 		msg := msg.RemoveSession
-		room := h.getRoomForBackend(msg.RoomId, session.Backend())
+		room := h.GetRoomForBackend(msg.RoomId, session.Backend())
 		if room == nil {
 			log.Printf("Ignore remove session message %+v for invalid room %s from %s", *msg, msg.RoomId, session.PublicId())
 			return
