@@ -29,6 +29,7 @@ service RpcSessions {
   rpc LookupResumeId(LookupResumeIdRequest) returns (LookupResumeIdReply) {}
   rpc LookupSessionId(LookupSessionIdRequest) returns (LookupSessionIdReply) {}
   rpc IsSessionInCall(IsSessionInCallRequest) returns (IsSessionInCallReply) {}
+  rpc GetInternalSessions(GetInternalSessionsRequest) returns (GetInternalSessionsReply) {}
   rpc ProxySession(stream ClientSessionMessage) returns (stream ServerSessionMessage) {}
 }
 
@@ -58,6 +59,27 @@ message IsSessionInCallRequest {
 
 message IsSessionInCallReply {
   bool inCall = 1;
+}
+
+message GetInternalSessionsRequest {
+  string roomId = 1;
+  string backendUrl = 2;
+}
+
+message InternalSessionData {
+  string sessionId = 1;
+  uint32 inCall = 2;
+  repeated string features = 3;
+}
+
+message VirtualSessionData {
+  string sessionId = 1;
+  uint32 inCall = 2;
+}
+
+message GetInternalSessionsReply {
+  repeated InternalSessionData internalSessions = 1;
+  repeated VirtualSessionData virtualSessions = 2;
 }
 
 message ClientSessionMessage {
