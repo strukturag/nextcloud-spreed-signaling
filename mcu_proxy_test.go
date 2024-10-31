@@ -671,6 +671,7 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuP
 
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "urltype", "static")
+	cfg.AddOption("mcu", "proxytimeout", fmt.Sprintf("%d", int(testTimeout.Seconds())))
 	var urls []string
 	waitingMap := make(map[string]bool)
 	if len(options.servers) == 0 {
