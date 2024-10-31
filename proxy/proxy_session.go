@@ -104,9 +104,24 @@ func (s *ProxySession) MarkUsed() {
 }
 
 func (s *ProxySession) Close() {
+	prev := s.SetClient(nil)
+	if prev != nil {
+		reason := "session_closed"
+		if s.IsExpired() {
+			reason = "session_expired"
+		}
+		prev.SendMessage(&signaling.ProxyServerMessage{
+			Type: "bye",
+			Bye: &signaling.ByeProxyServerMessage{
+				Reason: reason,
+			},
+		})
+	}
+
 	s.closeFunc()
 	s.clearPublishers()
 	s.clearSubscribers()
+	s.proxy.DeleteSession(s.Sid())
 }
 
 func (s *ProxySession) SetClient(client *ProxyClient) *ProxyClient {
