@@ -141,8 +141,6 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 			out.Sid = string(in.String())
 		case "roomType":
 			out.RoomType = string(in.String())
-		case "bitrate":
-			out.Bitrate = int(in.Int())
 		case "payload":
 			if in.IsNull() {
 				in.Skip()
@@ -165,6 +163,16 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 				}
 				in.Delim('}')
 			}
+		case "bitrate":
+			out.Bitrate = int(in.Int())
+		case "audiocodec":
+			out.AudioCodec = string(in.String())
+		case "videocodec":
+			out.VideoCodec = string(in.String())
+		case "vp9profile":
+			out.VP9Profile = string(in.String())
+		case "h264profile":
+			out.H264Profile = string(in.String())
 		default:
 			in.SkipRecursive()
 		}
@@ -194,11 +202,6 @@ func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling1(out *jwr
 		out.RawString(prefix)
 		out.String(string(in.RoomType))
 	}
-	if in.Bitrate != 0 {
-		const prefix string = ",\"bitrate\":"
-		out.RawString(prefix)
-		out.Int(int(in.Bitrate))
-	}
 	{
 		const prefix string = ",\"payload\":"
 		out.RawString(prefix)
@@ -225,6 +228,31 @@ func easyjson9289e183EncodeGithubComStrukturagNextcloudSpreedSignaling1(out *jwr
 			}
 			out.RawByte('}')
 		}
+	}
+	if in.Bitrate != 0 {
+		const prefix string = ",\"bitrate\":"
+		out.RawString(prefix)
+		out.Int(int(in.Bitrate))
+	}
+	if in.AudioCodec != "" {
+		const prefix string = ",\"audiocodec\":"
+		out.RawString(prefix)
+		out.String(string(in.AudioCodec))
+	}
+	if in.VideoCodec != "" {
+		const prefix string = ",\"videocodec\":"
+		out.RawString(prefix)
+		out.String(string(in.VideoCodec))
+	}
+	if in.VP9Profile != "" {
+		const prefix string = ",\"vp9profile\":"
+		out.RawString(prefix)
+		out.String(string(in.VP9Profile))
+	}
+	if in.H264Profile != "" {
+		const prefix string = ",\"h264profile\":"
+		out.RawString(prefix)
+		out.String(string(in.H264Profile))
 	}
 	out.RawByte('}')
 }
