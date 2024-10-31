@@ -1382,6 +1382,8 @@ func (s *ProxyServer) DeleteSession(id uint64) {
 func (s *ProxyServer) deleteSessionLocked(id uint64) {
 	if session, found := s.sessions[id]; found {
 		delete(s.sessions, id)
+		s.sessionsLock.Unlock()
+		defer s.sessionsLock.Lock()
 		session.Close()
 		statsSessionsCurrent.Dec()
 	}
