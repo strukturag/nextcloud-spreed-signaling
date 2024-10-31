@@ -193,6 +193,16 @@ type ByeProxyServerMessage struct {
 
 // Type "command"
 
+type NewPublisherSettings struct {
+	Bitrate    int       `json:"bitrate,omitempty"`
+	MediaTypes MediaType `json:"mediatypes,omitempty"`
+
+	AudioCodec  string `json:"audiocodec,omitempty"`
+	VideoCodec  string `json:"videocodec,omitempty"`
+	VP9Profile  string `json:"vp9_profile,omitempty"`
+	H264Profile string `json:"h264_profile,omitempty"`
+}
+
 type CommandProxyClientMessage struct {
 	Type string `json:"type"`
 
@@ -200,8 +210,13 @@ type CommandProxyClientMessage struct {
 	StreamType  StreamType `json:"streamType,omitempty"`
 	PublisherId string     `json:"publisherId,omitempty"`
 	ClientId    string     `json:"clientId,omitempty"`
-	Bitrate     int        `json:"bitrate,omitempty"`
-	MediaTypes  MediaType  `json:"mediatypes,omitempty"`
+
+	// Deprecated: use PublisherSettings instead.
+	Bitrate int `json:"bitrate,omitempty"`
+	// Deprecated: use PublisherSettings instead.
+	MediaTypes MediaType `json:"mediatypes,omitempty"`
+
+	PublisherSettings *NewPublisherSettings `json:"publisherSettings,omitempty"`
 
 	RemoteUrl   string `json:"remoteUrl,omitempty"`
 	remoteUrl   *url.URL

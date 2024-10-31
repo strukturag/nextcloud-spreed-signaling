@@ -255,6 +255,20 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 	case "create-publisher":
 		pub := c.server.createPublisher()
 
+		if assert.NotNil(c.t, msg.Command.PublisherSettings) {
+			if assert.NotEqualValues(c.t, 0, msg.Command.PublisherSettings.Bitrate) {
+				assert.EqualValues(c.t, msg.Command.Bitrate, msg.Command.PublisherSettings.Bitrate)
+			}
+			assert.EqualValues(c.t, msg.Command.MediaTypes, msg.Command.PublisherSettings.MediaTypes)
+			if strings.Contains(c.t.Name(), "Codecs") {
+				assert.Equal(c.t, "opus,g722", msg.Command.PublisherSettings.AudioCodec)
+				assert.Equal(c.t, "vp9,vp8,av1", msg.Command.PublisherSettings.VideoCodec)
+			} else {
+				assert.Empty(c.t, msg.Command.PublisherSettings.AudioCodec)
+				assert.Empty(c.t, msg.Command.PublisherSettings.VideoCodec)
+			}
+		}
+
 		response = &ProxyServerMessage{
 			Id:   msg.Id,
 			Type: "command",
@@ -766,7 +780,9 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 		country: "DE",
 	}
 
-	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
 	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
@@ -781,6 +797,33 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
+}
+
+func Test_ProxyPublisherCodecs(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	mcu := newMcuProxyForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+		AudioCodec: "opus,g722",
+		VideoCodec: "vp9,vp8,av1",
+	}, pubInitiator)
+	require.NoError(t, err)
+
+	defer pub.Close(context.Background())
 }
 
 func Test_ProxyWaitForPublisher(t *testing.T) {
@@ -820,7 +863,9 @@ func Test_ProxyWaitForPublisher(t *testing.T) {
 	// Give subscriber goroutine some time to start
 	time.Sleep(100 * time.Millisecond)
 
-	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
 	require.NoError(t, err)
 
 	select {
@@ -852,7 +897,9 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 	pub1Initiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub1Initiator)
+	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pub1Initiator)
 	require.NoError(t, err)
 
 	defer pub1.Close(context.Background())
@@ -889,7 +936,9 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 	pub2Initiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub2Initiator)
+	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pub2Initiator)
 	require.NoError(t, err)
 
 	defer pub2.Close(context.Background())
@@ -918,7 +967,9 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 	pub1Initiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub1Initiator)
+	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pub1Initiator)
 	require.NoError(t, err)
 
 	defer pub1.Close(context.Background())
@@ -958,7 +1009,9 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 	pub2Initiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub2Initiator)
+	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pub2Initiator)
 	require.NoError(t, err)
 
 	defer pub2.Close(context.Background())
@@ -987,7 +1040,9 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 	pub1Initiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub1Initiator)
+	pub1, err := mcu.NewPublisher(ctx, pub1Listener, pub1Id, pub1Sid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pub1Initiator)
 	require.NoError(t, err)
 
 	defer pub1.Close(context.Background())
@@ -1004,7 +1059,9 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 	pub2Initiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pub2Initiator)
+	pub2, err := mcu.NewPublisher(ctx, pub2Listener, pub2Id, pub2id, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pub2Initiator)
 	require.NoError(t, err)
 
 	defer pub2.Close(context.Background())
@@ -1033,7 +1090,9 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 	pubDEInitiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pubDE, err := mcu.NewPublisher(ctx, pubDEListener, pubDEId, pubDESid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubDEInitiator)
+	pubDE, err := mcu.NewPublisher(ctx, pubDEListener, pubDEId, pubDESid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubDEInitiator)
 	require.NoError(t, err)
 
 	defer pubDE.Close(context.Background())
@@ -1048,7 +1107,9 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 	pubUSInitiator := &MockMcuInitiator{
 		country: "US",
 	}
-	pubUS, err := mcu.NewPublisher(ctx, pubUSListener, pubUSId, pubUSSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubUSInitiator)
+	pubUS, err := mcu.NewPublisher(ctx, pubUSListener, pubUSId, pubUSSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubUSInitiator)
 	require.NoError(t, err)
 
 	defer pubUS.Close(context.Background())
@@ -1077,7 +1138,9 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 	pubDEInitiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pubDE, err := mcu.NewPublisher(ctx, pubDEListener, pubDEId, pubDESid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubDEInitiator)
+	pubDE, err := mcu.NewPublisher(ctx, pubDEListener, pubDEId, pubDESid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubDEInitiator)
 	require.NoError(t, err)
 
 	defer pubDE.Close(context.Background())
@@ -1092,7 +1155,9 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 	pubFRInitiator := &MockMcuInitiator{
 		country: "FR",
 	}
-	pubFR, err := mcu.NewPublisher(ctx, pubFRListener, pubFRId, pubFRSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubFRInitiator)
+	pubFR, err := mcu.NewPublisher(ctx, pubFRListener, pubFRId, pubFRSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubFRInitiator)
 	require.NoError(t, err)
 
 	defer pubFR.Close(context.Background())
@@ -1121,7 +1186,9 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 	pubInitiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
 	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
@@ -1163,7 +1230,9 @@ func Test_ProxySubscriberContinent(t *testing.T) {
 	pubInitiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
 	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
@@ -1205,7 +1274,9 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 	pubInitiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
 	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
@@ -1267,7 +1338,9 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 	pubInitiator := &MockMcuInitiator{
 		country: "DE",
 	}
-	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
 	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
@@ -1405,7 +1478,9 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	hub1.addSession(session1)
 	defer hub1.removeSession(session1)
 
-	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
 	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
@@ -1502,7 +1577,9 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	// Give subscriber goroutine some time to start
 	time.Sleep(100 * time.Millisecond)
 
-	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
 	require.NoError(t, err)
 
 	defer pub.Close(context.Background())
@@ -1571,7 +1648,9 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	hub1.addSession(session1)
 	defer hub1.removeSession(session1)
 
-	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, 0, MediaTypeVideo|MediaTypeAudio, pubInitiator)
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
 	require.NoError(t, err)
 
 	defer pub.Close(context.Background())

@@ -700,8 +700,14 @@ type MessageClientMessageData struct {
 	Type     string                 `json:"type"`
 	Sid      string                 `json:"sid"`
 	RoomType string                 `json:"roomType"`
-	Bitrate  int                    `json:"bitrate,omitempty"`
 	Payload  map[string]interface{} `json:"payload"`
+
+	// Only supported if Type == "offer"
+	Bitrate     int    `json:"bitrate,omitempty"`
+	AudioCodec  string `json:"audiocodec,omitempty"`
+	VideoCodec  string `json:"videocodec,omitempty"`
+	VP9Profile  string `json:"vp9profile,omitempty"`
+	H264Profile string `json:"h264profile,omitempty"`
 
 	offerSdp  *sdp.SessionDescription // Only set if Type == "offer"
 	answerSdp *sdp.SessionDescription // Only set if Type == "answer"

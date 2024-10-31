@@ -355,8 +355,88 @@ func TestProxyCreateSession(t *testing.T) {
 	assert.NoError(err)
 }
 
+type TestMCU struct {
+	t *testing.T
+}
+
+func (m *TestMCU) Start(ctx context.Context) error {
+	return nil
+}
+
+func (m *TestMCU) Stop() {
+}
+
+func (m *TestMCU) Reload(config *goconf.ConfigFile) {
+}
+
+func (m *TestMCU) SetOnConnected(f func()) {
+}
+
+func (m *TestMCU) SetOnDisconnected(f func()) {
+}
+
+func (m *TestMCU) GetStats() interface{} {
+	return nil
+}
+
+func (m *TestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id string, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *TestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher string, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
+	return nil, errors.New("not implemented")
+}
+
+type TestMCUPublisher struct {
+	id         string
+	sid        string
+	streamType signaling.StreamType
+}
+
+func (p *TestMCUPublisher) Id() string {
+	return p.id
+}
+
+func (p *TestMCUPublisher) Sid() string {
+	return p.sid
+}
+
+func (p *TestMCUPublisher) StreamType() signaling.StreamType {
+	return p.streamType
+}
+
+func (p *TestMCUPublisher) MaxBitrate() int {
+	return 0
+}
+
+func (p *TestMCUPublisher) Close(ctx context.Context) {
+}
+
+func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, map[string]interface{})) {
+	callback(errors.New("not implemented"), nil)
+}
+
+func (p *TestMCUPublisher) HasMedia(signaling.MediaType) bool {
+	return false
+}
+
+func (p *TestMCUPublisher) SetMedia(mediaTypes signaling.MediaType) {
+}
+
+func (p *TestMCUPublisher) GetStreams(ctx context.Context) ([]signaling.PublisherStream, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+	return errors.New("not implemented")
+}
+
+func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId string) error {
+	return errors.New("not implemented")
+}
+
 type HangingTestMCU struct {
-	t         *testing.T
+	TestMCU
 	ctx       context.Context
 	creating  chan struct{}
 	created   chan struct{}
@@ -370,34 +450,16 @@ func NewHangingTestMCU(t *testing.T) *HangingTestMCU {
 	})
 
 	return &HangingTestMCU{
-		t:        t,
+		TestMCU: TestMCU{
+			t: t,
+		},
 		ctx:      ctx,
 		creating: make(chan struct{}),
 		created:  make(chan struct{}),
 	}
 }
 
-func (m *HangingTestMCU) Start(ctx context.Context) error {
-	return nil
-}
-
-func (m *HangingTestMCU) Stop() {
-}
-
-func (m *HangingTestMCU) Reload(config *goconf.ConfigFile) {
-}
-
-func (m *HangingTestMCU) SetOnConnected(f func()) {
-}
-
-func (m *HangingTestMCU) SetOnDisconnected(f func()) {
-}
-
-func (m *HangingTestMCU) GetStats() interface{} {
-	return nil
-}
-
-func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id string, sid string, streamType signaling.StreamType, bitrate int, mediaTypes signaling.MediaType, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id string, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	ctx2, cancel := context.WithTimeout(m.ctx, testTimeout*2)
 	defer cancel()
 
@@ -488,4 +550,71 @@ func TestProxyCancelOnClose(t *testing.T) {
 
 	<-mcu.created
 	assert.True(mcu.cancelled.Load())
+}
+
+type CodecsTestMCU struct {
+	TestMCU
+}
+
+func NewCodecsTestMCU(t *testing.T) *CodecsTestMCU {
+	return &CodecsTestMCU{
+		TestMCU: TestMCU{
+			t: t,
+		},
+	}
+}
+
+func (m *CodecsTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id string, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+	assert.Equal(m.t, "opus,g722", settings.AudioCodec)
+	assert.Equal(m.t, "vp9,vp8,av1", settings.VideoCodec)
+	return &TestMCUPublisher{
+		id:         id,
+		sid:        sid,
+		streamType: streamType,
+	}, nil
+}
+
+func TestProxyCodecs(t *testing.T) {
+	signaling.CatchLogForTest(t)
+	assert := assert.New(t)
+	require := require.New(t)
+	proxy, key, server := newProxyServerForTest(t)
+
+	mcu := NewCodecsTestMCU(t)
+	proxy.mcu = mcu
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewProxyTestClient(ctx, t, server.URL)
+	defer client.CloseWithBye()
+
+	require.NoError(client.SendHello(key))
+
+	if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello)
+	}
+
+	_, err := client.RunUntilLoad(ctx, 0)
+	assert.NoError(err)
+
+	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+		Id:   "2345",
+		Type: "command",
+		Command: &signaling.CommandProxyClientMessage{
+			Type:       "create-publisher",
+			StreamType: signaling.StreamTypeVideo,
+			PublisherSettings: &signaling.NewPublisherSettings{
+				AudioCodec: "opus,g722",
+				VideoCodec: "vp9,vp8,av1",
+			},
+		},
+	}))
+
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("2345", message.Id)
+		if err := checkMessageType(message, "command"); assert.NoError(err) {
+			assert.NotEmpty(message.Command.Id)
+		}
+	}
 }

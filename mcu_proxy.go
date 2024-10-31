@@ -134,11 +134,11 @@ func (c *mcuProxyPubSubCommon) doProcessPayload(client McuClient, msg *PayloadPr
 type mcuProxyPublisher struct {
 	mcuProxyPubSubCommon
 
-	id         string
-	mediaTypes MediaType
+	id       string
+	settings NewPublisherSettings
 }
 
-func newMcuProxyPublisher(id string, sid string, streamType StreamType, maxBitrate int, mediaTypes MediaType, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
+func newMcuProxyPublisher(id string, sid string, streamType StreamType, maxBitrate int, settings NewPublisherSettings, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
 	return &mcuProxyPublisher{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			sid:        sid,
@@ -148,18 +148,18 @@ func newMcuProxyPublisher(id string, sid string, streamType StreamType, maxBitra
 			conn:       conn,
 			listener:   listener,
 		},
-		id:         id,
-		mediaTypes: mediaTypes,
+		id:       id,
+		settings: settings,
 	}
 }
 
 func (p *mcuProxyPublisher) HasMedia(mt MediaType) bool {
-	return (p.mediaTypes & mt) == mt
+	return (p.settings.MediaTypes & mt) == mt
 }
 
 func (p *mcuProxyPublisher) SetMedia(mt MediaType) {
 	// TODO: Also update mediaTypes on proxy.
-	p.mediaTypes = mt
+	p.settings.MediaTypes = mt
 }
 
 func (p *mcuProxyPublisher) NotifyClosed() {
@@ -1140,15 +1140,17 @@ func (c *mcuProxyConnection) performSyncRequest(ctx context.Context, msg *ProxyC
 	}
 }
 
-func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType) (McuPublisher, error) {
+func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings) (McuPublisher, error) {
 	msg := &ProxyClientMessage{
 		Type: "command",
 		Command: &CommandProxyClientMessage{
-			Type:       "create-publisher",
-			Sid:        sid,
-			StreamType: streamType,
-			Bitrate:    bitrate,
-			MediaTypes: mediaTypes,
+			Type:              "create-publisher",
+			Sid:               sid,
+			StreamType:        streamType,
+			PublisherSettings: &settings,
+			// Include for older version of the signaling proxy.
+			Bitrate:    settings.Bitrate,
+			MediaTypes: settings.MediaTypes,
 		},
 	}
 
@@ -1162,7 +1164,7 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 
 	proxyId := response.Command.Id
 	log.Printf("Created %s publisher %s on %s for %s", streamType, proxyId, c, id)
-	publisher := newMcuProxyPublisher(id, sid, streamType, response.Command.Bitrate, mediaTypes, proxyId, c, listener)
+	publisher := newMcuProxyPublisher(id, sid, streamType, response.Command.Bitrate, settings, proxyId, c, listener)
 	c.publishersLock.Lock()
 	c.publishers[proxyId] = publisher
 	c.publisherIds[getStreamId(id, streamType)] = proxyId
@@ -1770,17 +1772,19 @@ func (m *mcuProxy) removePublisher(publisher *mcuProxyPublisher) {
 	delete(m.publishers, getStreamId(publisher.id, publisher.StreamType()))
 }
 
-func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuPublisher {
+func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuPublisher {
 	var maxBitrate int
 	if streamType == StreamTypeScreen {
 		maxBitrate = int(m.settings.MaxScreenBitrate())
 	} else {
 		maxBitrate = int(m.settings.MaxStreamBitrate())
 	}
-	if bitrate <= 0 {
-		bitrate = maxBitrate
+
+	publisherSettings := settings
+	if publisherSettings.Bitrate <= 0 {
+		publisherSettings.Bitrate = maxBitrate
 	} else {
-		bitrate = min(bitrate, maxBitrate)
+		publisherSettings.Bitrate = min(publisherSettings.Bitrate, maxBitrate)
 	}
 
 	for _, conn := range connections {
@@ -1791,7 +1795,7 @@ func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id
 		subctx, cancel := context.WithTimeout(ctx, m.settings.Timeout())
 		defer cancel()
 
-		publisher, err := conn.newPublisher(subctx, listener, id, sid, streamType, bitrate, mediaTypes)
+		publisher, err := conn.newPublisher(subctx, listener, id, sid, streamType, publisherSettings)
 		if err != nil {
 			log.Printf("Could not create %s publisher for %s on %s: %s", streamType, id, conn, err)
 			continue
@@ -1807,9 +1811,9 @@ func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id
 	return nil
 }
 
-func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	connections := m.getSortedConnections(initiator)
-	publisher := m.createPublisher(ctx, listener, id, sid, streamType, bitrate, mediaTypes, initiator, connections, func(c *mcuProxyConnection) bool {
+	publisher := m.createPublisher(ctx, listener, id, sid, streamType, settings, initiator, connections, func(c *mcuProxyConnection) bool {
 		bw := c.Bandwidth()
 		return bw == nil || bw.AllowIncoming()
 	})
@@ -1845,7 +1849,7 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 			}
 			return 0
 		})
-		publisher = m.createPublisher(ctx, listener, id, sid, streamType, bitrate, mediaTypes, initiator, connections2, func(c *mcuProxyConnection) bool {
+		publisher = m.createPublisher(ctx, listener, id, sid, streamType, settings, initiator, connections2, func(c *mcuProxyConnection) bool {
 			return true
 		})
 	}

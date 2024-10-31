@@ -903,7 +903,15 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		s.mu.Unlock()
 		defer s.mu.Lock()
 
-		bitrate := data.Bitrate
+		settings := NewPublisherSettings{
+			Bitrate:    data.Bitrate,
+			MediaTypes: mediaTypes,
+
+			AudioCodec:  data.AudioCodec,
+			VideoCodec:  data.VideoCodec,
+			VP9Profile:  data.VP9Profile,
+			H264Profile: data.H264Profile,
+		}
 		if backend := s.Backend(); backend != nil {
 			var maxBitrate int
 			if streamType == StreamTypeScreen {
@@ -911,14 +919,14 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 			} else {
 				maxBitrate = backend.maxStreamBitrate
 			}
-			if bitrate <= 0 {
-				bitrate = maxBitrate
-			} else if maxBitrate > 0 && bitrate > maxBitrate {
-				bitrate = maxBitrate
+			if settings.Bitrate <= 0 {
+				settings.Bitrate = maxBitrate
+			} else if maxBitrate > 0 && settings.Bitrate > maxBitrate {
+				settings.Bitrate = maxBitrate
 			}
 		}
 		var err error
-		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), data.Sid, streamType, bitrate, mediaTypes, client)
+		publisher, err = mcu.NewPublisher(ctx, s, s.PublicId(), data.Sid, streamType, settings, client)
 		if err != nil {
 			return nil, err
 		}
