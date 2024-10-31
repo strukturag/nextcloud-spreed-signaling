@@ -92,7 +92,7 @@ func (p *mcuJanusSubscriber) handleMedia(event *janus.MediaMsg) {
 }
 
 func (p *mcuJanusSubscriber) NotifyReconnected() {
-	ctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 	defer cancel()
 	handle, pub, err := p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
 	if err != nil {
@@ -256,7 +256,7 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 		fallthrough
 	case "sendoffer":
 		p.deferred <- func() {
-			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
 			stream, err := parseStreamSelection(jsep_msg)
@@ -273,7 +273,7 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 		}
 	case "answer":
 		p.deferred <- func() {
-			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
 			if data.Sid == "" || data.Sid == p.Sid() {
@@ -284,7 +284,7 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 		}
 	case "candidate":
 		p.deferred <- func() {
-			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
 			if data.Sid == "" || data.Sid == p.Sid() {
@@ -309,7 +309,7 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 		}
 
 		p.deferred <- func() {
-			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
 			p.selectStream(msgctx, stream, callback)

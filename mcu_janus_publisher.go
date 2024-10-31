@@ -184,7 +184,7 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 
 			// TODO Tear down previous publisher and get a new one if sid does
 			// not match?
-			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
 			p.sendOffer(msgctx, jsep_msg, func(err error, jsep map[string]interface{}) {
@@ -221,7 +221,7 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 		}
 	case "candidate":
 		p.deferred <- func() {
-			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
 			if data.Sid == "" || data.Sid == p.Sid() {
