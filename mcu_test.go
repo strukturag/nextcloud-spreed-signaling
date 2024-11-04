@@ -70,17 +70,17 @@ func (m *TestMCU) GetStats() interface{} {
 	return nil
 }
 
-func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
+func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	var maxBitrate int
 	if streamType == StreamTypeScreen {
 		maxBitrate = TestMaxBitrateScreen
 	} else {
 		maxBitrate = TestMaxBitrateVideo
 	}
-	if bitrate <= 0 {
-		bitrate = maxBitrate
-	} else if bitrate > maxBitrate {
-		bitrate = maxBitrate
+	publisherSettings := settings
+	bitrate := publisherSettings.Bitrate
+	if bitrate <= 0 || bitrate > maxBitrate {
+		publisherSettings.Bitrate = maxBitrate
 	}
 	pub := &TestMCUPublisher{
 		TestMCUClient: TestMCUClient{
@@ -89,8 +89,7 @@ func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id str
 			streamType: streamType,
 		},
 
-		mediaTypes: mediaTypes,
-		bitrate:    bitrate,
+		settings: publisherSettings,
 	}
 
 	m.mu.Lock()
@@ -176,18 +175,17 @@ func (c *TestMCUClient) isClosed() bool {
 type TestMCUPublisher struct {
 	TestMCUClient
 
-	mediaTypes MediaType
-	bitrate    int
+	settings NewPublisherSettings
 
 	sdp string
 }
 
 func (p *TestMCUPublisher) HasMedia(mt MediaType) bool {
-	return (p.mediaTypes & mt) == mt
+	return (p.settings.MediaTypes & mt) == mt
 }
 
 func (p *TestMCUPublisher) SetMedia(mt MediaType) {
-	p.mediaTypes = mt
+	p.settings.MediaTypes = mt
 }
 
 func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {

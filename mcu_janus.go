@@ -46,9 +46,6 @@ const (
 
 	initialReconnectInterval = 1 * time.Second
 	maxReconnectInterval     = 32 * time.Second
-
-	defaultMaxStreamBitrate = 1024 * 1024
-	defaultMaxScreenBitrate = 2048 * 1024
 )
 
 var (
@@ -133,13 +130,45 @@ type clientInterface interface {
 	NotifyReconnected()
 }
 
+type mcuJanusSettings struct {
+	mcuCommonSettings
+}
+
+func newMcuJanusSettings(config *goconf.ConfigFile) (McuSettings, error) {
+	settings := &mcuJanusSettings{}
+	if err := settings.load(config); err != nil {
+		return nil, err
+	}
+
+	return settings, nil
+}
+
+func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
+	if err := s.mcuCommonSettings.load(config); err != nil {
+		return err
+	}
+
+	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
+	if mcuTimeoutSeconds <= 0 {
+		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
+	}
+	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
+	log.Printf("Using a timeout of %s for MCU requests", mcuTimeout)
+	s.setTimeout(mcuTimeout)
+	return nil
+}
+
+func (s *mcuJanusSettings) Reload(config *goconf.ConfigFile) {
+	if err := s.load(config); err != nil {
+		log.Printf("Error reloading MCU settings: %s", err)
+	}
+}
+
 type mcuJanus struct {
 	url string
 	mu  sync.Mutex
 
-	maxStreamBitrate atomic.Int32
-	maxScreenBitrate atomic.Int32
-	mcuTimeout       time.Duration
+	settings McuSettings
 
 	gw      *JanusGateway
 	session *JanusSession
@@ -170,33 +199,22 @@ func emptyOnConnected()    {}
 func emptyOnDisconnected() {}
 
 func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mcu, error) {
-	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
-	if maxStreamBitrate <= 0 {
-		maxStreamBitrate = defaultMaxStreamBitrate
+	settings, err := newMcuJanusSettings(config)
+	if err != nil {
+		return nil, err
 	}
-	maxScreenBitrate, _ := config.GetInt("mcu", "maxscreenbitrate")
-	if maxScreenBitrate <= 0 {
-		maxScreenBitrate = defaultMaxScreenBitrate
-	}
-	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
-	if mcuTimeoutSeconds <= 0 {
-		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
-	}
-	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
 
 	mcu := &mcuJanus{
-		url:        url,
-		mcuTimeout: mcuTimeout,
-		closeChan:  make(chan struct{}, 1),
-		clients:    make(map[clientInterface]bool),
+		url:       url,
+		settings:  settings,
+		closeChan: make(chan struct{}, 1),
+		clients:   make(map[clientInterface]bool),
 
 		publishers:       make(map[string]*mcuJanusPublisher),
 		remotePublishers: make(map[string]*mcuJanusRemotePublisher),
 
 		reconnectInterval: initialReconnectInterval,
 	}
-	mcu.maxStreamBitrate.Store(int32(maxStreamBitrate))
-	mcu.maxScreenBitrate.Store(int32(maxScreenBitrate))
 	mcu.onConnected.Store(emptyOnConnected)
 	mcu.onDisconnected.Store(emptyOnDisconnected)
 
@@ -323,8 +341,6 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 	} else {
 		log.Println("Full-Trickle is enabled")
 	}
-	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate.Load())
-	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate.Load())
 
 	if m.session, err = m.gw.Create(ctx); err != nil {
 		m.disconnect()
@@ -378,19 +394,7 @@ func (m *mcuJanus) Stop() {
 }
 
 func (m *mcuJanus) Reload(config *goconf.ConfigFile) {
-	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
-	if maxStreamBitrate <= 0 {
-		maxStreamBitrate = defaultMaxStreamBitrate
-	}
-	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", m.maxStreamBitrate.Load())
-	m.maxStreamBitrate.Store(int32(maxStreamBitrate))
-
-	maxScreenBitrate, _ := config.GetInt("mcu", "maxscreenbitrate")
-	if maxScreenBitrate <= 0 {
-		maxScreenBitrate = defaultMaxScreenBitrate
-	}
-	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", m.maxScreenBitrate.Load())
-	m.maxScreenBitrate.Store(int32(maxScreenBitrate))
+	m.settings.Reload(config)
 }
 
 func (m *mcuJanus) SetOnConnected(f func()) {
@@ -474,7 +478,7 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamTyp
 	}
 }
 
-func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id string, streamType StreamType, bitrate int) (uint64, int, error) {
+func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id string, streamType StreamType, settings NewPublisherSettings) (uint64, int, error) {
 	create_msg := map[string]interface{}{
 		"request":     "create",
 		"description": getStreamId(id, streamType),
@@ -484,12 +488,25 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 		// orientation changes in Firefox.
 		"videoorient_ext": false,
 	}
+	if codec := settings.AudioCodec; codec != "" {
+		create_msg["audiocodec"] = codec
+	}
+	if codec := settings.VideoCodec; codec != "" {
+		create_msg["videocodec"] = codec
+	}
+	if profile := settings.VP9Profile; profile != "" {
+		create_msg["vp9_profile"] = profile
+	}
+	if profile := settings.H264Profile; profile != "" {
+		create_msg["h264_profile"] = profile
+	}
 	var maxBitrate int
 	if streamType == StreamTypeScreen {
-		maxBitrate = int(m.maxScreenBitrate.Load())
+		maxBitrate = int(m.settings.MaxScreenBitrate())
 	} else {
-		maxBitrate = int(m.maxStreamBitrate.Load())
+		maxBitrate = int(m.settings.MaxStreamBitrate())
 	}
+	bitrate := settings.Bitrate
 	if bitrate <= 0 {
 		bitrate = maxBitrate
 	} else {
@@ -516,7 +533,7 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	return roomId, bitrate, nil
 }
 
-func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, bitrate int) (*JanusHandle, uint64, uint64, int, error) {
+func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, settings NewPublisherSettings) (*JanusHandle, uint64, uint64, int, error) {
 	session := m.session
 	if session == nil {
 		return nil, 0, 0, 0, ErrNotConnected
@@ -528,7 +545,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 
 	log.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
 
-	roomId, bitrate, err := m.createPublisherRoom(ctx, handle, id, streamType, bitrate)
+	roomId, bitrate, err := m.createPublisherRoom(ctx, handle, id, streamType, settings)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
@@ -554,12 +571,12 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 	return handle, response.Session, roomId, bitrate, nil
 }
 
-func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
 	}
 
-	handle, session, roomId, maxBitrate, err := m.getOrCreatePublisherHandle(ctx, id, streamType, bitrate)
+	handle, session, roomId, maxBitrate, err := m.getOrCreatePublisherHandle(ctx, id, streamType, settings)
 	if err != nil {
 		return nil, err
 	}
@@ -581,10 +598,9 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 			closeChan: make(chan struct{}, 1),
 			deferred:  make(chan func(), 64),
 		},
-		sdpReady:   NewCloser(),
-		id:         id,
-		bitrate:    bitrate,
-		mediaTypes: mediaTypes,
+		sdpReady: NewCloser(),
+		id:       id,
+		settings: settings,
 	}
 	client.mcuJanusClient.handleEvent = client.handleEvent
 	client.mcuJanusClient.handleHangup = client.handleHangup
@@ -694,7 +710,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 	return client, nil
 }
 
-func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller RemotePublisherController, streamType StreamType, bitrate int) (*mcuJanusRemotePublisher, error) {
+func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller RemotePublisherController, streamType StreamType, settings NewPublisherSettings) (*mcuJanusRemotePublisher, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	pub, found := m.remotePublishers[getStreamId(controller.PublisherId(), streamType)]
@@ -721,7 +737,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 		return nil, err
 	}
 
-	roomId, bitrate, err := m.createPublisherRoom(ctx, handle, controller.PublisherId(), streamType, bitrate)
+	roomId, maxBitrate, err := m.createPublisherRoom(ctx, handle, controller.PublisherId(), streamType, settings)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
@@ -756,7 +772,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 				roomId:     roomId,
 				sid:        strconv.FormatUint(handle.Id, 10),
 				streamType: streamType,
-				maxBitrate: bitrate,
+				maxBitrate: maxBitrate,
 
 				handle:    handle,
 				handleId:  handle.Id,
@@ -766,6 +782,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 
 			sdpReady: NewCloser(),
 			id:       controller.PublisherId(),
+			settings: settings,
 		},
 
 		port:     int(port),
@@ -797,7 +814,7 @@ func (m *mcuJanus) NewRemotePublisher(ctx context.Context, listener McuListener,
 		return nil, ErrRemoteStreamsNotSupported
 	}
 
-	pub, err := m.getOrCreateRemotePublisher(ctx, controller, streamType, 0)
+	pub, err := m.getOrCreateRemotePublisher(ctx, controller, streamType, NewPublisherSettings{})
 	if err != nil {
 		return nil, err
 	}

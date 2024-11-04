@@ -96,7 +96,7 @@ func (p *mcuJanusRemotePublisher) handleSlowLink(event *janus.SlowLinkMsg) {
 
 func (p *mcuJanusRemotePublisher) NotifyReconnected() {
 	ctx := context.TODO()
-	handle, session, roomId, _, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
+	handle, session, roomId, _, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.settings)
 	if err != nil {
 		log.Printf("Could not reconnect remote publisher %s: %s", p.id, err)
 		// TODO(jojo): Retry

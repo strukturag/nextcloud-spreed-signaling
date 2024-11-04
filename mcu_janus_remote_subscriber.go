@@ -88,7 +88,7 @@ func (p *mcuJanusRemoteSubscriber) handleMedia(event *janus.MediaMsg) {
 }
 
 func (p *mcuJanusRemoteSubscriber) NotifyReconnected() {
-	ctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 	defer cancel()
 	handle, pub, err := p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
 	if err != nil {

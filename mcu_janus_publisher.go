@@ -47,14 +47,13 @@ const (
 type mcuJanusPublisher struct {
 	mcuJanusClient
 
-	id         string
-	bitrate    int
-	mediaTypes MediaType
-	stats      publisherStatsCounter
-	sdpFlags   Flags
-	sdpReady   *Closer
-	offerSdp   atomic.Pointer[sdp.SessionDescription]
-	answerSdp  atomic.Pointer[sdp.SessionDescription]
+	id        string
+	settings  NewPublisherSettings
+	stats     publisherStatsCounter
+	sdpFlags  Flags
+	sdpReady  *Closer
+	offerSdp  atomic.Pointer[sdp.SessionDescription]
+	answerSdp atomic.Pointer[sdp.SessionDescription]
 }
 
 func (p *mcuJanusPublisher) handleEvent(event *janus.EventMsg) {
@@ -108,16 +107,16 @@ func (p *mcuJanusPublisher) handleMedia(event *janus.MediaMsg) {
 }
 
 func (p *mcuJanusPublisher) HasMedia(mt MediaType) bool {
-	return (p.mediaTypes & mt) == mt
+	return (p.settings.MediaTypes & mt) == mt
 }
 
 func (p *mcuJanusPublisher) SetMedia(mt MediaType) {
-	p.mediaTypes = mt
+	p.settings.MediaTypes = mt
 }
 
 func (p *mcuJanusPublisher) NotifyReconnected() {
 	ctx := context.TODO()
-	handle, session, roomId, _, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.bitrate)
+	handle, session, roomId, _, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.settings)
 	if err != nil {
 		log.Printf("Could not reconnect publisher %s: %s", p.id, err)
 		// TODO(jojo): Retry
@@ -184,7 +183,7 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 
 			// TODO Tear down previous publisher and get a new one if sid does
 			// not match?
-			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
 			p.sendOffer(msgctx, jsep_msg, func(err error, jsep map[string]interface{}) {
@@ -221,7 +220,7 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 		}
 	case "candidate":
 		p.deferred <- func() {
-			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.mcuTimeout)
+			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
 			if data.Sid == "" || data.Sid == p.Sid() {

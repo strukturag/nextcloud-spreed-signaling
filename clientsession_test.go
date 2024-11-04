@@ -180,7 +180,7 @@ func TestBandwidth_Client(t *testing.T) {
 
 	pub := mcu.GetPublisher(hello.Hello.SessionId)
 	require.NotNil(pub)
-	assert.Equal(bitrate, pub.bitrate)
+	assert.Equal(bitrate, pub.settings.Bitrate)
 }
 
 func TestBandwidth_Backend(t *testing.T) {
@@ -261,7 +261,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			} else {
 				expectBitrate = backend.maxScreenBitrate
 			}
-			assert.Equal(expectBitrate, pub.bitrate)
+			assert.Equal(expectBitrate, pub.settings.Bitrate)
 		})
 	}
 }

@@ -24,6 +24,9 @@ package signaling
 import (
 	"context"
 	"fmt"
+	"log"
+	"sync/atomic"
+	"time"
 
 	"github.com/dlintw/goconf"
 )
@@ -33,6 +36,9 @@ const (
 	McuTypeProxy = "proxy"
 
 	McuTypeDefault = McuTypeJanus
+
+	defaultMaxStreamBitrate = 1024 * 1024
+	defaultMaxScreenBitrate = 2048 * 1024
 )
 
 var (
@@ -65,6 +71,54 @@ type McuInitiator interface {
 	Country() string
 }
 
+type McuSettings interface {
+	MaxStreamBitrate() int32
+	MaxScreenBitrate() int32
+	Timeout() time.Duration
+
+	Reload(config *goconf.ConfigFile)
+}
+
+type mcuCommonSettings struct {
+	maxStreamBitrate atomic.Int32
+	maxScreenBitrate atomic.Int32
+
+	timeout atomic.Int64
+}
+
+func (s *mcuCommonSettings) MaxStreamBitrate() int32 {
+	return s.maxStreamBitrate.Load()
+}
+
+func (s *mcuCommonSettings) MaxScreenBitrate() int32 {
+	return s.maxScreenBitrate.Load()
+}
+
+func (s *mcuCommonSettings) Timeout() time.Duration {
+	return time.Duration(s.timeout.Load())
+}
+
+func (s *mcuCommonSettings) setTimeout(timeout time.Duration) {
+	s.timeout.Store(int64(timeout))
+}
+
+func (s *mcuCommonSettings) load(config *goconf.ConfigFile) error {
+	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
+	if maxStreamBitrate <= 0 {
+		maxStreamBitrate = defaultMaxStreamBitrate
+	}
+	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", maxStreamBitrate)
+	s.maxStreamBitrate.Store(int32(maxStreamBitrate))
+
+	maxScreenBitrate, _ := config.GetInt("mcu", "maxscreenbitrate")
+	if maxScreenBitrate <= 0 {
+		maxScreenBitrate = defaultMaxScreenBitrate
+	}
+	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", maxScreenBitrate)
+	s.maxScreenBitrate.Store(int32(maxScreenBitrate))
+	return nil
+}
+
 type Mcu interface {
 	Start(ctx context.Context) error
 	Stop()
@@ -75,7 +129,7 @@ type Mcu interface {
 
 	GetStats() interface{}
 
-	NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, bitrate int, mediaTypes MediaType, initiator McuInitiator) (McuPublisher, error)
+	NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)
 	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)
 }
 

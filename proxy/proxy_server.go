@@ -889,7 +889,14 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		defer cancel()
 
 		id := uuid.New().String()
-		publisher, err := s.mcu.NewPublisher(ctx2, session, id, cmd.Sid, cmd.StreamType, cmd.Bitrate, cmd.MediaTypes, &emptyInitiator{})
+		settings := cmd.PublisherSettings
+		if settings == nil {
+			settings = &signaling.NewPublisherSettings{
+				Bitrate:    cmd.Bitrate,    // nolint
+				MediaTypes: cmd.MediaTypes, // nolint
+			}
+		}
+		publisher, err := s.mcu.NewPublisher(ctx2, session, id, cmd.Sid, cmd.StreamType, *settings, &emptyInitiator{})
 		if err == context.DeadlineExceeded {
 			log.Printf("Timeout while creating %s publisher %s for %s", cmd.StreamType, id, session.PublicId())
 			session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingPublisher))
