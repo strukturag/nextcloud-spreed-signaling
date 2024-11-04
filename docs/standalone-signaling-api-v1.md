@@ -955,6 +955,234 @@ Message format (Client -> Server, send DTMF):
 Supported digits are `0`-`9`, `*` and `#`.
 
 
+## Media publishing
+
+
+### Start publishing
+
+To start publishing through an SFU, a client must send its offer SDP to the own
+session id.
+
+Message format (Client -> Server, send offer):
+
+    {
+      "id": "unique-request-id",
+      "type": "message",
+      "message": {
+        "recipient": {
+          "type": "session",
+          "sessionid": "the-own-session-id"
+        },
+        "data": {
+          "to": "the-own-session-id"
+          "type": "offer",
+          "sid": "random-client-sid",
+          "roomType": "video-or-screen",
+          "payload": {
+            "nick": "The displayname",
+            "type": "offer",
+            "sdp": "the-offer-sdp"
+          },
+          "bitrate": 12345678,
+          "audiocodec": "opus",
+          "videocodec": "vp9,vp8,h264",
+          "vp9profile": "2",
+          "h264profile": "42e01f"
+        }
+      }
+    }
+
+The following fields are optional:
+- `bitrate`: Limit in bits per second.
+- `audiocodec`: One of `opus`, `g722`, `pcmu`, `pcma`, `isac32` and `isac16` or
+a comma separated list in order of preference.
+- `videocodec`: One of `vp8`, `vp9`, `h264`, `av1` and `h265` or a comma
+separated list in order of preference.
+- `vp9profile`: VP9-specific profile to prefer, e.g. `2` for `profile-id=2`.
+- `h264profile`: H.264-specific profile to prefer, e.g. `42e01f` for
+`profile-level-id=42e01f`.
+
+
+Message format (Server -> Client, send answer):
+
+    {
+      "id": "unique-request-id",
+      "type": "message",
+      "message": {
+        "sender": {
+          "type": "session",
+          "sessionid": "the-own-session-id"
+        },
+        "data": {
+          "from": "the-own-session-id"
+          "type": "answer",
+          "sid": "random-client-sid-from-offer",
+          "roomType": "video-or-screen",
+          "payload": {
+            "type": "answer",
+            "sdp": "the-answer-sdp"
+          }
+        }
+      }
+    }
+
+
+### Exchange candidates
+
+Message format (Client -> Server, send candidate):
+
+    {
+      "type": "message",
+      "message": {
+        "recipient": {
+          "type": "session",
+          "sessionid": "the-own-session-id"
+        },
+        "data": {
+          "to": "the-own-session-id"
+          "type": "candidate",
+          "sid": "random-client-sid-from-offer",
+          "roomType": "video-or-screen",
+          "payload": {
+            "candidate": {
+              "candiate": "the-candidate-string",
+              "sdpMLineIndex": 0,
+              "sdpMid": "0"
+            }
+          }
+        }
+      }
+    }
+
+
+Message format (Server -> Client, send candidate):
+
+    {
+      "type": "message",
+      "message": {
+        "sender": {
+          "type": "session",
+          "sessionid": "the-own-session-id"
+        },
+        "data": {
+          "from": "the-own-session-id"
+          "to": "the-own-session-id"
+          "type": "candidate",
+          "sid": "random-client-sid-from-offer",
+          "roomType": "video-or-screen",
+          "payload": {
+            "candidate": {
+              "candiate": "the-candidate-string",
+              "sdpMLineIndex": 0,
+              "sdpMid": "0"
+            }
+          }
+        }
+      }
+    }
+
+
+### Request offer from publisher
+
+In order to receive media from existing publishers, a client must request an
+offer from them.
+
+Message format (Client -> Server, request offer):
+
+    {
+      "type": "message",
+      "message": {
+        "recipient": {
+          "type": "session",
+          "sessionid": "the-publisher-session-id"
+        },
+        "data": {
+          "type": "requestoffer",
+          "roomType": "video-or-screen"
+        }
+      }
+    }
+
+
+Message format (Server -> Client, send offer):
+
+    {
+      "type": "message",
+      "message": {
+        "sender": {
+          "type": "session",
+          "sessionid": "the-publisher-session-id"
+        },
+        "data": {
+          "from": "the-publisher-session-id",
+          "to": "the-own-session-id",
+          "type": "offer",
+          "roomType": "video-or-screen"
+          "sid": "random-publisher-sid",
+          "roomType": "video-or-screen",
+          "payload": {
+            "type": "offer",
+            "sdp": "the-offer-sdp"
+          }
+        }
+      }
+    }
+
+
+Message format (Client -> Server, send answer):
+
+    {
+      "type": "message",
+      "message": {
+        "recipient": {
+          "type": "session",
+          "sessionid": "the-publisher-session-id"
+        },
+        "data": {
+          "to": "the-publisher-session-id",
+          "type": "answer",
+          "roomType": "video-or-screen"
+          "sid": "random-publisher-sid",
+          "roomType": "video-or-screen",
+          "payload": {
+            "nick": "The displayname",
+            "type": "answer",
+            "sdp": "the-answer-sdp"
+          }
+        }
+      }
+    }
+
+
+Candidates are exchanged afterwards as described above.
+
+
+### Send offer to subscriber
+
+For screensharing streams, the recipients don't know when to request the offer
+from the publisher, so in this case, the publisher must trigger receiving the
+stream for them, by sending an offer to each subscriber.
+
+Message format (Client -> Server, sendoffer):
+
+    {
+      "type": "message",
+      "message": {
+        "recipient": {
+          "type": "session",
+          "sessionid": "the-subscriber-session-id"
+        },
+        "data": {
+          "type": "sendoffer",
+          "roomType": "video-or-screen"
+        }
+      }
+    }
+
+Afterwards, the server will send an `offer` to the recipient, which has to send
+back the `answer` and then candidates will be exchanged.
+
+
 ## Transient data
 
 Transient data can be used to share data in a room that is valid while sessions
