@@ -1054,6 +1054,12 @@ func (c *mcuProxyConnection) processBye(msg *ProxyServerMessage) {
 	case "session_resumed":
 		log.Printf("Session %s on %s was resumed by other client, resetting", c.SessionId(), c)
 		c.sessionId.Store("")
+	case "session_expired":
+		log.Printf("Session %s expired on %s, resetting", c.SessionId(), c)
+		c.sessionId.Store("")
+	case "session_closed":
+		log.Printf("Session %s was closed on %s, resetting", c.SessionId(), c)
+		c.sessionId.Store("")
 	default:
 		log.Printf("Received bye with unsupported reason from %s %+v", c, bye)
 	}
