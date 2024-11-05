@@ -29,7 +29,8 @@ import (
 	"sync/atomic"
 
 	"github.com/dlintw/goconf"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
+
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 

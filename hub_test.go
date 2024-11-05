@@ -44,7 +44,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -934,7 +934,7 @@ func TestClientHelloV2_IssuedInFuture(t *testing.T) {
 			client := NewTestClient(t, server, hub)
 			defer client.CloseWithBye()
 
-			issuedAt := time.Now().Add(time.Minute)
+			issuedAt := time.Now().Add(tokenLeeway * 2)
 			expiresAt := issuedAt.Add(time.Second)
 			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt))
 
@@ -962,8 +962,9 @@ func TestClientHelloV2_Expired(t *testing.T) {
 			client := NewTestClient(t, server, hub)
 			defer client.CloseWithBye()
 
-			issuedAt := time.Now().Add(-time.Minute)
-			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, issuedAt.Add(time.Second)))
+			issuedAt := time.Now().Add(-tokenLeeway * 3)
+			expiresAt := time.Now().Add(-tokenLeeway * 2)
+			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
@@ -1017,7 +1018,7 @@ func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
 			client := NewTestClient(t, server, hub)
 			defer client.CloseWithBye()
 
-			issuedAt := time.Now().Add(-time.Minute)
+			issuedAt := time.Now()
 			var expiresAt time.Time
 			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt))
 
