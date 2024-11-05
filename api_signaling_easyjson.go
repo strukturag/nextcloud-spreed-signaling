@@ -4,7 +4,7 @@ package signaling
 
 import (
 	json "encoding/json"
-	_v4 "github.com/golang-jwt/jwt/v4"
+	_v5 "github.com/golang-jwt/jwt/v5"
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
@@ -3095,7 +3095,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling27(in *jle
 				out.ExpiresAt = nil
 			} else {
 				if out.ExpiresAt == nil {
-					out.ExpiresAt = new(_v4.NumericDate)
+					out.ExpiresAt = new(_v5.NumericDate)
 				}
 				if data := in.Raw(); in.Ok() {
 					in.AddError((*out.ExpiresAt).UnmarshalJSON(data))
@@ -3107,7 +3107,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling27(in *jle
 				out.NotBefore = nil
 			} else {
 				if out.NotBefore == nil {
-					out.NotBefore = new(_v4.NumericDate)
+					out.NotBefore = new(_v5.NumericDate)
 				}
 				if data := in.Raw(); in.Ok() {
 					in.AddError((*out.NotBefore).UnmarshalJSON(data))
@@ -3119,7 +3119,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling27(in *jle
 				out.IssuedAt = nil
 			} else {
 				if out.IssuedAt == nil {
-					out.IssuedAt = new(_v4.NumericDate)
+					out.IssuedAt = new(_v5.NumericDate)
 				}
 				if data := in.Raw(); in.Ok() {
 					in.AddError((*out.IssuedAt).UnmarshalJSON(data))
@@ -3661,7 +3661,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling32(in *jle
 				out.ExpiresAt = nil
 			} else {
 				if out.ExpiresAt == nil {
-					out.ExpiresAt = new(_v4.NumericDate)
+					out.ExpiresAt = new(_v5.NumericDate)
 				}
 				if data := in.Raw(); in.Ok() {
 					in.AddError((*out.ExpiresAt).UnmarshalJSON(data))
@@ -3673,7 +3673,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling32(in *jle
 				out.NotBefore = nil
 			} else {
 				if out.NotBefore == nil {
-					out.NotBefore = new(_v4.NumericDate)
+					out.NotBefore = new(_v5.NumericDate)
 				}
 				if data := in.Raw(); in.Ok() {
 					in.AddError((*out.NotBefore).UnmarshalJSON(data))
@@ -3685,7 +3685,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling32(in *jle
 				out.IssuedAt = nil
 			} else {
 				if out.IssuedAt == nil {
-					out.IssuedAt = new(_v4.NumericDate)
+					out.IssuedAt = new(_v5.NumericDate)
 				}
 				if data := in.Raw(); in.Ok() {
 					in.AddError((*out.IssuedAt).UnmarshalJSON(data))
