@@ -31,7 +31,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pion/sdp/v3"
 )
 
@@ -394,11 +394,9 @@ func (p *HelloV2AuthParams) CheckValid() error {
 }
 
 type AuthTokenClaims interface {
-	TokenSubject() string
-	TokenUserData() json.RawMessage
+	jwt.Claims
 
-	VerifyIssuedAt(cmp time.Time, req bool) bool
-	VerifyExpiresAt(cmp time.Time, req bool) bool
+	GetUserData() json.RawMessage
 }
 
 type HelloV2TokenClaims struct {
@@ -407,11 +405,7 @@ type HelloV2TokenClaims struct {
 	UserData json.RawMessage `json:"userdata,omitempty"`
 }
 
-func (c *HelloV2TokenClaims) TokenSubject() string {
-	return c.Subject
-}
-
-func (c *HelloV2TokenClaims) TokenUserData() json.RawMessage {
+func (c *HelloV2TokenClaims) GetUserData() json.RawMessage {
 	return c.UserData
 }
 
@@ -432,11 +426,7 @@ type FederationTokenClaims struct {
 	UserData json.RawMessage `json:"userdata,omitempty"`
 }
 
-func (c *FederationTokenClaims) TokenSubject() string {
-	return c.Subject
-}
-
-func (c *FederationTokenClaims) TokenUserData() json.RawMessage {
+func (c *FederationTokenClaims) GetUserData() json.RawMessage {
 	return c.UserData
 }
 

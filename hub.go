@@ -47,7 +47,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -110,6 +110,9 @@ var (
 
 	// Delay after which a "cleared" / "rejected" dialout status should be removed.
 	removeCallStatusTTL = 5 * time.Second
+
+	// Allow time differences of up to one minute between server and proxy.
+	tokenLeeway = time.Minute
 
 	DefaultTrustedProxies = DefaultPrivateIps()
 )
@@ -1338,15 +1341,20 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		}
 
 		return key, nil
-	})
+	}, jwt.WithValidMethods([]string{
+		jwt.SigningMethodRS256.Alg(),
+		jwt.SigningMethodRS384.Alg(),
+		jwt.SigningMethodRS512.Alg(),
+		jwt.SigningMethodES256.Alg(),
+		jwt.SigningMethodES384.Alg(),
+		jwt.SigningMethodES512.Alg(),
+		jwt.SigningMethodEdDSA.Alg(),
+	}), jwt.WithIssuedAt(), jwt.WithLeeway(tokenLeeway))
 	if err != nil {
-		if err, ok := err.(*jwt.ValidationError); ok {
-			if err.Errors&jwt.ValidationErrorIssuedAt == jwt.ValidationErrorIssuedAt {
-				return nil, nil, TokenNotValidYet
-			}
-			if err.Errors&jwt.ValidationErrorExpired == jwt.ValidationErrorExpired {
-				return nil, nil, TokenExpired
-			}
+		if errors.Is(err, jwt.ErrTokenNotValidYet) || errors.Is(err, jwt.ErrTokenUsedBeforeIssued) {
+			return nil, nil, TokenNotValidYet
+		} else if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, nil, TokenExpired
 		}
 
 		return nil, nil, InvalidToken
@@ -1367,20 +1375,35 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		}
 		authTokenClaims = claims
 	}
-	now := time.Now()
-	if !authTokenClaims.VerifyIssuedAt(now, true) {
-		return nil, nil, TokenNotValidYet
+
+	issuedAt, err := authTokenClaims.GetIssuedAt()
+	if err != nil {
+		return nil, nil, InvalidToken
 	}
-	if !authTokenClaims.VerifyExpiresAt(now, true) {
+	expiresAt, err := authTokenClaims.GetExpirationTime()
+	if err != nil {
+		return nil, nil, InvalidToken
+	}
+	now := time.Now()
+	if issuedAt != nil && expiresAt != nil && expiresAt.Before(issuedAt.Time) {
 		return nil, nil, TokenExpired
+	} else if issuedAt == nil {
+		return nil, nil, TokenNotValidYet
+	} else if minExpiresAt := now.Add(-tokenLeeway); expiresAt == nil || expiresAt.Before(minExpiresAt) {
+		return nil, nil, TokenExpired
+	}
+
+	subject, err := authTokenClaims.GetSubject()
+	if err != nil {
+		return nil, nil, InvalidToken
 	}
 
 	auth := &BackendClientResponse{
 		Type: "auth",
 		Auth: &BackendClientAuthResponse{
 			Version: message.Hello.Version,
-			UserId:  authTokenClaims.TokenSubject(),
-			User:    authTokenClaims.TokenUserData(),
+			UserId:  subject,
+			User:    authTokenClaims.GetUserData(),
 		},
 	}
 	return backend, auth, nil

@@ -43,7 +43,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -70,6 +70,9 @@ const (
 
 	// Maximum age a token may have to prevent reuse of old tokens.
 	maxTokenAge = 5 * time.Minute
+
+	// Allow time differences of up to one minute between server and proxy.
+	tokenLeeway = time.Minute
 
 	remotePublisherTimeout = 5 * time.Second
 
@@ -1296,13 +1299,18 @@ func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, str
 		}
 
 		return tokenKey.key, nil
-	})
-	if err, ok := err.(*jwt.ValidationError); ok {
-		if err.Errors&jwt.ValidationErrorIssuedAt == jwt.ValidationErrorIssuedAt {
-			return nil, "not-valid-yet", TokenNotValidYet
-		}
-	}
+	}, jwt.WithValidMethods([]string{
+		jwt.SigningMethodRS256.Alg(),
+		jwt.SigningMethodRS384.Alg(),
+		jwt.SigningMethodRS512.Alg(),
+	}), jwt.WithIssuedAt(), jwt.WithLeeway(tokenLeeway))
 	if err != nil {
+		if errors.Is(err, jwt.ErrTokenNotValidYet) || errors.Is(err, jwt.ErrTokenUsedBeforeIssued) {
+			return nil, "not-valid-yet", TokenNotValidYet
+		} else if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, "expired", TokenExpired
+		}
+
 		return nil, reason, TokenAuthFailed
 	}
 
@@ -1311,8 +1319,9 @@ func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, str
 		return nil, "auth-failed", TokenAuthFailed
 	}
 
-	minIssuedAt := time.Now().Add(-maxTokenAge)
-	if issuedAt := claims.IssuedAt; issuedAt != nil && issuedAt.Before(minIssuedAt) {
+	now := time.Now()
+	minIssuedAt := now.Add(-(maxTokenAge + tokenLeeway))
+	if issuedAt := claims.IssuedAt; issuedAt == nil || issuedAt.Before(minIssuedAt) {
 		return nil, "expired", TokenExpired
 	}
 
