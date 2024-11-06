@@ -1362,18 +1362,34 @@ func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
 
 		switch msg.Message.Type {
 		case "message":
-			if msg.Message.Message != nil &&
-				msg.Message.Message.Sender != nil &&
-				msg.Message.Message.Sender.SessionId == s.PublicId() {
-				// Don't send message back to sender (can happen if sent to user or room)
-				return nil
+			if msg.Message.Message != nil {
+				if sender := msg.Message.Message.Sender; sender != nil {
+					if sender.SessionId == s.PublicId() {
+						// Don't send message back to sender (can happen if sent to user or room)
+						return nil
+					}
+					if sender.Type == RecipientTypeCall {
+						if room := s.GetRoom(); room == nil || !room.IsSessionInCall(s) {
+							// Session is not in call, so discard.
+							return nil
+						}
+					}
+				}
 			}
 		case "control":
-			if msg.Message.Control != nil &&
-				msg.Message.Control.Sender != nil &&
-				msg.Message.Control.Sender.SessionId == s.PublicId() {
-				// Don't send message back to sender (can happen if sent to user or room)
-				return nil
+			if msg.Message.Control != nil {
+				if sender := msg.Message.Control.Sender; sender != nil {
+					if sender.SessionId == s.PublicId() {
+						// Don't send message back to sender (can happen if sent to user or room)
+						return nil
+					}
+					if sender.Type == RecipientTypeCall {
+						if room := s.GetRoom(); room == nil || !room.IsSessionInCall(s) {
+							// Session is not in call, so discard.
+							return nil
+						}
+					}
+				}
 			}
 		case "event":
 			if msg.Message.Event.Target == "room" {
