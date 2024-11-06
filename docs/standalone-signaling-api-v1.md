@@ -868,6 +868,24 @@ Message format (Client -> Server, to all sessions in the same room):
       }
     }
 
+Message format (Client -> Server, to all sessions in the same call):
+
+    {
+      "id": "unique-request-id",
+      "type": "message",
+      "message": {
+        "recipient": {
+          "type": "call"
+        },
+        "data": {
+          ...object containing the data to send...
+        }
+      }
+    }
+
+Sending to the same call is only available if the feature flag `recipient-call`
+is present.
+
 Message format (Server -> Client, receive message)
 
     {
