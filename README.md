@@ -17,7 +17,7 @@ information on the API of the signaling server.
 The following tools are required for building the signaling server.
 
 - git
-- go >= 1.21
+- go >= 1.22
 - make
 
 Usually the last two versions of Go are supported. This follows the release
