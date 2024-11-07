@@ -1502,6 +1502,110 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	defer sub.Close(context.Background())
 }
 
+func Test_ProxyMultipleRemotePublisher(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+
+	etcd := NewEtcdForTest(t)
+
+	grpcServer1, addr1 := NewGrpcServerForTest(t)
+	grpcServer2, addr2 := NewGrpcServerForTest(t)
+	grpcServer3, addr3 := NewGrpcServerForTest(t)
+
+	hub1 := &mockGrpcServerHub{}
+	hub2 := &mockGrpcServerHub{}
+	hub3 := &mockGrpcServerHub{}
+	grpcServer1.hub = hub1
+	grpcServer2.hub = hub2
+	grpcServer3.hub = hub3
+
+	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	SetEtcdValue(etcd, "/grpctargets/three", []byte("{\"address\":\""+addr3+"\"}"))
+
+	server1 := NewProxyServerForTest(t, "DE")
+	server2 := NewProxyServerForTest(t, "US")
+	server3 := NewProxyServerForTest(t, "US")
+
+	mcu1 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		etcd: etcd,
+		servers: []*TestProxyServerHandler{
+			server1,
+			server2,
+			server3,
+		},
+	})
+	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		etcd: etcd,
+		servers: []*TestProxyServerHandler{
+			server1,
+			server2,
+			server3,
+		},
+	})
+	mcu3 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		etcd: etcd,
+		servers: []*TestProxyServerHandler{
+			server1,
+			server2,
+			server3,
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+
+	session1 := &ClientSession{
+		publicId:   pubId,
+		publishers: make(map[StreamType]McuPublisher),
+	}
+	hub1.addSession(session1)
+	defer hub1.removeSession(session1)
+
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(t, err)
+
+	defer pub.Close(context.Background())
+
+	session1.mu.Lock()
+	session1.publishers[StreamTypeVideo] = pub
+	session1.publisherWaiters.Wakeup()
+	session1.mu.Unlock()
+
+	sub1Listener := &MockMcuListener{
+		publicId: "subscriber-public-1",
+	}
+	sub1Initiator := &MockMcuInitiator{
+		country: "US",
+	}
+	sub1, err := mcu2.NewSubscriber(ctx, sub1Listener, pubId, StreamTypeVideo, sub1Initiator)
+	require.NoError(t, err)
+
+	defer sub1.Close(context.Background())
+
+	sub2Listener := &MockMcuListener{
+		publicId: "subscriber-public-2",
+	}
+	sub2Initiator := &MockMcuInitiator{
+		country: "US",
+	}
+	sub2, err := mcu3.NewSubscriber(ctx, sub2Listener, pubId, StreamTypeVideo, sub2Initiator)
+	require.NoError(t, err)
+
+	defer sub2.Close(context.Background())
+}
+
 func Test_ProxyRemotePublisherWait(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()

@@ -785,6 +785,8 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 			settings: settings,
 		},
 
+		controller: controller,
+
 		port:     int(port),
 		rtcpPort: int(rtcp_port),
 	}

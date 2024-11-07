@@ -431,7 +431,7 @@ func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId string, h
 	return errors.New("not implemented")
 }
 
-func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId string) error {
+func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
 	return errors.New("not implemented")
 }
 

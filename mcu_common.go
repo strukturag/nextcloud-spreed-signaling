@@ -166,6 +166,7 @@ type RemotePublisherController interface {
 	PublisherId() string
 
 	StartPublishing(ctx context.Context, publisher McuRemotePublisherProperties) error
+	StopPublishing(ctx context.Context, publisher McuRemotePublisherProperties) error
 	GetStreams(ctx context.Context) ([]PublisherStream, error)
 }
 
@@ -214,7 +215,7 @@ type McuPublisher interface {
 
 	GetStreams(ctx context.Context) ([]PublisherStream, error)
 	PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error
-	UnpublishRemote(ctx context.Context, remoteId string) error
+	UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error
 }
 
 type McuSubscriber interface {

@@ -34,6 +34,8 @@ type mcuJanusRemotePublisher struct {
 
 	ref atomic.Int64
 
+	controller RemotePublisherController
+
 	port     int
 	rtcpPort int
 }
@@ -114,6 +116,10 @@ func (p *mcuJanusRemotePublisher) NotifyReconnected() {
 func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
 	if !p.release() {
 		return
+	}
+
+	if err := p.controller.StopPublishing(ctx, p); err != nil {
+		log.Printf("Error stopping remote publisher %s in room %d: %s", p.id, p.roomId, err)
 	}
 
 	p.mu.Lock()

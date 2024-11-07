@@ -380,8 +380,8 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 	return streams, nil
 }
 
-func getPublisherRemoteId(id string, remoteId string) string {
-	return fmt.Sprintf("%s@%s", id, remoteId)
+func getPublisherRemoteId(id string, remoteId string, hostname string, port int, rtcpPort int) string {
+	return fmt.Sprintf("%s-%s@%s:%d:%d", id, remoteId, hostname, port, rtcpPort)
 }
 
 func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
@@ -389,7 +389,7 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, 
 		"request":      "publish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],
-		"remote_id":    getPublisherRemoteId(p.id, remoteId),
+		"remote_id":    getPublisherRemoteId(p.id, remoteId, hostname, port, rtcpPort),
 		"host":         hostname,
 		"port":         port,
 		"rtcp_port":    rtcpPort,
@@ -421,12 +421,12 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, 
 	return nil
 }
 
-func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId string) error {
+func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
 	msg := map[string]interface{}{
 		"request":      "unpublish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],
-		"remote_id":    getPublisherRemoteId(p.id, remoteId),
+		"remote_id":    getPublisherRemoteId(p.id, remoteId, hostname, port, rtcpPort),
 	}
 	response, err := p.handle.Request(ctx, msg)
 	if err != nil {
