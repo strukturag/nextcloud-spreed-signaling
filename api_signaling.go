@@ -530,6 +530,7 @@ const (
 	ServerFeatureSwitchTo              = "switchto"
 	ServerFeatureDialout               = "dialout"
 	ServerFeatureFederation            = "federation"
+	ServerFeatureRecipientCall         = "recipient-call"
 
 	// Features to send to internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -549,6 +550,7 @@ var (
 		ServerFeatureSwitchTo,
 		ServerFeatureDialout,
 		ServerFeatureFederation,
+		ServerFeatureRecipientCall,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
@@ -559,6 +561,7 @@ var (
 		ServerFeatureSwitchTo,
 		ServerFeatureDialout,
 		ServerFeatureFederation,
+		ServerFeatureRecipientCall,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -570,6 +573,7 @@ var (
 		ServerFeatureSwitchTo,
 		ServerFeatureDialout,
 		ServerFeatureFederation,
+		ServerFeatureRecipientCall,
 	}
 )
 
@@ -671,6 +675,7 @@ const (
 	RecipientTypeSession = "session"
 	RecipientTypeUser    = "user"
 	RecipientTypeRoom    = "room"
+	RecipientTypeCall    = "call"
 )
 
 type MessageClientMessageRecipient struct {
@@ -740,6 +745,8 @@ func (m *MessageClientMessage) CheckValid() error {
 	}
 	switch m.Recipient.Type {
 	case RecipientTypeRoom:
+		fallthrough
+	case RecipientTypeCall:
 		// No additional checks required.
 	case RecipientTypeSession:
 		if m.Recipient.SessionId == "" {

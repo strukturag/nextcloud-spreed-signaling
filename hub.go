@@ -2010,6 +2010,8 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
 	case RecipientTypeRoom:
+		fallthrough
+	case RecipientTypeCall:
 		if session != nil {
 			if room = session.GetRoom(); room != nil {
 				subject = GetSubjectForRoomId(room.Id(), room.Backend())
@@ -2130,6 +2132,8 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 		case RecipientTypeUser:
 			err = h.events.PublishUserMessage(msg.Recipient.UserId, session.Backend(), async)
 		case RecipientTypeRoom:
+			fallthrough
+		case RecipientTypeCall:
 			err = h.events.PublishRoomMessage(room.Id(), session.Backend(), async)
 		default:
 			err = fmt.Errorf("unsupported recipient type: %s", msg.Recipient.Type)
@@ -2217,6 +2221,8 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
 	case RecipientTypeRoom:
+		fallthrough
+	case RecipientTypeCall:
 		if session != nil {
 			if room = session.GetRoom(); room != nil {
 				subject = GetSubjectForRoomId(room.Id(), room.Backend())
@@ -2254,6 +2260,8 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 		case RecipientTypeUser:
 			err = h.events.PublishUserMessage(msg.Recipient.UserId, session.Backend(), async)
 		case RecipientTypeRoom:
+			fallthrough
+		case RecipientTypeCall:
 			err = h.events.PublishRoomMessage(room.Id(), room.Backend(), async)
 		default:
 			err = fmt.Errorf("unsupported recipient type: %s", msg.Recipient.Type)
