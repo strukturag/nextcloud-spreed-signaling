@@ -219,6 +219,17 @@ type dummyGatewayListener struct {
 func (l *dummyGatewayListener) ConnectionInterrupted() {
 }
 
+type JanusGatewayInterface interface {
+	Info(context.Context) (*InfoMsg, error)
+	Create(context.Context) (*JanusSession, error)
+	Close() error
+
+	send(map[string]interface{}, *transaction) (uint64, error)
+	removeTransaction(uint64)
+
+	removeSession(*JanusSession)
+}
+
 // Gateway represents a connection to an instance of the Janus Gateway.
 type JanusGateway struct {
 	listener GatewayListener
@@ -560,10 +571,16 @@ func (gateway *JanusGateway) Create(ctx context.Context) (*JanusSession, error) 
 
 	// Store this session
 	gateway.Lock()
+	defer gateway.Unlock()
 	gateway.Sessions[session.Id] = session
-	gateway.Unlock()
 
 	return session, nil
+}
+
+func (gateway *JanusGateway) removeSession(session *JanusSession) {
+	gateway.Lock()
+	defer gateway.Unlock()
+	delete(gateway.Sessions, session.Id)
 }
 
 // Session represents a session instance on the Janus Gateway.
@@ -578,7 +595,7 @@ type JanusSession struct {
 	// and Session.Unlock() methods provided by the embedded sync.Mutex.
 	sync.Mutex
 
-	gateway *JanusGateway
+	gateway JanusGatewayInterface
 }
 
 func (session *JanusSession) send(msg map[string]interface{}, t *transaction) (uint64, error) {
@@ -670,9 +687,7 @@ func (session *JanusSession) Destroy(ctx context.Context) (*janus.AckMsg, error)
 	}
 
 	// Remove this session from the gateway
-	session.gateway.Lock()
-	delete(session.gateway.Sessions, session.Id)
-	session.gateway.Unlock()
+	session.gateway.removeSession(session)
 
 	return ack, nil
 }
