@@ -227,7 +227,7 @@ func (p *mcuProxyPublisher) PublishRemote(ctx context.Context, remoteId string, 
 	return errors.New("remote publishing not supported for proxy publishers")
 }
 
-func (p *mcuProxyPublisher) UnpublishRemote(ctx context.Context, remoteId string) error {
+func (p *mcuProxyPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
 	return errors.New("remote publishing not supported for proxy publishers")
 }
 

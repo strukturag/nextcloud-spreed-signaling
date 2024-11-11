@@ -78,6 +78,11 @@ func convertIntValue(value interface{}) (uint64, error) {
 		return uint64(t), nil
 	case uint64:
 		return t, nil
+	case int:
+		if t < 0 {
+			return 0, fmt.Errorf("Unsupported int number: %+v", t)
+		}
+		return uint64(t), nil
 	case int64:
 		if t < 0 {
 			return 0, fmt.Errorf("Unsupported int64 number: %+v", t)
@@ -92,7 +97,7 @@ func convertIntValue(value interface{}) (uint64, error) {
 		}
 		return uint64(r), nil
 	default:
-		return 0, fmt.Errorf("Unknown number type: %+v", t)
+		return 0, fmt.Errorf("Unknown number type: %+v (%T)", t, t)
 	}
 }
 
@@ -170,7 +175,9 @@ type mcuJanus struct {
 
 	settings McuSettings
 
-	gw      *JanusGateway
+	createJanusGateway func(ctx context.Context, wsURL string, listener GatewayListener) (JanusGatewayInterface, error)
+
+	gw      JanusGatewayInterface
 	session *JanusSession
 	handle  *JanusHandle
 
@@ -213,6 +220,9 @@ func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mc
 		publishers:       make(map[string]*mcuJanusPublisher),
 		remotePublishers: make(map[string]*mcuJanusRemotePublisher),
 
+		createJanusGateway: func(ctx context.Context, wsURL string, listener GatewayListener) (JanusGatewayInterface, error) {
+			return NewJanusGateway(ctx, wsURL, listener)
+		},
 		reconnectInterval: initialReconnectInterval,
 	}
 	mcu.onConnected.Store(emptyOnConnected)
@@ -222,8 +232,10 @@ func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mc
 		mcu.doReconnect(context.Background())
 	})
 	mcu.reconnectTimer.Stop()
-	if err := mcu.reconnect(ctx); err != nil {
-		return nil, err
+	if mcu.url != "" {
+		if err := mcu.reconnect(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return mcu, nil
 }
@@ -252,7 +264,7 @@ func (m *mcuJanus) disconnect() {
 
 func (m *mcuJanus) reconnect(ctx context.Context) error {
 	m.disconnect()
-	gw, err := NewJanusGateway(ctx, m.url, m)
+	gw, err := m.createJanusGateway(ctx, m.url, m)
 	if err != nil {
 		return err
 	}
@@ -317,6 +329,11 @@ func (m *mcuJanus) hasRemotePublisher() bool {
 }
 
 func (m *mcuJanus) Start(ctx context.Context) error {
+	if m.url == "" {
+		if err := m.reconnect(ctx); err != nil {
+			return err
+		}
+	}
 	info, err := m.gw.Info(ctx)
 	if err != nil {
 		return err
@@ -784,6 +801,8 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 			id:       controller.PublisherId(),
 			settings: settings,
 		},
+
+		controller: controller,
 
 		port:     int(port),
 		rtcpPort: int(rtcp_port),

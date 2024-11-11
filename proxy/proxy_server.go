@@ -856,6 +856,28 @@ func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher si
 	return nil
 }
 
+func (p *proxyRemotePublisher) StopPublishing(ctx context.Context, publisher signaling.McuRemotePublisherProperties) error {
+	conn, err := p.proxy.getRemoteConnection(p.remoteUrl)
+	if err != nil {
+		return err
+	}
+
+	if _, err := conn.RequestMessage(ctx, &signaling.ProxyClientMessage{
+		Type: "command",
+		Command: &signaling.CommandProxyClientMessage{
+			Type:     "unpublish-remote",
+			ClientId: p.publisherId,
+			Hostname: p.proxy.remoteHostname,
+			Port:     publisher.Port(),
+			RtcpPort: publisher.RtcpPort(),
+		},
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (p *proxyRemotePublisher) GetStreams(ctx context.Context) ([]signaling.PublisherStream, error) {
 	conn, err := p.proxy.getRemoteConnection(p.remoteUrl)
 	if err != nil {
@@ -1125,7 +1147,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			ctx2, cancel = context.WithTimeout(ctx, s.mcuTimeout)
 			defer cancel()
 
-			if err := publisher.UnpublishRemote(ctx2, session.PublicId()); err != nil {
+			if err := publisher.UnpublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
 				log.Printf("Error unpublishing old %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
 				session.sendMessage(message.NewWrappedErrorServerMessage(err))
 				return
@@ -1140,6 +1162,39 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				return
 			}
 		}
+
+		session.AddRemotePublisher(publisher, cmd.Hostname, cmd.Port, cmd.RtcpPort)
+		response := &signaling.ProxyServerMessage{
+			Id:   message.Id,
+			Type: "command",
+			Command: &signaling.CommandProxyServerMessage{
+				Id: cmd.ClientId,
+			},
+		}
+		session.sendMessage(response)
+	case "unpublish-remote":
+		client := s.GetClient(cmd.ClientId)
+		if client == nil {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		publisher, ok := client.(signaling.McuPublisher)
+		if !ok {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+		defer cancel()
+
+		if err := publisher.UnpublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
+			log.Printf("Error unpublishing %s %s from remote %s: %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, err)
+			session.sendMessage(message.NewWrappedErrorServerMessage(err))
+			return
+		}
+
+		session.RemoveRemotePublisher(publisher, cmd.Hostname, cmd.Port, cmd.RtcpPort)
 
 		response := &signaling.ProxyServerMessage{
 			Id:   message.Id,
@@ -1546,4 +1601,13 @@ func (s *ProxyServer) getRemoteConnection(url string) (*RemoteConnection, error)
 
 	s.remoteConnections[url] = conn
 	return conn, nil
+}
+
+func (s *ProxyServer) PublisherDeleted(publisher signaling.McuPublisher) {
+	s.sessionsLock.RLock()
+	defer s.sessionsLock.RUnlock()
+
+	for _, session := range s.sessions {
+		session.OnPublisherDeleted(publisher)
+	}
 }
