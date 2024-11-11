@@ -1163,6 +1163,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			}
 		}
 
+		session.AddRemotePublisher(publisher, cmd.Hostname, cmd.Port, cmd.RtcpPort)
 		response := &signaling.ProxyServerMessage{
 			Id:   message.Id,
 			Type: "command",
@@ -1192,6 +1193,8 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			session.sendMessage(message.NewWrappedErrorServerMessage(err))
 			return
 		}
+
+		session.RemoveRemotePublisher(publisher, cmd.Hostname, cmd.Port, cmd.RtcpPort)
 
 		response := &signaling.ProxyServerMessage{
 			Id:   message.Id,
@@ -1598,4 +1601,13 @@ func (s *ProxyServer) getRemoteConnection(url string) (*RemoteConnection, error)
 
 	s.remoteConnections[url] = conn
 	return conn, nil
+}
+
+func (s *ProxyServer) PublisherDeleted(publisher signaling.McuPublisher) {
+	s.sessionsLock.RLock()
+	defer s.sessionsLock.RUnlock()
+
+	for _, session := range s.sessions {
+		session.OnPublisherDeleted(publisher)
+	}
 }

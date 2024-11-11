@@ -23,6 +23,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -35,6 +36,12 @@ const (
 	// Sessions expire if they have not been used for one minute.
 	sessionExpirationTime = time.Minute
 )
+
+type remotePublisherData struct {
+	hostname string
+	port     int
+	rtcpPort int
+}
 
 type ProxySession struct {
 	proxy     *ProxyServer
@@ -55,6 +62,9 @@ type ProxySession struct {
 	subscribersLock sync.Mutex
 	subscribers     map[string]signaling.McuSubscriber
 	subscriberIds   map[signaling.McuSubscriber]string
+
+	remotePublishersLock sync.Mutex
+	remotePublishers     map[signaling.McuPublisher]map[string]*remotePublisherData
 }
 
 func NewProxySession(proxy *ProxyServer, sid uint64, id string) *ProxySession {
@@ -121,6 +131,7 @@ func (s *ProxySession) Close() {
 	s.closeFunc()
 	s.clearPublishers()
 	s.clearSubscribers()
+	s.clearRemotePublishers()
 	s.proxy.DeleteSession(s.Sid())
 }
 
@@ -287,6 +298,8 @@ func (s *ProxySession) DeletePublisher(publisher signaling.McuPublisher) string 
 
 	delete(s.publishers, id)
 	delete(s.publisherIds, publisher)
+	delete(s.remotePublishers, publisher)
+	go s.proxy.PublisherDeleted(publisher)
 	return id
 }
 
@@ -329,6 +342,22 @@ func (s *ProxySession) clearPublishers() {
 	clear(s.publisherIds)
 }
 
+func (s *ProxySession) clearRemotePublishers() {
+	s.remotePublishersLock.Lock()
+	defer s.remotePublishersLock.Unlock()
+
+	go func(remotePublishers map[signaling.McuPublisher]map[string]*remotePublisherData) {
+		for publisher, entries := range remotePublishers {
+			for _, data := range entries {
+				if err := publisher.UnpublishRemote(context.Background(), s.PublicId(), data.hostname, data.port, data.rtcpPort); err != nil {
+					log.Printf("Error unpublishing %s %s from remote %s: %s", publisher.StreamType(), publisher.Id(), data.hostname, err)
+				}
+			}
+		}
+	}(s.remotePublishers)
+	s.remotePublishers = nil
+}
+
 func (s *ProxySession) clearSubscribers() {
 	s.publishersLock.Lock()
 	defer s.publishersLock.Unlock()
@@ -349,4 +378,58 @@ func (s *ProxySession) clearSubscribers() {
 func (s *ProxySession) NotifyDisconnected() {
 	s.clearPublishers()
 	s.clearSubscribers()
+	s.clearRemotePublishers()
+}
+
+func (s *ProxySession) AddRemotePublisher(publisher signaling.McuPublisher, hostname string, port int, rtcpPort int) bool {
+	s.remotePublishersLock.Lock()
+	defer s.remotePublishersLock.Unlock()
+
+	remote, found := s.remotePublishers[publisher]
+	if !found {
+		remote = make(map[string]*remotePublisherData)
+		if s.remotePublishers == nil {
+			s.remotePublishers = make(map[signaling.McuPublisher]map[string]*remotePublisherData)
+		}
+		s.remotePublishers[publisher] = remote
+	}
+
+	key := fmt.Sprintf("%s:%d%d", hostname, port, rtcpPort)
+	if _, found := remote[key]; found {
+		return false
+	}
+
+	data := &remotePublisherData{
+		hostname: hostname,
+		port:     port,
+		rtcpPort: rtcpPort,
+	}
+	remote[key] = data
+	return true
+}
+
+func (s *ProxySession) RemoveRemotePublisher(publisher signaling.McuPublisher, hostname string, port int, rtcpPort int) {
+	s.remotePublishersLock.Lock()
+	defer s.remotePublishersLock.Unlock()
+
+	remote, found := s.remotePublishers[publisher]
+	if !found {
+		return
+	}
+
+	key := fmt.Sprintf("%s:%d%d", hostname, port, rtcpPort)
+	delete(remote, key)
+	if len(remote) == 0 {
+		delete(s.remotePublishers, publisher)
+		if len(s.remotePublishers) == 0 {
+			s.remotePublishers = nil
+		}
+	}
+}
+
+func (s *ProxySession) OnPublisherDeleted(publisher signaling.McuPublisher) {
+	s.remotePublishersLock.Lock()
+	defer s.remotePublishersLock.Unlock()
+
+	delete(s.remotePublishers, publisher)
 }
