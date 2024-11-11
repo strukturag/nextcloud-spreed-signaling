@@ -64,7 +64,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	ch := make(chan struct{})
 
 	var received atomic.Int32
-	max := int32(20)
+	maxPublish := int32(20)
 	ready := make(chan struct{})
 	quit := make(chan struct{})
 	defer close(quit)
@@ -74,7 +74,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 			select {
 			case <-dest:
 				total := received.Add(1)
-				if total == max {
+				if total == maxPublish {
 					if err := sub.Unsubscribe(); !assert.NoError(err) {
 						return
 					}
@@ -86,7 +86,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 		}
 	}()
 	<-ready
-	for i := int32(0); i < max; i++ {
+	for i := int32(0); i < maxPublish; i++ {
 		assert.NoError(client.Publish("foo", []byte("hello")))
 
 		// Allow NATS goroutines to process messages.
@@ -94,7 +94,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	}
 	<-ch
 
-	require.EqualValues(max, received.Load(), "Received wrong # of messages")
+	require.EqualValues(maxPublish, received.Load(), "Received wrong # of messages")
 }
 
 func TestNatsClient_Subscribe(t *testing.T) {
