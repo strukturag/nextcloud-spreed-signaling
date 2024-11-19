@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"testing"
 
@@ -160,4 +161,90 @@ func TestBandwidth_Backend(t *testing.T) {
 			assert.Equal(expectBitrate, pub.settings.Bitrate)
 		})
 	}
+}
+
+func TestFeatureChatRelay(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+
+	testFunc := func(feature bool) func(t *testing.T) {
+		return func(t *testing.T) {
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			hub, _, _, server := CreateHubForTest(t)
+
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+			var features []string
+			if feature {
+				features = append(features, ClientFeatureChatRelay)
+			}
+			require.NoError(client.SendHelloClientWithFeatures(testDefaultUserId, features))
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello := MustSucceed1(t, client.RunUntilHello, ctx)
+
+			roomId := "test-room"
+			roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+			require.Equal(roomId, roomMsg.Room.RoomId)
+
+			client.RunUntilJoined(ctx, hello.Hello)
+
+			room := hub.getRoom(roomId)
+			require.NotNil(room)
+
+			chatComment := api.StringMap{
+				"foo": "bar",
+				"baz": true,
+				"lala": map[string]any{
+					"one": "eins",
+				},
+			}
+			message := api.StringMap{
+				"type": "chat",
+				"chat": api.StringMap{
+					"refresh": true,
+					"comment": chatComment,
+				},
+			}
+			data, err := json.Marshal(message)
+			require.NoError(err)
+
+			// Simulate request from the backend.
+			room.ProcessBackendRoomRequest(&AsyncMessage{
+				Type: "room",
+				Room: &BackendServerRoomRequest{
+					Type: "message",
+					Message: &BackendRoomMessageRequest{
+						Data: data,
+					},
+				},
+			})
+
+			if msg, ok := client.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(roomId, msg.RoomId)
+				var data api.StringMap
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+						if feature {
+							assert.EqualValues(chatComment, chat["comment"])
+							_, found := chat["refresh"]
+							assert.False(found, "refresh should not be included")
+						} else {
+							assert.Equal(true, chat["refresh"])
+							_, found := chat["comment"]
+							assert.False(found, "the comment should not be included")
+						}
+					}
+				}
+			}
+		}
+	}
+
+	t.Run("without-chat-relay", testFunc(false))
+	t.Run("with-chat-relay", testFunc(true))
 }
