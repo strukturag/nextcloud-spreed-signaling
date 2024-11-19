@@ -173,6 +173,15 @@ future version. Clients should use the data from the
 [`welcome` message](#welcome-message) instead.
 
 
+## Client features
+
+The following client feature flags are currently supported:
+- `chat-relay`: The client understands chat message events containing the actual
+  message payload.
+- `internal-incall`: The (internal) client can set the `inCall` flag.
+- `start-dialout`: The (internal) client can start outgoing phone calls.
+
+
 ### Protocol version "1.0"
 
 For protocol version `1.0` in the `hello` request, the `params` from the `auth`
@@ -804,10 +813,9 @@ Message format (Server -> Client, incall change):
 ## Room messages
 
 The server can notify clients about events that happened in a room. Currently
-such messages are only sent out when chat messages are posted to notify clients
-they should load the new messages.
+such messages are only sent out when chat messages are posted.
 
-Message format (Server -> Client, chat messages available):
+Message format (Server -> Client, new messages available, refresh chat):
 
     {
       "type": "event"
@@ -820,6 +828,28 @@ Message format (Server -> Client, chat messages available):
             "type": "chat",
             "chat": {
               "refresh": true
+            }
+          }
+        }
+      }
+    }
+
+
+Message format (Server -> Client, new message was posted):
+
+    {
+      "type": "event"
+      "event": {
+        "target": "room",
+        "type": "message",
+        "message": {
+          "roomid": "the-room-id",
+          "data": {
+            "type": "chat",
+            "chat": {
+              "comment": {
+                ...properties of the chat message...
+              }
             }
           }
         }
@@ -1773,6 +1803,36 @@ Message format (Backend -> Server)
       "message" {
         "data": {
           ...arbitrary object to sent to clients...
+        }
+      }
+    }
+
+
+#### Send chat room message
+
+Usually, clients do a regular poll against Talk to fetch chat messages. In order
+to reduce the load, the clients can be notified about new messages (which then
+causes them to fetch them), or the messages can be sent directly to them.
+
+Depending on the client feature `chat-relay`, clients will either get the
+event with `"refresh": true`, or they get the full chat `comment` object. This
+is available if the signaling server supports the feature flag `chat-relay`.
+If not, the full event will be sent to the clients (containing both `refresh`
+and `comment`).
+
+Message format (Backend -> Server)
+
+    {
+      "type": "message"
+      "message" {
+        "data": {
+          "type": "chat",
+          "chat": {
+            "refresh": true,
+            "comment": {
+              ...properties of the comment written in the chat...
+            }
+          }
         }
       }
     }
