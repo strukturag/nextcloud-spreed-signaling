@@ -376,18 +376,26 @@ func TestIsChatRefresh(t *testing.T) {
 	var msg ServerMessage
 	data_true := []byte("{\"type\":\"chat\",\"chat\":{\"refresh\":true}}")
 	msg = ServerMessage{
-		Type: "message",
-		Message: &MessageServerMessage{
-			Data: data_true,
+		Type: "event",
+		Event: &EventServerMessage{
+			Type: "message",
+			Message: &RoomEventMessage{
+				RoomId: "foo",
+				Data:   data_true,
+			},
 		},
 	}
 	assert.True(t, msg.IsChatRefresh())
 
 	data_false := []byte("{\"type\":\"chat\",\"chat\":{\"refresh\":false}}")
 	msg = ServerMessage{
-		Type: "message",
-		Message: &MessageServerMessage{
-			Data: data_false,
+		Type: "event",
+		Event: &EventServerMessage{
+			Type: "message",
+			Message: &RoomEventMessage{
+				RoomId: "foo",
+				Data:   data_false,
+			},
 		},
 	}
 	assert.False(t, msg.IsChatRefresh())
