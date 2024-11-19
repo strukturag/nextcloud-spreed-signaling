@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -247,4 +248,119 @@ func TestFeatureChatRelay(t *testing.T) {
 
 	t.Run("without-chat-relay", testFunc(false))
 	t.Run("with-chat-relay", testFunc(true))
+}
+
+func TestPermissionHideDisplayNames(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+
+	testFunc := func(permission bool) func(t *testing.T) {
+		return func(t *testing.T) {
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			hub, _, _, server := CreateHubForTest(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+
+			roomId := "test-room"
+			roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+			require.Equal(roomId, roomMsg.Room.RoomId)
+
+			client.RunUntilJoined(ctx, hello.Hello)
+
+			room := hub.getRoom(roomId)
+			require.NotNil(room)
+
+			if permission {
+				session := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+				require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
+
+				// Client may not receive display names.
+				session.SetPermissions([]Permission{PERMISSION_HIDE_DISPLAYNAMES})
+			}
+
+			chatComment := api.StringMap{
+				"actorDisplayName": "John Doe",
+				"baz":              true,
+				"lala": map[string]any{
+					"one": "eins",
+				},
+			}
+			message := api.StringMap{
+				"type": "chat",
+				"chat": api.StringMap{
+					"comment": chatComment,
+				},
+			}
+			data, err := json.Marshal(message)
+			require.NoError(err)
+
+			// Simulate request from the backend.
+			room.ProcessBackendRoomRequest(&AsyncMessage{
+				Type: "room",
+				Room: &BackendServerRoomRequest{
+					Type: "message",
+					Message: &BackendRoomMessageRequest{
+						Data: data,
+					},
+				},
+			})
+
+			if msg, ok := client.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(roomId, msg.RoomId)
+				var data api.StringMap
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+						comment, found := chat["comment"]
+						if assert.True(found, "comment is missing in %+v", chat) {
+							if permission {
+								displayName, found := comment.(map[string]any)["actorDisplayName"]
+								assert.True(!found || displayName == "", "the display name should not be included in %+v", comment)
+							} else {
+								displayName, found := comment.(map[string]any)["actorDisplayName"]
+								assert.True(found && displayName != "", "the display name should be included in %+v", comment)
+							}
+						}
+					}
+				}
+
+				client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+
+				roomMsg2 := MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+				require.Equal(roomId, roomMsg2.Room.RoomId)
+
+				client.RunUntilJoined(ctx, hello2.Hello)
+				client2.RunUntilJoined(ctx, hello.Hello, hello2.Hello)
+
+				recipient1 := MessageClientMessageRecipient{
+					Type:      "session",
+					SessionId: hello.Hello.SessionId,
+				}
+				data1 := api.StringMap{
+					"type":    "nickChanged",
+					"message": "from-1-to-2",
+				}
+				client2.SendMessage(recipient1, data1) // nolint
+				if permission {
+					ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+					defer cancel2()
+
+					client.RunUntilErrorIs(ctx2, context.DeadlineExceeded)
+				} else {
+					var payload2 api.StringMap
+					if ok := checkReceiveClientMessage(ctx, t, client, "session", hello2.Hello, &payload2); ok {
+						assert.Equal(data1, payload2)
+					}
+				}
+			}
+		}
+	}
+
+	t.Run("without-hide-displaynames", testFunc(false))
+	t.Run("with-hide-displaynames", testFunc(true))
 }
