@@ -767,7 +767,7 @@ func TestWebsocketFeatures(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	conn, response, err := websocket.DefaultDialer.DialContext(ctx, getWebsocketUrl(server.URL), nil)
+	conn, response, err := testClientDialer.DialContext(ctx, getWebsocketUrl(server.URL), nil)
 	require.NoError(err)
 	defer conn.Close() // nolint
 

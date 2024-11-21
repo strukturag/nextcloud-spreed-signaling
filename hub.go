@@ -105,6 +105,8 @@ var (
 	websocketReadBufferSize  = 4096
 	websocketWriteBufferSize = 4096
 
+	websocketWriteBufferPool = &sync.Pool{}
+
 	// Delay after which a screen publisher should be cleaned up.
 	cleanupScreenPublisherDelay = time.Second
 
@@ -322,6 +324,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  websocketReadBufferSize,
 			WriteBufferSize: websocketWriteBufferSize,
+			WriteBufferPool: websocketWriteBufferPool,
 		},
 		cookie:       NewSessionIdCodec([]byte(hashKey), blockBytes),
 		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
