@@ -25,7 +25,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -182,18 +181,20 @@ func (e *capabilitiesEntry) update(ctx context.Context, u *url.URL, now time.Tim
 		return e.errorIfMustRevalidate(ErrUnsupportedContentType)
 	}
 
-	body, err := io.ReadAll(response.Body)
+	body, err := e.c.buffers.ReadAll(response.Body)
 	if err != nil {
 		log.Printf("Could not read response body from %s: %s", url, err)
 		return e.errorIfMustRevalidate(err)
 	}
 
+	defer e.c.buffers.Put(body)
+
 	var ocs OcsResponse
-	if err := json.Unmarshal(body, &ocs); err != nil {
-		log.Printf("Could not decode OCS response %s from %s: %s", string(body), url, err)
+	if err := json.Unmarshal(body.Bytes(), &ocs); err != nil {
+		log.Printf("Could not decode OCS response %s from %s: %s", body.String(), url, err)
 		return e.errorIfMustRevalidate(err)
 	} else if ocs.Ocs == nil || len(ocs.Ocs.Data) == 0 {
-		log.Printf("Incomplete OCS response %s from %s", string(body), url)
+		log.Printf("Incomplete OCS response %s from %s", body.String(), url)
 		return e.errorIfMustRevalidate(ErrIncompleteResponse)
 	}
 
@@ -239,6 +240,8 @@ type Capabilities struct {
 	pool           *HttpClientPool
 	entries        map[string]*capabilitiesEntry
 	nextInvalidate map[string]time.Time
+
+	buffers BufferPool
 }
 
 func NewCapabilities(version string, pool *HttpClientPool) (*Capabilities, error) {
