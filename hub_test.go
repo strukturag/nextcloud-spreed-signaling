@@ -385,6 +385,15 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		if request.Room.Action == "leave" && request.Room.UserId == "test-userid1" {
 			assert.Fail("Should not receive \"leave\" event for first user, received %+v", request.Room)
 		}
+	case "test-invalid-room":
+		response := &BackendClientResponse{
+			Type: "error",
+			Error: &Error{
+				Code:    "no_such_room",
+				Message: "The user is not invited to this room.",
+			},
+		}
+		return response
 	}
 
 	if strings.Contains(t.Name(), "Federation") {
@@ -2798,6 +2807,46 @@ func TestJoinRoom(t *testing.T) {
 	roomMsg, err = client.JoinRoom(ctx, "")
 	require.NoError(err)
 	require.Equal("", roomMsg.Room.RoomId)
+}
+
+func TestJoinInvalidRoom(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	require.NoError(client.SendHello(testDefaultUserId))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello, err := client.RunUntilHello(ctx)
+	require.NoError(err)
+
+	// Join room by id.
+	roomId := "test-invalid-room"
+	msg := &ClientMessage{
+		Id:   "ABCD",
+		Type: "room",
+		Room: &RoomClientMessage{
+			RoomId:    roomId,
+			SessionId: roomId + "-" + hello.Hello.SessionId,
+		},
+	}
+	require.NoError(client.WriteJSON(msg))
+
+	message, err := client.RunUntilMessage(ctx)
+	require.NoError(err)
+	require.NoError(checkUnexpectedClose(err))
+
+	assert.Equal(msg.Id, message.Id)
+	if assert.NoError(checkMessageType(message, "error")) {
+		assert.Equal("no_such_room", message.Error.Code)
+	}
 }
 
 func TestJoinRoomTwice(t *testing.T) {
