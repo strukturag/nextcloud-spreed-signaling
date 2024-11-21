@@ -22,7 +22,6 @@
 package signaling
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -140,13 +139,14 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	}
 	defer pool.Put(c)
 
-	data, err := json.Marshal(request)
+	data, err := b.buffers.MarshalAsJSON(request)
 	if err != nil {
 		log.Printf("Could not marshal request %+v: %s", request, err)
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", requestUrl.String(), bytes.NewReader(data))
+	defer b.buffers.Put(data)
+	req, err := http.NewRequestWithContext(ctx, "POST", requestUrl.String(), data)
 	if err != nil {
 		log.Printf("Could not create request to %s: %s", requestUrl, err)
 		return err
@@ -160,11 +160,11 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	}
 
 	// Add checksum so the backend can validate the request.
-	AddBackendChecksum(req, data, secret)
+	AddBackendChecksum(req, data.Bytes(), secret)
 
 	resp, err := c.Do(req)
 	if err != nil {
-		log.Printf("Could not send request %s to %s: %s", string(data), req.URL, err)
+		log.Printf("Could not send request %s to %s: %s", data.String(), req.URL, err)
 		return err
 	}
 	defer resp.Body.Close()
