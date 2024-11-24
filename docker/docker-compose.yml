@@ -19,7 +19,7 @@ services:
     image: nats:2.2.1
     volumes:
       - ./gnatsd.conf:/config/gnatsd.conf
-    command: ["-c", "/config/gnatsd.conf"]
+    command: ["-c", "/config/gnatsd.conf/gnatsd.conf"]
     network_mode: host
     restart: unless-stopped
   janus:
