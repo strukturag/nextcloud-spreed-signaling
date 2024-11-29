@@ -23,9 +23,11 @@ package signaling
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -264,4 +266,226 @@ func TestBandwidth_Backend(t *testing.T) {
 			assert.Equal(expectBitrate, pub.settings.Bitrate)
 		})
 	}
+}
+
+func TestFeatureChatRelay(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+
+	testFunc := func(feature bool) func(t *testing.T) {
+		return func(t *testing.T) {
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			hub, _, _, server := CreateHubForTest(t)
+
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+			var features []string
+			if feature {
+				features = append(features, ClientFeatureChatRelay)
+			}
+			require.NoError(client.SendHelloClientWithFeatures(testDefaultUserId, features))
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello, err := client.RunUntilHello(ctx)
+			require.NoError(err)
+
+			roomId := "test-room"
+			roomMsg, err := client.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
+
+			assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
+
+			room := hub.getRoom(roomId)
+			require.NotNil(room)
+
+			chatComment := map[string]interface{}{
+				"foo": "bar",
+				"baz": true,
+				"lala": map[string]interface{}{
+					"one": "eins",
+				},
+			}
+			message := map[string]interface{}{
+				"type": "chat",
+				"chat": map[string]interface{}{
+					"refresh": true,
+					"comment": chatComment,
+				},
+			}
+			data, err := json.Marshal(message)
+			require.NoError(err)
+
+			// Simulate request from the backend.
+			room.ProcessBackendRoomRequest(&AsyncMessage{
+				Type: "room",
+				Room: &BackendServerRoomRequest{
+					Type: "message",
+					Message: &BackendRoomMessageRequest{
+						Data: data,
+					},
+				},
+			})
+
+			if msg, err := client.RunUntilRoomMessage(ctx); assert.NoError(err) {
+				assert.Equal(roomId, msg.RoomId)
+				var data map[string]interface{}
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"])
+					if c, found := data["chat"]; assert.True(found, "chat entry is missing") {
+						chat := c.(map[string]interface{})
+						if feature {
+							assert.Equal(chatComment, chat["comment"])
+							_, found := chat["refresh"]
+							assert.False(found, "refresh should not be included")
+						} else {
+							assert.Equal(true, chat["refresh"])
+							_, found := chat["comment"]
+							assert.False(found, "the comment should not be included")
+						}
+					}
+				}
+			}
+		}
+	}
+
+	t.Run("without-chat-relay", testFunc(false))
+	t.Run("with-chat-relay", testFunc(true))
+}
+
+func TestPermissionHideDisplayNames(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+
+	testFunc := func(permission bool) func(t *testing.T) {
+		return func(t *testing.T) {
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			hub, _, _, server := CreateHubForTest(t)
+
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+			require.NoError(client.SendHelloClient(testDefaultUserId))
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello, err := client.RunUntilHello(ctx)
+			require.NoError(err)
+
+			roomId := "test-room"
+			roomMsg, err := client.JoinRoom(ctx, roomId)
+			require.NoError(err)
+			require.Equal(roomId, roomMsg.Room.RoomId)
+
+			assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
+
+			room := hub.getRoom(roomId)
+			require.NotNil(room)
+
+			if permission {
+				session := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+				require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
+
+				// Client may not receive display names.
+				session.SetPermissions([]Permission{PERMISSION_HIDE_DISPLAYNAMES})
+			}
+
+			chatComment := map[string]interface{}{
+				"actorDisplayName": "John Doe",
+				"baz":              true,
+				"lala": map[string]interface{}{
+					"one": "eins",
+				},
+			}
+			message := map[string]interface{}{
+				"type": "chat",
+				"chat": map[string]interface{}{
+					"comment": chatComment,
+				},
+			}
+			data, err := json.Marshal(message)
+			require.NoError(err)
+
+			// Simulate request from the backend.
+			room.ProcessBackendRoomRequest(&AsyncMessage{
+				Type: "room",
+				Room: &BackendServerRoomRequest{
+					Type: "message",
+					Message: &BackendRoomMessageRequest{
+						Data: data,
+					},
+				},
+			})
+
+			if msg, err := client.RunUntilRoomMessage(ctx); assert.NoError(err) {
+				assert.Equal(roomId, msg.RoomId)
+				var data map[string]interface{}
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"])
+					if c, found := data["chat"]; assert.True(found, "chat entry is missing") {
+						chat := c.(map[string]interface{})
+						comment, found := chat["comment"]
+						if assert.True(found, "comment is missing", chat) {
+							if permission {
+								displayName, found := comment.(map[string]interface{})["actorDisplayName"]
+								assert.True(!found || displayName == "", "the display name should not be included", comment)
+							} else {
+								displayName, found := comment.(map[string]interface{})["actorDisplayName"]
+								assert.True(found && displayName != "", "the display name should be included", comment)
+							}
+						}
+					}
+				}
+
+				client2 := NewTestClient(t, server, hub)
+				defer client2.CloseWithBye()
+
+				require.NoError(client2.SendHelloClient(testDefaultUserId + "2"))
+
+				hello2, err := client2.RunUntilHello(ctx)
+				require.NoError(err)
+
+				roomMsg2, err := client2.JoinRoom(ctx, roomId)
+				require.NoError(err)
+				require.Equal(roomId, roomMsg2.Room.RoomId)
+
+				assert.NoError(client.RunUntilJoined(ctx, hello2.Hello))
+				assert.NoError(client2.RunUntilJoined(ctx, hello.Hello, hello2.Hello))
+
+				recipient1 := MessageClientMessageRecipient{
+					Type:      "session",
+					SessionId: hello.Hello.SessionId,
+				}
+				data1 := map[string]interface{}{
+					"type":    "nickChanged",
+					"message": "from-1-to-2",
+				}
+				client2.SendMessage(recipient1, data1) // nolint
+				if permission {
+					ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+					defer cancel2()
+
+					if msg, err := client.RunUntilRoomMessage(ctx2); err == nil {
+						assert.Fail("Expected no message, got %+v", msg)
+					} else {
+						assert.ErrorIs(err, context.DeadlineExceeded)
+					}
+				} else {
+					var payload2 map[string]interface{}
+					if err := checkReceiveClientMessage(ctx, client, "session", hello2.Hello, &payload2); assert.NoError(err) {
+						assert.Equal(data1, payload2)
+					}
+				}
+			}
+		}
+	}
+
+	t.Run("without-hide-displaynames", testFunc(false))
+	t.Run("with-hide-displaynames", testFunc(true))
 }

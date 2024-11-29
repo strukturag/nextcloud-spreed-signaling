@@ -3517,11 +3517,9 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 		SessionId: hello2.Hello.SessionId,
 	}
 
-	// The two chat messages should get combined into one when receiving pending messages.
-	chat_refresh := "{\"type\":\"chat\",\"chat\":{\"refresh\":true}}"
+	chat_refresh := "{\"type\":\"foo\",\"foo\":{\"testing\":true}}"
 	var data1 map[string]interface{}
 	require.NoError(json.Unmarshal([]byte(chat_refresh), &data1))
-	client1.SendMessage(recipient2, data1) // nolint
 	client1.SendMessage(recipient2, data1) // nolint
 
 	// Simulate some time until client resumes the session.
@@ -3540,14 +3538,90 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload); assert.NoError(err) {
 		assert.Equal(data1, payload)
 	}
+}
+
+func TestCombineChatRefreshWhileDisconnected(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+	require.NoError(client.SendHello(testDefaultUserId))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello, err := client.RunUntilHello(ctx)
+	require.NoError(err)
+
+	roomId := "test-room"
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+
+	client.Close()
+	assert.NoError(client.WaitForClientRemoved(ctx))
+
+	// The two chat messages should get combined into one when receiving pending messages.
+	chat_refresh := "{\"type\":\"chat\",\"chat\":{\"refresh\":true}}"
+	var data map[string]interface{}
+	require.NoError(json.Unmarshal([]byte(chat_refresh), &data))
+
+	// Simulate requests from the backend.
+	room.ProcessBackendRoomRequest(&AsyncMessage{
+		Type: "room",
+		Room: &BackendServerRoomRequest{
+			Type: "message",
+			Message: &BackendRoomMessageRequest{
+				Data: json.RawMessage(chat_refresh),
+			},
+		},
+	})
+	room.ProcessBackendRoomRequest(&AsyncMessage{
+		Type: "room",
+		Room: &BackendServerRoomRequest{
+			Type: "message",
+			Message: &BackendRoomMessageRequest{
+				Data: json.RawMessage(chat_refresh),
+			},
+		},
+	})
+
+	// Simulate some time until client resumes the session.
+	time.Sleep(10 * time.Millisecond)
+
+	client = NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+	require.NoError(client.SendHelloResume(hello.Hello.ResumeId))
+	if hello2, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.Equal(hello.Hello.UserId, hello2.Hello.UserId)
+		assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId)
+		assert.Equal(hello.Hello.ResumeId, hello2.Hello.ResumeId)
+	}
+
+	if msg, err := client.RunUntilRoomMessage(ctx); assert.NoError(err) {
+		assert.Equal(roomId, msg.RoomId)
+		var payload map[string]interface{}
+		if err := json.Unmarshal(msg.Data, &payload); assert.NoError(err) {
+			assert.Equal(data, payload)
+		}
+	}
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 
-	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err == nil {
-		assert.Fail("Expected no payload, got %+v", payload)
+	if msg, err := client.RunUntilRoomMessage(ctx2); err == nil {
+		assert.Fail("Expected no message, got %+v", msg)
 	} else {
-		assert.ErrorIs(err, ErrNoMessageReceived)
+		assert.ErrorIs(err, context.DeadlineExceeded)
 	}
 }
 
