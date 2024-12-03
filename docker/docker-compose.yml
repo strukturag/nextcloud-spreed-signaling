@@ -1,6 +1,5 @@
-version: '3'
-
 services:
+
   spreedbackend:
     build:
       context: ..
@@ -15,20 +14,23 @@ services:
       - nats
       - janus
       - coturn
+
   nats:
-    image: nats:2.2.1
+    image: nats:2.10
     volumes:
       - ./gnatsd.conf:/config/gnatsd.conf
     command: ["-c", "/config/gnatsd.conf"]
     network_mode: host
     restart: unless-stopped
+
   janus:
     build: janus
     command: ["janus", "--full-trickle"]
     network_mode: host
     restart: unless-stopped
+ 
   coturn:
-    image: coturn/coturn:latest
+    image: coturn/coturn:4.6
     network_mode: host
     #
     # Update command parameters as necessary.
