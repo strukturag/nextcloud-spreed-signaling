@@ -647,11 +647,18 @@ Room event session object:
       "userid": "the-user-id-for-known-users",
       "user": {
         ...additional data of the user as received from the auth backend...
-      }
+      },
+      "roomsessionid": "the-nextcloud-talk-session-id",
+      "features": [
+        ...optional list of feature ids from the clients "hello" request...
+      ]
     }
 
 If a session is federated, an additional entry `"federated": true` will be
 available.
+
+The feature ids are present in the `join` events if the server supports the
+`join-features` feature.
 
 
 Message format (Server -> Client, user(s) left):
