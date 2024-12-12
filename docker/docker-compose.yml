@@ -7,7 +7,7 @@ services:
       platforms:
         - "linux/amd64"
     volumes:
-      - ./server.conf:/config/server.conf
+      - ./server.conf:/config/server.conf:ro
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -18,7 +18,10 @@ services:
   nats:
     image: nats:2.10
     volumes:
-      - ./gnatsd.conf:/config/gnatsd.conf
+      - type: bind
+        source: ./gnatsd.conf
+        target: /config/gnatsd.conf
+        read_only: true
     command: ["-c", "/config/gnatsd.conf"]
     network_mode: host
     restart: unless-stopped
@@ -28,7 +31,7 @@ services:
     command: ["janus", "--full-trickle"]
     network_mode: host
     restart: unless-stopped
- 
+
   coturn:
     image: coturn/coturn:4.6
     network_mode: host
