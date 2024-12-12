@@ -82,11 +82,13 @@ func Test_Federation(t *testing.T) {
 
 	client1 := NewTestClient(t, server1, hub1)
 	defer client1.CloseWithBye()
-	require.NoError(client1.SendHelloV2(testDefaultUserId + "1"))
+	features1 := []string{"one", "two", "three"}
+	require.NoError(client1.SendHelloV2WithFeatures(testDefaultUserId+"1", features1))
 
 	client2 := NewTestClient(t, server2, hub2)
 	defer client2.CloseWithBye()
-	require.NoError(client2.SendHelloV2(testDefaultUserId + "2"))
+	features2 := []string{"1", "2", "3"}
+	require.NoError(client2.SendHelloV2WithFeatures(testDefaultUserId+"2", features2))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -148,6 +150,7 @@ func Test_Federation(t *testing.T) {
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
 		assert.Equal(testDefaultUserId+"2", evt.UserId)
 		assert.True(evt.Federated)
+		assert.Equal(features2, evt.Features)
 	}
 
 	// The client2 will see its own session id, not the one from the remote server.
@@ -252,6 +255,7 @@ func Test_Federation(t *testing.T) {
 		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
 		assert.Equal(testDefaultUserId+"2", evt.UserId)
 		assert.True(evt.Federated)
+		assert.Equal(features2, evt.Features)
 	}
 	assert.NoError(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 
@@ -424,7 +428,7 @@ func Test_Federation(t *testing.T) {
 
 	client4 := NewTestClient(t, server2, hub1)
 	defer client4.CloseWithBye()
-	require.NoError(client4.SendHelloV2(testDefaultUserId + "4"))
+	require.NoError(client4.SendHelloV2WithFeatures(testDefaultUserId+"4", features2))
 
 	hello4, err := client4.RunUntilHello(ctx)
 	require.NoError(err)
@@ -468,6 +472,7 @@ func Test_Federation(t *testing.T) {
 		assert.NotEqual(hello4.Hello.SessionId, remoteSessionId)
 		assert.Equal(testDefaultUserId+"4", evt.UserId)
 		assert.True(evt.Federated)
+		assert.Equal(features2, evt.Features)
 	}
 
 	assert.NoError(client2.RunUntilJoined(ctx, &HelloServerMessage{
