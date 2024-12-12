@@ -531,6 +531,7 @@ const (
 	ServerFeatureDialout               = "dialout"
 	ServerFeatureFederation            = "federation"
 	ServerFeatureRecipientCall         = "recipient-call"
+	ServerFeatureJoinFeatures          = "join-features"
 
 	// Features to send to internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -551,6 +552,7 @@ var (
 		ServerFeatureDialout,
 		ServerFeatureFederation,
 		ServerFeatureRecipientCall,
+		ServerFeatureJoinFeatures,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
@@ -562,6 +564,7 @@ var (
 		ServerFeatureDialout,
 		ServerFeatureFederation,
 		ServerFeatureRecipientCall,
+		ServerFeatureJoinFeatures,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -574,6 +577,7 @@ var (
 		ServerFeatureDialout,
 		ServerFeatureFederation,
 		ServerFeatureRecipientCall,
+		ServerFeatureJoinFeatures,
 	}
 )
 
@@ -1068,6 +1072,7 @@ func (m *EventServerMessage) String() string {
 type EventServerMessageSessionEntry struct {
 	SessionId     string          `json:"sessionid"`
 	UserId        string          `json:"userid"`
+	Features      []string        `json:"features,omitempty"`
 	User          json.RawMessage `json:"user,omitempty"`
 	RoomSessionId string          `json:"roomsessionid,omitempty"`
 	Federated     bool            `json:"federated,omitempty"`
@@ -1077,6 +1082,7 @@ func (e *EventServerMessageSessionEntry) Clone() *EventServerMessageSessionEntry
 	return &EventServerMessageSessionEntry{
 		SessionId:     e.SessionId,
 		UserId:        e.UserId,
+		Features:      e.Features,
 		User:          e.User,
 		RoomSessionId: e.RoomSessionId,
 		Federated:     e.Federated,

@@ -292,6 +292,45 @@ loop:
 	assert.NoError(err)
 }
 
+func TestRoom_RoomJoinFeatures(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, router, server := CreateHubForTest(t)
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	b, err := NewBackendServer(config, hub, "no-version")
+	require.NoError(err)
+	require.NoError(b.Start(router))
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+
+	features := []string{"one", "two", "three"}
+	require.NoError(client.SendHelloClientWithFeatures(testDefaultUserId, features))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello, err := client.RunUntilHello(ctx)
+	require.NoError(err)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg, err := client.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		if assert.NoError(client.checkMessageJoinedSession(message, hello.Hello.SessionId, testDefaultUserId)) {
+			assert.Equal(roomId+"-"+hello.Hello.SessionId, message.Event.Join[0].RoomSessionId)
+			assert.Equal(features, message.Event.Join[0].Features)
+		}
+	}
+}
+
 func TestRoom_RoomSessionData(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)

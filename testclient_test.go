@@ -456,10 +456,14 @@ func (c *TestClient) SendHelloResume(resumeId string) error {
 }
 
 func (c *TestClient) SendHelloClient(userid string) error {
+	return c.SendHelloClientWithFeatures(userid, nil)
+}
+
+func (c *TestClient) SendHelloClientWithFeatures(userid string, features []string) error {
 	params := TestBackendClientAuthParams{
 		UserId: userid,
 	}
-	return c.SendHelloParams(c.server.URL, HelloVersionV1, "client", nil, params)
+	return c.SendHelloParams(c.server.URL, HelloVersionV1, "client", features, params)
 }
 
 func (c *TestClient) SendHelloInternal() error {
