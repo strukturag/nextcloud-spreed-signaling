@@ -3973,6 +3973,29 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling35(in *jle
 			out.SessionId = string(in.String())
 		case "userid":
 			out.UserId = string(in.String())
+		case "features":
+			if in.IsNull() {
+				in.Skip()
+				out.Features = nil
+			} else {
+				in.Delim('[')
+				if out.Features == nil {
+					if !in.IsDelim(']') {
+						out.Features = make([]string, 0, 4)
+					} else {
+						out.Features = []string{}
+					}
+				} else {
+					out.Features = (out.Features)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v33 string
+					v33 = string(in.String())
+					out.Features = append(out.Features, v33)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
 		case "user":
 			if data := in.Raw(); in.Ok() {
 				in.AddError((out.User).UnmarshalJSON(data))
@@ -4004,6 +4027,20 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling35(out *jw
 		const prefix string = ",\"userid\":"
 		out.RawString(prefix)
 		out.String(string(in.UserId))
+	}
+	if len(in.Features) != 0 {
+		const prefix string = ",\"features\":"
+		out.RawString(prefix)
+		{
+			out.RawByte('[')
+			for v34, v35 := range in.Features {
+				if v34 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v35))
+			}
+			out.RawByte(']')
+		}
 	}
 	if len(in.User) != 0 {
 		const prefix string = ",\"user\":"
@@ -4085,17 +4122,17 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 					out.Join = (out.Join)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v33 *EventServerMessageSessionEntry
+					var v36 *EventServerMessageSessionEntry
 					if in.IsNull() {
 						in.Skip()
-						v33 = nil
+						v36 = nil
 					} else {
-						if v33 == nil {
-							v33 = new(EventServerMessageSessionEntry)
+						if v36 == nil {
+							v36 = new(EventServerMessageSessionEntry)
 						}
-						(*v33).UnmarshalEasyJSON(in)
+						(*v36).UnmarshalEasyJSON(in)
 					}
-					out.Join = append(out.Join, v33)
+					out.Join = append(out.Join, v36)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -4116,9 +4153,9 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 					out.Leave = (out.Leave)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v34 string
-					v34 = string(in.String())
-					out.Leave = append(out.Leave, v34)
+					var v37 string
+					v37 = string(in.String())
+					out.Leave = append(out.Leave, v37)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -4139,17 +4176,17 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 					out.Change = (out.Change)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v35 *EventServerMessageSessionEntry
+					var v38 *EventServerMessageSessionEntry
 					if in.IsNull() {
 						in.Skip()
-						v35 = nil
+						v38 = nil
 					} else {
-						if v35 == nil {
-							v35 = new(EventServerMessageSessionEntry)
+						if v38 == nil {
+							v38 = new(EventServerMessageSessionEntry)
 						}
-						(*v35).UnmarshalEasyJSON(in)
+						(*v38).UnmarshalEasyJSON(in)
 					}
-					out.Change = append(out.Change, v35)
+					out.Change = append(out.Change, v38)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -4253,14 +4290,14 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling36(out *jw
 		out.RawString(prefix)
 		{
 			out.RawByte('[')
-			for v36, v37 := range in.Join {
-				if v36 > 0 {
+			for v39, v40 := range in.Join {
+				if v39 > 0 {
 					out.RawByte(',')
 				}
-				if v37 == nil {
+				if v40 == nil {
 					out.RawString("null")
 				} else {
-					(*v37).MarshalEasyJSON(out)
+					(*v40).MarshalEasyJSON(out)
 				}
 			}
 			out.RawByte(']')
@@ -4271,11 +4308,11 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling36(out *jw
 		out.RawString(prefix)
 		{
 			out.RawByte('[')
-			for v38, v39 := range in.Leave {
-				if v38 > 0 {
+			for v41, v42 := range in.Leave {
+				if v41 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v39))
+				out.String(string(v42))
 			}
 			out.RawByte(']')
 		}
@@ -4285,14 +4322,14 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling36(out *jw
 		out.RawString(prefix)
 		{
 			out.RawByte('[')
-			for v40, v41 := range in.Change {
-				if v40 > 0 {
+			for v43, v44 := range in.Change {
+				if v43 > 0 {
 					out.RawByte(',')
 				}
-				if v41 == nil {
+				if v44 == nil {
 					out.RawString("null")
 				} else {
-					(*v41).MarshalEasyJSON(out)
+					(*v44).MarshalEasyJSON(out)
 				}
 			}
 			out.RawByte(']')
@@ -5313,15 +5350,15 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling47(in *jle
 				for !in.IsDelim('}') {
 					key := string(in.String())
 					in.WantColon()
-					var v42 interface{}
-					if m, ok := v42.(easyjson.Unmarshaler); ok {
+					var v45 interface{}
+					if m, ok := v45.(easyjson.Unmarshaler); ok {
 						m.UnmarshalEasyJSON(in)
-					} else if m, ok := v42.(json.Unmarshaler); ok {
+					} else if m, ok := v45.(json.Unmarshaler); ok {
 						_ = m.UnmarshalJSON(in.Raw())
 					} else {
-						v42 = in.Interface()
+						v45 = in.Interface()
 					}
-					(out.Payload)[key] = v42
+					(out.Payload)[key] = v45
 					in.WantComma()
 				}
 				in.Delim('}')
@@ -5369,21 +5406,21 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling47(out *jw
 			out.RawString(`null`)
 		} else {
 			out.RawByte('{')
-			v43First := true
-			for v43Name, v43Value := range in.Payload {
-				if v43First {
-					v43First = false
+			v46First := true
+			for v46Name, v46Value := range in.Payload {
+				if v46First {
+					v46First = false
 				} else {
 					out.RawByte(',')
 				}
-				out.String(string(v43Name))
+				out.String(string(v46Name))
 				out.RawByte(':')
-				if m, ok := v43Value.(easyjson.Marshaler); ok {
+				if m, ok := v46Value.(easyjson.Marshaler); ok {
 					m.MarshalEasyJSON(out)
-				} else if m, ok := v43Value.(json.Marshaler); ok {
+				} else if m, ok := v46Value.(json.Marshaler); ok {
 					out.Raw(m.MarshalJSON())
 				} else {
-					out.Raw(json.Marshal(v43Value))
+					out.Raw(json.Marshal(v46Value))
 				}
 			}
 			out.RawByte('}')
