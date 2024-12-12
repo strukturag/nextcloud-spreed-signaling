@@ -389,8 +389,12 @@ func (c *TestClient) SendHelloV1(userid string) error {
 }
 
 func (c *TestClient) SendHelloV2(userid string) error {
+	return c.SendHelloV2WithFeatures(userid, nil)
+}
+
+func (c *TestClient) SendHelloV2WithFeatures(userid string, features []string) error {
 	now := time.Now()
-	return c.SendHelloV2WithTimes(userid, now, now.Add(time.Minute))
+	return c.SendHelloV2WithTimesAndFeatures(userid, now, now.Add(time.Minute), features)
 }
 
 func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time.Time, expiresAt time.Time, userdata map[string]interface{}) (string, error) {
@@ -434,13 +438,17 @@ func (c *TestClient) CreateHelloV2Token(userid string, issuedAt time.Time, expir
 }
 
 func (c *TestClient) SendHelloV2WithTimes(userid string, issuedAt time.Time, expiresAt time.Time) error {
+	return c.SendHelloV2WithTimesAndFeatures(userid, issuedAt, expiresAt, nil)
+}
+
+func (c *TestClient) SendHelloV2WithTimesAndFeatures(userid string, issuedAt time.Time, expiresAt time.Time, features []string) error {
 	tokenString, err := c.CreateHelloV2Token(userid, issuedAt, expiresAt)
 	require.NoError(c.t, err)
 
 	params := HelloV2AuthParams{
 		Token: tokenString,
 	}
-	return c.SendHelloParams(c.server.URL, HelloVersionV2, "", nil, params)
+	return c.SendHelloParams(c.server.URL, HelloVersionV2, "", features, params)
 }
 
 func (c *TestClient) SendHelloResume(resumeId string) error {

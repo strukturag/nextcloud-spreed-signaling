@@ -454,7 +454,8 @@ func (c *FederationClient) sendHelloLocked(auth *FederationAuthParams) error {
 		Id:   c.helloMsgId,
 		Type: "hello",
 		Hello: &HelloClientMessage{
-			Version: HelloVersionV2,
+			Version:  HelloVersionV2,
+			Features: c.session.GetFeatures(),
 		},
 	}
 	if resumeId := c.resumeId; resumeId != "" {
