@@ -39,11 +39,10 @@ const (
 )
 
 type GetSessionCountRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Url string `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetSessionCountRequest) Reset() {
@@ -84,11 +83,10 @@ func (x *GetSessionCountRequest) GetUrl() string {
 }
 
 type GetSessionCountReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         uint32                 `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Count uint32 `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetSessionCountReply) Reset() {

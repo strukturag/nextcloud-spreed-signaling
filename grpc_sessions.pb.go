@@ -39,11 +39,10 @@ const (
 )
 
 type LookupResumeIdRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ResumeId      string                 `protobuf:"bytes,1,opt,name=resumeId,proto3" json:"resumeId,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	ResumeId string `protobuf:"bytes,1,opt,name=resumeId,proto3" json:"resumeId,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LookupResumeIdRequest) Reset() {
@@ -84,11 +83,10 @@ func (x *LookupResumeIdRequest) GetResumeId() string {
 }
 
 type LookupResumeIdReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	SessionId string `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LookupResumeIdReply) Reset() {
@@ -129,13 +127,12 @@ func (x *LookupResumeIdReply) GetSessionId() string {
 }
 
 type LookupSessionIdRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	RoomSessionId string `protobuf:"bytes,1,opt,name=roomSessionId,proto3" json:"roomSessionId,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RoomSessionId string                 `protobuf:"bytes,1,opt,name=roomSessionId,proto3" json:"roomSessionId,omitempty"`
 	// Optional: set if the session should be disconnected with a given reason.
 	DisconnectReason string `protobuf:"bytes,2,opt,name=disconnectReason,proto3" json:"disconnectReason,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *LookupSessionIdRequest) Reset() {
@@ -183,11 +180,10 @@ func (x *LookupSessionIdRequest) GetDisconnectReason() string {
 }
 
 type LookupSessionIdReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	SessionId string `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LookupSessionIdReply) Reset() {
@@ -228,13 +224,12 @@ func (x *LookupSessionIdReply) GetSessionId() string {
 }
 
 type IsSessionInCallRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
+	RoomId        string                 `protobuf:"bytes,2,opt,name=roomId,proto3" json:"roomId,omitempty"`
+	BackendUrl    string                 `protobuf:"bytes,3,opt,name=backendUrl,proto3" json:"backendUrl,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	SessionId  string `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
-	RoomId     string `protobuf:"bytes,2,opt,name=roomId,proto3" json:"roomId,omitempty"`
-	BackendUrl string `protobuf:"bytes,3,opt,name=backendUrl,proto3" json:"backendUrl,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *IsSessionInCallRequest) Reset() {
@@ -289,11 +284,10 @@ func (x *IsSessionInCallRequest) GetBackendUrl() string {
 }
 
 type IsSessionInCallReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	InCall        bool                   `protobuf:"varint,1,opt,name=inCall,proto3" json:"inCall,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	InCall bool `protobuf:"varint,1,opt,name=inCall,proto3" json:"inCall,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *IsSessionInCallReply) Reset() {
@@ -334,12 +328,11 @@ func (x *IsSessionInCallReply) GetInCall() bool {
 }
 
 type GetInternalSessionsRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RoomId        string                 `protobuf:"bytes,1,opt,name=roomId,proto3" json:"roomId,omitempty"`
+	BackendUrl    string                 `protobuf:"bytes,2,opt,name=backendUrl,proto3" json:"backendUrl,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	RoomId     string `protobuf:"bytes,1,opt,name=roomId,proto3" json:"roomId,omitempty"`
-	BackendUrl string `protobuf:"bytes,2,opt,name=backendUrl,proto3" json:"backendUrl,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetInternalSessionsRequest) Reset() {
@@ -387,13 +380,12 @@ func (x *GetInternalSessionsRequest) GetBackendUrl() string {
 }
 
 type InternalSessionData struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
+	InCall        uint32                 `protobuf:"varint,2,opt,name=inCall,proto3" json:"inCall,omitempty"`
+	Features      []string               `protobuf:"bytes,3,rep,name=features,proto3" json:"features,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	SessionId string   `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
-	InCall    uint32   `protobuf:"varint,2,opt,name=inCall,proto3" json:"inCall,omitempty"`
-	Features  []string `protobuf:"bytes,3,rep,name=features,proto3" json:"features,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InternalSessionData) Reset() {
@@ -448,12 +440,11 @@ func (x *InternalSessionData) GetFeatures() []string {
 }
 
 type VirtualSessionData struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
+	InCall        uint32                 `protobuf:"varint,2,opt,name=inCall,proto3" json:"inCall,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	SessionId string `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
-	InCall    uint32 `protobuf:"varint,2,opt,name=inCall,proto3" json:"inCall,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *VirtualSessionData) Reset() {
@@ -501,12 +492,11 @@ func (x *VirtualSessionData) GetInCall() uint32 {
 }
 
 type GetInternalSessionsReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
+	state            protoimpl.MessageState `protogen:"open.v1"`
 	InternalSessions []*InternalSessionData `protobuf:"bytes,1,rep,name=internalSessions,proto3" json:"internalSessions,omitempty"`
 	VirtualSessions  []*VirtualSessionData  `protobuf:"bytes,2,rep,name=virtualSessions,proto3" json:"virtualSessions,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GetInternalSessionsReply) Reset() {
@@ -554,11 +544,10 @@ func (x *GetInternalSessionsReply) GetVirtualSessions() []*VirtualSessionData {
 }
 
 type ClientSessionMessage struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       []byte                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Message []byte `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ClientSessionMessage) Reset() {
@@ -599,11 +588,10 @@ func (x *ClientSessionMessage) GetMessage() []byte {
 }
 
 type ServerSessionMessage struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       []byte                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Message []byte `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ServerSessionMessage) Reset() {

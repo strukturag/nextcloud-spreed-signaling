@@ -39,12 +39,11 @@ const (
 )
 
 type GetPublisherIdRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
+	StreamType    string                 `protobuf:"bytes,2,opt,name=streamType,proto3" json:"streamType,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	SessionId  string `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
-	StreamType string `protobuf:"bytes,2,opt,name=streamType,proto3" json:"streamType,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetPublisherIdRequest) Reset() {
@@ -92,13 +91,12 @@ func (x *GetPublisherIdRequest) GetStreamType() string {
 }
 
 type GetPublisherIdReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PublisherId   string                 `protobuf:"bytes,1,opt,name=publisherId,proto3" json:"publisherId,omitempty"`
+	ProxyUrl      string                 `protobuf:"bytes,2,opt,name=proxyUrl,proto3" json:"proxyUrl,omitempty"`
+	Ip            string                 `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	PublisherId string `protobuf:"bytes,1,opt,name=publisherId,proto3" json:"publisherId,omitempty"`
-	ProxyUrl    string `protobuf:"bytes,2,opt,name=proxyUrl,proto3" json:"proxyUrl,omitempty"`
-	Ip          string `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetPublisherIdReply) Reset() {
