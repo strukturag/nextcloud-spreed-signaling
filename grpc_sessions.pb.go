@@ -329,9 +329,11 @@ func (x *IsSessionInCallReply) GetInCall() bool {
 }
 
 type GetInternalSessionsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RoomId        string                 `protobuf:"bytes,1,opt,name=roomId,proto3" json:"roomId,omitempty"`
-	BackendUrl    string                 `protobuf:"bytes,2,opt,name=backendUrl,proto3" json:"backendUrl,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	RoomId string                 `protobuf:"bytes,1,opt,name=roomId,proto3" json:"roomId,omitempty"`
+	// Deprecated: Marked as deprecated in grpc_sessions.proto.
+	BackendUrl    string   `protobuf:"bytes,2,opt,name=backendUrl,proto3" json:"backendUrl,omitempty"`
+	BackendUrls   []string `protobuf:"bytes,3,rep,name=backendUrls,proto3" json:"backendUrls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -373,11 +375,19 @@ func (x *GetInternalSessionsRequest) GetRoomId() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in grpc_sessions.proto.
 func (x *GetInternalSessionsRequest) GetBackendUrl() string {
 	if x != nil {
 		return x.BackendUrl
 	}
 	return ""
+}
+
+func (x *GetInternalSessionsRequest) GetBackendUrls() []string {
+	if x != nil {
+		return x.BackendUrls
+	}
+	return nil
 }
 
 type InternalSessionData struct {
@@ -653,12 +663,13 @@ const file_grpc_sessions_proto_rawDesc = "" +
 	"backendUrl\x18\x03 \x01(\tR\n" +
 	"backendUrl\".\n" +
 	"\x14IsSessionInCallReply\x12\x16\n" +
-	"\x06inCall\x18\x01 \x01(\bR\x06inCall\"T\n" +
+	"\x06inCall\x18\x01 \x01(\bR\x06inCall\"z\n" +
 	"\x1aGetInternalSessionsRequest\x12\x16\n" +
-	"\x06roomId\x18\x01 \x01(\tR\x06roomId\x12\x1e\n" +
+	"\x06roomId\x18\x01 \x01(\tR\x06roomId\x12\"\n" +
 	"\n" +
-	"backendUrl\x18\x02 \x01(\tR\n" +
-	"backendUrl\"g\n" +
+	"backendUrl\x18\x02 \x01(\tB\x02\x18\x01R\n" +
+	"backendUrl\x12 \n" +
+	"\vbackendUrls\x18\x03 \x03(\tR\vbackendUrls\"g\n" +
 	"\x13InternalSessionData\x12\x1c\n" +
 	"\tsessionId\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
 	"\x06inCall\x18\x02 \x01(\rR\x06inCall\x12\x1a\n" +

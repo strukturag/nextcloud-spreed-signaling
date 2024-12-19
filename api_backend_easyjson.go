@@ -3706,6 +3706,29 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling29(in *jle
 		switch key {
 		case "url":
 			out.Url = string(in.String())
+		case "urls":
+			if in.IsNull() {
+				in.Skip()
+				out.Urls = nil
+			} else {
+				in.Delim('[')
+				if out.Urls == nil {
+					if !in.IsDelim(']') {
+						out.Urls = make([]string, 0, 4)
+					} else {
+						out.Urls = []string{}
+					}
+				} else {
+					out.Urls = (out.Urls)[:0]
+				}
+				for !in.IsDelim(']') {
+					var v74 string
+					v74 = string(in.String())
+					out.Urls = append(out.Urls, v74)
+					in.WantComma()
+				}
+				in.Delim(']')
+			}
 		case "secret":
 			out.Secret = string(in.String())
 		case "maxstreambitrate":
@@ -3728,14 +3751,39 @@ func easyjson4354c623EncodeGithubComStrukturagNextcloudSpreedSignaling29(out *jw
 	out.RawByte('{')
 	first := true
 	_ = first
-	{
+	if in.Url != "" {
 		const prefix string = ",\"url\":"
+		first = false
 		out.RawString(prefix[1:])
 		out.String(string(in.Url))
 	}
+	if len(in.Urls) != 0 {
+		const prefix string = ",\"urls\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		{
+			out.RawByte('[')
+			for v75, v76 := range in.Urls {
+				if v75 > 0 {
+					out.RawByte(',')
+				}
+				out.String(string(v76))
+			}
+			out.RawByte(']')
+		}
+	}
 	{
 		const prefix string = ",\"secret\":"
-		out.RawString(prefix)
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
 		out.String(string(in.Secret))
 	}
 	if in.MaxStreamBitrate != 0 {
@@ -4009,9 +4057,9 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling32(in *jle
 						*out.Permissions = (*out.Permissions)[:0]
 					}
 					for !in.IsDelim(']') {
-						var v74 Permission
-						v74 = Permission(in.String())
-						*out.Permissions = append(*out.Permissions, v74)
+						var v77 Permission
+						v77 = Permission(in.String())
+						*out.Permissions = append(*out.Permissions, v77)
 						in.WantComma()
 					}
 					in.Delim(']')
@@ -4058,11 +4106,11 @@ func easyjson4354c623EncodeGithubComStrukturagNextcloudSpreedSignaling32(out *jw
 			out.RawString("null")
 		} else {
 			out.RawByte('[')
-			for v75, v76 := range *in.Permissions {
-				if v75 > 0 {
+			for v78, v79 := range *in.Permissions {
+				if v78 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v76))
+				out.String(string(v79))
 			}
 			out.RawByte(']')
 		}
@@ -4587,9 +4635,9 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling37(in *jle
 					out.Entries = (out.Entries)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v77 BackendPingEntry
-					(v77).UnmarshalEasyJSON(in)
-					out.Entries = append(out.Entries, v77)
+					var v80 BackendPingEntry
+					(v80).UnmarshalEasyJSON(in)
+					out.Entries = append(out.Entries, v80)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -4625,11 +4673,11 @@ func easyjson4354c623EncodeGithubComStrukturagNextcloudSpreedSignaling37(out *jw
 			out.RawString("null")
 		} else {
 			out.RawByte('[')
-			for v78, v79 := range in.Entries {
-				if v78 > 0 {
+			for v81, v82 := range in.Entries {
+				if v81 > 0 {
 					out.RawByte(',')
 				}
-				(v79).MarshalEasyJSON(out)
+				(v82).MarshalEasyJSON(out)
 			}
 			out.RawByte(']')
 		}
