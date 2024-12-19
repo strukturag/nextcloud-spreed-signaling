@@ -39,9 +39,9 @@ const (
 )
 
 type GetServerIdRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetServerIdRequest) Reset() {
@@ -75,11 +75,10 @@ func (*GetServerIdRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetServerIdReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServerId      string                 `protobuf:"bytes,1,opt,name=serverId,proto3" json:"serverId,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	ServerId string `protobuf:"bytes,1,opt,name=serverId,proto3" json:"serverId,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetServerIdReply) Reset() {

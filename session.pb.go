@@ -40,13 +40,12 @@ const (
 )
 
 type SessionIdData struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sid           uint64                 `protobuf:"varint,1,opt,name=Sid,proto3" json:"Sid,omitempty"`
+	Created       *timestamp.Timestamp   `protobuf:"bytes,2,opt,name=Created,proto3" json:"Created,omitempty"`
+	BackendId     string                 `protobuf:"bytes,3,opt,name=BackendId,proto3" json:"BackendId,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Sid       uint64               `protobuf:"varint,1,opt,name=Sid,proto3" json:"Sid,omitempty"`
-	Created   *timestamp.Timestamp `protobuf:"bytes,2,opt,name=Created,proto3" json:"Created,omitempty"`
-	BackendId string               `protobuf:"bytes,3,opt,name=BackendId,proto3" json:"BackendId,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SessionIdData) Reset() {
