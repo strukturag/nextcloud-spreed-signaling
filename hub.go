@@ -633,12 +633,10 @@ func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId string) (string, error) 
 }
 
 func (h *Hub) GetDialoutSession(roomId string, backend *Backend) *ClientSession {
-	url := backend.Url()
-
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for session := range h.dialoutSessions {
-		if session.backend.Url() != url {
+		if !backend.HasUrl(session.BackendUrl()) {
 			continue
 		}
 
@@ -890,14 +888,14 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 			go func(c *GrpcClient) {
 				defer wg.Done()
 
-				count, err := c.GetSessionCount(ctx, backend.ParsedUrl())
+				count, err := c.GetSessionCount(ctx, session.BackendUrl())
 				if err != nil {
-					log.Printf("Received error while getting session count for %s from %s: %s", backend.Url(), c.Target(), err)
+					log.Printf("Received error while getting session count for %s from %s: %s", session.BackendUrl(), c.Target(), err)
 					return
 				}
 
 				if count > 0 {
-					log.Printf("%d sessions connected for %s on %s", count, backend.Url(), c.Target())
+					log.Printf("%d sessions connected for %s on %s", count, session.BackendUrl(), c.Target())
 					totalCount.Add(count)
 				}
 			}(client)
@@ -1240,6 +1238,8 @@ func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message 
 	if backend == nil {
 		return nil, nil, InvalidBackendUrl
 	}
+
+	url = url.JoinPath(PathToOcsSignalingBackend)
 
 	// Run in timeout context to prevent blocking too long.
 	ctx, cancel := context.WithTimeout(ctx, h.backendTimeout)
@@ -1700,7 +1700,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		}
 		request := NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
 		request.Room.UpdateFromSession(session)
-		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &room); err != nil {
+		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &room); err != nil {
 			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			return
 		}
@@ -2328,7 +2328,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 			request.Room.InCall = sess.GetInCall()
 
 			var response BackendClientResponse
-			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
+			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &response); err != nil {
 				sess.Close()
 				log.Printf("Could not join virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
 				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not join virtual session."))
@@ -2346,7 +2346,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		} else {
 			request := NewBackendClientSessionRequest(room.Id(), "add", publicSessionId, msg)
 			var response BackendClientSessionResponse
-			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendUrl(), request, &response); err != nil {
+			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &response); err != nil {
 				sess.Close()
 				log.Printf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
 				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not add virtual session."))
@@ -2553,7 +2553,7 @@ func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSessi
 		go func(client *GrpcClient) {
 			defer wg.Done()
 
-			inCall, err := client.IsSessionInCall(rpcCtx, recipientSessionId, senderRoom)
+			inCall, err := client.IsSessionInCall(rpcCtx, recipientSessionId, senderRoom, senderSession.BackendUrl())
 			if errors.Is(err, context.Canceled) {
 				return
 			} else if err != nil {
