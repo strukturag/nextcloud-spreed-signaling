@@ -943,6 +943,32 @@ func TestClientHelloV2_IssuedInFuture(t *testing.T) {
 			client := NewTestClient(t, server, hub)
 			defer client.CloseWithBye()
 
+			issuedAt := time.Now().Add(tokenLeeway / 2)
+			expiresAt := issuedAt.Add(time.Second)
+			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt))
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello, err := client.RunUntilHello(ctx)
+			require.NoError(err)
+			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+		})
+	}
+}
+
+func TestClientHelloV2_IssuedFarInFuture(t *testing.T) {
+	CatchLogForTest(t)
+	for _, algo := range testHelloV2Algorithms {
+		t.Run(algo, func(t *testing.T) {
+			require := require.New(t)
+			assert := assert.New(t)
+			hub, _, _, server := CreateHubForTest(t)
+
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
+
 			issuedAt := time.Now().Add(tokenLeeway * 2)
 			expiresAt := issuedAt.Add(time.Second)
 			require.NoError(client.SendHelloV2WithTimes(testDefaultUserId, issuedAt, expiresAt))
