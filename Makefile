@@ -14,6 +14,7 @@ TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
 PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
 ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
 GRPC_PROTO_FILES := $(basename $(wildcard grpc_*.proto))
+PROTOBUF_VERSION := $(shell grep google.golang.org/protobuf go.mod | xargs | cut -d ' ' -f 2)
 PROTO_FILES := $(filter-out $(GRPC_PROTO_FILES),$(basename $(wildcard *.proto)))
 PROTO_GO_FILES := $(addsuffix .pb.go,$(PROTO_FILES))
 GRPC_PROTO_GO_FILES := $(addsuffix .pb.go,$(GRPC_PROTO_FILES)) $(addsuffix _grpc.pb.go,$(GRPC_PROTO_FILES))
@@ -83,7 +84,7 @@ $(GOPATHBIN)/easyjson: go.mod go.sum
 	$(GO) install github.com/mailru/easyjson/...
 
 $(GOPATHBIN)/protoc-gen-go: go.mod go.sum
-	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go
+	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOBUF_VERSION)
 
 $(GOPATHBIN)/protoc-gen-go-grpc: go.mod go.sum
 	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc
