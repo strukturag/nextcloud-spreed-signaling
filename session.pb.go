@@ -25,9 +25,9 @@
 package signaling
 
 import (
-	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 )
@@ -42,7 +42,7 @@ const (
 type SessionIdData struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Sid           uint64                 `protobuf:"varint,1,opt,name=Sid,proto3" json:"Sid,omitempty"`
-	Created       *timestamp.Timestamp   `protobuf:"bytes,2,opt,name=Created,proto3" json:"Created,omitempty"`
+	Created       *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=Created,proto3" json:"Created,omitempty"`
 	BackendId     string                 `protobuf:"bytes,3,opt,name=BackendId,proto3" json:"BackendId,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -85,7 +85,7 @@ func (x *SessionIdData) GetSid() uint64 {
 	return 0
 }
 
-func (x *SessionIdData) GetCreated() *timestamp.Timestamp {
+func (x *SessionIdData) GetCreated() *timestamppb.Timestamp {
 	if x != nil {
 		return x.Created
 	}
@@ -134,8 +134,8 @@ func file_session_proto_rawDescGZIP() []byte {
 
 var file_session_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_session_proto_goTypes = []any{
-	(*SessionIdData)(nil),       // 0: signaling.SessionIdData
-	(*timestamp.Timestamp)(nil), // 1: google.protobuf.Timestamp
+	(*SessionIdData)(nil),         // 0: signaling.SessionIdData
+	(*timestamppb.Timestamp)(nil), // 1: google.protobuf.Timestamp
 }
 var file_session_proto_depIdxs = []int32{
 	1, // 0: signaling.SessionIdData.Created:type_name -> google.protobuf.Timestamp
