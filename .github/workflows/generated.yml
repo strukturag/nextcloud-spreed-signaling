@@ -83,6 +83,8 @@ jobs:
             if [ -z "$CHANGES" ]; then
               echo "No files have changed, no need to commit / push."
             else
+              go mod tidy
+              git add go.*
               git config user.name "$CODE_GENERATOR_NAME"
               git config user.email "$CODE_GENERATOR_EMAIL"
               git commit --author="$(git log -n 1 --pretty=format:%an) <$(git log -n 1 --pretty=format:%ae)>" -m "Update generated files from ${{github.event.pull_request.head.sha}}" *_easyjson.go *.pb.go
