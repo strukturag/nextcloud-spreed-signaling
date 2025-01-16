@@ -66,7 +66,7 @@ func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (se
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 		config.AddOption("grpc", "listen", addr)
 		var err error
-		server, err = NewGrpcServer(config)
+		server, err = NewGrpcServer(config, "0.0.0")
 		if isErrorAddressAlreadyInUse(err) {
 			continue
 		}
@@ -218,7 +218,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	ctx1, cancel1 := context.WithTimeout(context.Background(), time.Second)
 	defer cancel1()
 
-	_, err = client1.GetServerId(ctx1)
+	_, _, err = client1.GetServerId(ctx1)
 	require.NoError(err)
 
 	org2 := "Updated client"
@@ -245,6 +245,6 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	defer cancel2()
 
 	// This will fail if the CA certificate has not been reloaded by the server.
-	_, err = client2.GetServerId(ctx2)
+	_, _, err = client2.GetServerId(ctx2)
 	require.NoError(err)
 }

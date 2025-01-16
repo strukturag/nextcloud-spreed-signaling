@@ -53,7 +53,7 @@ func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
 
 func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcClients, *DnsMonitor) {
 	dnsMonitor := newDnsMonitorForTest(t, time.Hour) // will be updated manually
-	client, err := NewGrpcClients(config, etcdClient, dnsMonitor)
+	client, err := NewGrpcClients(config, etcdClient, dnsMonitor, "0.0.0")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		client.Close()
@@ -336,7 +336,7 @@ func Test_GrpcClients_Encryption(t *testing.T) {
 		require.NoError(clients.WaitForInitialized(ctx))
 
 		for _, client := range clients.GetClients() {
-			_, err := client.GetServerId(ctx)
+			_, _, err := client.GetServerId(ctx)
 			require.NoError(err)
 		}
 	})

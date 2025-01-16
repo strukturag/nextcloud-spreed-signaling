@@ -179,14 +179,14 @@ func (c *GrpcClient) SetSelf(self bool) {
 	c.isSelf.Store(self)
 }
 
-func (c *GrpcClient) GetServerId(ctx context.Context) (string, error) {
+func (c *GrpcClient) GetServerId(ctx context.Context) (string, string, error) {
 	statsGrpcClientCalls.WithLabelValues("GetServerId").Inc()
 	response, err := c.impl.GetServerId(ctx, &GetServerIdRequest{}, grpc.WaitForReady(true))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return response.GetServerId(), nil
+	return response.GetServerId(), response.GetVersion(), nil
 }
 
 func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId string) (*LookupResumeIdReply, error) {
@@ -398,7 +398,8 @@ type grpcClientsList struct {
 }
 
 type GrpcClients struct {
-	mu sync.RWMutex
+	mu      sync.RWMutex
+	version string
 
 	clientsMap map[string]*grpcClientsList
 	clients    []*GrpcClient
@@ -421,10 +422,11 @@ type GrpcClients struct {
 	closeFunc context.CancelFunc
 }
 
-func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient, dnsMonitor *DnsMonitor) (*GrpcClients, error) {
+func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient, dnsMonitor *DnsMonitor, version string) (*GrpcClients, error) {
 	initializedCtx, initializedFunc := context.WithCancel(context.Background())
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 	result := &GrpcClients{
+		version:         version,
 		dnsMonitor:      dnsMonitor,
 		etcdClient:      etcdClient,
 		initializedCtx:  initializedCtx,
@@ -499,12 +501,12 @@ func (c *GrpcClients) isClientAvailable(target string, client *GrpcClient) bool 
 	return false
 }
 
-func (c *GrpcClients) getServerIdWithTimeout(ctx context.Context, client *GrpcClient) (string, error) {
+func (c *GrpcClients) getServerIdWithTimeout(ctx context.Context, client *GrpcClient) (string, string, error) {
 	ctx2, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	id, err := client.GetServerId(ctx2)
-	return id, err
+	id, version, err := client.GetServerId(ctx2)
+	return id, version, err
 }
 
 func (c *GrpcClients) checkIsSelf(ctx context.Context, target string, client *GrpcClient) {
@@ -522,7 +524,7 @@ loop:
 				return
 			}
 
-			id, err := c.getServerIdWithTimeout(ctx, client)
+			id, version, err := c.getServerIdWithTimeout(ctx, client)
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return
@@ -539,8 +541,10 @@ loop:
 				log.Printf("GRPC target %s is this server, removing", client.Target())
 				c.closeClient(client)
 				client.SetSelf(true)
+			} else if version != c.version {
+				log.Printf("WARNING: Node %s is runing different version %s than local node (%s)", client.Target(), version, c.version)
 			} else {
-				log.Printf("Checked GRPC server id of %s", client.Target())
+				log.Printf("Checked GRPC server id of %s running version %s", client.Target(), version)
 			}
 			break loop
 		}
