@@ -18,13 +18,9 @@ PROTOBUF_VERSION := $(shell grep google.golang.org/protobuf go.mod | xargs | cut
 PROTO_FILES := $(filter-out $(GRPC_PROTO_FILES),$(basename $(wildcard *.proto)))
 PROTO_GO_FILES := $(addsuffix .pb.go,$(PROTO_FILES))
 GRPC_PROTO_GO_FILES := $(addsuffix .pb.go,$(GRPC_PROTO_FILES)) $(addsuffix _grpc.pb.go,$(GRPC_PROTO_FILES))
-EASYJSON_GO_FILES := \
-	api_async_easyjson.go \
-	api_backend_easyjson.go \
-	api_grpc_easyjson.go \
-	api_proxy_easyjson.go \
-	api_signaling_easyjson.go
 TEST_GO_FILES := $(wildcard *_test.go))
+EASYJSON_FILES := $(filter-out $(TEST_GO_FILES),$(wildcard api*.go))
+EASYJSON_GO_FILES := $(patsubst %.go,%_easyjson.go,$(EASYJSON_FILES))
 COMMON_GO_FILES := $(filter-out continentmap.go $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES) $(EASYJSON_GO_FILES) $(TEST_GO_FILES),$(wildcard *.go))
 CLIENT_TEST_GO_FILES := $(wildcard client/*_test.go))
 CLIENT_GO_FILES := $(filter-out $(CLIENT_TEST_GO_FILES),$(wildcard client/*.go))
@@ -143,6 +139,11 @@ coverhtml: vet
 	sed -i -e '1h;2,$$H;$$!d;g' -re 's|// versions.+// source:|// source:|' $*_grpc.pb.go
 
 common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES)
+# Optimize easyjson files that could call generated functions instead of duplicating code.
+	for file in $(EASYJSON_FILES); do \
+		rm -f easyjson-bootstrap*.go; \
+		PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $$file; \
+	done
 
 $(BINDIR):
 	mkdir -p "$(BINDIR)"
