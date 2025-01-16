@@ -70,6 +70,7 @@ type GrpcServer struct {
 	UnimplementedRpcMcuServer
 	UnimplementedRpcSessionsServer
 
+	version  string
 	creds    credentials.TransportCredentials
 	conn     *grpc.Server
 	listener net.Listener
@@ -78,7 +79,7 @@ type GrpcServer struct {
 	hub GrpcServerHub
 }
 
-func NewGrpcServer(config *goconf.ConfigFile) (*GrpcServer, error) {
+func NewGrpcServer(config *goconf.ConfigFile, version string) (*GrpcServer, error) {
 	var listener net.Listener
 	if addr, _ := GetStringOptionWithEnv(config, "grpc", "listen"); addr != "" {
 		var err error
@@ -95,6 +96,7 @@ func NewGrpcServer(config *goconf.ConfigFile) (*GrpcServer, error) {
 
 	conn := grpc.NewServer(grpc.Creds(creds))
 	result := &GrpcServer{
+		version:  version,
 		creds:    creds,
 		conn:     conn,
 		listener: listener,
@@ -265,6 +267,7 @@ func (s *GrpcServer) GetServerId(ctx context.Context, request *GetServerIdReques
 	statsGrpcServerCalls.WithLabelValues("GetServerId").Inc()
 	return &GetServerIdReply{
 		ServerId: s.serverId,
+		Version:  s.version,
 	}, nil
 }
 

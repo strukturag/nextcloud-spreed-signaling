@@ -34,4 +34,5 @@ message GetServerIdRequest {
 
 message GetServerIdReply {
   string serverId = 1;
+  string version = 2;
 }
