@@ -2,6 +2,99 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.0.2 - 2025-01-22
+
+### Added
+- Support passing codec parameters when creating publishers.
+  [#853](https://github.com/strukturag/nextcloud-spreed-signaling/pull/853)
+- Support recipient "call".
+  [#859](https://github.com/strukturag/nextcloud-spreed-signaling/pull/859)
+- Include client features in "join" events.
+  [#879](https://github.com/strukturag/nextcloud-spreed-signaling/pull/879)
+- Include features of federated clients in "join" events.
+  [#882](https://github.com/strukturag/nextcloud-spreed-signaling/pull/882)
+- Check version of cluster nodes and log warning if different.
+  [#898](https://github.com/strukturag/nextcloud-spreed-signaling/pull/898)
+- Add feature id for supporting codec parameters in offer.
+  [#902](https://github.com/strukturag/nextcloud-spreed-signaling/pull/902)
+
+### Changed
+- Drop support for Go 1.21
+  [#858](https://github.com/strukturag/nextcloud-spreed-signaling/pull/858)
+- Don't redefine built-in id "max".
+  [#863](https://github.com/strukturag/nextcloud-spreed-signaling/pull/863)
+- Notify remote to stop publishing when last local subscriber is closed.
+  [#860](https://github.com/strukturag/nextcloud-spreed-signaling/pull/860)
+- Add testcase when joining unknown room.
+  [#869](https://github.com/strukturag/nextcloud-spreed-signaling/pull/869)
+- docker: apply Docker image versioning
+  [#873](https://github.com/strukturag/nextcloud-spreed-signaling/pull/873)
+- docker: Use bind-mount for "gnatsd.conf"
+  [#881](https://github.com/strukturag/nextcloud-spreed-signaling/pull/881)
+- docker: Upgrade Janus and its dependencies
+  [#874](https://github.com/strukturag/nextcloud-spreed-signaling/pull/874)
+- make: Pin version of "google.golang.org/protobuf/cmd/protoc-gen-go".
+  [#897](https://github.com/strukturag/nextcloud-spreed-signaling/pull/897)
+- make: Optimize generated easyjson files.
+  [#899](https://github.com/strukturag/nextcloud-spreed-signaling/pull/899)
+
+### Fixed
+- Prevent duplicate virtual sessions in participant update events.
+  [#851](https://github.com/strukturag/nextcloud-spreed-signaling/pull/851)
+- proxy: Close client connection if session is expired / closed.
+  [#852](https://github.com/strukturag/nextcloud-spreed-signaling/pull/852)
+
+### Dependencies
+- Bump github.com/fsnotify/fsnotify from 1.7.0 to 1.8.0
+  [#854](https://github.com/strukturag/nextcloud-spreed-signaling/pull/854)
+- Bump github.com/golang-jwt/jwt/v4 from 4.5.0 to 4.5.1
+  [#856](https://github.com/strukturag/nextcloud-spreed-signaling/pull/856)
+- Migrate to github.com/golang-jwt/jwt/v5
+  [#857](https://github.com/strukturag/nextcloud-spreed-signaling/pull/857)
+- Bump the etcd group with 4 updates
+  [#817](https://github.com/strukturag/nextcloud-spreed-signaling/pull/817)
+- Bump sphinx-rtd-theme from 3.0.1 to 3.0.2 in /docs
+  [#865](https://github.com/strukturag/nextcloud-spreed-signaling/pull/865)
+- Bump the etcd group with 4 updates
+  [#864](https://github.com/strukturag/nextcloud-spreed-signaling/pull/864)
+- Bump google.golang.org/protobuf from 1.35.1 to 1.35.2
+  [#866](https://github.com/strukturag/nextcloud-spreed-signaling/pull/866)
+- Bump github.com/stretchr/testify from 1.9.0 to 1.10.0
+  [#872](https://github.com/strukturag/nextcloud-spreed-signaling/pull/872)
+- Bump github.com/nats-io/nats-server/v2 from 2.10.22 to 2.10.23
+  [#878](https://github.com/strukturag/nextcloud-spreed-signaling/pull/878)
+- Bump alpine from 3.20 to 3.21 in /docker/janus
+  [#876](https://github.com/strukturag/nextcloud-spreed-signaling/pull/876)
+- Bump golang.org/x/crypto from 0.30.0 to 0.31.0
+  [#880](https://github.com/strukturag/nextcloud-spreed-signaling/pull/880)
+- Bump google.golang.org/grpc from 1.67.1 to 1.68.1
+  [#875](https://github.com/strukturag/nextcloud-spreed-signaling/pull/875)
+- Bump google.golang.org/protobuf from 1.35.2 to 1.36.0
+  [#884](https://github.com/strukturag/nextcloud-spreed-signaling/pull/884)
+- Bump github.com/mailru/easyjson from 0.7.7 to 0.9.0
+  [#885](https://github.com/strukturag/nextcloud-spreed-signaling/pull/885)
+- Bump github.com/nats-io/nats.go from 1.37.0 to 1.38.0
+  [#887](https://github.com/strukturag/nextcloud-spreed-signaling/pull/887)
+- Bump google.golang.org/grpc from 1.68.1 to 1.69.2
+  [#888](https://github.com/strukturag/nextcloud-spreed-signaling/pull/888)
+- Bump github.com/nats-io/nats-server/v2 from 2.10.23 to 2.10.24
+  [#886](https://github.com/strukturag/nextcloud-spreed-signaling/pull/886)
+- Bump jinja2 from 3.1.4 to 3.1.5 in /docs
+  [#889](https://github.com/strukturag/nextcloud-spreed-signaling/pull/889)
+- Bump google.golang.org/protobuf from 1.36.0 to 1.36.1
+  [#890](https://github.com/strukturag/nextcloud-spreed-signaling/pull/890)
+- Bump google.golang.org/grpc from 1.69.2 to 1.69.4
+  [#894](https://github.com/strukturag/nextcloud-spreed-signaling/pull/894)
+- Bump github.com/pion/sdp/v3 from 3.0.9 to 3.0.10
+  [#895](https://github.com/strukturag/nextcloud-spreed-signaling/pull/895)
+- Bump google.golang.org/protobuf from 1.36.1 to 1.36.3
+  [#896](https://github.com/strukturag/nextcloud-spreed-signaling/pull/896)
+- Bump golangci/golangci-lint-action from 6.1.1 to 6.2.0
+  [#900](https://github.com/strukturag/nextcloud-spreed-signaling/pull/900)
+- Bump golang.org/x/net from 0.30.0 to 0.33.0
+  [#901](https://github.com/strukturag/nextcloud-spreed-signaling/pull/901)
+
+
 ## 2.0.1 - 2024-10-28
 
 ### Added
