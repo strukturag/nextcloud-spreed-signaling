@@ -532,6 +532,7 @@ const (
 	ServerFeatureFederation            = "federation"
 	ServerFeatureRecipientCall         = "recipient-call"
 	ServerFeatureJoinFeatures          = "join-features"
+	ServerFeatureOfferCodecs           = "offer-codecs"
 
 	// Features to send to internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -553,6 +554,7 @@ var (
 		ServerFeatureFederation,
 		ServerFeatureRecipientCall,
 		ServerFeatureJoinFeatures,
+		ServerFeatureOfferCodecs,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
@@ -565,6 +567,7 @@ var (
 		ServerFeatureFederation,
 		ServerFeatureRecipientCall,
 		ServerFeatureJoinFeatures,
+		ServerFeatureOfferCodecs,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -578,6 +581,7 @@ var (
 		ServerFeatureFederation,
 		ServerFeatureRecipientCall,
 		ServerFeatureJoinFeatures,
+		ServerFeatureOfferCodecs,
 	}
 )
 

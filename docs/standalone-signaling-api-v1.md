@@ -1027,6 +1027,8 @@ separated list in order of preference.
 - `h264profile`: H.264-specific profile to prefer, e.g. `42e01f` for
 `profile-level-id=42e01f`.
 
+Codec parameters (`audiocodec`, `videocodec`, `vp9profile` and `h264profile`)
+can be provided if the server supports the `offer-codecs` feature id.
 
 Message format (Server -> Client, send answer):
 
