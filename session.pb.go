@@ -30,6 +30,7 @@ import (
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -101,7 +102,7 @@ func (x *SessionIdData) GetBackendId() string {
 
 var File_session_proto protoreflect.FileDescriptor
 
-var file_session_proto_rawDesc = []byte{
+var file_session_proto_rawDesc = string([]byte{
 	0x0a, 0x0d, 0x73, 0x65, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12,
 	0x09, 0x73, 0x69, 0x67, 0x6e, 0x61, 0x6c, 0x69, 0x6e, 0x67, 0x1a, 0x1f, 0x67, 0x6f, 0x6f, 0x67,
 	0x6c, 0x65, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2f, 0x74, 0x69, 0x6d, 0x65,
@@ -118,16 +119,16 @@ var file_session_proto_rawDesc = []byte{
 	0x63, 0x6c, 0x6f, 0x75, 0x64, 0x2d, 0x73, 0x70, 0x72, 0x65, 0x65, 0x64, 0x2d, 0x73, 0x69, 0x67,
 	0x6e, 0x61, 0x6c, 0x69, 0x6e, 0x67, 0x3b, 0x73, 0x69, 0x67, 0x6e, 0x61, 0x6c, 0x69, 0x6e, 0x67,
 	0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
-}
+})
 
 var (
 	file_session_proto_rawDescOnce sync.Once
-	file_session_proto_rawDescData = file_session_proto_rawDesc
+	file_session_proto_rawDescData []byte
 )
 
 func file_session_proto_rawDescGZIP() []byte {
 	file_session_proto_rawDescOnce.Do(func() {
-		file_session_proto_rawDescData = protoimpl.X.CompressGZIP(file_session_proto_rawDescData)
+		file_session_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_session_proto_rawDesc), len(file_session_proto_rawDesc)))
 	})
 	return file_session_proto_rawDescData
 }
@@ -155,7 +156,7 @@ func file_session_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: file_session_proto_rawDesc,
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_session_proto_rawDesc), len(file_session_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   1,
 			NumExtensions: 0,
@@ -166,7 +167,6 @@ func file_session_proto_init() {
 		MessageInfos:      file_session_proto_msgTypes,
 	}.Build()
 	File_session_proto = out.File
-	file_session_proto_rawDesc = nil
 	file_session_proto_goTypes = nil
 	file_session_proto_depIdxs = nil
 }
