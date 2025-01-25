@@ -178,7 +178,7 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 
 	result := &IsSessionInCallReply{}
 	room := session.GetRoom()
-	if room == nil || room.Id() != request.GetRoomId() || room.Backend().url != request.GetBackendUrl() ||
+	if room == nil || room.Id() != request.GetRoomId() || !room.Backend().HasUrl(request.GetBackendUrl()) ||
 		(session.ClientType() != HelloClientTypeInternal && !room.IsSessionInCall(session)) {
 		// Recipient is not in a room, a different room or not in the call.
 		result.InCall = false
@@ -191,44 +191,63 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *GetInternalSessionsRequest) (*GetInternalSessionsReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetInternalSessions").Inc()
 	// TODO: Remove debug logging
-	log.Printf("Get internal sessions from %s on %s", request.RoomId, request.BackendUrl)
+	log.Printf("Get internal sessions from %s on %v (fallback %s)", request.RoomId, request.BackendUrls, request.BackendUrl)
 
-	var u *url.URL
-	if request.BackendUrl != "" {
-		var err error
-		u, err = url.Parse(request.BackendUrl)
-		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, "invalid url")
-		}
-	}
-
-	backend := s.hub.GetBackend(u)
-	if backend == nil {
-		return nil, status.Error(codes.NotFound, "no such backend")
-	}
-
-	room := s.hub.GetRoomForBackend(request.RoomId, backend)
-	if room == nil {
-		return nil, status.Error(codes.NotFound, "no such room")
+	var backendUrls []string
+	if len(request.BackendUrls) > 0 {
+		backendUrls = request.BackendUrls
+	} else if request.BackendUrl != "" {
+		backendUrls = append(backendUrls, request.BackendUrl)
+	} else {
+		// Only compat backend.
+		backendUrls = []string{""}
 	}
 
 	result := &GetInternalSessionsReply{}
-	room.mu.RLock()
-	defer room.mu.RUnlock()
+	processed := make(map[string]bool)
+	for _, bu := range backendUrls {
+		var parsed *url.URL
+		if bu != "" {
+			var err error
+			parsed, err = url.Parse(bu)
+			if err != nil {
+				return nil, status.Error(codes.InvalidArgument, "invalid url")
+			}
+		}
 
-	for session := range room.internalSessions {
-		result.InternalSessions = append(result.InternalSessions, &InternalSessionData{
-			SessionId: session.PublicId(),
-			InCall:    uint32(session.GetInCall()),
-			Features:  session.GetFeatures(),
-		})
-	}
+		backend := s.hub.GetBackend(parsed)
+		if backend == nil {
+			return nil, status.Error(codes.NotFound, "no such backend")
+		}
 
-	for session := range room.virtualSessions {
-		result.VirtualSessions = append(result.VirtualSessions, &VirtualSessionData{
-			SessionId: session.PublicId(),
-			InCall:    uint32(session.GetInCall()),
-		})
+		// Only process each backend once.
+		if processed[backend.Id()] {
+			continue
+		}
+		processed[backend.Id()] = true
+
+		room := s.hub.GetRoomForBackend(request.RoomId, backend)
+		if room == nil {
+			return nil, status.Error(codes.NotFound, "no such room")
+		}
+
+		room.mu.RLock()
+		defer room.mu.RUnlock()
+
+		for session := range room.internalSessions {
+			result.InternalSessions = append(result.InternalSessions, &InternalSessionData{
+				SessionId: session.PublicId(),
+				InCall:    uint32(session.GetInCall()),
+				Features:  session.GetFeatures(),
+			})
+		}
+
+		for session := range room.virtualSessions {
+			result.VirtualSessions = append(result.VirtualSessions, &VirtualSessionData{
+				SessionId: session.PublicId(),
+				InCall:    uint32(session.GetInCall()),
+			})
+		}
 	}
 
 	return result, nil

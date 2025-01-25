@@ -39,6 +39,8 @@ var (
 	// Warn if a session has 32 or more pending messages.
 	warnPendingMessagesCount = 32
 
+	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
+	// feature is returned by the capabilities endpoint.
 	PathToOcsSignalingBackend = "ocs/v2.php/apps/spreed/api/v1/signaling/backend"
 )
 
@@ -129,24 +131,6 @@ func NewClientSession(hub *Hub, privateId string, publicId string, data *Session
 	} else {
 		s.backendUrl = hello.Auth.Url
 		s.parsedBackendUrl = hello.Auth.parsedUrl
-	}
-	if !strings.Contains(s.backendUrl, "/ocs/v2.php/") {
-		backendUrl := s.backendUrl
-		if !strings.HasSuffix(backendUrl, "/") {
-			backendUrl += "/"
-		}
-		backendUrl += PathToOcsSignalingBackend
-		u, err := url.Parse(backendUrl)
-		if err != nil {
-			return nil, err
-		}
-
-		if strings.Contains(u.Host, ":") && hasStandardPort(u) {
-			u.Host = u.Hostname()
-		}
-
-		s.backendUrl = backendUrl
-		s.parsedBackendUrl = u
 	}
 
 	if err := s.SubscribeEvents(); err != nil {
@@ -305,6 +289,10 @@ func (s *ClientSession) BackendUrl() string {
 
 func (s *ClientSession) ParsedBackendUrl() *url.URL {
 	return s.parsedBackendUrl
+}
+
+func (s *ClientSession) ParsedBackendOcsUrl() *url.URL {
+	return s.parsedBackendUrl.JoinPath(PathToOcsSignalingBackend)
 }
 
 func (s *ClientSession) AuthUserId() string {
@@ -563,7 +551,7 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 			request.Room.UpdateFromSession(s)
 			request.Room.Action = "leave"
 			var response map[string]interface{}
-			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendUrl(), request, &response); err != nil {
+			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
 				log.Printf("Could not notify about room session %s left room %s: %s", sid, room.Id(), err)
 			} else {
 				log.Printf("Removed room session %s: %+v", sid, response)
