@@ -187,7 +187,7 @@ type Hub struct {
 }
 
 func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
-	hashKey, _ := config.GetString("sessions", "hashkey")
+	hashKey, _ := GetStringOptionWithEnv(config, "sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
 	case 64:
@@ -195,7 +195,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		log.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
 	}
 
-	blockKey, _ := config.GetString("sessions", "blockkey")
+	blockKey, _ := GetStringOptionWithEnv(config, "sessions", "blockkey")
 	blockBytes := []byte(blockKey)
 	switch len(blockKey) {
 	case 0:
@@ -207,7 +207,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		return nil, fmt.Errorf("the sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
 	}
 
-	internalClientsSecret, _ := config.GetString("clients", "internalsecret")
+	internalClientsSecret, _ := GetStringOptionWithEnv(config, "clients", "internalsecret")
 	if internalClientsSecret == "" {
 		log.Println("WARNING: No shared secret has been set for internal clients.")
 	}

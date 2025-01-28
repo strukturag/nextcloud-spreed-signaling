@@ -493,10 +493,10 @@ func main() {
 		log.Fatal("Could not read configuration: ", err)
 	}
 
-	secret, _ := config.GetString("backend", "secret")
+	secret, _ := signaling.GetStringOptionWithEnv(config, "backend", "secret")
 	backendSecret = []byte(secret)
 
-	hashKey, _ := config.GetString("sessions", "hashkey")
+	hashKey, _ := signaling.GetStringOptionWithEnv(config, "sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
 	case 64:
@@ -504,7 +504,7 @@ func main() {
 		log.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
 	}
 
-	blockKey, _ := config.GetString("sessions", "blockkey")
+	blockKey, _ := signaling.GetStringOptionWithEnv(config, "sessions", "blockkey")
 	blockBytes := []byte(blockKey)
 	switch len(blockKey) {
 	case 0:
