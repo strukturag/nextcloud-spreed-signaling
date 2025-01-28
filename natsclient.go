@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -101,7 +102,7 @@ func NewNatsClient(url string) (NatsClient, error) {
 
 		client.conn, err = nats.Connect(url)
 	}
-	log.Printf("Connection established to %s (%s)", client.conn.ConnectedUrl(), client.conn.ConnectedServerId())
+	log.Printf("Connection established to %s (%s)", removeURLCredentials(client.conn.ConnectedUrl()), client.conn.ConnectedServerId())
 	return client, nil
 }
 
@@ -152,4 +153,12 @@ func (c *natsClient) Decode(msg *nats.Msg, vPtr interface{}) (err error) {
 		err = json.Unmarshal(msg.Data, arg)
 	}
 	return
+}
+
+func removeURLCredentials(u string) string {
+	if u, err := url.Parse(u); err == nil && u.User != nil {
+		u.User = url.User("***")
+		return u.String()
+	}
+	return u
 }
