@@ -42,7 +42,7 @@ type backendStorageStatic struct {
 func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) {
 	allowAll, _ := config.GetBool("backend", "allowall")
 	allowHttp, _ := config.GetBool("backend", "allowhttp")
-	commonSecret, _ := config.GetString("backend", "secret")
+	commonSecret, _ := GetStringOptionWithEnv(config, "backend", "secret")
 	sessionLimit, err := config.GetInt("backend", "sessionlimit")
 	if err != nil || sessionLimit < 0 {
 		sessionLimit = 0
@@ -206,7 +206,7 @@ func getConfiguredBackendIDs(backendIds string) (ids []string) {
 func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
 	hosts = make(map[string][]*Backend)
 	for _, id := range getConfiguredBackendIDs(backendIds) {
-		u, _ := config.GetString(id, "url")
+		u, _ := GetStringOptionWithEnv(config, id, "url")
 		if u == "" {
 			log.Printf("Backend %s is missing or incomplete, skipping", id)
 			continue
@@ -226,7 +226,7 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecr
 			u = parsed.String()
 		}
 
-		secret, _ := config.GetString(id, "secret")
+		secret, _ := GetStringOptionWithEnv(config, id, "secret")
 		if secret == "" && commonSecret != "" {
 			log.Printf("Backend %s has no own shared secret set, using common shared secret", id)
 			secret = commonSecret
@@ -280,7 +280,7 @@ func (s *backendStorageStatic) Reload(config *goconf.ConfigFile) {
 		return
 	}
 
-	commonSecret, _ := config.GetString("backend", "secret")
+	commonSecret, _ := GetStringOptionWithEnv(config, "backend", "secret")
 
 	if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
 		configuredHosts := getConfiguredHosts(backendIds, config, commonSecret)

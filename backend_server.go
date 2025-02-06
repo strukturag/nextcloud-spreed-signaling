@@ -73,8 +73,8 @@ type BackendServer struct {
 }
 
 func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
-	turnapikey, _ := config.GetString("turn", "apikey")
-	turnsecret, _ := config.GetString("turn", "secret")
+	turnapikey, _ := GetStringOptionWithEnv(config, "turn", "apikey")
+	turnsecret, _ := GetStringOptionWithEnv(config, "turn", "secret")
 	turnservers, _ := config.GetString("turn", "servers")
 	// TODO(jojo): Make the validity for TURN credentials configurable.
 	turnvalid := 24 * time.Hour
