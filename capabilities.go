@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/marcw/cachecontrol"
+	"github.com/pquerna/cachecontrol/cacheobject"
 )
 
 const (
@@ -156,15 +156,14 @@ func (e *capabilitiesEntry) update(ctx context.Context, u *url.URL, now time.Tim
 
 	var maxAge time.Duration
 	if cacheControl := response.Header.Get("Cache-Control"); cacheControl != "" {
-		cc := cachecontrol.Parse(cacheControl)
-		if nc, _ := cc.NoCache(); !nc {
-			maxAge = cc.MaxAge()
+		if cc, err := cacheobject.ParseResponseCacheControl(cacheControl); err == nil {
+			if !cc.NoCachePresent && cc.MaxAge > 0 {
+				maxAge = time.Duration(cc.MaxAge) * time.Second
+			}
+			e.mustRevalidate = cc.MustRevalidate
 		}
-		if maxAge < minCapabilitiesCacheDuration {
-			maxAge = minCapabilitiesCacheDuration
-		}
-		e.mustRevalidate = cc.MustRevalidate()
-	} else {
+	}
+	if maxAge < minCapabilitiesCacheDuration {
 		maxAge = minCapabilitiesCacheDuration
 	}
 	e.nextUpdate = now.Add(maxAge)
