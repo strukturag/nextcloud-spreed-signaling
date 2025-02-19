@@ -17,7 +17,7 @@ require (
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/pion/sdp/v3 v3.0.10
 	github.com/pquerna/cachecontrol v0.2.0
-	github.com/prometheus/client_golang v1.20.5
+	github.com/prometheus/client_golang v1.21.0
 	github.com/stretchr/testify v1.10.0
 	go.etcd.io/etcd/api/v3 v3.5.18
 	go.etcd.io/etcd/client/pkg/v3 v3.5.18
@@ -62,7 +62,7 @@ require (
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
-	github.com/prometheus/common v0.55.0 // indirect
+	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
