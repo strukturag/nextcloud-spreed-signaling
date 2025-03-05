@@ -67,7 +67,7 @@ type natsClient struct {
 	conn *nats.Conn
 }
 
-func NewNatsClient(url string) (NatsClient, error) {
+func NewNatsClient(url string, options ...nats.Option) (NatsClient, error) {
 	if url == ":loopback:" {
 		log.Printf("WARNING: events url %s is deprecated, please use %s instead", url, NatsLoopbackUrl)
 		url = NatsLoopbackUrl
@@ -84,10 +84,13 @@ func NewNatsClient(url string) (NatsClient, error) {
 
 	client := &natsClient{}
 
-	client.conn, err = nats.Connect(url,
+	options = append([]nats.Option{
 		nats.ClosedHandler(client.onClosed),
 		nats.DisconnectHandler(client.onDisconnected),
-		nats.ReconnectHandler(client.onReconnected))
+		nats.ReconnectHandler(client.onReconnected),
+		nats.MaxReconnects(-1),
+	}, options...)
+	client.conn, err = nats.Connect(url, options...)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

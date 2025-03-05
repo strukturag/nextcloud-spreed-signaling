@@ -137,7 +137,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		server2.Close()
 	})
 
-	nats := startLocalNatsServer(t)
+	nats, _ := startLocalNatsServer(t)
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
 
@@ -156,7 +156,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	config1.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config1.AddOption("geoip", "url", "none")
 
-	events1, err := NewAsyncEvents(nats)
+	events1, err := NewAsyncEvents(nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		events1.Close()
@@ -179,7 +179,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	config2.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config2.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config2.AddOption("geoip", "url", "none")
-	events2, err := NewAsyncEvents(nats)
+	events2, err := NewAsyncEvents(nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		events2.Close()
