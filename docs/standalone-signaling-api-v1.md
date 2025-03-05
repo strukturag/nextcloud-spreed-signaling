@@ -1538,6 +1538,29 @@ for streams on the proxy. Only present if a bandwidth limit is configured on
 the proxy.
 
 
+### Dialout session
+
+If a SIP bridge with support for dial-out is connected, the serverinfo response
+will contain an additional property `dialout` with the following contents:
+
+    [
+      {
+        "sessionid": "the-session-id",
+        "connected": true,
+        "address": "192.168.1.0",
+        "useragent": "spreed-webrtc-sip-bridge/1.2.3",
+        "features": [
+          "start-dialout",
+          "datachannels",
+          "encryption"
+        ]
+      }
+    ]
+
+If the connection between SIP bridge and signaling server is interrupted, the
+`connected` property will be `false` and details on the session (`address`, `useragent` and `features`) omitted.
+
+
 ## Rooms API
 
 The base URL for the rooms API is `/api/vi/room/<roomid>`, all requests must be
