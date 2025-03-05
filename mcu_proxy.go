@@ -362,6 +362,8 @@ type mcuProxyConnection struct {
 	helloMsgId string
 	sessionId  atomic.Value
 	country    atomic.Value
+	version    atomic.Value
+	features   atomic.Value
 
 	callbacks map[string]func(*ProxyServerMessage)
 
@@ -395,6 +397,8 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP) (*mcuProx
 	conn.load.Store(loadNotConnected)
 	conn.bandwidth.Store(nil)
 	conn.country.Store("")
+	conn.version.Store("")
+	conn.features.Store([]string{})
 	return conn, nil
 }
 
@@ -503,6 +507,14 @@ func (c *mcuProxyConnection) Bandwidth() *EventProxyServerBandwidth {
 
 func (c *mcuProxyConnection) Country() string {
 	return c.country.Load().(string)
+}
+
+func (c *mcuProxyConnection) Version() string {
+	return c.version.Load().(string)
+}
+
+func (c *mcuProxyConnection) Features() []string {
+	return c.features.Load().([]string)
 }
 
 func (c *mcuProxyConnection) SessionId() string {
@@ -932,11 +944,19 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 			resumed := c.SessionId() == msg.Hello.SessionId
 			c.sessionId.Store(msg.Hello.SessionId)
 			country := ""
-			if msg.Hello.Server != nil {
-				if country = msg.Hello.Server.Country; country != "" && !IsValidCountry(country) {
+			if server := msg.Hello.Server; server != nil {
+				if country = server.Country; country != "" && !IsValidCountry(country) {
 					log.Printf("Proxy %s sent invalid country %s in hello response", c, country)
 					country = ""
 				}
+				c.version.Store(server.Version)
+				if server.Features == nil {
+					server.Features = []string{}
+				}
+				c.features.Store(server.Features)
+			} else {
+				c.version.Store("")
+				c.features.Store([]string{})
 			}
 			c.country.Store(country)
 			if resumed {
