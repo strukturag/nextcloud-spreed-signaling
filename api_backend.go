@@ -520,9 +520,18 @@ type BackendServerInfoSfu struct {
 	Proxies []BackendServerInfoSfuProxy `json:"proxies,omitempty"`
 }
 
+type BackendServerInfoDialout struct {
+	SessionId string   `json:"sessionid"`
+	Connected bool     `json:"connected"`
+	Address   string   `json:"address,omitempty"`
+	UserAgent string   `json:"useragent,omitempty"`
+	Features  []string `json:"features,omitempty"`
+}
+
 type BackendServerInfo struct {
 	Version  string   `json:"version"`
 	Features []string `json:"features"`
 
-	Sfu BackendServerInfoSfu `json:"sfu"`
+	Sfu     BackendServerInfoSfu       `json:"sfu"`
+	Dialout []BackendServerInfoDialout `json:"dialout,omitempty"`
 }

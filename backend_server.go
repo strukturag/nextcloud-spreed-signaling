@@ -1014,6 +1014,21 @@ func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request
 		Sfu: sfu,
 	}
 
+	b.hub.mu.RLock()
+	defer b.hub.mu.RUnlock()
+	for session := range b.hub.dialoutSessions {
+		dialout := BackendServerInfoDialout{
+			SessionId: session.PublicId(),
+		}
+		if client := session.GetClient(); client != nil && client.IsConnected() {
+			dialout.Connected = true
+			dialout.Address = client.RemoteAddr()
+			dialout.UserAgent = client.UserAgent()
+			dialout.Features = session.GetFeatures()
+		}
+		info.Dialout = append(info.Dialout, dialout)
+	}
+
 	infoData, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
 		log.Printf("Could not serialize server info %+v: %s", info, err)
