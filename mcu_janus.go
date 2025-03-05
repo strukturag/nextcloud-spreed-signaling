@@ -182,6 +182,7 @@ type mcuJanus struct {
 	handle  *JanusHandle
 
 	version int
+	info    atomic.Pointer[InfoMsg]
 
 	closeChan chan struct{}
 
@@ -372,6 +373,8 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 	}
 	log.Println("Created Janus handle", m.handle.Id)
 
+	m.info.Store(info)
+
 	go m.run()
 
 	m.notifyOnConnected()
@@ -408,6 +411,14 @@ loop:
 func (m *mcuJanus) Stop() {
 	m.disconnect()
 	m.reconnectTimer.Stop()
+}
+
+func (m *mcuJanus) IsConnected() bool {
+	return m.handle != nil
+}
+
+func (m *mcuJanus) Info() *InfoMsg {
+	return m.info.Load()
 }
 
 func (m *mcuJanus) Reload(config *goconf.ConfigFile) {
