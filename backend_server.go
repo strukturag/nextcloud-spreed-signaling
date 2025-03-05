@@ -173,6 +173,7 @@ func (b *BackendServer) Start(r *mux.Router) error {
 	s.HandleFunc("/welcome", b.setComonHeaders(b.welcomeFunc)).Methods("GET")
 	s.HandleFunc("/room/{roomid}", b.setComonHeaders(b.parseRequestBody(b.roomHandler))).Methods("POST")
 	s.HandleFunc("/stats", b.setComonHeaders(b.validateStatsRequest(b.statsHandler))).Methods("GET")
+	s.HandleFunc("/serverinfo", b.setComonHeaders(b.validateStatsRequest(b.serverinfoHandler))).Methods("GET")
 
 	// Expose prometheus metrics at "/metrics".
 	r.HandleFunc("/metrics", b.setComonHeaders(b.validateStatsRequest(b.metricsHandler))).Methods("GET")
@@ -948,6 +949,82 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	w.Write(statsData) // nolint
+}
+
+func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request) {
+	var sfu BackendServerInfoSfu
+	switch m := b.hub.mcu.(type) {
+	case *mcuJanus:
+		sfu.Mode = SfuModeJanus
+		janus := &BackendServerInfoSfuJanus{
+			Url: m.url,
+		}
+		if m.IsConnected() {
+			janus.Connected = true
+			if info := m.Info(); info != nil {
+				janus.Name = info.Name
+				janus.Version = info.VersionString
+				janus.Author = info.Author
+				janus.DataChannels = makePtr(info.DataChannels)
+				janus.FullTrickle = makePtr(info.FullTrickle)
+				janus.LocalIP = info.LocalIP
+				janus.IPv6 = makePtr(info.IPv6)
+
+				if plugin, found := info.Plugins[pluginVideoRoom]; found {
+					janus.VideoRoom = &BackendServerInfoVideoRoom{
+						Name:    plugin.Name,
+						Version: plugin.VersionString,
+						Author:  plugin.Author,
+					}
+				}
+			}
+		}
+		sfu.Janus = janus
+	case *mcuProxy:
+		sfu.Mode = SfuModeProxy
+		for _, c := range m.connections {
+			proxy := BackendServerInfoSfuProxy{
+				Url: c.rawUrl,
+
+				Temporary: c.IsTemporary(),
+			}
+			if len(c.ip) > 0 {
+				proxy.IP = c.ip.String()
+			}
+			if c.IsConnected() {
+				proxy.Connected = true
+				proxy.Shutdown = makePtr(c.IsShutdownScheduled())
+				proxy.Uptime = &c.connectedSince
+				proxy.Version = c.Version()
+				proxy.Features = c.Features()
+				proxy.Country = c.Country()
+				proxy.Load = makePtr(c.Load())
+				proxy.Bandwidth = c.Bandwidth()
+			}
+			sfu.Proxies = append(sfu.Proxies, proxy)
+		}
+	default:
+		sfu.Mode = SfuModeUnknown
+	}
+
+	info := BackendServerInfo{
+		Version:  b.version,
+		Features: b.hub.info.Features,
+
+		Sfu: sfu,
+	}
+
+	infoData, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		log.Printf("Could not serialize server info %+v: %s", info, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	w.Write(infoData) // nolint
 }
 
 func (b *BackendServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
