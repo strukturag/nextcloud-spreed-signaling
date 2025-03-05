@@ -47,6 +47,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/nats-io/nats-server/v2/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -190,10 +191,10 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		server2.Close()
 	})
 
-	nats1 := startLocalNatsServer(t)
-	var nats2 string
+	nats1, _ := startLocalNatsServer(t)
+	var nats2 *server.Server
 	if strings.Contains(t.Name(), "Federation") {
-		nats2 = startLocalNatsServer(t)
+		nats2, _ = startLocalNatsServer(t)
 	} else {
 		nats2 = nats1
 	}
@@ -205,7 +206,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		addr1, addr2 = addr2, addr1
 	}
 
-	events1, err := NewAsyncEvents(nats1)
+	events1, err := NewAsyncEvents(nats1.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		events1.Close()
@@ -217,7 +218,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	require.NoError(err)
 	b1, err := NewBackendServer(config1, h1, "no-version")
 	require.NoError(err)
-	events2, err := NewAsyncEvents(nats2)
+	events2, err := NewAsyncEvents(nats2.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		events2.Close()

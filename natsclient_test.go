@@ -30,29 +30,37 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/nats-io/nats-server/v2/server"
 	natsserver "github.com/nats-io/nats-server/v2/test"
 )
 
-func startLocalNatsServer(t *testing.T) string {
+func startLocalNatsServer(t *testing.T) (*server.Server, int) {
+	t.Helper()
+	return startLocalNatsServerPort(t, server.RANDOM_PORT)
+}
+
+func startLocalNatsServerPort(t *testing.T, port int) (*server.Server, int) {
+	t.Helper()
 	opts := natsserver.DefaultTestOptions
-	opts.Port = -1
+	opts.Port = port
 	opts.Cluster.Name = "testing"
 	srv := natsserver.RunServer(&opts)
 	t.Cleanup(func() {
 		srv.Shutdown()
 		srv.WaitForShutdown()
 	})
-	return srv.ClientURL()
+	return srv, opts.Port
 }
 
-func CreateLocalNatsClientForTest(t *testing.T) NatsClient {
-	url := startLocalNatsServer(t)
-	result, err := NewNatsClient(url)
+func CreateLocalNatsClientForTest(t *testing.T, options ...nats.Option) (*server.Server, int, NatsClient) {
+	t.Helper()
+	server, port := startLocalNatsServer(t)
+	result, err := NewNatsClient(server.ClientURL(), options...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		result.Close()
 	})
-	return result
+	return server, port, result
 }
 
 func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
@@ -100,7 +108,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 func TestNatsClient_Subscribe(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
-		client := CreateLocalNatsClientForTest(t)
+		_, _, client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_Subscribe(t, client)
 	})
@@ -115,7 +123,7 @@ func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
 func TestNatsClient_PublishAfterClose(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
-		client := CreateLocalNatsClientForTest(t)
+		_, _, client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_PublishAfterClose(t, client)
 	})
@@ -132,7 +140,7 @@ func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
 func TestNatsClient_SubscribeAfterClose(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
-		client := CreateLocalNatsClientForTest(t)
+		_, _, client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_SubscribeAfterClose(t, client)
 	})
@@ -155,8 +163,38 @@ func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
 func TestNatsClient_BadSubjects(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
-		client := CreateLocalNatsClientForTest(t)
+		_, _, client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_BadSubjects(t, client)
+	})
+}
+
+func TestNatsClient_MaxReconnects(t *testing.T) {
+	CatchLogForTest(t)
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		assert := assert.New(t)
+		require := require.New(t)
+		reconnectWait := 5 * time.Millisecond
+		server, port, client := CreateLocalNatsClientForTest(t,
+			nats.ReconnectWait(reconnectWait),
+			nats.ReconnectJitter(0, 0),
+		)
+		c, ok := client.(*natsClient)
+		require.True(ok, "wrong class: %T", client)
+		require.True(c.conn.IsConnected(), "not connected initially")
+		assert.Equal(server.ID(), c.conn.ConnectedServerId())
+
+		server.Shutdown()
+		server.WaitForShutdown()
+
+		// The NATS client tries to reconnect a maximum of 100 times by default.
+		time.Sleep(time.Second + (100 * reconnectWait))
+		require.False(c.conn.IsConnected(), "should be disconnected after server shutdown")
+
+		server, _ = startLocalNatsServerPort(t, port)
+
+		time.Sleep(time.Second)
+		require.True(c.conn.IsConnected(), "not connected after restart")
+		assert.Equal(server.ID(), c.conn.ConnectedServerId())
 	})
 }

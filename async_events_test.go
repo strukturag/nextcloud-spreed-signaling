@@ -50,8 +50,8 @@ func getAsyncEventsForTest(t *testing.T) AsyncEvents {
 }
 
 func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
-	url := startLocalNatsServer(t)
-	events, err := NewAsyncEvents(url)
+	server, _ := startLocalNatsServer(t)
+	events, err := NewAsyncEvents(server.ClientURL())
 	if err != nil {
 		require.NoError(t, err)
 	}
