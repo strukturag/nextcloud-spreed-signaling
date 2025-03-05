@@ -464,3 +464,65 @@ func (p *BackendInformationEtcd) CheckValid() error {
 	p.parsedUrl = parsedUrl
 	return nil
 }
+
+type BackendServerInfoVideoRoom struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+	Author  string `json:"author,omitempty"`
+}
+
+type BackendServerInfoSfuJanus struct {
+	Url string `json:"url"`
+
+	Connected bool `json:"connected"`
+
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+	Author  string `json:"author,omitempty"`
+
+	DataChannels *bool  `json:"datachannels,omitempty"`
+	FullTrickle  *bool  `json:"fulltrickle,omitempty"`
+	LocalIP      string `json:"localip,omitempty"`
+	IPv6         *bool  `json:"ipv6,omitempty"`
+
+	VideoRoom *BackendServerInfoVideoRoom `json:"videoroom,omitempty"`
+}
+
+type BackendServerInfoSfuProxy struct {
+	Url string `json:"url"`
+	IP  string `json:"ip,omitempty"`
+
+	Connected bool       `json:"connected"`
+	Temporary bool       `json:"temporary"`
+	Shutdown  *bool      `json:"shutdown,omitempty"`
+	Uptime    *time.Time `json:"uptime,omitempty"`
+
+	Version  string   `json:"version,omitempty"`
+	Features []string `json:"features,omitempty"`
+
+	Country   string                     `json:"country,omitempty"`
+	Load      *int64                     `json:"load,omitempty"`
+	Bandwidth *EventProxyServerBandwidth `json:"bandwidth,omitempty"`
+}
+
+type SfuMode string
+
+const (
+	SfuModeUnknown SfuMode = "unknown"
+	SfuModeJanus   SfuMode = "janus"
+	SfuModeProxy   SfuMode = "proxy"
+)
+
+type BackendServerInfoSfu struct {
+	Mode SfuMode `json:"mode"`
+
+	Janus   *BackendServerInfoSfuJanus  `json:"janus,omitempty"`
+	Proxies []BackendServerInfoSfuProxy `json:"proxies,omitempty"`
+}
+
+type BackendServerInfo struct {
+	Version  string   `json:"version"`
+	Features []string `json:"features"`
+
+	Sfu BackendServerInfoSfu `json:"sfu"`
+}
