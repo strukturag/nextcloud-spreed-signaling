@@ -508,9 +508,8 @@ type BackendServerInfoSfuProxy struct {
 type SfuMode string
 
 const (
-	SfuModeUnknown SfuMode = "unknown"
-	SfuModeJanus   SfuMode = "janus"
-	SfuModeProxy   SfuMode = "proxy"
+	SfuModeJanus SfuMode = "janus"
+	SfuModeProxy SfuMode = "proxy"
 )
 
 type BackendServerInfoSfu struct {
@@ -529,10 +528,39 @@ type BackendServerInfoDialout struct {
 	Features  []string `json:"features,omitempty"`
 }
 
+type BackendServerInfoNats struct {
+	Urls      []string `json:"urls"`
+	Connected bool     `json:"connected"`
+
+	ServerUrl     string `json:"serverurl,omitempty"`
+	ServerID      string `json:"serverid,omitempty"`
+	ServerVersion string `json:"version,omitempty"`
+	ClusterName   string `json:"clustername,omitempty"`
+}
+
+type BackendServerInfoGrpc struct {
+	Target    string `json:"target"`
+	IP        string `json:"ip,omitempty"`
+	Connected bool   `json:"connected"`
+
+	Version string `json:"version,omitempty"`
+}
+
+type BackendServerInfoEtcd struct {
+	Endpoints []string `json:"endpoints"`
+
+	Active    string `json:"active,omitempty"`
+	Connected *bool  `json:"connected,omitempty"`
+}
+
 type BackendServerInfo struct {
 	Version  string   `json:"version"`
 	Features []string `json:"features"`
 
-	Sfu     BackendServerInfoSfu       `json:"sfu"`
+	Sfu     *BackendServerInfoSfu      `json:"sfu,omitempty"`
 	Dialout []BackendServerInfoDialout `json:"dialout,omitempty"`
+
+	Nats *BackendServerInfoNats  `json:"nats,omitempty"`
+	Grpc []BackendServerInfoGrpc `json:"grpc,omitempty"`
+	Etcd *BackendServerInfoEtcd  `json:"etcd,omitempty"`
 }

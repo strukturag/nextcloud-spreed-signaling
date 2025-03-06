@@ -952,91 +952,23 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request) {
-	var sfu BackendServerInfoSfu
-	switch m := b.hub.mcu.(type) {
-	case *mcuJanus:
-		sfu.Mode = SfuModeJanus
-		janus := &BackendServerInfoSfuJanus{
-			Url: m.url,
-		}
-		if m.IsConnected() {
-			janus.Connected = true
-			if info := m.Info(); info != nil {
-				janus.Name = info.Name
-				janus.Version = info.VersionString
-				janus.Author = info.Author
-				janus.DataChannels = makePtr(info.DataChannels)
-				janus.FullTrickle = makePtr(info.FullTrickle)
-				janus.LocalIP = info.LocalIP
-				janus.IPv6 = makePtr(info.IPv6)
-
-				if plugin, found := info.Plugins[pluginVideoRoom]; found {
-					janus.VideoRoom = &BackendServerInfoVideoRoom{
-						Name:    plugin.Name,
-						Version: plugin.VersionString,
-						Author:  plugin.Author,
-					}
-				}
-			}
-		}
-		sfu.Janus = janus
-	case *mcuProxy:
-		sfu.Mode = SfuModeProxy
-		for _, c := range m.connections {
-			proxy := BackendServerInfoSfuProxy{
-				Url: c.rawUrl,
-
-				Temporary: c.IsTemporary(),
-			}
-			if len(c.ip) > 0 {
-				proxy.IP = c.ip.String()
-			}
-			if c.IsConnected() {
-				proxy.Connected = true
-				proxy.Shutdown = makePtr(c.IsShutdownScheduled())
-				proxy.Uptime = &c.connectedSince
-				proxy.Version = c.Version()
-				proxy.Features = c.Features()
-				proxy.Country = c.Country()
-				proxy.Load = makePtr(c.Load())
-				proxy.Bandwidth = c.Bandwidth()
-			}
-			sfu.Proxies = append(sfu.Proxies, proxy)
-		}
-	default:
-		sfu.Mode = SfuModeUnknown
-	}
-
 	info := BackendServerInfo{
 		Version:  b.version,
 		Features: b.hub.info.Features,
 
-		Sfu: sfu,
+		Dialout: b.hub.GetServerInfoDialout(),
 	}
-
-	b.hub.mu.RLock()
-	defer b.hub.mu.RUnlock()
-	for session := range b.hub.dialoutSessions {
-		dialout := BackendServerInfoDialout{
-			SessionId: session.PublicId(),
-		}
-		if client := session.GetClient(); client != nil && client.IsConnected() {
-			dialout.Connected = true
-			dialout.Address = client.RemoteAddr()
-			if ua := client.UserAgent(); ua != "" {
-				dialout.UserAgent = ua
-				// Extract version from user-agent, expects "software/version".
-				if pos := strings.IndexByte(ua, '/'); pos != -1 {
-					version := ua[pos+1:]
-					if pos = strings.IndexByte(version, ' '); pos != -1 {
-						version = version[:pos]
-					}
-					dialout.Version = version
-				}
-			}
-			dialout.Features = session.GetFeatures()
-		}
-		info.Dialout = append(info.Dialout, dialout)
+	if mcu := b.hub.mcu; mcu != nil {
+		info.Sfu = mcu.GetServerInfoSfu()
+	}
+	if e, ok := b.events.(*asyncEventsNats); ok {
+		info.Nats = e.GetServerInfoNats()
+	}
+	if rpcClients := b.hub.rpcClients; rpcClients != nil {
+		info.Grpc = rpcClients.GetServerInfoGrpc()
+	}
+	if etcdClient := b.hub.etcdClient; etcdClient != nil {
+		info.Etcd = etcdClient.GetServerInfoEtcd()
 	}
 
 	infoData, err := json.MarshalIndent(info, "", "  ")

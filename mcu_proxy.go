@@ -1670,6 +1670,44 @@ func (m *mcuProxy) GetStats() interface{} {
 	return result
 }
 
+func (m *mcuProxy) GetServerInfoSfu() *BackendServerInfoSfu {
+	m.connectionsMu.RLock()
+	defer m.connectionsMu.RUnlock()
+
+	sfu := &BackendServerInfoSfu{
+		Mode: SfuModeProxy,
+	}
+	for _, c := range m.connections {
+		proxy := BackendServerInfoSfuProxy{
+			Url: c.rawUrl,
+
+			Temporary: c.IsTemporary(),
+		}
+		if len(c.ip) > 0 {
+			proxy.IP = c.ip.String()
+		}
+		if c.IsConnected() {
+			proxy.Connected = true
+			proxy.Shutdown = makePtr(c.IsShutdownScheduled())
+			proxy.Uptime = &c.connectedSince
+			proxy.Version = c.Version()
+			proxy.Features = c.Features()
+			proxy.Country = c.Country()
+			proxy.Load = makePtr(c.Load())
+			proxy.Bandwidth = c.Bandwidth()
+		}
+		sfu.Proxies = append(sfu.Proxies, proxy)
+	}
+	slices.SortFunc(sfu.Proxies, func(a, b BackendServerInfoSfuProxy) int {
+		c := strings.Compare(a.Url, b.Url)
+		if c == 0 {
+			c = strings.Compare(a.IP, b.IP)
+		}
+		return c
+	})
+	return sfu
+}
+
 func (m *mcuProxy) getContinentsMap() map[string][]string {
 	continentsMap := m.continentsMap.Load()
 	if continentsMap == nil {

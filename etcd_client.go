@@ -37,6 +37,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/grpc/connectivity"
 )
 
 type EtcdClientListener interface {
@@ -66,6 +67,25 @@ func NewEtcdClient(config *goconf.ConfigFile, compatSection string) (*EtcdClient
 	}
 
 	return result, nil
+}
+
+func (c *EtcdClient) GetServerInfoEtcd() *BackendServerInfoEtcd {
+	client := c.getEtcdClient()
+	if client == nil {
+		return nil
+	}
+
+	result := &BackendServerInfoEtcd{
+		Endpoints: client.Endpoints(),
+	}
+
+	conn := client.ActiveConnection()
+	if conn != nil {
+		result.Active = conn.Target()
+		result.Connected = makePtr(conn.GetState() == connectivity.Ready)
+	}
+
+	return result
 }
 
 func (c *EtcdClient) getConfigStringWithFallback(config *goconf.ConfigFile, option string) string {
