@@ -1023,7 +1023,17 @@ func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request
 		if client := session.GetClient(); client != nil && client.IsConnected() {
 			dialout.Connected = true
 			dialout.Address = client.RemoteAddr()
-			dialout.UserAgent = client.UserAgent()
+			if ua := client.UserAgent(); ua != "" {
+				dialout.UserAgent = ua
+				// Extract version from user-agent, expects "software/version".
+				if pos := strings.IndexByte(ua, '/'); pos != -1 {
+					version := ua[pos+1:]
+					if pos = strings.IndexByte(version, ' '); pos != -1 {
+						version = version[:pos]
+					}
+					dialout.Version = version
+				}
+			}
 			dialout.Features = session.GetFeatures()
 		}
 		info.Dialout = append(info.Dialout, dialout)
