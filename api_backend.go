@@ -525,6 +525,7 @@ type BackendServerInfoDialout struct {
 	Connected bool     `json:"connected"`
 	Address   string   `json:"address,omitempty"`
 	UserAgent string   `json:"useragent,omitempty"`
+	Version   string   `json:"version,omitempty"`
 	Features  []string `json:"features,omitempty"`
 }
 

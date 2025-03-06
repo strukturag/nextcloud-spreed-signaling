@@ -1549,6 +1549,7 @@ will contain an additional property `dialout` with the following contents:
         "connected": true,
         "address": "192.168.1.0",
         "useragent": "spreed-webrtc-sip-bridge/1.2.3",
+        "version": "1.2.3",
         "features": [
           "start-dialout",
           "datachannels",
