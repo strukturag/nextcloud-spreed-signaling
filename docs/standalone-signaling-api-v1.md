@@ -1538,6 +1538,56 @@ for streams on the proxy. Only present if a bandwidth limit is configured on
 the proxy.
 
 
+### NATS connection
+
+Information about the NATS connection are also returned by the serverinfo
+endpoint:
+
+    {
+      "urls": [
+        "nats://localhost:4222"
+      ],
+      "connected": true,
+      "serverurl": "nats://localhost:4222",
+      "serverid": "556c9de63ac214e53a9b976b2e5305d8",
+      "version": "0.6.8"
+    }
+
+
+### GRPC connections
+
+In clustered mode, the signaling server has GRPC connections to other instances
+which are included in the serverinfo response:
+
+    [
+      {
+        "target": "192.168.1.1:8080",
+        "connected": true,
+        "version": "1.2.3"
+      },
+      {
+        "target": "192.168.1.2:8080",
+        "connected": true,
+        "version": "1.2.3"
+      }
+    ]
+
+
+### ETCD cluster
+
+Some configuration can be loaded from an etcd cluster, the serverinfo response
+also contains information on that connection:
+
+    {
+      "endpoints": [
+        "192.168.4.1:2379",
+        "192.168.4.2:2379"
+      ],
+      "active": "etcd-endpoints://0xc0001fba40/192.168.4.2:2379",
+      "connected": true
+    }
+
+
 ### Dialout session
 
 If a SIP bridge with support for dial-out is connected, the serverinfo response
