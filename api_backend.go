@@ -464,3 +464,103 @@ func (p *BackendInformationEtcd) CheckValid() error {
 	p.parsedUrl = parsedUrl
 	return nil
 }
+
+type BackendServerInfoVideoRoom struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+	Author  string `json:"author,omitempty"`
+}
+
+type BackendServerInfoSfuJanus struct {
+	Url string `json:"url"`
+
+	Connected bool `json:"connected"`
+
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+	Author  string `json:"author,omitempty"`
+
+	DataChannels *bool  `json:"datachannels,omitempty"`
+	FullTrickle  *bool  `json:"fulltrickle,omitempty"`
+	LocalIP      string `json:"localip,omitempty"`
+	IPv6         *bool  `json:"ipv6,omitempty"`
+
+	VideoRoom *BackendServerInfoVideoRoom `json:"videoroom,omitempty"`
+}
+
+type BackendServerInfoSfuProxy struct {
+	Url string `json:"url"`
+	IP  string `json:"ip,omitempty"`
+
+	Connected bool       `json:"connected"`
+	Temporary bool       `json:"temporary"`
+	Shutdown  *bool      `json:"shutdown,omitempty"`
+	Uptime    *time.Time `json:"uptime,omitempty"`
+
+	Version  string   `json:"version,omitempty"`
+	Features []string `json:"features,omitempty"`
+
+	Country   string                     `json:"country,omitempty"`
+	Load      *int64                     `json:"load,omitempty"`
+	Bandwidth *EventProxyServerBandwidth `json:"bandwidth,omitempty"`
+}
+
+type SfuMode string
+
+const (
+	SfuModeJanus SfuMode = "janus"
+	SfuModeProxy SfuMode = "proxy"
+)
+
+type BackendServerInfoSfu struct {
+	Mode SfuMode `json:"mode"`
+
+	Janus   *BackendServerInfoSfuJanus  `json:"janus,omitempty"`
+	Proxies []BackendServerInfoSfuProxy `json:"proxies,omitempty"`
+}
+
+type BackendServerInfoDialout struct {
+	SessionId string   `json:"sessionid"`
+	Connected bool     `json:"connected"`
+	Address   string   `json:"address,omitempty"`
+	UserAgent string   `json:"useragent,omitempty"`
+	Version   string   `json:"version,omitempty"`
+	Features  []string `json:"features,omitempty"`
+}
+
+type BackendServerInfoNats struct {
+	Urls      []string `json:"urls"`
+	Connected bool     `json:"connected"`
+
+	ServerUrl     string `json:"serverurl,omitempty"`
+	ServerID      string `json:"serverid,omitempty"`
+	ServerVersion string `json:"version,omitempty"`
+	ClusterName   string `json:"clustername,omitempty"`
+}
+
+type BackendServerInfoGrpc struct {
+	Target    string `json:"target"`
+	IP        string `json:"ip,omitempty"`
+	Connected bool   `json:"connected"`
+
+	Version string `json:"version,omitempty"`
+}
+
+type BackendServerInfoEtcd struct {
+	Endpoints []string `json:"endpoints"`
+
+	Active    string `json:"active,omitempty"`
+	Connected *bool  `json:"connected,omitempty"`
+}
+
+type BackendServerInfo struct {
+	Version  string   `json:"version"`
+	Features []string `json:"features"`
+
+	Sfu     *BackendServerInfoSfu      `json:"sfu,omitempty"`
+	Dialout []BackendServerInfoDialout `json:"dialout,omitempty"`
+
+	Nats *BackendServerInfoNats  `json:"nats,omitempty"`
+	Grpc []BackendServerInfoGrpc `json:"grpc,omitempty"`
+	Etcd *BackendServerInfoEtcd  `json:"etcd,omitempty"`
+}
