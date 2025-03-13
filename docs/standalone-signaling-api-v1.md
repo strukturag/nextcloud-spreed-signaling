@@ -1416,6 +1416,202 @@ The signaling server provides an internal API that can be called from Nextcloud
 to trigger events from the server side.
 
 
+## Welcome message
+
+The welcome message at `/api/v1/welcome` can be retrieved using HTTP `GET` to
+check if the signaling server is reachable and to get the version number and
+supported features.
+
+A comma separated list of feature ids is in the `X-Spreed-Signaling-Features`
+HTTP header, the version is available in the response body:
+
+    {
+      "nextcloud-spreed-signaling": "Welcome",
+      "version": "1.2.3"
+    }
+
+
+## Server info
+
+If the feature id `serverinfo` is supported, the server info API at
+`/api/v1/serverinfo` can be called with HTTP `GET` to query information about
+the server.
+
+Please note that the client calling this API must be allowed through the
+`allowed_ips` option in the `[stats]` section.
+
+
+### Example response with Janus backend
+
+Below is an example response of the serverinfo endpoint with a connected Janus
+server:
+
+    {
+      "version": "1.2.3",
+      "features": [
+        "feature-1",
+        "feature-2",
+        ...
+        "serverinfo",
+        ...
+      ],
+      "sfu": {
+        "mode": "janus",
+        "janus": {
+          "url": "ws://localhost:8188/",
+          "connected": true,
+          "name": "Janus WebRTC Server",
+          "version": "1.3.1",
+          "author": "Meetecho s.r.l.",
+          "datachannels": true,
+          "fulltrickle": true,
+          "localip": "192.168.0.1",
+          "ipv6": false,
+          "videoroom": {
+            "name": "JANUS VideoRoom plugin",
+            "version": "0.0.10",
+            "author": "Meetecho s.r.l."
+          }
+        }
+      }
+    }
+
+If the backend is not connected, the value of `connected` in `janus` will be
+`false` and most other entries will be missing.
+
+
+### Example response with signaling proxy backends
+
+Below is an example response of the serverinfo endpoint with multiple signaling
+proxies:
+
+    {
+      "version": "1.2.3",
+      "features": [
+        "feature-1",
+        "feature-2",
+        ...
+        "serverinfo",
+        ...
+      ],
+      "sfu": {
+        "mode": "proxy",
+        "proxies": [
+          {
+            "url": "https://proxy.domain.tld/",
+            "ip": "192.168.0.1",
+            "connected": true,
+            "temporary": false,
+            "shutdown": false,
+            "uptime": "2025-03-05T18:09:35.435902408+01:00",
+            "version": "2.3.4",
+            "features": [
+              "proxy-feature-1",
+              "proxy-feature-2",
+              ...
+            ],
+            "country": "DE",
+            "load": 0,
+            "bandwidth": {
+              "incoming": 0,
+              "outgoing": 0
+            }
+          },
+          {
+            "url": "https://proxy.domain.tld/",
+            "ip": "192.168.0.2",
+            "connected": false,
+            "temporary": false
+          }
+        ]
+      }
+    }
+
+The `ip` field will only be present if DNS discovery is enabled for resolving
+proxy urls.
+`uptime` is the ISO8601 time since the connection was established to the proxy.
+`country` will only be returned if configured on the proxy.
+`load` is an arbitrary value used to order signaling proxies when selecting the
+proxy to use for publishing new streams.
+`bandwidth` contains the percentage of incoming / outgoing bandwith utilization
+for streams on the proxy. Only present if a bandwidth limit is configured on
+the proxy.
+
+
+### NATS connection
+
+Information about the NATS connection are also returned by the serverinfo
+endpoint:
+
+    {
+      "urls": [
+        "nats://localhost:4222"
+      ],
+      "connected": true,
+      "serverurl": "nats://localhost:4222",
+      "serverid": "556c9de63ac214e53a9b976b2e5305d8",
+      "version": "0.6.8"
+    }
+
+
+### GRPC connections
+
+In clustered mode, the signaling server has GRPC connections to other instances
+which are included in the serverinfo response:
+
+    [
+      {
+        "target": "192.168.1.1:8080",
+        "connected": true,
+        "version": "1.2.3"
+      },
+      {
+        "target": "192.168.1.2:8080",
+        "connected": true,
+        "version": "1.2.3"
+      }
+    ]
+
+
+### ETCD cluster
+
+Some configuration can be loaded from an etcd cluster, the serverinfo response
+also contains information on that connection:
+
+    {
+      "endpoints": [
+        "192.168.4.1:2379",
+        "192.168.4.2:2379"
+      ],
+      "active": "etcd-endpoints://0xc0001fba40/192.168.4.2:2379",
+      "connected": true
+    }
+
+
+### Dialout session
+
+If a SIP bridge with support for dial-out is connected, the serverinfo response
+will contain an additional property `dialout` with the following contents:
+
+    [
+      {
+        "sessionid": "the-session-id",
+        "connected": true,
+        "address": "192.168.1.0",
+        "useragent": "spreed-webrtc-sip-bridge/1.2.3",
+        "version": "1.2.3",
+        "features": [
+          "start-dialout",
+          "datachannels",
+          "encryption"
+        ]
+      }
+    ]
+
+If the connection between SIP bridge and signaling server is interrupted, the
+`connected` property will be `false` and details on the session (`address`, `useragent` and `features`) omitted.
+
+
 ## Rooms API
 
 The base URL for the rooms API is `/api/vi/room/<roomid>`, all requests must be

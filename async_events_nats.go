@@ -248,6 +248,31 @@ func NewAsyncEventsNats(client NatsClient) (AsyncEvents, error) {
 	return events, nil
 }
 
+func (e *asyncEventsNats) GetServerInfoNats() *BackendServerInfoNats {
+	var nats *BackendServerInfoNats
+	switch n := e.client.(type) {
+	case *natsClient:
+		nats = &BackendServerInfoNats{
+			Urls: n.conn.Servers(),
+		}
+		if c := n.conn; c.IsConnected() {
+			nats.Connected = true
+			nats.ServerUrl = c.ConnectedUrl()
+			nats.ServerID = c.ConnectedServerId()
+			nats.ServerVersion = c.ConnectedServerVersion()
+			nats.ClusterName = c.ConnectedClusterName()
+		}
+	case *LoopbackNatsClient:
+		nats = &BackendServerInfoNats{
+			Urls:      []string{NatsLoopbackUrl},
+			Connected: true,
+			ServerUrl: NatsLoopbackUrl,
+		}
+	}
+
+	return nats
+}
+
 func (e *asyncEventsNats) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
