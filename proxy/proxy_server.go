@@ -208,12 +208,12 @@ func getTargetBandwidths(config *goconf.ConfigFile) (int, int) {
 func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*ProxyServer, error) {
 	hashKey := make([]byte, 64)
 	if _, err := rand.Read(hashKey); err != nil {
-		return nil, fmt.Errorf("Could not generate random hash key: %s", err)
+		return nil, fmt.Errorf("could not generate random hash key: %s", err)
 	}
 
 	blockKey := make([]byte, 32)
 	if _, err := rand.Read(blockKey); err != nil {
-		return nil, fmt.Errorf("Could not generate random block key: %s", err)
+		return nil, fmt.Errorf("could not generate random block key: %s", err)
 	}
 
 	var tokens ProxyTokens
@@ -229,7 +229,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 	case TokenTypeStatic:
 		tokens, err = NewProxyTokensStatic(config)
 	default:
-		return nil, fmt.Errorf("Unsupported token type configured: %s", tokenType)
+		return nil, fmt.Errorf("unsupported token type configured: %s", tokenType)
 	}
 	if err != nil {
 		return nil, err
@@ -266,7 +266,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 	if signaling.IsValidCountry(country) {
 		log.Printf("Sending %s as country information", country)
 	} else if country != "" {
-		return nil, fmt.Errorf("Invalid country: %s", country)
+		return nil, fmt.Errorf("invalid country: %s", country)
 	} else {
 		log.Printf("Not sending country information")
 	}
@@ -288,15 +288,15 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 	if tokenId != "" {
 		tokenKeyFilename, _ := config.GetString("app", "token_key")
 		if tokenKeyFilename == "" {
-			return nil, fmt.Errorf("No token key configured")
+			return nil, fmt.Errorf("no token key configured")
 		}
 		tokenKeyData, err := os.ReadFile(tokenKeyFilename)
 		if err != nil {
-			return nil, fmt.Errorf("Could not read private key from %s: %s", tokenKeyFilename, err)
+			return nil, fmt.Errorf("could not read private key from %s: %s", tokenKeyFilename, err)
 		}
 		tokenKey, err = jwt.ParseRSAPrivateKeyFromPEM(tokenKeyData)
 		if err != nil {
-			return nil, fmt.Errorf("Could not parse private key from %s: %s", tokenKeyFilename, err)
+			return nil, fmt.Errorf("could not parse private key from %s: %s", tokenKeyFilename, err)
 		}
 		log.Printf("Using \"%s\" as token id for remote streams", tokenId)
 
@@ -400,7 +400,7 @@ func (s *ProxyServer) checkOrigin(r *http.Request) bool {
 func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 	s.url, _ = signaling.GetStringOptionWithEnv(config, "mcu", "url")
 	if s.url == "" {
-		return fmt.Errorf("No MCU server url configured")
+		return fmt.Errorf("no MCU server url configured")
 	}
 
 	mcuType, _ := config.GetString("mcu", "type")
@@ -425,7 +425,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 				signaling.RegisterJanusMcuStats()
 			}
 		default:
-			return fmt.Errorf("Unsupported MCU type: %s", mcuType)
+			return fmt.Errorf("unsupported MCU type: %s", mcuType)
 		}
 		if err == nil {
 			mcu.SetOnConnected(s.onMcuConnected)
@@ -442,7 +442,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 		log.Printf("Could not initialize %s MCU at %s (%s) will retry in %s", mcuType, s.url, err, backoff.NextWait())
 		backoff.Wait(ctx)
 		if ctx.Err() != nil {
-			return fmt.Errorf("Cancelled")
+			return fmt.Errorf("cancelled")
 		}
 	}
 
@@ -1330,14 +1330,14 @@ func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, str
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			log.Printf("Unexpected signing method: %v", token.Header["alg"])
 			reason = "unsupported-signing-method"
-			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 
 		claims, ok := token.Claims.(*signaling.TokenClaims)
 		if !ok {
 			log.Printf("Unsupported claims type: %+v", token.Claims)
 			reason = "unsupported-claims"
-			return nil, fmt.Errorf("Unsupported claims type")
+			return nil, fmt.Errorf("unsupported claims type")
 		}
 
 		tokenKey, err := s.tokens.Get(claims.Issuer)
@@ -1350,7 +1350,7 @@ func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, str
 		if tokenKey == nil || tokenKey.key == nil {
 			log.Printf("Issuer %s is not supported", claims.Issuer)
 			reason = "unsupported-issuer"
-			return nil, fmt.Errorf("No key found for issuer")
+			return nil, fmt.Errorf("no key found for issuer")
 		}
 
 		return tokenKey.key, nil

@@ -48,7 +48,7 @@ type proxyConfigEtcd struct {
 
 func NewProxyConfigEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient, proxy McuProxy) (ProxyConfig, error) {
 	if !etcdClient.IsConfigured() {
-		return nil, errors.New("No etcd endpoints configured")
+		return nil, errors.New("no etcd endpoints configured")
 	}
 
 	closeCtx, closeFunc := context.WithCancel(context.Background())

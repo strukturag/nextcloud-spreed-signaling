@@ -171,7 +171,7 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 		p.deferred <- func() {
 			if data.offerSdp == nil {
 				// Should have been checked before.
-				go callback(errors.New("No sdp found in offer"), nil)
+				go callback(errors.New("no sdp found in offer"), nil)
 				return
 			}
 
@@ -226,13 +226,13 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			if data.Sid == "" || data.Sid == p.Sid() {
 				p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
 			} else {
-				go callback(fmt.Errorf("Candidate message sid (%s) does not match publisher sid (%s)", data.Sid, p.Sid()), nil)
+				go callback(fmt.Errorf("candidate message sid (%s) does not match publisher sid (%s)", data.Sid, p.Sid()), nil)
 			}
 		}
 	case "endOfCandidates":
 		// Ignore
 	default:
-		go callback(fmt.Errorf("Unsupported message type: %s", data.Type), nil)
+		go callback(fmt.Errorf("unsupported message type: %s", data.Type), nil)
 	}
 }
 

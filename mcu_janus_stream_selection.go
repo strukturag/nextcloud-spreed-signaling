@@ -66,7 +66,7 @@ func parseStreamSelection(payload map[string]interface{}) (*streamSelection, err
 			stream.substream.Valid = true
 			stream.substream.Int16 = int16(value)
 		default:
-			return nil, fmt.Errorf("Unsupported substream value: %v", value)
+			return nil, fmt.Errorf("unsupported substream value: %v", value)
 		}
 	}
 
@@ -82,7 +82,7 @@ func parseStreamSelection(payload map[string]interface{}) (*streamSelection, err
 			stream.temporal.Valid = true
 			stream.temporal.Int16 = int16(value)
 		default:
-			return nil, fmt.Errorf("Unsupported temporal value: %v", value)
+			return nil, fmt.Errorf("unsupported temporal value: %v", value)
 		}
 	}
 
@@ -92,7 +92,7 @@ func parseStreamSelection(payload map[string]interface{}) (*streamSelection, err
 			stream.audio.Valid = true
 			stream.audio.Bool = value
 		default:
-			return nil, fmt.Errorf("Unsupported audio value: %v", value)
+			return nil, fmt.Errorf("unsupported audio value: %v", value)
 		}
 	}
 
@@ -102,7 +102,7 @@ func parseStreamSelection(payload map[string]interface{}) (*streamSelection, err
 			stream.video.Valid = true
 			stream.video.Bool = value
 		default:
-			return nil, fmt.Errorf("Unsupported video value: %v", value)
+			return nil, fmt.Errorf("unsupported video value: %v", value)
 		}
 	}
 
