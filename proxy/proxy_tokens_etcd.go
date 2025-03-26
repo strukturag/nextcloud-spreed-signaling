@@ -59,7 +59,7 @@ func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
 	}
 
 	if !client.IsConfigured() {
-		return nil, fmt.Errorf("No etcd endpoints configured")
+		return nil, fmt.Errorf("no etcd endpoints configured")
 	}
 
 	result := &tokensEtcd{

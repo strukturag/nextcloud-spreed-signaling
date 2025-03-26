@@ -727,12 +727,12 @@ func (c *GrpcClients) onLookup(entry *DnsMonitorEntry, all []net.IP, added []net
 
 func (c *GrpcClients) loadTargetsEtcd(config *goconf.ConfigFile, fromReload bool, opts ...grpc.DialOption) error {
 	if !c.etcdClient.IsConfigured() {
-		return fmt.Errorf("No etcd endpoints configured")
+		return fmt.Errorf("no etcd endpoints configured")
 	}
 
 	targetPrefix, _ := config.GetString("grpc", "targetprefix")
 	if targetPrefix == "" {
-		return fmt.Errorf("No GRPC target prefix configured")
+		return fmt.Errorf("no GRPC target prefix configured")
 	}
 	c.targetPrefix = targetPrefix
 	if c.targetInformation == nil {

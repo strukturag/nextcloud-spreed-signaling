@@ -1315,7 +1315,7 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 			}
 		default:
 			log.Printf("Unexpected signing method: %v", token.Header["alg"])
-			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 
 		// Run in timeout context to prevent blocking too long.
@@ -1331,13 +1331,13 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 				keyData, _, found = h.backend.capabilities.GetStringConfig(backendCtx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
 			}
 			if !found {
-				return nil, fmt.Errorf("No key found for issuer")
+				return nil, fmt.Errorf("no key found for issuer")
 			}
 		}
 
 		key, err := loadKeyFunc([]byte(keyData))
 		if err != nil {
-			return nil, fmt.Errorf("Could not parse token key: %w", err)
+			return nil, fmt.Errorf("could not parse token key: %w", err)
 		}
 
 		return key, nil

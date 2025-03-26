@@ -179,7 +179,7 @@ retry:
 				// so a new object will be created if the request is retried.
 				p.mcu.unregisterClient(p)
 				p.listener.SubscriberClosed(p)
-				callback(fmt.Errorf("Already connected as subscriber for %s, error during re-joining: %s", p.streamType, err), nil)
+				callback(fmt.Errorf("already connected as subscriber for %s, error during re-joining: %s", p.streamType, err), nil)
 				return
 			}
 
@@ -215,7 +215,7 @@ retry:
 			goto retry
 		default:
 			// TODO(jojo): Should we handle other errors, too?
-			callback(fmt.Errorf("Error joining room as subscriber: %+v", join_response), nil)
+			callback(fmt.Errorf("error joining room as subscriber: %+v", join_response), nil)
 			return
 		}
 	}
@@ -279,7 +279,7 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 			if data.Sid == "" || data.Sid == p.Sid() {
 				p.sendAnswer(msgctx, jsep_msg, callback)
 			} else {
-				go callback(fmt.Errorf("Answer message sid (%s) does not match subscriber sid (%s)", data.Sid, p.Sid()), nil)
+				go callback(fmt.Errorf("answer message sid (%s) does not match subscriber sid (%s)", data.Sid, p.Sid()), nil)
 			}
 		}
 	case "candidate":
@@ -290,7 +290,7 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 			if data.Sid == "" || data.Sid == p.Sid() {
 				p.sendCandidate(msgctx, jsep_msg["candidate"], callback)
 			} else {
-				go callback(fmt.Errorf("Candidate message sid (%s) does not match subscriber sid (%s)", data.Sid, p.Sid()), nil)
+				go callback(fmt.Errorf("candidate message sid (%s) does not match subscriber sid (%s)", data.Sid, p.Sid()), nil)
 			}
 		}
 	case "endOfCandidates":
@@ -316,6 +316,6 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 		}
 	default:
 		// Return error asynchronously
-		go callback(fmt.Errorf("Unsupported message type: %s", data.Type), nil)
+		go callback(fmt.Errorf("unsupported message type: %s", data.Type), nil)
 	}
 }

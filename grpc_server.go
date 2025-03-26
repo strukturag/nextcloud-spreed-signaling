@@ -51,7 +51,7 @@ func init() {
 		hostname = newRandomString(8)
 	}
 	md := sha256.New()
-	md.Write([]byte(fmt.Sprintf("%s-%s-%d", newRandomString(32), hostname, os.Getpid())))
+	fmt.Fprintf(md, "%s-%s-%d", newRandomString(32), hostname, os.Getpid())
 	GrpcServerId = hex.EncodeToString(md.Sum(nil))
 }
 

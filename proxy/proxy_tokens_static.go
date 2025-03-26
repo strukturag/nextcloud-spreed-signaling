@@ -71,7 +71,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 	for id, filename := range options {
 		if filename == "" {
 			if !ignoreErrors {
-				return fmt.Errorf("No filename given for token %s", id)
+				return fmt.Errorf("no filename given for token %s", id)
 			}
 
 			log.Printf("No filename given for token %s, ignoring", id)
@@ -81,7 +81,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 		keyData, err := os.ReadFile(filename)
 		if err != nil {
 			if !ignoreErrors {
-				return fmt.Errorf("Could not read public key from %s: %s", filename, err)
+				return fmt.Errorf("could not read public key from %s: %s", filename, err)
 			}
 
 			log.Printf("Could not read public key from %s, ignoring: %s", filename, err)
@@ -90,7 +90,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 		key, err := jwt.ParseRSAPublicKeyFromPEM(keyData)
 		if err != nil {
 			if !ignoreErrors {
-				return fmt.Errorf("Could not parse public key from %s: %s", filename, err)
+				return fmt.Errorf("could not parse public key from %s: %s", filename, err)
 			}
 
 			log.Printf("Could not parse public key from %s, ignoring: %s", filename, err)

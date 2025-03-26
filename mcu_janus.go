@@ -49,7 +49,7 @@ const (
 )
 
 var (
-	ErrRemoteStreamsNotSupported = errors.New("Need Janus 1.1.0 for remote streams")
+	ErrRemoteStreamsNotSupported = errors.New("need Janus 1.1.0 for remote streams")
 
 	streamTypeUserIds = map[StreamType]uint64{
 		StreamTypeVideo:  videoPublisherUserId,
@@ -73,19 +73,19 @@ func convertIntValue(value interface{}) (uint64, error) {
 	switch t := value.(type) {
 	case float64:
 		if t < 0 {
-			return 0, fmt.Errorf("Unsupported float64 number: %+v", t)
+			return 0, fmt.Errorf("unsupported float64 number: %+v", t)
 		}
 		return uint64(t), nil
 	case uint64:
 		return t, nil
 	case int:
 		if t < 0 {
-			return 0, fmt.Errorf("Unsupported int number: %+v", t)
+			return 0, fmt.Errorf("unsupported int number: %+v", t)
 		}
 		return uint64(t), nil
 	case int64:
 		if t < 0 {
-			return 0, fmt.Errorf("Unsupported int64 number: %+v", t)
+			return 0, fmt.Errorf("unsupported int64 number: %+v", t)
 		}
 		return uint64(t), nil
 	case json.Number:
@@ -93,11 +93,11 @@ func convertIntValue(value interface{}) (uint64, error) {
 		if err != nil {
 			return 0, err
 		} else if r < 0 {
-			return 0, fmt.Errorf("Unsupported JSON number: %+v", t)
+			return 0, fmt.Errorf("unsupported JSON number: %+v", t)
 		}
 		return uint64(r), nil
 	default:
-		return 0, fmt.Errorf("Unknown number type: %+v (%T)", t, t)
+		return 0, fmt.Errorf("unknown number type: %+v (%T)", t, t)
 	}
 }
 
@@ -342,14 +342,14 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 	log.Printf("Connected to %s %s by %s", info.Name, info.VersionString, info.Author)
 	plugin, found := info.Plugins[pluginVideoRoom]
 	if !found {
-		return fmt.Errorf("Plugin %s is not supported", pluginVideoRoom)
+		return fmt.Errorf("plugin %s is not supported", pluginVideoRoom)
 	}
 
 	m.version = info.Version
 
 	log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
 	if !info.DataChannels {
-		return fmt.Errorf("Data channels are not supported")
+		return fmt.Errorf("data channels are not supported")
 	}
 
 	log.Println("Data channels are supported")
@@ -543,7 +543,7 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 		if _, err := handle.Detach(ctx); err != nil {
 			log.Printf("Error detaching handle %d: %s", handle.Id, err)
 		}
-		return 0, 0, fmt.Errorf("No room id received: %+v", create_response)
+		return 0, 0, fmt.Errorf("no room id received: %+v", create_response)
 	}
 
 	log.Println("Created room", roomId, create_response.PluginData)
@@ -590,7 +590,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 
 func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
-		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
+		return nil, fmt.Errorf("unsupported stream type %s", streamType)
 	}
 
 	handle, session, roomId, maxBitrate, err := m.getOrCreatePublisherHandle(ctx, id, streamType, settings)
@@ -688,7 +688,7 @@ func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher st
 
 func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
-		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
+		return nil, fmt.Errorf("unsupported stream type %s", streamType)
 	}
 
 	handle, pub, err := m.getOrCreateSubscriberHandle(ctx, publisher, streamType)
@@ -826,7 +826,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 
 func (m *mcuJanus) NewRemotePublisher(ctx context.Context, listener McuListener, controller RemotePublisherController, streamType StreamType) (McuRemotePublisher, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
-		return nil, fmt.Errorf("Unsupported stream type %s", streamType)
+		return nil, fmt.Errorf("unsupported stream type %s", streamType)
 	}
 
 	if !m.hasRemotePublisher() {

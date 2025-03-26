@@ -94,7 +94,7 @@ func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 		clients, err := srv.GetClient("etcd-client", discoverySrv, discoveryService)
 		if err != nil {
 			if !ignoreErrors {
-				return fmt.Errorf("Could not discover etcd endpoints for %s: %w", discoverySrv, err)
+				return fmt.Errorf("could not discover etcd endpoints for %s: %w", discoverySrv, err)
 			}
 		} else {
 			endpoints = clients.Endpoints
@@ -118,7 +118,7 @@ func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 		if logLevel, _ := config.GetString("etcd", "loglevel"); logLevel != "" {
 			var l zapcore.Level
 			if err := l.Set(logLevel); err != nil {
-				return fmt.Errorf("Unsupported etcd log level %s: %w", logLevel, err)
+				return fmt.Errorf("unsupported etcd log level %s: %w", logLevel, err)
 			}
 
 			logConfig := zap.NewProductionConfig()
@@ -138,7 +138,7 @@ func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 			tlsConfig, err := tlsInfo.ClientConfig()
 			if err != nil {
 				if !ignoreErrors {
-					return fmt.Errorf("Could not setup etcd TLS configuration: %w", err)
+					return fmt.Errorf("could not setup etcd TLS configuration: %w", err)
 				}
 
 				log.Printf("Could not setup TLS configuration, will be disabled (%s)", err)

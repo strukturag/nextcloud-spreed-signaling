@@ -749,9 +749,10 @@ func (c *mcuProxyConnection) reconnect() {
 		c.scheduleReconnect()
 		return
 	}
-	if u.Scheme == "http" {
+	switch u.Scheme {
+	case "http":
 		u.Scheme = "ws"
-	} else if u.Scheme == "https" {
+	case "https":
 		u.Scheme = "wss"
 	}
 
@@ -1165,7 +1166,7 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 		// TODO: Cancel request
 		return nil, err
 	} else if response.Type == "error" {
-		return nil, fmt.Errorf("Error creating %s publisher for %s on %s: %+v", streamType, id, c, response.Error)
+		return nil, fmt.Errorf("error creating %s publisher for %s on %s: %+v", streamType, id, c, response.Error)
 	}
 
 	proxyId := response.Command.Id
@@ -1195,7 +1196,7 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 		// TODO: Cancel request
 		return nil, err
 	} else if response.Type == "error" {
-		return nil, fmt.Errorf("Error creating %s subscriber for %s on %s: %+v", streamType, publisherSessionId, c, response.Error)
+		return nil, fmt.Errorf("error creating %s subscriber for %s on %s: %+v", streamType, publisherSessionId, c, response.Error)
 	}
 
 	proxyId := response.Command.Id
@@ -1236,7 +1237,7 @@ func (c *mcuProxyConnection) newRemoteSubscriber(ctx context.Context, listener M
 		// TODO: Cancel request
 		return nil, err
 	} else if response.Type == "error" {
-		return nil, fmt.Errorf("Error creating remote %s subscriber for %s on %s (forwarded to %s): %+v", streamType, publisherSessionId, c, publisherConn, response.Error)
+		return nil, fmt.Errorf("error creating remote %s subscriber for %s on %s (forwarded to %s): %+v", streamType, publisherSessionId, c, publisherConn, response.Error)
 	}
 
 	proxyId := response.Command.Id
@@ -1317,19 +1318,19 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 
 	tokenId, _ := config.GetString("mcu", "token_id")
 	if tokenId == "" {
-		return nil, fmt.Errorf("No token id configured")
+		return nil, fmt.Errorf("no token id configured")
 	}
 	tokenKeyFilename, _ := config.GetString("mcu", "token_key")
 	if tokenKeyFilename == "" {
-		return nil, fmt.Errorf("No token key configured")
+		return nil, fmt.Errorf("no token key configured")
 	}
 	tokenKeyData, err := os.ReadFile(tokenKeyFilename)
 	if err != nil {
-		return nil, fmt.Errorf("Could not read private key from %s: %s", tokenKeyFilename, err)
+		return nil, fmt.Errorf("could not read private key from %s: %s", tokenKeyFilename, err)
 	}
 	tokenKey, err := jwt.ParseRSAPrivateKeyFromPEM(tokenKeyData)
 	if err != nil {
-		return nil, fmt.Errorf("Could not parse private key from %s: %s", tokenKeyFilename, err)
+		return nil, fmt.Errorf("could not parse private key from %s: %s", tokenKeyFilename, err)
 	}
 
 	settings, err := newMcuProxySettings((config))
@@ -1372,7 +1373,7 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 	case proxyUrlTypeEtcd:
 		mcu.config, err = NewProxyConfigEtcd(config, etcdClient, mcu)
 	default:
-		err = fmt.Errorf("Unsupported proxy URL type %s", urlType)
+		err = fmt.Errorf("unsupported proxy URL type %s", urlType)
 	}
 	if err != nil {
 		return nil, err
@@ -1862,7 +1863,7 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 
 	if publisher == nil {
 		statsProxyNobackendAvailableTotal.WithLabelValues(string(streamType)).Inc()
-		return nil, fmt.Errorf("No MCU connection available")
+		return nil, fmt.Errorf("no MCU connection available")
 	}
 
 	return publisher, nil
@@ -1944,7 +1945,7 @@ func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publ
 		id, found := conn.publisherIds[getStreamId(publisher, streamType)]
 		conn.publishersLock.Unlock()
 		if !found {
-			return nil, fmt.Errorf("Unknown publisher %s", publisher)
+			return nil, fmt.Errorf("unknown publisher %s", publisher)
 		}
 
 		publisherInfo = &proxyPublisherInfo{
@@ -1971,7 +1972,7 @@ func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publ
 				conn.publishersLock.Unlock()
 				if !found {
 					ch <- &proxyPublisherInfo{
-						err: fmt.Errorf("Unknown id for local %s publisher %s", streamType, publisher),
+						err: fmt.Errorf("unknown id for local %s publisher %s", streamType, publisher),
 					}
 					return
 				}
@@ -2055,7 +2056,7 @@ func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publ
 		wg.Wait()
 		select {
 		case ch <- &proxyPublisherInfo{
-			err: fmt.Errorf("No %s publisher %s found", streamType, publisher),
+			err: fmt.Errorf("no %s publisher %s found", streamType, publisher),
 		}:
 		default:
 		}
@@ -2064,7 +2065,7 @@ func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publ
 		case info := <-ch:
 			publisherInfo = info
 		case <-ctx.Done():
-			return nil, fmt.Errorf("No %s publisher %s found", streamType, publisher)
+			return nil, fmt.Errorf("no %s publisher %s found", streamType, publisher)
 		}
 	}
 

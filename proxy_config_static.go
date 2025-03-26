@@ -59,7 +59,7 @@ func NewProxyConfigStatic(config *goconf.ConfigFile, proxy McuProxy, dnsMonitor 
 		return nil, err
 	}
 	if len(result.connectionsMap) == 0 {
-		return nil, errors.New("No MCU proxy connections configured")
+		return nil, errors.New("no MCU proxy connections configured")
 	}
 	return result, nil
 }
