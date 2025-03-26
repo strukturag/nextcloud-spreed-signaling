@@ -126,8 +126,8 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	var requestUrl *url.URL
 	if b.capabilities.HasCapabilityFeature(ctx, u, FeatureSignalingV3Api) {
 		newUrl := *u
-		newUrl.Path = strings.Replace(newUrl.Path, "/spreed/api/v1/signaling/", "/spreed/api/v3/signaling/", -1)
-		newUrl.Path = strings.Replace(newUrl.Path, "/spreed/api/v2/signaling/", "/spreed/api/v3/signaling/", -1)
+		newUrl.Path = strings.ReplaceAll(newUrl.Path, "/spreed/api/v1/signaling/", "/spreed/api/v3/signaling/")
+		newUrl.Path = strings.ReplaceAll(newUrl.Path, "/spreed/api/v2/signaling/", "/spreed/api/v3/signaling/")
 		requestUrl = &newUrl
 	} else {
 		requestUrl = u
