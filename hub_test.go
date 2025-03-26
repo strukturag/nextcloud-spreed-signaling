@@ -681,10 +681,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if strings.Contains(t.Name(), "MultiRoom") {
 			signaling[ConfigKeySessionPingLimit] = 2
 		}
-		useV2 := true
-		if os.Getenv("SKIP_V2_CAPABILITIES") != "" {
-			useV2 = false
-		}
+		useV2 := os.Getenv("SKIP_V2_CAPABILITIES") == ""
 		if (strings.Contains(t.Name(), "V2") && useV2) || strings.Contains(t.Name(), "Federation") {
 			key := getPublicAuthToken(t)
 			public, err := x509.MarshalPKIXPublicKey(key)
