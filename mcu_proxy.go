@@ -749,9 +749,10 @@ func (c *mcuProxyConnection) reconnect() {
 		c.scheduleReconnect()
 		return
 	}
-	if u.Scheme == "http" {
+	switch u.Scheme {
+	case "http":
 		u.Scheme = "ws"
-	} else if u.Scheme == "https" {
+	case "https":
 		u.Scheme = "wss"
 	}
 

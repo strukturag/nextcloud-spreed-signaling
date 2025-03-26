@@ -979,14 +979,15 @@ func (r *Room) NotifySessionChanged(session Session, flags SessionChangeFlag) {
 		}
 
 		if joinLeave != 0 {
-			if joinLeave == 1 {
+			switch joinLeave {
+			case 1:
 				r.mu.Lock()
 				if !r.inCallSessions[session] {
 					r.inCallSessions[session] = true
 					log.Printf("Session %s joined call %s", session.PublicId(), r.id)
 				}
 				r.mu.Unlock()
-			} else if joinLeave == 2 {
+			case 2:
 				r.mu.Lock()
 				delete(r.inCallSessions, session)
 				r.mu.Unlock()

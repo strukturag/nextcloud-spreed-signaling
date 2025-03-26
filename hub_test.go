@@ -349,9 +349,10 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	if len(request.Auth.Params) > 0 {
 		require.NoError(json.Unmarshal(request.Auth.Params, &params))
 	}
-	if params.UserId == "" {
+	switch params.UserId {
+	case "":
 		params.UserId = testDefaultUserId
-	} else if params.UserId == authAnonymousUserId {
+	case authAnonymousUserId:
 		params.UserId = ""
 	}
 

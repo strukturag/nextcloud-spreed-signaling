@@ -200,13 +200,14 @@ func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClie
 			sdp := data.Payload["sdp"]
 			if sdp, ok := sdp.(string); ok {
 				p.sdp = sdp
-				if sdp == MockSdpOfferAudioOnly {
+				switch sdp {
+				case MockSdpOfferAudioOnly:
 					callback(nil, map[string]interface{}{
 						"type": "answer",
 						"sdp":  MockSdpAnswerAudioOnly,
 					})
 					return
-				} else if sdp == MockSdpOfferAudioAndVideo {
+				case MockSdpOfferAudioAndVideo:
 					callback(nil, map[string]interface{}{
 						"type": "answer",
 						"sdp":  MockSdpAnswerAudioAndVideo,

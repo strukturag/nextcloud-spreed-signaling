@@ -271,7 +271,8 @@ func (c *Client) Close() {
 
 func (c *Client) doClose() {
 	closed := c.closed.Add(1)
-	if closed == 1 {
+	switch closed {
+	case 1:
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.conn != nil {
@@ -279,7 +280,7 @@ func (c *Client) doClose() {
 			c.conn.Close()
 			c.conn = nil
 		}
-	} else if closed == 2 {
+	case 2:
 		// Both the read pump and message processing must be finished before closing.
 		c.closer.Close()
 		<-c.messagesDone
