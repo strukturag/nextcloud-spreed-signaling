@@ -82,11 +82,7 @@ func IsValidCountry(country string) bool {
 var (
 	InvalidFormat = NewError("invalid_format", "Invalid data format.")
 
-	bufferPool = sync.Pool{
-		New: func() interface{} {
-			return new(bytes.Buffer)
-		},
-	}
+	bufferPool BufferPool
 )
 
 type WritableClientMessage interface {
@@ -391,10 +387,8 @@ func (c *Client) ReadPump() {
 			continue
 		}
 
-		decodeBuffer := bufferPool.Get().(*bytes.Buffer)
-		decodeBuffer.Reset()
-		if _, err := decodeBuffer.ReadFrom(reader); err != nil {
-			bufferPool.Put(decodeBuffer)
+		decodeBuffer, err := bufferPool.ReadAll(reader)
+		if err != nil {
 			if sessionId := c.GetSessionId(); sessionId != "" {
 				log.Printf("Error reading message from client %s: %v", sessionId, err)
 			} else {
