@@ -2,6 +2,8 @@ module github.com/strukturag/nextcloud-spreed-signaling
 
 go 1.22.0
 
+toolchain go1.24.1
+
 require (
 	github.com/dlintw/goconf v0.0.0-20120228082610-dcc070983490
 	github.com/fsnotify/fsnotify v1.8.0
@@ -24,7 +26,7 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.18
 	go.etcd.io/etcd/server/v3 v3.5.18
 	go.uber.org/zap v1.27.0
-	google.golang.org/grpc v1.71.0
+	google.golang.org/grpc v1.71.1
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1
 	google.golang.org/protobuf v1.36.6
 )
