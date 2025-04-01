@@ -7,6 +7,7 @@ GOFMT := "$(GODIR)/gofmt"
 GOOS ?= linux
 GOARCH ?= amd64
 GOVERSION := $(shell "$(GO)" env GOVERSION | sed "s|go||" )
+TMPDIR := $(CURDIR)/tmp
 BINDIR := $(CURDIR)/bin
 VENDORDIR := "$(CURDIR)/vendor"
 VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
@@ -76,7 +77,7 @@ endif
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
-$(GOPATHBIN)/easyjson: go.mod go.sum
+$(GOPATHBIN)/easyjson: go.mod go.sum | $(TMPDIR)
 	$(GO) install github.com/mailru/easyjson/...
 
 $(GOPATHBIN)/protoc-gen-go: go.mod go.sum
@@ -124,7 +125,7 @@ coverhtml: vet
 
 %_easyjson.go: %.go $(GOPATHBIN)/easyjson | $(PROTO_GO_FILES)
 	rm -f easyjson-bootstrap*.go
-	PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
+	TMPDIR=$(TMPDIR) PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $*.go
 
 %.pb.go: %.proto $(GOPATHBIN)/protoc-gen-go $(GOPATHBIN)/protoc-gen-go-grpc
 	PATH="$(GODIR)":"$(GOPATHBIN)":$(PATH) protoc \
@@ -142,11 +143,14 @@ common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES)
 # Optimize easyjson files that could call generated functions instead of duplicating code.
 	for file in $(EASYJSON_FILES); do \
 		rm -f easyjson-bootstrap*.go; \
-		PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $$file; \
+		TMPDIR=$(TMPDIR) PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $$file; \
 	done
 
 $(BINDIR):
 	mkdir -p "$(BINDIR)"
+
+$(TMPDIR):
+	mkdir -p "$(TMPDIR)"
 
 client: $(BINDIR)/client
 
@@ -168,6 +172,7 @@ clean:
 	rm -f "$(BINDIR)/client"
 	rm -f "$(BINDIR)/signaling"
 	rm -f "$(BINDIR)/proxy"
+	rm -rf "$(TMPDIR)"
 
 clean-generated: clean
 	rm -f $(EASYJSON_GO_FILES) $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES)
