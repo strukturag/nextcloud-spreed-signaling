@@ -182,6 +182,7 @@ type mcuJanus struct {
 	handle  *JanusHandle
 
 	version int
+	info    atomic.Pointer[InfoMsg]
 
 	closeChan chan struct{}
 
@@ -372,6 +373,8 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 	}
 	log.Println("Created Janus handle", m.handle.Id)
 
+	m.info.Store(info)
+
 	go m.run()
 
 	m.notifyOnConnected()
@@ -408,6 +411,46 @@ loop:
 func (m *mcuJanus) Stop() {
 	m.disconnect()
 	m.reconnectTimer.Stop()
+}
+
+func (m *mcuJanus) IsConnected() bool {
+	return m.handle != nil
+}
+
+func (m *mcuJanus) Info() *InfoMsg {
+	return m.info.Load()
+}
+
+func (m *mcuJanus) GetServerInfoSfu() *BackendServerInfoSfu {
+	janus := &BackendServerInfoSfuJanus{
+		Url: m.url,
+	}
+	if m.IsConnected() {
+		janus.Connected = true
+		if info := m.Info(); info != nil {
+			janus.Name = info.Name
+			janus.Version = info.VersionString
+			janus.Author = info.Author
+			janus.DataChannels = makePtr(info.DataChannels)
+			janus.FullTrickle = makePtr(info.FullTrickle)
+			janus.LocalIP = info.LocalIP
+			janus.IPv6 = makePtr(info.IPv6)
+
+			if plugin, found := info.Plugins[pluginVideoRoom]; found {
+				janus.VideoRoom = &BackendServerInfoVideoRoom{
+					Name:    plugin.Name,
+					Version: plugin.VersionString,
+					Author:  plugin.Author,
+				}
+			}
+		}
+	}
+
+	sfu := &BackendServerInfoSfu{
+		Mode:  SfuModeJanus,
+		Janus: janus,
+	}
+	return sfu
 }
 
 func (m *mcuJanus) Reload(config *goconf.ConfigFile) {
