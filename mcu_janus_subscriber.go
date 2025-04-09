@@ -197,7 +197,10 @@ retry:
 		case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
 			switch error_code {
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
-				log.Printf("Publisher %s not created yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
+				log.Printf("Publisher %s not created yet for %s, not joining room %d as subscriber", p.publisher, p.streamType, p.roomId)
+				p.listener.SubscriberClosed(p)
+				callback(fmt.Errorf("Publisher %s not created yet for %s", p.publisher, p.streamType), nil)
+				return
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
 				log.Printf("Publisher %s not sending yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
 			}
@@ -208,6 +211,7 @@ retry:
 			}
 
 			if err := waiter.Wait(ctx); err != nil {
+				p.listener.SubscriberClosed(p)
 				callback(err, nil)
 				return
 			}
