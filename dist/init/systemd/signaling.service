@@ -12,7 +12,7 @@ ConfigurationDirectory=signaling
 
 # Hardening - see systemd.exec(5)
 CapabilityBoundingSet=
-ExecPaths=/usr/bin/signaling /usr/lib
+ExecPaths=/usr/bin/signaling /usr/lib /usr/lib64
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 NoExecPaths=/
