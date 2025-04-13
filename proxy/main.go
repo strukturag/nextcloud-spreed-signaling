@@ -76,9 +76,7 @@ func main() {
 		log.Fatal("Could not read configuration: ", err)
 	}
 
-	cpus := runtime.NumCPU()
-	runtime.GOMAXPROCS(cpus)
-	log.Printf("Using a maximum of %d CPUs", cpus)
+	log.Printf("Using a maximum of %d CPUs", runtime.GOMAXPROCS(0))
 
 	r := mux.NewRouter()
 
