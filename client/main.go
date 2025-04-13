@@ -517,9 +517,7 @@ func main() {
 	}
 	cookie := signaling.NewSessionIdCodec([]byte(hashKey), blockBytes)
 
-	cpus := runtime.NumCPU()
-	runtime.GOMAXPROCS(cpus)
-	log.Printf("Using a maximum of %d CPUs", cpus)
+	log.Printf("Using a maximum of %d CPUs", runtime.GOMAXPROCS(0))
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
