@@ -627,6 +627,7 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 func (s *ProxyServer) setCommonHeaders(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "nextcloud-spreed-signaling-proxy/"+s.version)
+		w.Header().Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Features, ", "))
 		f(w, r)
 	}
 }

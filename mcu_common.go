@@ -128,6 +128,7 @@ type Mcu interface {
 	SetOnDisconnected(func())
 
 	GetStats() interface{}
+	GetServerInfoSfu() *BackendServerInfoSfu
 
 	NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)
 	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)

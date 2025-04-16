@@ -70,6 +70,10 @@ func (m *TestMCU) GetStats() interface{} {
 	return nil
 }
 
+func (m *TestMCU) GetServerInfoSfu() *BackendServerInfoSfu {
+	return nil
+}
+
 func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	var maxBitrate int
 	if streamType == StreamTypeScreen {

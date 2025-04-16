@@ -39,6 +39,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/resolver"
@@ -79,12 +80,14 @@ func newGrpcClientImpl(conn grpc.ClientConnInterface) *grpcClientImpl {
 }
 
 type GrpcClient struct {
-	ip     net.IP
-	target string
-	conn   *grpc.ClientConn
-	impl   *grpcClientImpl
+	ip        net.IP
+	rawTarget string
+	target    string
+	conn      *grpc.ClientConn
+	impl      *grpcClientImpl
 
-	isSelf atomic.Bool
+	isSelf  atomic.Bool
+	version atomic.Value
 }
 
 type customIpResolver struct {
@@ -151,20 +154,26 @@ func NewGrpcClient(target string, ip net.IP, opts ...grpc.DialOption) (*GrpcClie
 	}
 
 	result := &GrpcClient{
-		ip:     ip,
-		target: target,
-		conn:   conn,
-		impl:   newGrpcClientImpl(conn),
+		ip:        ip,
+		rawTarget: target,
+		target:    target,
+		conn:      conn,
+		impl:      newGrpcClientImpl(conn),
 	}
 
 	if ip != nil {
 		result.target += " (" + ip.String() + ")"
 	}
+	result.version.Store("")
 	return result, nil
 }
 
 func (c *GrpcClient) Target() string {
 	return c.target
+}
+
+func (c *GrpcClient) Version() string {
+	return c.version.Load().(string)
 }
 
 func (c *GrpcClient) Close() error {
@@ -440,6 +449,32 @@ func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient, dnsMonito
 	return result, nil
 }
 
+func (c *GrpcClients) GetServerInfoGrpc() (result []BackendServerInfoGrpc) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, client := range c.clients {
+		if client.IsSelf() {
+			continue
+		}
+
+		grpc := BackendServerInfoGrpc{
+			Target: client.rawTarget,
+		}
+		if len(client.ip) > 0 {
+			grpc.IP = client.ip.String()
+		}
+		if client.conn.GetState() == connectivity.Ready {
+			grpc.Connected = true
+			grpc.Version = client.Version()
+		}
+
+		result = append(result, grpc)
+	}
+
+	return
+}
+
 func (c *GrpcClients) load(config *goconf.ConfigFile, fromReload bool) error {
 	creds, err := NewReloadableCredentials(config, false)
 	if err != nil {
@@ -537,6 +572,7 @@ loop:
 				continue
 			}
 
+			client.version.Store(version)
 			if id == GrpcServerId {
 				log.Printf("GRPC target %s is this server, removing", client.Target())
 				c.closeClient(client)

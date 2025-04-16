@@ -173,6 +173,7 @@ func (b *BackendServer) Start(r *mux.Router) error {
 	s.HandleFunc("/welcome", b.setComonHeaders(b.welcomeFunc)).Methods("GET")
 	s.HandleFunc("/room/{roomid}", b.setComonHeaders(b.parseRequestBody(b.roomHandler))).Methods("POST")
 	s.HandleFunc("/stats", b.setComonHeaders(b.validateStatsRequest(b.statsHandler))).Methods("GET")
+	s.HandleFunc("/serverinfo", b.setComonHeaders(b.validateStatsRequest(b.serverinfoHandler))).Methods("GET")
 
 	// Expose prometheus metrics at "/metrics".
 	r.HandleFunc("/metrics", b.setComonHeaders(b.validateStatsRequest(b.metricsHandler))).Methods("GET")
@@ -948,6 +949,39 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	w.Write(statsData) // nolint
+}
+
+func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request) {
+	info := BackendServerInfo{
+		Version:  b.version,
+		Features: b.hub.info.Features,
+
+		Dialout: b.hub.GetServerInfoDialout(),
+	}
+	if mcu := b.hub.mcu; mcu != nil {
+		info.Sfu = mcu.GetServerInfoSfu()
+	}
+	if e, ok := b.events.(*asyncEventsNats); ok {
+		info.Nats = e.GetServerInfoNats()
+	}
+	if rpcClients := b.hub.rpcClients; rpcClients != nil {
+		info.Grpc = rpcClients.GetServerInfoGrpc()
+	}
+	if etcdClient := b.hub.etcdClient; etcdClient != nil {
+		info.Etcd = etcdClient.GetServerInfoEtcd()
+	}
+
+	infoData, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		log.Printf("Could not serialize server info %+v: %s", info, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	w.Write(infoData) // nolint
 }
 
 func (b *BackendServer) metricsHandler(w http.ResponseWriter, r *http.Request) {

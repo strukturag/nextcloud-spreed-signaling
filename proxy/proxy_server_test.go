@@ -379,6 +379,10 @@ func (m *TestMCU) GetStats() interface{} {
 	return nil
 }
 
+func (m *TestMCU) GetServerInfoSfu() *signaling.BackendServerInfoSfu {
+	return nil
+}
+
 func (m *TestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id string, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	return nil, errors.New("not implemented")
 }

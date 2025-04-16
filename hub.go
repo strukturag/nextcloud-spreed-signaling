@@ -179,6 +179,7 @@ type Hub struct {
 	geoipOverrides atomic.Pointer[map[*net.IPNet]string]
 	geoipUpdating  atomic.Bool
 
+	etcdClient *EtcdClient
 	rpcServer  *GrpcServer
 	rpcClients *GrpcClients
 
@@ -365,6 +366,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 
 		geoip: geoip,
 
+		etcdClient: etcdClient,
 		rpcServer:  rpcServer,
 		rpcClients: rpcClients,
 
@@ -2814,6 +2816,39 @@ func (h *Hub) GetStats() map[string]interface{} {
 		}
 	}
 	return result
+}
+
+func (h *Hub) GetServerInfoDialout() (result []BackendServerInfoDialout) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for session := range h.dialoutSessions {
+		dialout := BackendServerInfoDialout{
+			SessionId: session.PublicId(),
+		}
+		if client := session.GetClient(); client != nil && client.IsConnected() {
+			dialout.Connected = true
+			dialout.Address = client.RemoteAddr()
+			if ua := client.UserAgent(); ua != "" {
+				dialout.UserAgent = ua
+				// Extract version from user-agent, expects "software/version".
+				if pos := strings.IndexByte(ua, '/'); pos != -1 {
+					version := ua[pos+1:]
+					if pos = strings.IndexByte(version, ' '); pos != -1 {
+						version = version[:pos]
+					}
+					dialout.Version = version
+				}
+			}
+			dialout.Features = session.GetFeatures()
+		}
+		result = append(result, dialout)
+	}
+
+	slices.SortFunc(result, func(a, b BackendServerInfoDialout) int {
+		return strings.Compare(a.SessionId, b.SessionId)
+	})
+	return
 }
 
 func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
