@@ -1100,21 +1100,17 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 		}
 	}
 
-	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second+100*time.Millisecond)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 
-	if msg1_c, _ := client1.RunUntilMessage(ctx2); msg1_c != nil {
-		if in_call_2, err := checkMessageParticipantsInCall(msg1_c); assert.NoError(err) {
-			assert.Len(in_call_2.Users, 2)
-		}
+	if msg1_c, err := client1.RunUntilMessage(ctx2); !assert.ErrorIs(err, context.DeadlineExceeded) {
+		assert.Fail("should have timeout out", "received %+v", msg1_c)
 	}
 
-	ctx3, cancel3 := context.WithTimeout(context.Background(), time.Second+100*time.Millisecond)
+	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel3()
-	if msg2_c, _ := client2.RunUntilMessage(ctx3); msg2_c != nil {
-		if in_call_2, err := checkMessageParticipantsInCall(msg2_c); assert.NoError(err) {
-			assert.Len(in_call_2.Users, 2)
-		}
+	if msg2_c, err := client2.RunUntilMessage(ctx3); !assert.ErrorIs(err, context.DeadlineExceeded) {
+		assert.Fail("should have timeout out", "received %+v", msg2_c)
 	}
 }
 
