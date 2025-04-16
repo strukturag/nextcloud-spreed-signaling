@@ -1302,36 +1302,48 @@ func TestSessionIdsUnordered(t *testing.T) {
 	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
+	var mu sync.Mutex
 	publicSessionIds := make([]string, 0)
+	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
-		client := NewTestClient(t, server, hub)
-		defer client.CloseWithBye()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			client := NewTestClient(t, server, hub)
+			defer client.CloseWithBye()
 
-		require.NoError(client.SendHello(testDefaultUserId))
+			require.NoError(client.SendHello(testDefaultUserId))
 
-		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-		defer cancel()
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
 
-		if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
-			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
-			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+			if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+				assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
+				assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 
-			data := hub.decodePublicSessionId(hello.Hello.SessionId)
-			if !assert.NotNil(data, "Could not decode session id: %s", hello.Hello.SessionId) {
-				break
+				data := hub.decodePublicSessionId(hello.Hello.SessionId)
+				if !assert.NotNil(data, "Could not decode session id: %s", hello.Hello.SessionId) {
+					return
+				}
+
+				hub.mu.RLock()
+				session := hub.sessions[data.Sid]
+				hub.mu.RUnlock()
+				if !assert.NotNil(session, "Could not get session for id %+v", data) {
+					return
+				}
+
+				mu.Lock()
+				publicSessionIds = append(publicSessionIds, session.PublicId())
+				mu.Unlock()
 			}
-
-			hub.mu.RLock()
-			session := hub.sessions[data.Sid]
-			hub.mu.RUnlock()
-			if !assert.NotNil(session, "Could not get session for id %+v", data) {
-				break
-			}
-
-			publicSessionIds = append(publicSessionIds, session.PublicId())
-		}
+		}()
 	}
 
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
 	require.NotEmpty(publicSessionIds, "no session ids decoded")
 
 	larger := 0
