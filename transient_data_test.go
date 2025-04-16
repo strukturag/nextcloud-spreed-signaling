@@ -161,7 +161,7 @@ func Test_TransientMessages(t *testing.T) {
 	defer cancel2()
 
 	if msg, err := client1.RunUntilMessage(ctx2); err == nil {
-		assert.Fail("Expected no payload, got %+v", msg)
+		assert.Nil(msg, "Expected no payload")
 	} else {
 		require.ErrorIs(err, context.DeadlineExceeded)
 	}
@@ -193,7 +193,7 @@ func Test_TransientMessages(t *testing.T) {
 	defer cancel3()
 
 	if msg, err := client1.RunUntilMessage(ctx3); err == nil {
-		assert.Fail("Expected no payload, got %+v", msg)
+		assert.Nil(msg, "Expected no payload")
 	} else {
 		require.ErrorIs(err, context.DeadlineExceeded)
 	}
@@ -220,7 +220,7 @@ func Test_TransientMessages(t *testing.T) {
 	} else if len(ignored) == 1 {
 		msg = ignored[0]
 	} else {
-		require.Fail("Received too many messages: %+v", ignored)
+		require.LessOrEqual(len(ignored), 1, "Received too many messages: %+v", ignored)
 	}
 
 	require.NoError(checkMessageTransientInitial(msg, map[string]interface{}{

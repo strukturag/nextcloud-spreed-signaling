@@ -530,9 +530,9 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 	}
 
 	if message, err := client.RunUntilMessage(ctx); err != nil && !websocket.IsCloseError(err, websocket.CloseNoStatusReceived) {
-		assert.Fail("Received unexpected error %s", err)
+		assert.NoError(err, "Received unexpected error")
 	} else if err == nil {
-		assert.Fail("Server should have closed the connection, received %+v", *message)
+		assert.Fail("Server should have closed the connection", "received %+v", *message)
 	}
 }
 
@@ -597,7 +597,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	if message, err := client1.RunUntilMessage(ctx); err != nil && !websocket.IsCloseError(err, websocket.CloseNoStatusReceived) {
 		assert.NoError(err)
 	} else if err == nil {
-		assert.Fail("Server should have closed the connection, received %+v", *message)
+		assert.Fail("Server should have closed the connection", "received %+v", *message)
 	}
 
 	if message, err := client2.RunUntilRoomlistDisinvite(ctx); assert.NoError(err) {
@@ -1234,7 +1234,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			defer cancel2()
 
 			if message, err := client1.RunUntilMessage(ctx2); err == nil {
-				assert.Fail("Expected no message, got %+v", message)
+				assert.Fail("Expected no message", "received %+v", message)
 			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 				assert.NoError(err)
 			}
@@ -1243,7 +1243,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			defer cancel3()
 
 			if message, err := client2.RunUntilMessage(ctx3); err == nil {
-				assert.Fail("Expected no message, got %+v", message)
+				assert.Fail("Expected no message", "received %+v", message)
 			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 				assert.NoError(err)
 			}
@@ -1299,7 +1299,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			defer cancel4()
 
 			if message, err := client1.RunUntilMessage(ctx4); err == nil {
-				assert.Fail("Expected no message, got %+v", message)
+				assert.Fail("Expected no message", "received %+v", message)
 			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 				assert.NoError(err)
 			}
@@ -1308,7 +1308,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			defer cancel5()
 
 			if message, err := client2.RunUntilMessage(ctx5); err == nil {
-				assert.Fail("Expected no message, got %+v", message)
+				assert.Fail("Expected no message", "received %+v", message)
 			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 				assert.NoError(err)
 			}

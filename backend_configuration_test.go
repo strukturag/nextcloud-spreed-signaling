@@ -493,8 +493,8 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
 		assert.Equal(url1, backends[0].url) &&
 		assert.Equal(initialSecret1, string(backends[0].secret)) {
-		if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
-			assert.Fail("Expected backend %+v, got %+v", backends[0], backend)
+		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
+			assert.Equal(backends[0], backend)
 		}
 	}
 
@@ -504,8 +504,8 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
 		assert.Equal(url1, backends[0].url) &&
 		assert.Equal(secret1, string(backends[0].secret)) {
-		if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
-			assert.Fail("Expected backend %+v, got %+v", backends[0], backend)
+		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
+			assert.Equal(backends[0], backend)
 		}
 	}
 
@@ -520,10 +520,10 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 		assert.Equal(secret1, string(backends[0].secret)) &&
 		assert.Equal(url2, backends[1].url) &&
 		assert.Equal(secret2, string(backends[1].secret)) {
-		if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
-			assert.Fail("Expected backend %+v, got %+v", backends[0], backend)
-		} else if backend := cfg.GetBackend(mustParse(url2)); backend != backends[1] {
-			assert.Fail("Expected backend %+v, got %+v", backends[1], backend)
+		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
+			assert.Equal(backends[0], backend)
+		} else if backend := cfg.GetBackend(mustParse(url2)); assert.NotNil(backend) {
+			assert.Equal(backends[1], backend)
 		}
 	}
 
@@ -540,12 +540,12 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 		assert.Equal(secret2, string(backends[1].secret)) &&
 		assert.Equal(url3, backends[2].url) &&
 		assert.Equal(secret3, string(backends[2].secret)) {
-		if backend := cfg.GetBackend(mustParse(url1)); backend != backends[0] {
-			assert.Fail("Expected backend %+v, got %+v", backends[0], backend)
-		} else if backend := cfg.GetBackend(mustParse(url2)); backend != backends[1] {
-			assert.Fail("Expected backend %+v, got %+v", backends[1], backend)
-		} else if backend := cfg.GetBackend(mustParse(url3)); backend != backends[2] {
-			assert.Fail("Expected backend %+v, got %+v", backends[2], backend)
+		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
+			assert.Equal(backends[0], backend)
+		} else if backend := cfg.GetBackend(mustParse(url2)); assert.NotNil(backend) {
+			assert.Equal(backends[1], backend)
+		} else if backend := cfg.GetBackend(mustParse(url3)); assert.NotNil(backend) {
+			assert.Equal(backends[2], backend)
 		}
 	}
 
@@ -567,9 +567,8 @@ func TestBackendConfiguration_Etcd(t *testing.T) {
 		assert.Equal(secret3, string(backends[0].secret))
 	}
 
-	if _, found := storage.backends["domain1.invalid"]; found {
-		assert.Fail("Should have removed host information for %s", "domain1.invalid")
-	}
+	_, found := storage.backends["domain1.invalid"]
+	assert.False(found, "Should have removed host information")
 }
 
 func TestBackendCommonSecret(t *testing.T) {

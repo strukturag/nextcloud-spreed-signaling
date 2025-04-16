@@ -106,9 +106,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 		t.Run(country, func(t *testing.T) {
 			sorted := sortConnectionsForCountry(test[0], country, nil)
 			for idx, conn := range sorted {
-				if test[1][idx] != conn {
-					assert.Fail(t, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
-				}
+				assert.Equal(t, test[1][idx], conn, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
 			}
 		})
 	}
@@ -180,9 +178,7 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 		t.Run(country, func(t *testing.T) {
 			sorted := sortConnectionsForCountry(test[0], country, continentMap)
 			for idx, conn := range sorted {
-				if test[1][idx] != conn {
-					assert.Fail(t, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
-				}
+				assert.Equal(t, test[1][idx], conn, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
 			}
 		})
 	}
@@ -358,7 +354,7 @@ func (c *testProxyServerClient) handleSendMessageError(fmt string, msg *ProxySer
 	c.t.Helper()
 
 	if !errors.Is(err, websocket.ErrCloseSent) || msg.Type != "event" || msg.Event.Type != "update-load" {
-		assert.Fail(c.t, fmt, msg, err)
+		assert.Fail(c.t, "error while sending message", fmt, msg, err)
 	}
 }
 

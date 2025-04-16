@@ -281,7 +281,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 			h.mu.Lock()
 			h.ru.Lock()
 			dumpGoroutines("", os.Stderr)
-			assert.Fail(t, "Error waiting for clients %+v / rooms %+v / sessions %+v / remoteSessions %v / %d read / %d write to terminate: %s", h.clients, h.rooms, h.sessions, h.remoteSessions, readActive, writeActive, ctx.Err())
+			assert.Fail(t, "Error waiting for hub to terminate", "clients %+v / rooms %+v / sessions %+v / remoteSessions %v / %d read / %d write: %s", h.clients, h.rooms, h.sessions, h.remoteSessions, readActive, writeActive, ctx.Err())
 			h.ru.Unlock()
 			h.mu.Unlock()
 			return
@@ -300,11 +300,11 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 		rnd := r.Header.Get(HeaderBackendSignalingRandom)
 		checksum := r.Header.Get(HeaderBackendSignalingChecksum)
 		if rnd == "" || checksum == "" {
-			require.Fail("No checksum headers found in request to %s", r.URL)
+			require.Fail("No checksum headers found", "request to %s", r.URL)
 		}
 
 		if verify := CalculateBackendChecksum(rnd, body, testBackendSecret); verify != checksum {
-			require.Fail("Backend checksum verification failed for request to %s", r.URL)
+			require.Fail("Backend checksum verification failed", "request to %s", r.URL)
 		}
 
 		var request BackendClientRequest
@@ -342,7 +342,7 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
 	require := require.New(t)
 	if request.Type != "auth" || request.Auth == nil {
-		require.Fail("Expected an auth backend request, got %+v", request)
+		require.Fail("Expected an auth backend request", "received %+v", request)
 	}
 
 	var params TestBackendClientAuthParams
@@ -376,7 +376,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	require := require.New(t)
 	assert := assert.New(t)
 	if request.Type != "room" || request.Room == nil {
-		require.Fail("Expected an room backend request, got %+v", request)
+		require.Fail("Expected an room backend request", "received %+v", request)
 	}
 
 	switch request.Room.RoomId {
@@ -385,7 +385,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	case "test-room-takeover-room-session":
 		// Additional checks for testcase "TestClientTakeoverRoomSession"
 		if request.Room.Action == "leave" && request.Room.UserId == "test-userid1" {
-			assert.Fail("Should not receive \"leave\" event for first user, received %+v", request.Room)
+			assert.Fail("Should not receive \"leave\" event for first user", "received %+v", request.Room)
 		}
 	case "test-invalid-room":
 		response := &BackendClientResponse{
@@ -466,7 +466,7 @@ func clearSessionRequestHandler(t *testing.T) { // nolint
 
 func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
 	if request.Type != "session" || request.Session == nil {
-		require.Fail(t, "Expected an session backend request, got %+v", request)
+		require.Fail(t, "Expected an session backend request", "received %+v", request)
 	}
 
 	sessionRequestHander.Lock()
@@ -513,7 +513,7 @@ func storePingRequest(t *testing.T, request *BackendClientRequest) {
 
 func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
 	if request.Type != "ping" || request.Ping == nil {
-		require.Fail(t, "Expected an ping backend request, got %+v", request)
+		require.Fail(t, "Expected an ping backend request", "received %+v", request)
 	}
 
 	if request.Ping.RoomId == "test-room-with-sessiondata" {
@@ -650,7 +650,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		case "ping":
 			return processPingRequest(t, w, r, request)
 		default:
-			require.Fail(t, "Unsupported request received: %+v", request)
+			require.Fail(t, "Unsupported request", "received: %+v", request)
 			return nil
 		}
 	})
@@ -784,10 +784,10 @@ func TestWebsocketFeatures(t *testing.T) {
 		}
 	}
 	if len(featuresList) <= 1 {
-		assert.Fail("expected valid features header, got \"%s\"", features)
+		assert.Fail("expected valid features header", "received \"%s\"", features)
 	}
 	_, found := featuresList["hello-v2"]
-	assert.True(found, "expected feature \"hello-v2\", got \"%s\"", features)
+	assert.True(found, "expected feature \"hello-v2\"", "received \"%s\"", features)
 
 	assert.NoError(conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}))
 }
@@ -838,7 +838,7 @@ func TestExpectClientHello(t *testing.T) {
 
 	message2, err := client.RunUntilMessage(ctx)
 	if message2 != nil {
-		require.Fail("Received multiple messages, already have %+v, also got %+v", message, message2)
+		require.Fail("Received multiple messages", "already have %+v, also got %+v", message, message2)
 	}
 	require.NoError(checkUnexpectedClose(err))
 
@@ -1547,9 +1547,9 @@ func TestClientHelloResumeTakeover(t *testing.T) {
 	}
 
 	if msg, err := client1.RunUntilMessage(ctx); err == nil {
-		assert.Fail("Expected error but received %+v", msg)
+		assert.Fail("Expected error", "received %+v", msg)
 	} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-		assert.Fail("Expected close error but received %+v", err)
+		assert.Fail("Expected close error", "received %+v", err)
 	}
 }
 
@@ -1897,9 +1897,9 @@ func TestClientHelloResumeProxy_Takeover(t *testing.T) {
 			}
 
 			if msg, err := client1.RunUntilMessage(ctx); err == nil {
-				assert.Fail("Expected error but received %+v", msg)
+				assert.Fail("Expected error", "received %+v", msg)
 			} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-				assert.Fail("Expected close error but received %+v", err)
+				assert.Fail("Expected close error", "received %+v", err)
 			}
 
 			client3 := NewTestClient(t, server1, hub1)
@@ -1921,9 +1921,9 @@ func TestClientHelloResumeProxy_Takeover(t *testing.T) {
 			}
 
 			if msg, err := client2.RunUntilMessage(ctx); err == nil {
-				assert.Fail("Expected error but received %+v", msg)
+				assert.Fail("Expected error", "received %+v", msg)
 			} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-				assert.Fail("Expected close error but received %+v", err)
+				assert.Fail("Expected close error", "received %+v", err)
 			}
 		})
 	})
@@ -2245,7 +2245,7 @@ func TestClientControlMissingPermissions(t *testing.T) {
 	defer cancel2()
 
 	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err == nil {
-		assert.Fail("Expected no payload, got %+v", payload)
+		assert.Fail("Expected no payload", "received %+v", payload)
 	} else {
 		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
@@ -2645,7 +2645,7 @@ func TestClientMessageToCall(t *testing.T) {
 			defer cancel2()
 
 			if message, err := client2.RunUntilMessage(ctx2); err == nil {
-				assert.Fail("Expected no message", "got %+v", message)
+				assert.Fail("Expected no message", "received %+v", message)
 			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 				assert.NoError(err)
 			}
@@ -2766,7 +2766,7 @@ func TestClientControlToCall(t *testing.T) {
 			defer cancel2()
 
 			if message, err := client2.RunUntilMessage(ctx2); err == nil {
-				assert.Fail("Expected no message", "got %+v", message)
+				assert.Fail("Expected no message", "received %+v", message)
 			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 				assert.NoError(err)
 			}
@@ -3008,7 +3008,7 @@ func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
 	defer cancel2()
 
 	if message, err := client.RunUntilMessage(ctx2); err == nil {
-		assert.Fail("Expected no message, got %+v", message)
+		assert.Fail("Expected no message", "received %+v", message)
 	} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 		assert.NoError(err)
 	}
@@ -3570,7 +3570,7 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	defer cancel2()
 
 	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err == nil {
-		assert.Fail("Expected no payload, got %+v", payload)
+		assert.Fail("Expected no payload", "received %+v", payload)
 	} else {
 		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
@@ -3667,7 +3667,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	defer cancel2()
 
 	if err := checkReceiveClientMessage(ctx2, client2, "session", hello1.Hello, &payload); err == nil {
-		assert.Fail("Expected no payload, got %+v", payload)
+		assert.Fail("Expected no payload", "received %+v", payload)
 	} else {
 		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
@@ -3759,9 +3759,9 @@ func RunTestClientTakeoverRoomSession(t *testing.T) {
 	}
 
 	if msg, err := client1.RunUntilMessage(ctx); err == nil {
-		assert.Fail("Expected error but received %+v", msg)
+		assert.Fail("Expected error", "received %+v", msg)
 	} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-		assert.Fail("Expected close error but received %+v", err)
+		assert.Fail("Expected close error", "received %+v", err)
 	}
 
 	// The first session has been closed
@@ -3777,7 +3777,7 @@ func RunTestClientTakeoverRoomSession(t *testing.T) {
 	defer cancel2()
 
 	if message, err := client2.RunUntilMessage(ctx2); err == nil {
-		assert.Fail("Expected no message, got %+v", message)
+		assert.Fail("Expected no message", "received %+v", message)
 	} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 		assert.NoError(err)
 	}
@@ -3890,7 +3890,7 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	defer cancel2()
 
 	if message, err := client1.RunUntilMessage(ctx2); err == nil {
-		assert.Fail("Expected no message, got %+v", message)
+		assert.Fail("Expected no message", "received %+v", message)
 	} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 		assert.NoError(err)
 	}
@@ -4359,7 +4359,7 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			defer cancel2()
 
 			if message, err := client2.RunUntilMessage(ctx2); err == nil {
-				assert.Fail("Expected no message, got %+v", message)
+				assert.Fail("Expected no message", "received %+v", message)
 			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 				assert.NoError(err)
 			}
@@ -4416,7 +4416,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err == nil {
-		assert.Fail("Expected no payload, got %+v", payload)
+		assert.Fail("Expected no payload", "received %+v", payload)
 	} else {
 		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
@@ -4424,7 +4424,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel3()
 	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err == nil {
-		assert.Fail("Expected no payload, got %+v", payload)
+		assert.Fail("Expected no payload", "received %+v", payload)
 	} else {
 		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
@@ -4485,9 +4485,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	hub.ru.RUnlock()
 
 	if assert.Len(rooms, 2) {
-		if rooms[0].IsEqual(rooms[1]) {
-			assert.Fail("Rooms should be different: %+v", rooms)
-		}
+		assert.False(rooms[0].IsEqual(rooms[1]), "Rooms should be different: %+v", rooms)
 	}
 
 	recipient := MessageClientMessageRecipient{
@@ -4503,7 +4501,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 	if err := checkReceiveClientMessage(ctx2, client1, "session", hello2.Hello, &payload); err == nil {
-		assert.Fail("Expected no payload, got %+v", payload)
+		assert.Fail("Expected no payload", "received %+v", payload)
 	} else {
 		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
@@ -4511,7 +4509,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel3()
 	if err := checkReceiveClientMessage(ctx3, client2, "session", hello1.Hello, &payload); err == nil {
-		assert.Fail("Expected no payload, got %+v", payload)
+		assert.Fail("Expected no payload", "received %+v", payload)
 	} else {
 		assert.ErrorIs(err, ErrNoMessageReceived)
 	}
@@ -4606,7 +4604,7 @@ func TestClientSendOffer(t *testing.T) {
 			defer cancel2()
 
 			if message, err := client1.RunUntilMessage(ctx2); err == nil {
-				assert.Fail("Expected no message, got %+v", message)
+				assert.Fail("Expected no message", "received %+v", message)
 			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 				assert.NoError(err)
 			}
@@ -5322,7 +5320,7 @@ func DoTestSwitchToOne(t *testing.T, details map[string]interface{}) {
 			defer cancel2()
 
 			if message, err := client2.RunUntilMessage(ctx2); err == nil {
-				assert.Fail("Expected no message, got %+v", message)
+				assert.Fail("Expected no message", "received %+v", message)
 			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 				assert.NoError(err)
 			}

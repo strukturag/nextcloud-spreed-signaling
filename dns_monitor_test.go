@@ -147,13 +147,13 @@ func (r *dnsMonitorReceiver) OnLookup(entry *DnsMonitorEntry, all, add, keep, re
 	expected := r.expected
 	r.expected = nil
 	if expected == expectNone {
-		assert.Fail(r.t, "expected no event, got %v", received)
+		assert.Fail(r.t, "expected no event", "received %v", received)
 		return
 	}
 
 	if expected == nil {
 		if r.received != nil && !r.received.Equal(received) {
-			assert.Fail(r.t, "already received %v, got %v", r.received, received)
+			assert.Fail(r.t, "unexpected message", "already received %v, got %v", r.received, received)
 		}
 		return
 	}
@@ -188,7 +188,7 @@ func (r *dnsMonitorReceiver) Expect(all, add, keep, remove []net.IP) {
 	defer r.Unlock()
 
 	if r.expected != nil && r.expected != expectNone {
-		assert.Fail(r.t, "didn't get previously expected %v", r.expected)
+		assert.Fail(r.t, "didn't get previous message", "expected %v", r.expected)
 	}
 
 	expected := &dnsMonitorReceiverRecord{
@@ -211,7 +211,7 @@ func (r *dnsMonitorReceiver) ExpectNone() {
 	defer r.Unlock()
 
 	if r.expected != nil && r.expected != expectNone {
-		assert.Fail(r.t, "didn't get previously expected %v", r.expected)
+		assert.Fail(r.t, "didn't get previous message", "expected %v", r.expected)
 	}
 
 	r.expected = expectNone

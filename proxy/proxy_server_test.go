@@ -28,7 +28,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"net"
 	"net/http/httptest"
 	"os"
@@ -88,7 +87,7 @@ func WaitForProxyServer(ctx context.Context, t *testing.T, proxy *ProxyServer) {
 		case <-ctx.Done():
 			proxy.clientsLock.Lock()
 			proxy.remoteConnectionsLock.Lock()
-			assert.Fail(t, fmt.Sprintf("Error waiting for clients %+v / sessions %+v / remoteConnections %+v to terminate: %+v", proxy.clients, proxy.sessions, proxy.remoteConnections, ctx.Err()))
+			assert.Fail(t, "Error waiting for proxy to terminate", "clients %+v / sessions %+v / remoteConnections %+v: %+v", proxy.clients, proxy.sessions, proxy.remoteConnections, ctx.Err())
 			proxy.remoteConnectionsLock.Unlock()
 			proxy.clientsLock.Unlock()
 			return
@@ -313,7 +312,7 @@ func TestWebsocketFeatures(t *testing.T) {
 	defer conn.Close() // nolint
 
 	if server := response.Header.Get("Server"); !strings.HasPrefix(server, "nextcloud-spreed-signaling-proxy/") {
-		assert.Fail("expected valid server header, got \"%s\"", server)
+		assert.Fail("expected valid server header", "received \"%s\"", server)
 	}
 	features := response.Header.Get("X-Spreed-Signaling-Features")
 	featuresList := make(map[string]bool)
@@ -321,14 +320,14 @@ func TestWebsocketFeatures(t *testing.T) {
 		f = strings.TrimSpace(f)
 		if f != "" {
 			if _, found := featuresList[f]; found {
-				assert.Fail("duplicate feature id \"%s\" in \"%s\"", f, features)
+				assert.Fail("duplicate feature", "id \"%s\" in \"%s\"", f, features)
 			}
 			featuresList[f] = true
 		}
 	}
 	assert.NotEmpty(featuresList, "expected valid features header, got \"%s\"", features)
 	if _, found := featuresList["remote-streams"]; !found {
-		assert.Fail("expected feature \"remote-streams\", got \"%s\"", features)
+		assert.Fail("expected feature \"remote-streams\"", "received \"%s\"", features)
 	}
 
 	assert.NoError(conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}))

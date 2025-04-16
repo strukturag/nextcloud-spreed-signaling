@@ -119,7 +119,7 @@ func checkSession(t *testing.T, sessions RoomSessions, sessionId string, roomSes
 func testRoomSessions(t *testing.T, sessions RoomSessions) {
 	assert := assert.New(t)
 	if sid, err := sessions.GetSessionId("unknown"); err == nil {
-		assert.Fail("Expected error about invalid room session, got session id %s", sid)
+		assert.Fail("Expected error about invalid room session", "got session id %s", sid)
 	} else {
 		assert.ErrorIs(err, ErrNoSuchRoomSession)
 	}
@@ -133,7 +133,7 @@ func testRoomSessions(t *testing.T, sessions RoomSessions) {
 
 	sessions.DeleteRoomSession(s1)
 	if sid, err := sessions.GetSessionId("room1"); err == nil {
-		assert.Fail("Expected error about invalid room session, got session id %s", sid)
+		assert.Fail("Expected error about invalid room session", "got session id %s", sid)
 	} else {
 		assert.ErrorIs(err, ErrNoSuchRoomSession)
 	}
@@ -150,7 +150,7 @@ func testRoomSessions(t *testing.T, sessions RoomSessions) {
 
 	assert.NoError(sessions.SetRoomSession(s2, "room-session2"))
 	if sid, err := sessions.GetSessionId("room-session"); err == nil {
-		assert.Fail("Expected error about invalid room session, got session id %s", sid)
+		assert.Fail("Expected error about invalid room session", "got session id %s", sid)
 	} else {
 		assert.ErrorIs(err, ErrNoSuchRoomSession)
 	}
