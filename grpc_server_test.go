@@ -43,22 +43,22 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-func (s *GrpcServer) WaitForCertificateReload(ctx context.Context) error {
+func (s *GrpcServer) WaitForCertificateReload(ctx context.Context, counter uint64) error {
 	c, ok := s.creds.(*reloadableCredentials)
 	if !ok {
 		return errors.New("no reloadable credentials found")
 	}
 
-	return c.WaitForCertificateReload(ctx)
+	return c.WaitForCertificateReload(ctx, counter)
 }
 
-func (s *GrpcServer) WaitForCertPoolReload(ctx context.Context) error {
+func (s *GrpcServer) WaitForCertPoolReload(ctx context.Context, counter uint64) error {
 	c, ok := s.creds.(*reloadableCredentials)
 	if !ok {
 		return errors.New("no reloadable credentials found")
 	}
 
-	return c.WaitForCertPoolReload(ctx)
+	return c.WaitForCertPoolReload(ctx, counter)
 }
 
 func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (server *GrpcServer, addr string) {
@@ -145,7 +145,7 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	require.NoError(server.WaitForCertificateReload(ctx))
+	require.NoError(server.WaitForCertificateReload(ctx, 0))
 
 	cp2 := x509.NewCertPool()
 	if !cp2.AppendCertsFromPEM(cert2) {
@@ -225,7 +225,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	clientCert2 := GenerateSelfSignedCertificateForTesting(t, 1024, org2, clientKey)
 	replaceFile(t, caFile, clientCert2, 0755)
 
-	require.NoError(server.WaitForCertPoolReload(ctx1))
+	require.NoError(server.WaitForCertPoolReload(ctx1, 0))
 
 	pair2, err := tls.X509KeyPair(clientCert2, pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
