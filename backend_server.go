@@ -70,6 +70,8 @@ type BackendServer struct {
 
 	statsAllowedIps atomic.Pointer[AllowedIps]
 	invalidSecret   []byte
+
+	buffers BufferPool
 }
 
 func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
@@ -284,14 +286,15 @@ func (b *BackendServer) parseRequestBody(f func(http.ResponseWriter, *http.Reque
 			return
 		}
 
-		body, err := io.ReadAll(r.Body)
+		body, err := b.buffers.ReadAll(r.Body)
 		if err != nil {
 			log.Println("Error reading body: ", err)
 			http.Error(w, "Could not read body", http.StatusBadRequest)
 			return
 		}
+		defer b.buffers.Put(body)
 
-		f(w, r, body)
+		f(w, r, body.Bytes())
 	}
 }
 

@@ -49,6 +49,10 @@ var (
 	testInternalSecret = []byte("internal-secret")
 
 	ErrNoMessageReceived = fmt.Errorf("no message was received by the server")
+
+	testClientDialer = websocket.Dialer{
+		WriteBufferPool: &sync.Pool{},
+	}
 )
 
 type TestBackendClientAuthParams struct {
@@ -226,7 +230,7 @@ type TestClient struct {
 
 func NewTestClientContext(ctx context.Context, t *testing.T, server *httptest.Server, hub *Hub) *TestClient {
 	// Reference "hub" to prevent compiler error.
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, getWebsocketUrl(server.URL), nil)
+	conn, _, err := testClientDialer.DialContext(ctx, getWebsocketUrl(server.URL), nil)
 	require.NoError(t, err)
 
 	messageChan := make(chan []byte)

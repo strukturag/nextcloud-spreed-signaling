@@ -46,6 +46,8 @@ const (
 
 var (
 	ErrFederationNotSupported = NewError("federation_unsupported", "The target server does not support federation.")
+
+	federationWriteBufferPool = &sync.Pool{}
 )
 
 func isClosedError(err error) bool {
@@ -102,7 +104,9 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 		return nil, fmt.Errorf("expected federation room message, got %+v", message)
 	}
 
-	var dialer websocket.Dialer
+	dialer := &websocket.Dialer{
+		WriteBufferPool: federationWriteBufferPool,
+	}
 	if hub.skipFederationVerify {
 		dialer.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
@@ -130,7 +134,7 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 
 		reconnectDelay: initialFederationReconnectInterval,
 
-		dialer: &dialer,
+		dialer: dialer,
 		url:    url,
 		closer: NewCloser(),
 	}

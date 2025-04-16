@@ -119,8 +119,9 @@ const (
 
 var (
 	janusDialer = websocket.Dialer{
-		Subprotocols: []string{"janus-protocol"},
-		Proxy:        http.ProxyFromEnvironment,
+		Subprotocols:    []string{"janus-protocol"},
+		Proxy:           http.ProxyFromEnvironment,
+		WriteBufferPool: &sync.Pool{},
 	}
 )
 
