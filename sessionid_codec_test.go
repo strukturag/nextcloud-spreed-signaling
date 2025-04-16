@@ -46,11 +46,11 @@ func TestReverseSessionId(t *testing.T) {
 
 	// Invalid base64.
 	if s, err := reverseSessionId("hello world!"); !assert.Error(err) {
-		assert.Fail("should have failed but got %s", s)
+		assert.Fail("should have failed", "received %s", s)
 	}
 	// Invalid base64 length.
 	if s, err := reverseSessionId("123"); !assert.Error(err) {
-		assert.Fail("should have failed but got %s", s)
+		assert.Fail("should have failed", "received %s", s)
 	}
 }
 
@@ -71,9 +71,9 @@ func TestPublicPrivate(t *testing.T) {
 	assert.NotEqual(private, public)
 
 	if data, err := codec.DecodePublic(private); !assert.Error(err) {
-		assert.Fail("should have failed but got %+v", data)
+		assert.Fail("should have failed", "received %+v", data)
 	}
 	if data, err := codec.DecodePrivate(public); !assert.Error(err) {
-		assert.Fail("should have failed but got %+v", data)
+		assert.Fail("should have failed", "received %+v", data)
 	}
 }

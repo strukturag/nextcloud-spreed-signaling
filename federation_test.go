@@ -172,23 +172,24 @@ func Test_Federation(t *testing.T) {
 
 	request1 := getPingRequests(t)
 	clearPingRequests(t)
-	assert.Len(request1, 1)
-	if ping := request1[0].Ping; assert.NotNil(ping) {
-		assert.Equal(roomId, ping.RoomId)
-		assert.Equal("1.0", ping.Version)
-		assert.Len(ping.Entries, 2)
-		// The order of entries is not defined
-		if ping.Entries[0].SessionId == federatedRoomId+"-"+hello2.Hello.SessionId {
-			assert.Equal(hello2.Hello.UserId, ping.Entries[0].UserId)
+	if assert.Len(request1, 1) {
+		if ping := request1[0].Ping; assert.NotNil(ping) {
+			assert.Equal(roomId, ping.RoomId)
+			assert.Equal("1.0", ping.Version)
+			assert.Len(ping.Entries, 2)
+			// The order of entries is not defined
+			if ping.Entries[0].SessionId == federatedRoomId+"-"+hello2.Hello.SessionId {
+				assert.Equal(hello2.Hello.UserId, ping.Entries[0].UserId)
 
-			assert.Equal(roomId+"-"+hello1.Hello.SessionId, ping.Entries[1].SessionId)
-			assert.Equal(hello1.Hello.UserId, ping.Entries[1].UserId)
-		} else {
-			assert.Equal(roomId+"-"+hello1.Hello.SessionId, ping.Entries[0].SessionId)
-			assert.Equal(hello1.Hello.UserId, ping.Entries[0].UserId)
+				assert.Equal(roomId+"-"+hello1.Hello.SessionId, ping.Entries[1].SessionId)
+				assert.Equal(hello1.Hello.UserId, ping.Entries[1].UserId)
+			} else {
+				assert.Equal(roomId+"-"+hello1.Hello.SessionId, ping.Entries[0].SessionId)
+				assert.Equal(hello1.Hello.UserId, ping.Entries[0].UserId)
 
-			assert.Equal(federatedRoomId+"-"+hello2.Hello.SessionId, ping.Entries[1].SessionId)
-			assert.Equal(hello2.Hello.UserId, ping.Entries[1].UserId)
+				assert.Equal(federatedRoomId+"-"+hello2.Hello.SessionId, ping.Entries[1].SessionId)
+				assert.Equal(hello2.Hello.UserId, ping.Entries[1].UserId)
+			}
 		}
 	}
 
@@ -199,13 +200,14 @@ func Test_Federation(t *testing.T) {
 
 	request2 := getPingRequests(t)
 	clearPingRequests(t)
-	assert.Len(request2, 1)
-	if ping := request2[0].Ping; assert.NotNil(ping) {
-		assert.Equal(federatedRoomId, ping.RoomId)
-		assert.Equal("1.0", ping.Version)
-		assert.Len(ping.Entries, 1)
-		assert.Equal(federatedRoomId+"-"+hello2.Hello.SessionId, ping.Entries[0].SessionId)
-		assert.Equal(hello2.Hello.UserId, ping.Entries[0].UserId)
+	if assert.Len(request2, 1) {
+		if ping := request2[0].Ping; assert.NotNil(ping) {
+			assert.Equal(federatedRoomId, ping.RoomId)
+			assert.Equal("1.0", ping.Version)
+			assert.Len(ping.Entries, 1)
+			assert.Equal(federatedRoomId+"-"+hello2.Hello.SessionId, ping.Entries[0].SessionId)
+			assert.Equal(hello2.Hello.UserId, ping.Entries[0].UserId)
+		}
 	}
 
 	// Leaving and re-joining a room as "direct" session will trigger correct events.
@@ -335,7 +337,7 @@ func Test_Federation(t *testing.T) {
 		defer cancel2()
 
 		if message, err := client2.RunUntilMessage(ctx2); err == nil {
-			assert.Fail("expected no message, got %+v", message)
+			assert.Fail("expected no message", "received %+v", message)
 		} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 			assert.NoError(err)
 		}
@@ -350,7 +352,7 @@ func Test_Federation(t *testing.T) {
 		defer cancel2()
 
 		if message, err := client2.RunUntilMessage(ctx2); err == nil {
-			assert.Fail("expected no message, got %+v", message)
+			assert.Fail("expected no message", "received %+v", message)
 		} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
 			assert.NoError(err)
 		}

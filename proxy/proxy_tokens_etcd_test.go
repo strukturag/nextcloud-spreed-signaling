@@ -132,7 +132,7 @@ func storeKey(t *testing.T, etcd *embed.Etcd, key string, pubkey crypto.PublicKe
 		data, err = x509.MarshalPKIXPublicKey(&pubkey)
 		require.NoError(t, err)
 	default:
-		require.Fail(t, "unknown key type %T in %+v", pubkey, pubkey)
+		require.Fail(t, "unknown key type", "type %T in %+v", pubkey, pubkey)
 	}
 
 	data = pem.EncodeToMemory(&pem.Block{

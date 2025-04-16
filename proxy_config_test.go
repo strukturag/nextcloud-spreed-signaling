@@ -125,7 +125,7 @@ func (p *mcuProxyForConfig) checkEvent(event *proxyConfigEvent) {
 	defer p.mu.Unlock()
 
 	if len(p.expected) == 0 {
-		assert.Fail(p.t, "no event expected, got %+v from %s:%d", event, caller.File, caller.Line)
+		assert.Fail(p.t, "no event expected", "received %+v from %s:%d", event, caller.File, caller.Line)
 		return
 	}
 
@@ -145,7 +145,7 @@ func (p *mcuProxyForConfig) checkEvent(event *proxyConfigEvent) {
 	expected := p.expected[0]
 	p.expected = p.expected[1:]
 	if !reflect.DeepEqual(expected, *event) {
-		assert.Fail(p.t, "expected %+v, got %+v from %s:%d", expected, event, caller.File, caller.Line)
+		assert.Fail(p.t, "wrong event", "expected %+v, received %+v from %s:%d", expected, event, caller.File, caller.Line)
 	}
 }
 

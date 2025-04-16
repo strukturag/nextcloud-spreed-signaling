@@ -41,8 +41,7 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 		assert := assert.New(t)
 		pc := make([]uintptr, 10)
 		n := runtime.Callers(2, pc)
-		if n == 0 {
-			assert.Fail("Expected value %f for %s, got %f", value, desc, v)
+		if assert.NotEqualValues(0, n, "Expected value %f for %s, got %f", value, desc, v) {
 			return
 		}
 
@@ -59,7 +58,7 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 				break
 			}
 		}
-		assert.Fail("Expected value %f for %s, got %f at\n%s", value, desc, v, stack)
+		assert.EqualValues(value, v, "Unexpected value for %s at\n%s", desc, stack)
 	}
 }
 
@@ -72,7 +71,7 @@ func collectAndLint(t *testing.T, collectors ...prometheus.Collector) {
 		}
 
 		for _, problem := range problems {
-			assert.Fail("Problem with %s: %s", problem.Metric, problem.Text)
+			assert.Fail("Problem with metric", "%s: %s", problem.Metric, problem.Text)
 		}
 	}
 }

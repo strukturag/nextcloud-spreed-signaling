@@ -54,11 +54,11 @@ func TestGetFmtpValueH264(t *testing.T) {
 	for _, tc := range testcases {
 		value, found := getFmtpValue(tc.fmtp, "profile-level-id")
 		if !found && tc.profile != "" {
-			assert.Fail("did not find profile \"%s\" in \"%s\"", tc.profile, tc.fmtp)
+			assert.Fail("did not find profile", "profile \"%s\" in \"%s\"", tc.profile, tc.fmtp)
 		} else if found && tc.profile == "" {
-			assert.Fail("did not expect profile in \"%s\" but got \"%s\"", tc.fmtp, value)
+			assert.Fail("did not expect profile", "in \"%s\" but got \"%s\"", tc.fmtp, value)
 		} else if found && tc.profile != value {
-			assert.Fail("expected profile \"%s\" in \"%s\" but got \"%s\"", tc.profile, tc.fmtp, value)
+			assert.Fail("expected profile", "profile \"%s\" in \"%s\" but got \"%s\"", tc.profile, tc.fmtp, value)
 		}
 	}
 }
@@ -86,11 +86,11 @@ func TestGetFmtpValueVP9(t *testing.T) {
 	for _, tc := range testcases {
 		value, found := getFmtpValue(tc.fmtp, "profile-id")
 		if !found && tc.profile != "" {
-			assert.Fail("did not find profile \"%s\" in \"%s\"", tc.profile, tc.fmtp)
+			assert.Fail("did not find profile", "profile \"%s\" in \"%s\"", tc.profile, tc.fmtp)
 		} else if found && tc.profile == "" {
-			assert.Fail("did not expect profile in \"%s\" but got \"%s\"", tc.fmtp, value)
+			assert.Fail("did not expect profile", "in \"%s\" but got \"%s\"", tc.fmtp, value)
 		} else if found && tc.profile != value {
-			assert.Fail("expected profile \"%s\" in \"%s\" but got \"%s\"", tc.profile, tc.fmtp, value)
+			assert.Fail("expected profile", "profile \"%s\" in \"%s\" but got \"%s\"", tc.profile, tc.fmtp, value)
 		}
 	}
 }
