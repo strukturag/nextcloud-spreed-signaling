@@ -57,8 +57,15 @@ func ensureNoGoroutinesLeak(t *testing.T, f func(t *testing.T)) {
 	profile := pprof.Lookup("goroutine")
 	// Give time for things to settle before capturing the number of
 	// go routines
-	time.Sleep(500 * time.Millisecond)
-	before := profile.Count()
+	var before int
+	timeout := time.Now().Add(time.Second)
+	for time.Now().Before(timeout) {
+		before = profile.Count()
+		time.Sleep(10 * time.Millisecond)
+		if profile.Count() == before {
+			break
+		}
+	}
 	var prev bytes.Buffer
 	dumpGoroutines("Before:", &prev)
 
@@ -67,7 +74,7 @@ func ensureNoGoroutinesLeak(t *testing.T, f func(t *testing.T)) {
 	var after int
 	// Give time for things to settle before capturing the number of
 	// go routines
-	timeout := time.Now().Add(time.Second)
+	timeout = time.Now().Add(time.Second)
 	for time.Now().Before(timeout) {
 		after = profile.Count()
 		if after == before {
