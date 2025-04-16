@@ -31,7 +31,6 @@ import (
 )
 
 func TestBackoff_Exponential(t *testing.T) {
-	t.Parallel()
 	assert := assert.New(t)
 	minWait := 100 * time.Millisecond
 	backoff, err := NewExponentialBackoff(minWait, 500*time.Millisecond)
@@ -47,14 +46,27 @@ func TestBackoff_Exponential(t *testing.T) {
 
 	for _, wait := range waitTimes {
 		assert.Equal(wait, backoff.NextWait())
-
-		a := time.Now()
+		backoff.(*exponentialBackoff).getContextWithTimeout = func(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+			assert.Equal(wait, timeout)
+			return context.WithTimeout(parent, time.Millisecond)
+		}
 		backoff.Wait(context.Background())
-		b := time.Now()
-		assert.GreaterOrEqual(b.Sub(a), wait)
 	}
 
 	backoff.Reset()
+	backoff.(*exponentialBackoff).getContextWithTimeout = func(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+		assert.Equal(minWait, timeout)
+		return context.WithTimeout(parent, time.Millisecond)
+	}
+	backoff.Wait(context.Background())
+}
+
+func TestBackoff_ExponentialRealSleep(t *testing.T) {
+	assert := assert.New(t)
+	minWait := 100 * time.Millisecond
+	backoff, err := NewExponentialBackoff(minWait, 500*time.Millisecond)
+	require.NoError(t, err)
+
 	a := time.Now()
 	backoff.Wait(context.Background())
 	b := time.Now()

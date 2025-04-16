@@ -26,13 +26,13 @@ import (
 )
 
 type ConcurrentStringStringMap struct {
-	sync.Mutex
-	d map[string]string
+	mu sync.RWMutex
+	d  map[string]string
 }
 
 func (m *ConcurrentStringStringMap) Set(key, value string) {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.d == nil {
 		m.d = make(map[string]string)
 	}
@@ -40,26 +40,26 @@ func (m *ConcurrentStringStringMap) Set(key, value string) {
 }
 
 func (m *ConcurrentStringStringMap) Get(key string) (string, bool) {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	s, found := m.d[key]
 	return s, found
 }
 
 func (m *ConcurrentStringStringMap) Del(key string) {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.d, key)
 }
 
 func (m *ConcurrentStringStringMap) Len() int {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return len(m.d)
 }
 
 func (m *ConcurrentStringStringMap) Clear() {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.d = nil
 }

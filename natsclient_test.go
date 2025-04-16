@@ -174,7 +174,7 @@ func TestNatsClient_MaxReconnects(t *testing.T) {
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
-		reconnectWait := 5 * time.Millisecond
+		reconnectWait := time.Millisecond
 		server, port, client := CreateLocalNatsClientForTest(t,
 			nats.ReconnectWait(reconnectWait),
 			nats.ReconnectJitter(0, 0),
@@ -188,12 +188,18 @@ func TestNatsClient_MaxReconnects(t *testing.T) {
 		server.WaitForShutdown()
 
 		// The NATS client tries to reconnect a maximum of 100 times by default.
-		time.Sleep(time.Second + (100 * reconnectWait))
+		time.Sleep(100 * reconnectWait)
+		for i := 0; i < 1000 && c.conn.IsConnected(); i++ {
+			time.Sleep(time.Millisecond)
+		}
 		require.False(c.conn.IsConnected(), "should be disconnected after server shutdown")
 
 		server, _ = startLocalNatsServerPort(t, port)
 
-		time.Sleep(time.Second)
+		// Wait for automatic reconnection
+		for i := 0; i < 1000 && !c.conn.IsConnected(); i++ {
+			time.Sleep(time.Millisecond)
+		}
 		require.True(c.conn.IsConnected(), "not connected after restart")
 		assert.Equal(server.ID(), c.conn.ConnectedServerId())
 	})

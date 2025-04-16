@@ -37,6 +37,8 @@ type exponentialBackoff struct {
 	initial  time.Duration
 	maxWait  time.Duration
 	nextWait time.Duration
+
+	getContextWithTimeout func(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc)
 }
 
 func NewExponentialBackoff(initial time.Duration, maxWait time.Duration) (Backoff, error) {
@@ -52,6 +54,8 @@ func NewExponentialBackoff(initial time.Duration, maxWait time.Duration) (Backof
 		maxWait: maxWait,
 
 		nextWait: initial,
+
+		getContextWithTimeout: context.WithTimeout,
 	}, nil
 }
 
@@ -64,7 +68,7 @@ func (b *exponentialBackoff) NextWait() time.Duration {
 }
 
 func (b *exponentialBackoff) Wait(ctx context.Context) {
-	waiter, cancel := context.WithTimeout(ctx, b.nextWait)
+	waiter, cancel := b.getContextWithTimeout(ctx, b.nextWait)
 	defer cancel()
 
 	b.nextWait = b.nextWait * 2
