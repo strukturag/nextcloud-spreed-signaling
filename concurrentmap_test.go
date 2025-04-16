@@ -86,8 +86,11 @@ func TestConcurrentStringStringMap(t *testing.T) {
 			for y := 0; y < count; y = y + 1 {
 				value := rnd + "-" + strconv.Itoa(y)
 				m.Set(key, value)
-				if v, found := m.Get(key); !assert.True(found, "Expected entry for key %s", key) ||
-					!assert.Equal(value, v, "Unexpected value for key %s", key) {
+				if v, found := m.Get(key); !found {
+					assert.True(found, "Expected entry for key %s", key)
+					return
+				} else if v != value {
+					assert.Equal(value, v, "Unexpected value for key %s", key)
 					return
 				}
 			}
