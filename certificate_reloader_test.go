@@ -39,8 +39,7 @@ func UpdateCertificateCheckIntervalForTest(t *testing.T, interval time.Duration)
 	deduplicateWatchEvents.Store(int64(interval))
 }
 
-func (r *CertificateReloader) WaitForReload(ctx context.Context) error {
-	counter := r.GetReloadCounter()
+func (r *CertificateReloader) WaitForReload(ctx context.Context, counter uint64) error {
 	for counter == r.GetReloadCounter() {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -50,8 +49,7 @@ func (r *CertificateReloader) WaitForReload(ctx context.Context) error {
 	return nil
 }
 
-func (r *CertPoolReloader) WaitForReload(ctx context.Context) error {
-	counter := r.GetReloadCounter()
+func (r *CertPoolReloader) WaitForReload(ctx context.Context, counter uint64) error {
 	for counter == r.GetReloadCounter() {
 		if err := ctx.Err(); err != nil {
 			return err

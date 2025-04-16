@@ -39,20 +39,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func (c *reloadableCredentials) WaitForCertificateReload(ctx context.Context) error {
+func (c *reloadableCredentials) WaitForCertificateReload(ctx context.Context, counter uint64) error {
 	if c.loader == nil {
 		return errors.New("no certificate loaded")
 	}
 
-	return c.loader.WaitForReload(ctx)
+	return c.loader.WaitForReload(ctx, counter)
 }
 
-func (c *reloadableCredentials) WaitForCertPoolReload(ctx context.Context) error {
+func (c *reloadableCredentials) WaitForCertPoolReload(ctx context.Context, counter uint64) error {
 	if c.pool == nil {
 		return errors.New("no certificate pool loaded")
 	}
 
-	return c.pool.WaitForReload(ctx)
+	return c.pool.WaitForReload(ctx, counter)
 }
 
 func GenerateSelfSignedCertificateForTesting(t *testing.T, bits int, organization string, key *rsa.PrivateKey) []byte {
