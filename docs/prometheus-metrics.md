@@ -52,3 +52,6 @@ The following metrics are available:
 | `signaling_http_client_pool_connections`          | Gauge     | 1.2.4     | The current number of HTTP client connections per host                    | `host`                            |
 | `signaling_throttle_delayed_total`                | Counter   | 1.2.5     | The total number of delayed requests                                      | `action`, `delay`                 |
 | `signaling_throttle_bruteforce_total`             | Counter   | 1.2.5     | The total number of rejected bruteforce requests                          | `action`                          |
+| `signaling_backend_client_requests_total`         | Counter   | 2.0.3     | The total number of backend client requests                               | `backend`                         |
+| `signaling_backend_client_requests_duration`      | Histogram | 2.0.3     | The duration of backend client requests in seconds                        | `backend`                         |
+| `signaling_backend_client_requests_errors_total`  | Counter   | 2.0.3     | The total number of backend client requests that had an error             | `backend`, `error`                |
