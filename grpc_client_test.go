@@ -217,6 +217,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
+		require := require.New(t)
 		lookup := newMockDnsLookupForTest(t)
 		target := "testgrpc:12345"
 		ip1 := net.ParseIP("192.168.0.1")
@@ -230,6 +231,12 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 		defer cancel()
 
+		// Wait for initial check to be done to make sure internal dnsmonitor goroutine is waiting.
+		if err := dnsMonitor.waitForTicker(ctx); err != nil {
+			require.NoError(err)
+		}
+
+		drainWakeupChannel(ch)
 		dnsMonitor.checkHostnames()
 		if clients := client.GetClients(); assert.Len(clients, 1) {
 			assert.Equal(targetWithIp1, clients[0].Target())

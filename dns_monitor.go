@@ -150,7 +150,8 @@ type DnsMonitor struct {
 	cond      *sync.Cond
 	hostnames map[string]*dnsMonitorEntry
 
-	hasRemoved atomic.Bool
+	tickerWaiting atomic.Bool
+	hasRemoved    atomic.Bool
 
 	// Can be overwritten from tests.
 	checkHostnames func()
@@ -307,6 +308,7 @@ func (m *DnsMonitor) run() {
 			}
 		}
 
+		m.tickerWaiting.Store(true)
 		select {
 		case <-m.stopCtx.Done():
 			return
@@ -340,4 +342,14 @@ func (m *DnsMonitor) checkHostname(entry *dnsMonitorEntry) {
 	}
 
 	entry.setIPs(ips, false)
+}
+
+func (m *DnsMonitor) waitForTicker(ctx context.Context) error {
+	for !m.tickerWaiting.Load() {
+		time.Sleep(time.Millisecond)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
