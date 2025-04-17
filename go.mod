@@ -17,7 +17,7 @@ require (
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/pion/sdp/v3 v3.0.11
 	github.com/pquerna/cachecontrol v0.2.0
-	github.com/prometheus/client_golang v1.21.1
+	github.com/prometheus/client_golang v1.22.0
 	github.com/stretchr/testify v1.10.0
 	go.etcd.io/etcd/api/v3 v3.5.21
 	go.etcd.io/etcd/client/pkg/v3 v3.5.21
