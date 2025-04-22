@@ -12,7 +12,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/mailru/easyjson v0.9.0
 	github.com/nats-io/nats-server/v2 v2.11.1
-	github.com/nats-io/nats.go v1.41.1
+	github.com/nats-io/nats.go v1.41.2
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/pion/sdp/v3 v3.0.11
@@ -58,7 +58,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nats-io/jwt/v2 v2.7.3 // indirect
-	github.com/nats-io/nkeys v0.4.10 // indirect
+	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -84,10 +84,10 @@ require (
 	go.opentelemetry.io/otel/trace v1.34.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.0.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
-	golang.org/x/crypto v0.36.0 // indirect
+	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 	google.golang.org/genproto v0.0.0-20240227224415-6ceb2ff114de // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250218202821-56aae31c358a // indirect
