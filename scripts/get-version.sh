@@ -26,4 +26,4 @@ if [ -z "$VERSION" ]; then
     VERSION=unknown
 fi
 
-echo $VERSION
+echo "$VERSION"
