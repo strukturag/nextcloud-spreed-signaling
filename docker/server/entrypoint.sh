@@ -248,6 +248,10 @@ if [ ! -f "$CONFIG" ]; then
     sed -i "s|#secret = the-shared-secret-for-allowall|secret = $BACKENDS_ALLOWALL_SECRET|" "$CONFIG"
   fi
 
+  if [ -n "$BACKENDS_TIMEOUT" ]; then
+    sed -i "/requests to the backend/,/requests to the backend/ s|^timeout =.*|timeout = $BACKENDS_TIMEOUT|" "$CONFIG"
+  fi
+
   if [ -n "$BACKENDS" ]; then
     BACKENDS_CONFIG=${BACKENDS// /,}
     sed -i "s|#backends = .*|backends = $BACKENDS_CONFIG|" "$CONFIG"

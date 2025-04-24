@@ -28,6 +28,7 @@ The running container can be configured through different environment variables:
 - `BACKENDS_ALLOWALL`: Allow all backends. Extremly insecure - use only for development!
 - `BACKENDS_ALLOWALL_SECRET`: Secret when `BACKENDS_ALLOWALL` is enabled.
 - `BACKENDS`: Space-separated list of backend ids.
+- `BACKENDS_TIMEOUT`: Timeout in seconds for requests to backends.
 - `BACKEND_<ID>_URL`: Url of backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_SHARED_SECRET`: Shared secret for backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_SESSION_LIMIT`: Optional session limit for backend `ID` (where `ID` is the uppercase backend id).
