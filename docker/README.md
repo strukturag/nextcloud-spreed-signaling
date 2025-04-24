@@ -33,6 +33,7 @@ The running container can be configured through different environment variables:
 - `BACKEND_<ID>_SESSION_LIMIT`: Optional session limit for backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_MAX_STREAM_BITRATE`: Optional maximum bitrate for audio/video streams in backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_MAX_SCREEN_BITRATE`: Optional maximum bitrate for screensharing streams in backend `ID` (where `ID` is the uppercase backend id).
+- `FEDERATION_TIMEOUT`: Timeout for requests to federation targets in seconds.
 - `NATS_URL`: Optional URL of NATS server.
 - `ETCD_ENDPOINTS`: Static list of etcd endpoints (if etcd should be used).
 - `ETCD_DISCOVERY_SRV`: Alternative domain to use for DNS SRV configuration of etcd endpoints (if etcd should be used).

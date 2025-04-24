@@ -77,6 +77,9 @@ if [ ! -f "$CONFIG" ]; then
   else
     sed -i "s|#url = nats://localhost:4222|url = nats://loopback|" "$CONFIG"
   fi
+  if [ -n "$FEDERATION_TIMEOUT" ]; then
+    sed -i "/federation/,/federation/ s|#timeout =.*|timeout = $FEDERATION_TIMEOUT|" "$CONFIG"
+  fi
 
   HAS_ETCD=
   if [ -n "$ETCD_ENDPOINTS" ]; then
