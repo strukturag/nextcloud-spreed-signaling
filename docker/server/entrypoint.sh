@@ -39,8 +39,21 @@ if [ ! -f "$CONFIG" ]; then
   if [ -n "$HTTP_LISTEN" ]; then
     sed -i "s|#listen = 127.0.0.1:8080|listen = $HTTP_LISTEN|" "$CONFIG"
   fi
+  if [ -n "$HTTP_READ_TIMEOUT" ]; then
+    sed -i "/HTTP socket/,/HTTP socket/ s|#readtimeout =.*|readtimeout = $HTTP_READ_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$HTTP_WRITE_TIMEOUT" ]; then
+    sed -i "/HTTP socket/,/HTTP socket/ s|#writetimeout =.*|writetimeout = $HTTP_WRITE_TIMEOUT|" "$CONFIG"
+  fi
+
   if [ -n "$HTTPS_LISTEN" ]; then
     sed -i "s|#listen = 127.0.0.1:8443|listen = $HTTPS_LISTEN|" "$CONFIG"
+    if [ -n "$HTTPS_READ_TIMEOUT" ]; then
+      sed -i "/HTTPS socket/,/HTTPS socket/ s|#readtimeout =.*|readtimeout = $HTTPS_READ_TIMEOUT|" "$CONFIG"
+    fi
+    if [ -n "$HTTPS_WRITE_TIMEOUT" ]; then
+      sed -i "/HTTPS socket/,/HTTPS socket/ s|#writetimeout =.*|writetimeout = $HTTPS_WRITE_TIMEOUT|" "$CONFIG"
+    fi
 
     if [ -n "$HTTPS_CERTIFICATE" ]; then
       sed -i "s|certificate = /etc/nginx/ssl/server.crt|certificate = $HTTPS_CERTIFICATE|" "$CONFIG"
@@ -63,6 +76,9 @@ if [ ! -f "$CONFIG" ]; then
     sed -i "s|#url = nats://localhost:4222|url = $NATS_URL|" "$CONFIG"
   else
     sed -i "s|#url = nats://localhost:4222|url = nats://loopback|" "$CONFIG"
+  fi
+  if [ -n "$FEDERATION_TIMEOUT" ]; then
+    sed -i "/federation/,/federation/ s|#timeout =.*|timeout = $FEDERATION_TIMEOUT|" "$CONFIG"
   fi
 
   HAS_ETCD=
@@ -102,6 +118,9 @@ if [ ! -f "$CONFIG" ]; then
     fi
     if [ -n "$PROXY_TOKEN_KEY" ]; then
       sed -i "s|#token_key =.*|token_key = $PROXY_TOKEN_KEY|" "$CONFIG"
+    fi
+    if [ -n "$PROXY_TIMEOUT" ]; then
+      sed -i "s|#proxytimeout =.*|proxytimeout = $PROXY_TIMEOUT|" "$CONFIG"
     fi
 
     if [ -n "$PROXY_ETCD" ]; then
@@ -232,6 +251,14 @@ if [ ! -f "$CONFIG" ]; then
     sed -i "s|#secret = the-shared-secret-for-allowall|secret = $BACKENDS_ALLOWALL_SECRET|" "$CONFIG"
   fi
 
+  if [ -n "$BACKENDS_TIMEOUT" ]; then
+    sed -i "/requests to the backend/,/requests to the backend/ s|^timeout =.*|timeout = $BACKENDS_TIMEOUT|" "$CONFIG"
+  fi
+
+  if [ -n "$CONNECTIONS_PER_HOST" ]; then
+    sed -i "s|connectionsperhost =.*|connectionsperhost = $CONNECTIONS_PER_HOST|" "$CONFIG"
+  fi
+
   if [ -n "$BACKENDS" ]; then
     BACKENDS_CONFIG=${BACKENDS// /,}
     sed -i "s|#backends = .*|backends = $BACKENDS_CONFIG|" "$CONFIG"
@@ -266,6 +293,8 @@ if [ ! -f "$CONFIG" ]; then
       fi
       echo >> "$CONFIG"
     done
+  elif [ -n "$BACKENDS_COMPAT_ALLOWED" ]; then
+    sed -i "s|#backends =.*|allowed = $BACKENDS_COMPAT_ALLOWED\nsecret = $BACKENDS_COMPAT_SECRET|" "$CONFIG"
   fi
 fi
 

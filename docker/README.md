@@ -15,7 +15,11 @@ The running container can be configured through different environment variables:
 
 - `CONFIG`: Optional name of configuration file to use.
 - `HTTP_LISTEN`: Address of HTTP listener.
+- `HTTP_READ_TIMEOUT`: HTTP socket read timeout in seconds.
+- `HTTP_WRITE_TIMEOUT`: HTTP socket write timeout in seconds.
 - `HTTPS_LISTEN`: Address of HTTPS listener.
+- `HTTPS_READ_TIMEOUT`: HTTPS socket read timeout in seconds.
+- `HTTPS_WRITE_TIMEOUT`: HTTPS socket write timeout in seconds.
 - `HTTPS_CERTIFICATE`: Name of certificate file for the HTTPS listener.
 - `HTTPS_KEY`: Name of private key file for the HTTPS listener.
 - `HASH_KEY`: Secret value used to generate checksums of sessions (32 or 64 bytes).
@@ -24,11 +28,14 @@ The running container can be configured through different environment variables:
 - `BACKENDS_ALLOWALL`: Allow all backends. Extremly insecure - use only for development!
 - `BACKENDS_ALLOWALL_SECRET`: Secret when `BACKENDS_ALLOWALL` is enabled.
 - `BACKENDS`: Space-separated list of backend ids.
+- `BACKENDS_TIMEOUT`: Timeout in seconds for requests to backends.
+- `CONNECTIONS_PER_HOST`: Maximum number of concurrent backend connections per host.
 - `BACKEND_<ID>_URL`: Url of backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_SHARED_SECRET`: Shared secret for backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_SESSION_LIMIT`: Optional session limit for backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_MAX_STREAM_BITRATE`: Optional maximum bitrate for audio/video streams in backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_MAX_SCREEN_BITRATE`: Optional maximum bitrate for screensharing streams in backend `ID` (where `ID` is the uppercase backend id).
+- `FEDERATION_TIMEOUT`: Timeout for requests to federation targets in seconds.
 - `NATS_URL`: Optional URL of NATS server.
 - `ETCD_ENDPOINTS`: Static list of etcd endpoints (if etcd should be used).
 - `ETCD_DISCOVERY_SRV`: Alternative domain to use for DNS SRV configuration of etcd endpoints (if etcd should be used).
@@ -41,6 +48,7 @@ The running container can be configured through different environment variables:
 - `USE_PROXY`: Set to `1` if proxy servers should be used as WebRTC backends.
 - `PROXY_TOKEN_ID`: Id of the token to use when connecting to proxy servers.
 - `PROXY_TOKEN_KEY`: Private key for the configured token id.
+- `PROXY_TIMEOUT`: Timeout in seconds for requests to the proxy server.
 - `PROXY_URLS`: Space-separated list of proxy URLs to connect to.
 - `PROXY_DNS_DISCOVERY`: Enable DNS discovery on hostnames of configured static URLs.
 - `PROXY_ETCD`: Set to `1` if etcd should be used to configure proxy connections.
