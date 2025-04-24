@@ -266,6 +266,8 @@ if [ ! -f "$CONFIG" ]; then
       fi
       echo >> "$CONFIG"
     done
+  elif [ -n "$BACKENDS_COMPAT_ALLOWED" ]; then
+    sed -i "s|#backends =.*|allowed = $BACKENDS_COMPAT_ALLOWED\nsecret = $BACKENDS_COMPAT_SECRET|" "$CONFIG"
   fi
 fi
 
