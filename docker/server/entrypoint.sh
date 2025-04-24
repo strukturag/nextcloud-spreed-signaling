@@ -119,6 +119,9 @@ if [ ! -f "$CONFIG" ]; then
     if [ -n "$PROXY_TOKEN_KEY" ]; then
       sed -i "s|#token_key =.*|token_key = $PROXY_TOKEN_KEY|" "$CONFIG"
     fi
+    if [ -n "$PROXY_TIMEOUT" ]; then
+      sed -i "s|#proxytimeout =.*|proxytimeout = $PROXY_TIMEOUT|" "$CONFIG"
+    fi
 
     if [ -n "$PROXY_ETCD" ]; then
       if [ -z "$HAS_ETCD" ]; then

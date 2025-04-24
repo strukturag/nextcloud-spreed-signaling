@@ -48,6 +48,7 @@ The running container can be configured through different environment variables:
 - `USE_PROXY`: Set to `1` if proxy servers should be used as WebRTC backends.
 - `PROXY_TOKEN_ID`: Id of the token to use when connecting to proxy servers.
 - `PROXY_TOKEN_KEY`: Private key for the configured token id.
+- `PROXY_TIMEOUT`: Timeout in seconds for requests to the proxy server.
 - `PROXY_URLS`: Space-separated list of proxy URLs to connect to.
 - `PROXY_DNS_DISCOVERY`: Enable DNS discovery on hostnames of configured static URLs.
 - `PROXY_ETCD`: Set to `1` if etcd should be used to configure proxy connections.
