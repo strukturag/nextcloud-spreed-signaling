@@ -39,8 +39,21 @@ if [ ! -f "$CONFIG" ]; then
   if [ -n "$HTTP_LISTEN" ]; then
     sed -i "s|#listen = 127.0.0.1:8080|listen = $HTTP_LISTEN|" "$CONFIG"
   fi
+  if [ -n "$HTTP_READ_TIMEOUT" ]; then
+    sed -i "/HTTP socket/,/HTTP socket/ s|#readtimeout =.*|readtimeout = $HTTP_READ_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$HTTP_WRITE_TIMEOUT" ]; then
+    sed -i "/HTTP socket/,/HTTP socket/ s|#writetimeout =.*|writetimeout = $HTTP_WRITE_TIMEOUT|" "$CONFIG"
+  fi
+
   if [ -n "$HTTPS_LISTEN" ]; then
     sed -i "s|#listen = 127.0.0.1:8443|listen = $HTTPS_LISTEN|" "$CONFIG"
+    if [ -n "$HTTPS_READ_TIMEOUT" ]; then
+      sed -i "/HTTPS socket/,/HTTPS socket/ s|#readtimeout =.*|readtimeout = $HTTPS_READ_TIMEOUT|" "$CONFIG"
+    fi
+    if [ -n "$HTTPS_WRITE_TIMEOUT" ]; then
+      sed -i "/HTTPS socket/,/HTTPS socket/ s|#writetimeout =.*|writetimeout = $HTTPS_WRITE_TIMEOUT|" "$CONFIG"
+    fi
 
     if [ -n "$HTTPS_CERTIFICATE" ]; then
       sed -i "s|certificate = /etc/nginx/ssl/server.crt|certificate = $HTTPS_CERTIFICATE|" "$CONFIG"

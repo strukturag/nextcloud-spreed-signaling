@@ -15,7 +15,11 @@ The running container can be configured through different environment variables:
 
 - `CONFIG`: Optional name of configuration file to use.
 - `HTTP_LISTEN`: Address of HTTP listener.
+- `HTTP_READ_TIMEOUT`: HTTP socket read timeout in seconds.
+- `HTTP_WRITE_TIMEOUT`: HTTP socket write timeout in seconds.
 - `HTTPS_LISTEN`: Address of HTTPS listener.
+- `HTTPS_READ_TIMEOUT`: HTTPS socket read timeout in seconds.
+- `HTTPS_WRITE_TIMEOUT`: HTTPS socket write timeout in seconds.
 - `HTTPS_CERTIFICATE`: Name of certificate file for the HTTPS listener.
 - `HTTPS_KEY`: Name of private key file for the HTTPS listener.
 - `HASH_KEY`: Secret value used to generate checksums of sessions (32 or 64 bytes).
