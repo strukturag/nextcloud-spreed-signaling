@@ -252,6 +252,10 @@ if [ ! -f "$CONFIG" ]; then
     sed -i "/requests to the backend/,/requests to the backend/ s|^timeout =.*|timeout = $BACKENDS_TIMEOUT|" "$CONFIG"
   fi
 
+  if [ -n "$CONNECTIONS_PER_HOST" ]; then
+    sed -i "s|connectionsperhost =.*|connectionsperhost = $CONNECTIONS_PER_HOST|" "$CONFIG"
+  fi
+
   if [ -n "$BACKENDS" ]; then
     BACKENDS_CONFIG=${BACKENDS// /,}
     sed -i "s|#backends = .*|backends = $BACKENDS_CONFIG|" "$CONFIG"
