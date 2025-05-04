@@ -47,6 +47,23 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 		case "destroyed":
 			log.Printf("Subscriber %d: associated room has been destroyed, closing", p.handleId)
 			go p.Close(ctx)
+		case "updated":
+			streams, ok := getPluginValue(event.Plugindata, pluginVideoRoom, "streams").([]interface{})
+			if !ok || len(streams) == 0 {
+				// The streams list will be empty if no stream was changed.
+				return
+			}
+
+			for _, stream := range streams {
+				if stream, ok := stream.(map[string]interface{}); ok {
+					if (stream["type"] == "audio" || stream["type"] == "video") && stream["active"] != false {
+						return
+					}
+				}
+			}
+
+			log.Printf("Subscriber %d: received updated event with no active media streams, closing", p.handleId)
+			go p.Close(ctx)
 		case "event":
 			// Handle renegotiations, but ignore other events like selected
 			// substream / temporal layer.
