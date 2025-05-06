@@ -401,6 +401,10 @@ func (p *TestMCUPublisher) Id() string {
 	return p.id
 }
 
+func (p *TestMCUPublisher) PublisherId() string {
+	return p.id
+}
+
 func (p *TestMCUPublisher) Sid() string {
 	return p.sid
 }

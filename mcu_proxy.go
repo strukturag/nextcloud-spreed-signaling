@@ -153,6 +153,10 @@ func newMcuProxyPublisher(id string, sid string, streamType StreamType, maxBitra
 	}
 }
 
+func (p *mcuProxyPublisher) PublisherId() string {
+	return p.id
+}
+
 func (p *mcuProxyPublisher) HasMedia(mt MediaType) bool {
 	return (p.settings.MediaTypes & mt) == mt
 }

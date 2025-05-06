@@ -211,6 +211,8 @@ type McuClient interface {
 type McuPublisher interface {
 	McuClient
 
+	PublisherId() string
+
 	HasMedia(MediaType) bool
 	SetMedia(MediaType)
 
