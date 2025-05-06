@@ -1595,7 +1595,7 @@ func (s *ProxyServer) getRemoteConnection(url string) (*RemoteConnection, error)
 		return conn, nil
 	}
 
-	conn, err := NewRemoteConnection(url, s.tokenId, s.tokenKey, s.remoteTlsConfig)
+	conn, err := NewRemoteConnection(s, url, s.tokenId, s.tokenKey, s.remoteTlsConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -1610,5 +1610,14 @@ func (s *ProxyServer) PublisherDeleted(publisher signaling.McuPublisher) {
 
 	for _, session := range s.sessions {
 		session.OnPublisherDeleted(publisher)
+	}
+}
+
+func (s *ProxyServer) RemotePublisherDeleted(publisherId string) {
+	s.sessionsLock.RLock()
+	defer s.sessionsLock.RUnlock()
+
+	for _, session := range s.sessions {
+		session.OnRemotePublisherDeleted(publisherId)
 	}
 }

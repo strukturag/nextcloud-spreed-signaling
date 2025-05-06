@@ -38,6 +38,7 @@ const (
 )
 
 type remotePublisherData struct {
+	id       string
 	hostname string
 	port     int
 	rtcpPort int
@@ -400,6 +401,7 @@ func (s *ProxySession) AddRemotePublisher(publisher signaling.McuPublisher, host
 	}
 
 	data := &remotePublisherData{
+		id:       publisher.PublisherId(),
 		hostname: hostname,
 		port:     port,
 		rtcpPort: rtcpPort,
@@ -431,5 +433,33 @@ func (s *ProxySession) OnPublisherDeleted(publisher signaling.McuPublisher) {
 	s.remotePublishersLock.Lock()
 	defer s.remotePublishersLock.Unlock()
 
-	delete(s.remotePublishers, publisher)
+	if entries, found := s.remotePublishers[publisher]; found {
+		delete(s.remotePublishers, publisher)
+
+		for _, entry := range entries {
+			msg := &signaling.ProxyServerMessage{
+				Type: "event",
+				Event: &signaling.EventProxyServerMessage{
+					Type:     "publisher-closed",
+					ClientId: entry.id,
+				},
+			}
+			s.sendMessage(msg)
+		}
+	}
+}
+
+func (s *ProxySession) OnRemotePublisherDeleted(publisherId string) {
+	s.subscribersLock.Lock()
+	defer s.subscribersLock.Unlock()
+
+	for id, sub := range s.subscribers {
+		if sub.Publisher() == publisherId {
+			delete(s.subscribers, id)
+			delete(s.subscriberIds, sub)
+
+			log.Printf("Remote subscriber %s was closed, closing %s subscriber %s", publisherId, sub.StreamType(), sub.Id())
+			go sub.Close(context.Background())
+		}
+	}
 }

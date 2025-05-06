@@ -61,6 +61,7 @@ var (
 
 type RemoteConnection struct {
 	mu     sync.Mutex
+	p      *ProxyServer
 	url    *url.URL
 	conn   *websocket.Conn
 	closer *signaling.Closer
@@ -82,13 +83,14 @@ type RemoteConnection struct {
 	messageCallbacks map[string]chan *signaling.ProxyServerMessage
 }
 
-func NewRemoteConnection(proxyUrl string, tokenId string, tokenKey *rsa.PrivateKey, tlsConfig *tls.Config) (*RemoteConnection, error) {
+func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenKey *rsa.PrivateKey, tlsConfig *tls.Config) (*RemoteConnection, error) {
 	u, err := url.Parse(proxyUrl)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &RemoteConnection{
+		p:      p,
 		url:    u,
 		closer: signaling.NewCloser(),
 
@@ -456,6 +458,10 @@ func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
 func (c *RemoteConnection) processEvent(msg *signaling.ProxyServerMessage) {
 	switch msg.Event.Type {
 	case "update-load":
+		// Ignore
+	case "publisher-closed":
+		log.Printf("Remote publisher %s was closed on %s", msg.Event.ClientId, c)
+		c.p.RemotePublisherDeleted(msg.Event.ClientId)
 	default:
 		log.Printf("Received unsupported event %+v from %s", msg, c)
 	}
