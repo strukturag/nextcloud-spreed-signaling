@@ -45,7 +45,7 @@ const (
 	screenPublisherUserId = 2
 
 	initialReconnectInterval = 1 * time.Second
-	maxReconnectInterval     = 32 * time.Second
+	maxReconnectInterval     = 16 * time.Second
 )
 
 var (

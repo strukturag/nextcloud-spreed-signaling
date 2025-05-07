@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -749,7 +750,10 @@ func (c *mcuProxyConnection) scheduleReconnect() {
 	}
 
 	interval := c.reconnectInterval.Load()
-	c.reconnectTimer.Reset(time.Duration(interval))
+	// Prevent all servers from reconnecting at the same time in case of an
+	// interrupted connection to the proxy or a restart.
+	jitter := rand.Int64N(interval) - (interval / 2)
+	c.reconnectTimer.Reset(time.Duration(interval + jitter))
 
 	interval = interval * 2
 	if interval > int64(maxReconnectInterval) {
