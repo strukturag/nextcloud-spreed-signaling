@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -205,6 +206,10 @@ func (c *RemoteConnection) sendClose() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	return c.sendCloseLocked()
+}
+
+func (c *RemoteConnection) sendCloseLocked() error {
 	if c.conn == nil {
 		return ErrNotConnected
 	}
@@ -231,7 +236,12 @@ func (c *RemoteConnection) Close() error {
 		return nil
 	}
 
-	c.sendClose()
+	if !c.closed.CompareAndSwap(false, true) {
+		// Already closed
+		return nil
+	}
+
+	c.closer.Close()
 	err1 := c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{})
 	err2 := c.conn.Close()
 	c.conn = nil
@@ -317,7 +327,9 @@ func (c *RemoteConnection) readPump(conn *websocket.Conn) {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				log.Printf("Error reading from %s: %v", c, err)
+				if !errors.Is(err, net.ErrClosed) || !c.closed.Load() {
+					log.Printf("Error reading from %s: %v", c, err)
+				}
 			}
 			break
 		}
