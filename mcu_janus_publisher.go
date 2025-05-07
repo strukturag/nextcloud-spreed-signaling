@@ -56,6 +56,10 @@ type mcuJanusPublisher struct {
 	answerSdp atomic.Pointer[sdp.SessionDescription]
 }
 
+func (p *mcuJanusPublisher) PublisherId() string {
+	return p.id
+}
+
 func (p *mcuJanusPublisher) handleEvent(event *janus.EventMsg) {
 	if videoroom := getPluginStringValue(event.Plugindata, pluginVideoRoom, "videoroom"); videoroom != "" {
 		ctx := context.TODO()

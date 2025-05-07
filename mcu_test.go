@@ -184,6 +184,10 @@ type TestMCUPublisher struct {
 	sdp string
 }
 
+func (p *TestMCUPublisher) PublisherId() string {
+	return p.id
+}
+
 func (p *TestMCUPublisher) HasMedia(mt MediaType) bool {
 	return (p.settings.MediaTypes & mt) == mt
 }

@@ -145,6 +145,7 @@ type ProxyServer struct {
 	remoteHostname        string
 	remoteConnections     map[string]*RemoteConnection
 	remoteConnectionsLock sync.Mutex
+	remotePublishers      map[string]map[*proxyRemotePublisher]bool
 }
 
 func IsPublicIP(IP net.IP) bool {
@@ -364,6 +365,7 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		remoteTlsConfig:   remoteTlsConfig,
 		remoteHostname:    remoteHostname,
 		remoteConnections: make(map[string]*RemoteConnection),
+		remotePublishers:  make(map[string]map[*proxyRemotePublisher]bool),
 	}
 
 	result.maxIncoming.Store(int64(maxIncoming) * 1024 * 1024)
@@ -858,6 +860,8 @@ func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher si
 }
 
 func (p *proxyRemotePublisher) StopPublishing(ctx context.Context, publisher signaling.McuRemotePublisherProperties) error {
+	defer p.proxy.removeRemotePublisher(p)
+
 	conn, err := p.proxy.getRemoteConnection(p.remoteUrl)
 	if err != nil {
 		return err
@@ -897,6 +901,46 @@ func (p *proxyRemotePublisher) GetStreams(ctx context.Context) ([]signaling.Publ
 	}
 
 	return response.Command.Streams, nil
+}
+
+func (s *ProxyServer) addRemotePublisher(publisher *proxyRemotePublisher) {
+	s.remoteConnectionsLock.Lock()
+	defer s.remoteConnectionsLock.Unlock()
+
+	publishers, found := s.remotePublishers[publisher.remoteUrl]
+	if !found {
+		publishers = make(map[*proxyRemotePublisher]bool)
+		s.remotePublishers[publisher.remoteUrl] = publishers
+	}
+
+	publishers[publisher] = true
+	log.Printf("Add remote publisher to %s", publisher.remoteUrl)
+}
+
+func (s *ProxyServer) removeRemotePublisher(publisher *proxyRemotePublisher) {
+	s.remoteConnectionsLock.Lock()
+	defer s.remoteConnectionsLock.Unlock()
+
+	log.Printf("Removing remote publisher to %s", publisher.remoteUrl)
+	publishers, found := s.remotePublishers[publisher.remoteUrl]
+	if !found {
+		return
+	}
+
+	delete(publishers, publisher)
+	if len(publishers) > 0 {
+		return
+	}
+
+	delete(s.remotePublishers, publisher.remoteUrl)
+	if conn, found := s.remoteConnections[publisher.remoteUrl]; found {
+		delete(s.remoteConnections, publisher.remoteUrl)
+		if err := conn.Close(); err != nil {
+			log.Printf("Error closing remote connection to %s: %s", publisher.remoteUrl, err)
+		} else {
+			log.Printf("Remote connection to %s closed", publisher.remoteUrl)
+		}
+	}
 }
 
 func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, session *ProxySession, message *signaling.ProxyClientMessage) {
@@ -1016,6 +1060,8 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			defer func() {
 				go publisher.Close(context.Background())
 			}()
+
+			s.addRemotePublisher(controller)
 
 			subscriber, err = remoteMcu.NewRemoteSubscriber(subCtx, session, publisher)
 			if err != nil {
@@ -1595,7 +1641,7 @@ func (s *ProxyServer) getRemoteConnection(url string) (*RemoteConnection, error)
 		return conn, nil
 	}
 
-	conn, err := NewRemoteConnection(url, s.tokenId, s.tokenKey, s.remoteTlsConfig)
+	conn, err := NewRemoteConnection(s, url, s.tokenId, s.tokenKey, s.remoteTlsConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -1610,5 +1656,14 @@ func (s *ProxyServer) PublisherDeleted(publisher signaling.McuPublisher) {
 
 	for _, session := range s.sessions {
 		session.OnPublisherDeleted(publisher)
+	}
+}
+
+func (s *ProxyServer) RemotePublisherDeleted(publisherId string) {
+	s.sessionsLock.RLock()
+	defer s.sessionsLock.RUnlock()
+
+	for _, session := range s.sessions {
+		session.OnRemotePublisherDeleted(publisherId)
 	}
 }

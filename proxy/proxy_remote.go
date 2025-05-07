@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -61,6 +62,7 @@ var (
 
 type RemoteConnection struct {
 	mu     sync.Mutex
+	p      *ProxyServer
 	url    *url.URL
 	conn   *websocket.Conn
 	closer *signaling.Closer
@@ -82,13 +84,14 @@ type RemoteConnection struct {
 	messageCallbacks map[string]chan *signaling.ProxyServerMessage
 }
 
-func NewRemoteConnection(proxyUrl string, tokenId string, tokenKey *rsa.PrivateKey, tlsConfig *tls.Config) (*RemoteConnection, error) {
+func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenKey *rsa.PrivateKey, tlsConfig *tls.Config) (*RemoteConnection, error) {
 	u, err := url.Parse(proxyUrl)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &RemoteConnection{
+		p:      p,
 		url:    u,
 		closer: signaling.NewCloser(),
 
@@ -203,6 +206,10 @@ func (c *RemoteConnection) sendClose() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	return c.sendCloseLocked()
+}
+
+func (c *RemoteConnection) sendCloseLocked() error {
 	if c.conn == nil {
 		return ErrNotConnected
 	}
@@ -229,7 +236,12 @@ func (c *RemoteConnection) Close() error {
 		return nil
 	}
 
-	c.sendClose()
+	if !c.closed.CompareAndSwap(false, true) {
+		// Already closed
+		return nil
+	}
+
+	c.closer.Close()
 	err1 := c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{})
 	err2 := c.conn.Close()
 	c.conn = nil
@@ -315,7 +327,9 @@ func (c *RemoteConnection) readPump(conn *websocket.Conn) {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				log.Printf("Error reading from %s: %v", c, err)
+				if !errors.Is(err, net.ErrClosed) || !c.closed.Load() {
+					log.Printf("Error reading from %s: %v", c, err)
+				}
 			}
 			break
 		}
@@ -448,6 +462,13 @@ func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
 	switch msg.Type {
 	case "event":
 		c.processEvent(msg)
+	case "bye":
+		log.Printf("Connection to %s was closed: %s", c, msg.Bye.Reason)
+		if msg.Bye.Reason == "session_expired" {
+			// Don't try to resume expired session.
+			c.sessionId = ""
+		}
+		c.scheduleReconnect()
 	default:
 		log.Printf("Received unsupported message %+v from %s", msg, c)
 	}
@@ -456,6 +477,10 @@ func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
 func (c *RemoteConnection) processEvent(msg *signaling.ProxyServerMessage) {
 	switch msg.Event.Type {
 	case "update-load":
+		// Ignore
+	case "publisher-closed":
+		log.Printf("Remote publisher %s was closed on %s", msg.Event.ClientId, c)
+		c.p.RemotePublisherDeleted(msg.Event.ClientId)
 	default:
 		log.Printf("Received unsupported event %+v from %s", msg, c)
 	}
