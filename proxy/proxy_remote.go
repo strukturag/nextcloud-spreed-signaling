@@ -450,6 +450,13 @@ func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
 	switch msg.Type {
 	case "event":
 		c.processEvent(msg)
+	case "bye":
+		log.Printf("Connection to %s was closed: %s", c, msg.Bye.Reason)
+		if msg.Bye.Reason == "session_expired" {
+			// Don't try to resume expired session.
+			c.sessionId = ""
+		}
+		c.scheduleReconnect()
 	default:
 		log.Printf("Received unsupported message %+v from %s", msg, c)
 	}
