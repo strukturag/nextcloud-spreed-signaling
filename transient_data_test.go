@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,6 +83,55 @@ func Test_TransientData(t *testing.T) {
 	// Data is removed after the (updated) TTL
 	<-ttlCh
 	assert.Nil(data.GetData()["test"])
+}
+
+type MockTransientListener struct {
+	mu      sync.Mutex
+	sending chan struct{}
+	done    chan struct{}
+
+	data *TransientData
+}
+
+func (l *MockTransientListener) SendMessage(message *ServerMessage) bool {
+	close(l.sending)
+
+	time.Sleep(10 * time.Millisecond)
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	defer close(l.done)
+
+	time.Sleep(10 * time.Millisecond)
+
+	return true
+}
+
+func (l *MockTransientListener) Close() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.data.RemoveListener(l)
+}
+
+func Test_TransientDataDeadlock(t *testing.T) {
+	data := NewTransientData()
+
+	listener := &MockTransientListener{
+		sending: make(chan struct{}),
+		done:    make(chan struct{}),
+
+		data: data,
+	}
+	data.AddListener(listener)
+
+	go func() {
+		<-listener.sending
+		listener.Close()
+	}()
+
+	data.Set("foo", "bar")
+	<-listener.done
 }
 
 func Test_TransientMessages(t *testing.T) {

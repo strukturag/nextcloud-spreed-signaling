@@ -44,6 +44,13 @@ func NewTransientData() *TransientData {
 	return &TransientData{}
 }
 
+func (t *TransientData) sendMessageToListener(listener TransientListener, message *ServerMessage) {
+	t.mu.Unlock()
+	defer t.mu.Lock()
+
+	listener.SendMessage(message)
+}
+
 func (t *TransientData) notifySet(key string, prev, value interface{}) {
 	msg := &ServerMessage{
 		Type: "transient",
@@ -55,7 +62,7 @@ func (t *TransientData) notifySet(key string, prev, value interface{}) {
 		},
 	}
 	for listener := range t.listeners {
-		listener.SendMessage(msg)
+		t.sendMessageToListener(listener, msg)
 	}
 }
 
@@ -69,7 +76,7 @@ func (t *TransientData) notifyDeleted(key string, prev interface{}) {
 		},
 	}
 	for listener := range t.listeners {
-		listener.SendMessage(msg)
+		t.sendMessageToListener(listener, msg)
 	}
 }
 
@@ -90,7 +97,7 @@ func (t *TransientData) AddListener(listener TransientListener) {
 				Data: t.data,
 			},
 		}
-		listener.SendMessage(msg)
+		t.sendMessageToListener(listener, msg)
 	}
 }
 
