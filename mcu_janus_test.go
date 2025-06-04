@@ -38,10 +38,14 @@ import (
 
 type TestJanusHandle struct {
 	id uint64
+
+	sdp atomic.Value
 }
 
 type TestJanusRoom struct {
 	id uint64
+
+	publisher atomic.Pointer[TestJanusHandle]
 }
 
 type TestJanusHandler func(room *TestJanusRoom, body map[string]interface{}, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg)
@@ -155,25 +159,57 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 		rid := body["room"].(float64)
 		room := g.rooms[uint64(rid)]
 		if room == nil {
-			return &janus.ErrorMsg{
-				Err: janus.ErrorData{
-					Code:   JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM,
-					Reason: "Room not found",
+			return &janus.EventMsg{
+				Plugindata: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: map[string]interface{}{
+						"error_code": JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM,
+					},
 				},
 			}
 		}
 
-		assert.Equal(g.t, "publisher", body["ptype"])
 		g.handleRooms[handle] = room
-		return &janus.EventMsg{
-			Session: session.Id,
-			Handle:  handle.id,
-			Plugindata: janus.PluginData{
-				Plugin: pluginVideoRoom,
-				Data: map[string]interface{}{
-					"room": room.id,
+		switch body["ptype"] {
+		case "publisher":
+			if !assert.True(g.t, room.publisher.CompareAndSwap(nil, handle)) {
+				return &janus.ErrorMsg{
+					Err: janus.ErrorData{
+						Code:   JANUS_VIDEOROOM_ERROR_ALREADY_PUBLISHED,
+						Reason: "Already publisher in this room",
+					},
+				}
+			}
+
+			return &janus.EventMsg{
+				Session: session.Id,
+				Handle:  handle.id,
+				Plugindata: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: map[string]interface{}{
+						"room": room.id,
+					},
 				},
-			},
+			}
+		case "subscriber":
+			publisher := room.publisher.Load()
+			if publisher == nil || publisher.sdp.Load() == nil {
+				return &janus.EventMsg{
+					Plugindata: janus.PluginData{
+						Plugin: pluginVideoRoom,
+						Data: map[string]interface{}{
+							"error_code": JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED,
+						},
+					},
+				}
+			}
+
+			sdp := publisher.sdp.Load()
+			return &janus.EventMsg{
+				Jsep: map[string]interface{}{
+					"sdp": sdp.(string),
+				},
+			}
 		}
 	case "destroy":
 		rid := body["room"].(float64)
@@ -231,8 +267,26 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 			if err != nil {
 				result = err
 			} else {
-				if request == "start" {
+				switch request {
+				case "start":
 					g.handleRooms[handle] = room
+				case "configure":
+					if sdp, found := jsep["sdp"]; found {
+						handle.sdp.Store(sdp.(string))
+						// Simulate "connected" event.
+						go func() {
+							time.Sleep(10 * time.Millisecond)
+							session.Lock()
+							h, found := session.Handles[handle.id]
+							session.Unlock()
+							if found {
+								h.Events <- &janus.WebRTCUpMsg{
+									Session: session.Id,
+									Handle:  h.Id,
+								}
+							}
+						}()
+					}
 				}
 			}
 			return result
@@ -970,6 +1024,108 @@ func Test_JanusSubscriberPublisher(t *testing.T) {
 	require.NoError(err)
 	defer sub.Close(context.Background())
 	close(ready)
+	<-done
+}
+
+func Test_JanusSubscriberRequestOffer(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	var originalOffer atomic.Value
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"configure": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			if assert.NotNil(jsep) {
+				if sdp, found := jsep["sdp"]; assert.True(found) {
+					originalOffer.Store(strings.ReplaceAll(sdp.(string), "\r\n", "\n"))
+				}
+			}
+
+			return &janus.EventMsg{
+				Jsep: map[string]interface{}{
+					"sdp": MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "publisher-id"
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, StreamTypeVideo, initiator2)
+	require.NoError(err)
+	defer sub.Close(context.Background())
+
+	go func() {
+		data := &MessageClientMessageData{
+			Type: "offer",
+			Payload: map[string]interface{}{
+				"sdp": MockSdpOfferAudioAndVideo,
+			},
+		}
+		require.NoError(data.CheckValid())
+
+		done := make(chan struct{})
+		pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+			defer close(done)
+
+			if assert.NoError(err) {
+				if sdpValue, found := m["sdp"]; assert.True(found) {
+					sdpText, ok := sdpValue.(string)
+					if assert.True(ok) {
+						assert.Equal(MockSdpAnswerAudioAndVideo, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+					}
+				}
+			}
+		})
+		<-done
+	}()
+
+	data := &MessageClientMessageData{
+		Type: "requestoffer",
+	}
+	require.NoError(data.CheckValid())
+
+	done := make(chan struct{})
+	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+		defer close(done)
+
+		if assert.NoError(err) {
+			if sdpValue, found := m["sdp"]; assert.True(found) {
+				sdpText, ok := sdpValue.(string)
+				if assert.True(ok) {
+					if sdp := originalOffer.Load(); assert.NotNil(sdp) {
+						assert.Equal(sdp.(string), strings.ReplaceAll(sdpText, "\r\n", "\n"))
+					}
+				}
+			}
+		}
+	})
 	<-done
 }
 
