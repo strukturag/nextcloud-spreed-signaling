@@ -716,6 +716,177 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	wg.Wait()
 }
 
+func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"configure": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			if assert.NotNil(jsep) {
+				if sdpValue, found := jsep["sdp"]; assert.True(found) {
+					sdpText, ok := sdpValue.(string)
+					if assert.True(ok) {
+						assert.Equal(MockSdpOfferAudioOnly, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+					}
+				}
+			}
+
+			return &janus.EventMsg{
+				Jsep: map[string]interface{}{
+					"sdp": MockSdpAnswerAudioOnly,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "publisher-id"
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	data := &MessageClientMessageData{
+		Type: "offer",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioOnly,
+		},
+	}
+	require.NoError(data.CheckValid())
+
+	done := make(chan struct{})
+	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+		defer close(done)
+
+		if assert.NoError(err) {
+			if sdpValue, found := m["sdp"]; assert.True(found) {
+				sdpText, ok := sdpValue.(string)
+				if assert.True(ok) {
+					assert.Equal(MockSdpAnswerAudioOnly, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+				}
+			}
+		}
+	})
+	<-done
+
+	if streams, err := pub.GetStreams(ctx); assert.NoError(err) {
+		if assert.Len(streams, 1) {
+			stream := streams[0]
+			assert.Equal("audio", stream.Type)
+			assert.Equal("audio", stream.Mid)
+			assert.EqualValues(0, stream.Mindex)
+			assert.False(stream.Disabled)
+			assert.Equal("opus", stream.Codec)
+			assert.False(stream.Stereo)
+			assert.False(stream.Fec)
+			assert.False(stream.Dtx)
+		}
+	}
+}
+
+func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"configure": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			if assert.NotNil(jsep) {
+				_, found := jsep["sdp"]
+				assert.True(found)
+			}
+
+			return &janus.EventMsg{
+				Jsep: map[string]interface{}{
+					"sdp": MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "publisher-id"
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	data := &MessageClientMessageData{
+		Type: "offer",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}
+	require.NoError(data.CheckValid())
+
+	// Defer sending of offer / answer so "GetStreams" will wait.
+	go func() {
+		done := make(chan struct{})
+		pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+			defer close(done)
+
+			if assert.NoError(err) {
+				if sdpValue, found := m["sdp"]; assert.True(found) {
+					sdpText, ok := sdpValue.(string)
+					if assert.True(ok) {
+						assert.Equal(MockSdpAnswerAudioAndVideo, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+					}
+				}
+			}
+		})
+		<-done
+	}()
+
+	if streams, err := pub.GetStreams(ctx); assert.NoError(err) {
+		if assert.Len(streams, 2) {
+			stream := streams[0]
+			assert.Equal("audio", stream.Type)
+			assert.Equal("audio", stream.Mid)
+			assert.EqualValues(0, stream.Mindex)
+			assert.False(stream.Disabled)
+			assert.Equal("opus", stream.Codec)
+			assert.False(stream.Stereo)
+			assert.False(stream.Fec)
+			assert.False(stream.Dtx)
+
+			stream = streams[1]
+			assert.Equal("video", stream.Type)
+			assert.Equal("video", stream.Mid)
+			assert.EqualValues(1, stream.Mindex)
+			assert.False(stream.Disabled)
+			assert.Equal("H264", stream.Codec)
+			assert.Equal("4d0028", stream.ProfileH264)
+		}
+	}
+}
+
 func Test_JanusPublisherSubscriber(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()
