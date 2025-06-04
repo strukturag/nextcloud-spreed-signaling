@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -43,7 +44,7 @@ type TestJanusRoom struct {
 	id uint64
 }
 
-type TestJanusHandler func(room *TestJanusRoom, body map[string]interface{}) (interface{}, *janus.ErrorMsg)
+type TestJanusHandler func(room *TestJanusRoom, body map[string]interface{}, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg)
 
 type TestJanusGateway struct {
 	t *testing.T
@@ -59,6 +60,8 @@ type TestJanusGateway struct {
 	handles      map[uint64]*TestJanusHandle
 	rooms        map[uint64]*TestJanusRoom
 	handlers     map[string]TestJanusHandler
+
+	handleRooms map[*TestJanusHandle]*TestJanusRoom
 }
 
 func NewTestJanusGateway(t *testing.T) *TestJanusGateway {
@@ -70,6 +73,8 @@ func NewTestJanusGateway(t *testing.T) *TestJanusGateway {
 		handles:      make(map[uint64]*TestJanusHandle),
 		rooms:        make(map[uint64]*TestJanusRoom),
 		handlers:     make(map[string]TestJanusHandler),
+
+		handleRooms: make(map[*TestJanusHandle]*TestJanusRoom),
 	}
 
 	t.Cleanup(func() {
@@ -80,6 +85,7 @@ func NewTestJanusGateway(t *testing.T) *TestJanusGateway {
 		assert.Len(gateway.transactions, 0)
 		assert.Len(gateway.handles, 0)
 		assert.Len(gateway.rooms, 0)
+		assert.Len(gateway.handleRooms, 0)
 	})
 
 	return gateway
@@ -128,7 +134,7 @@ func (g *TestJanusGateway) Close() error {
 	return nil
 }
 
-func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJanusHandle, body map[string]interface{}) interface{} {
+func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJanusHandle, body map[string]interface{}, jsep map[string]interface{}) interface{} {
 	request := body["request"].(string)
 	switch request {
 	case "create":
@@ -158,6 +164,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 		}
 
 		assert.Equal(g.t, "publisher", body["ptype"])
+		g.handleRooms[handle] = room
 		return &janus.EventMsg{
 			Session: session.Id,
 			Handle:  handle.id,
@@ -180,7 +187,13 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 			}
 		}
 
+		assert.EqualValues(g.t, room.id, uint64(rid))
 		delete(g.rooms, uint64(rid))
+		for h, r := range g.handleRooms {
+			if r.id == room.id {
+				delete(g.handleRooms, h)
+			}
+		}
 
 		return &janus.SuccessMsg{
 			PluginData: janus.PluginData{
@@ -189,23 +202,38 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 			},
 		}
 	default:
-		rid := body["room"].(float64)
-		room := g.rooms[uint64(rid)]
-		if room == nil {
-			return &janus.ErrorMsg{
-				Err: janus.ErrorData{
-					Code:   JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM,
-					Reason: "Room not found",
-				},
+		var room *TestJanusRoom
+		if roomId, found := body["room"]; found {
+			rid := roomId.(float64)
+			if room = g.rooms[uint64(rid)]; room == nil {
+				return &janus.ErrorMsg{
+					Err: janus.ErrorData{
+						Code:   JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM,
+						Reason: "Room not found",
+					},
+				}
+			}
+		} else {
+			if room, found = g.handleRooms[handle]; !found {
+				return &janus.ErrorMsg{
+					Err: janus.ErrorData{
+						Code:   JANUS_VIDEOROOM_ERROR_INVALID_REQUEST,
+						Reason: "No joined to a room yet.",
+					},
+				}
 			}
 		}
 
 		handler, found := g.handlers[request]
 		if found {
 			var err *janus.ErrorMsg
-			result, err := handler(room, body)
+			result, err := handler(room, body, jsep)
 			if err != nil {
 				result = err
+			} else {
+				if request == "start" {
+					g.handleRooms[handle] = room
+				}
 			}
 			return result
 		}
@@ -265,7 +293,7 @@ func (g *TestJanusGateway) processRequest(msg map[string]interface{}) interface{
 	case "destroy":
 		delete(g.sessions, session.Id)
 		return &janus.AckMsg{}
-	case "message":
+	case "message", "trickle":
 		hid := msg["handle_id"].(float64)
 		handle, found := g.handles[uint64(hid)]
 		if !found {
@@ -277,8 +305,45 @@ func (g *TestJanusGateway) processRequest(msg map[string]interface{}) interface{
 			}
 		}
 
-		body := msg["body"].(map[string]interface{})
-		return g.processMessage(session, handle, body)
+		var result interface{}
+		switch method {
+		case "message":
+			body := msg["body"].(map[string]interface{})
+			if jsep, found := msg["jsep"]; found {
+				result = g.processMessage(session, handle, body, jsep.(map[string]interface{}))
+			} else {
+				result = g.processMessage(session, handle, body, nil)
+			}
+		case "trickle":
+			room, found := g.handleRooms[handle]
+			if !found {
+				return &janus.ErrorMsg{
+					Err: janus.ErrorData{
+						Code:   JANUS_VIDEOROOM_ERROR_INVALID_REQUEST,
+						Reason: "No joined to a room yet.",
+					},
+				}
+			}
+
+			handler, found := g.handlers[method.(string)]
+			if found {
+				var err *janus.ErrorMsg
+				result, err = handler(room, msg, nil)
+				if err != nil {
+					result = err
+				}
+			}
+		}
+
+		if ev, ok := result.(*janus.EventMsg); ok {
+			if ev.Session == 0 {
+				ev.Session = uint64(sid)
+			}
+			if ev.Handle == 0 {
+				ev.Handle = handle.id
+			}
+		}
+		return result
 	}
 
 	return nil
@@ -331,6 +396,9 @@ func newMcuJanusForTesting(t *testing.T) (*mcuJanus, *TestJanusGateway) {
 	gateway := NewTestJanusGateway(t)
 
 	config := goconf.NewConfigFile()
+	if strings.Contains(t.Name(), "Filter") {
+		config.AddOption("mcu", "blockedcandidates", "192.0.0.0/24, 192.168.0.0/16")
+	}
 	mcu, err := NewMcuJanus(context.Background(), "", config)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -413,6 +481,239 @@ type TestMcuInitiator struct {
 
 func (i *TestMcuInitiator) Country() string {
 	return i.country
+}
+
+func Test_JanusPublisherFilterOffer(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"configure": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			if assert.NotNil(jsep) {
+				// The SDP received by Janus will be filtered from blocked candidates.
+				if sdpValue, found := jsep["sdp"]; assert.True(found) {
+					sdpText, ok := sdpValue.(string)
+					if assert.True(ok) {
+						assert.Equal(MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+					}
+				}
+			}
+
+			return &janus.EventMsg{
+				Jsep: map[string]interface{}{
+					"sdp": MockSdpAnswerAudioOnly,
+				},
+			}, nil
+		},
+		"trickle": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			return &janus.AckMsg{}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "publisher-id"
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	// Send offer containing candidates that will be blocked / filtered.
+	data := &MessageClientMessageData{
+		Type: "offer",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioOnly,
+		},
+	}
+	require.NoError(data.CheckValid())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+		defer wg.Done()
+
+		if assert.NoError(err) {
+			if sdpValue, found := m["sdp"]; assert.True(found) {
+				sdpText, ok := sdpValue.(string)
+				if assert.True(ok) {
+					assert.Equal(MockSdpAnswerAudioOnly, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+				}
+			}
+		}
+	})
+	wg.Wait()
+
+	data = &MessageClientMessageData{
+		Type: "candidate",
+		Payload: map[string]interface{}{
+			"candidate": map[string]interface{}{
+				"candidate": "candidate:1 1 UDP 1685987071 192.168.0.1 49203 typ srflx raddr 198.51.100.7 rport 51556",
+			},
+		},
+	}
+	require.NoError(data.CheckValid())
+	wg.Add(1)
+	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+		defer wg.Done()
+
+		assert.ErrorContains(err, "filtered")
+		assert.Empty(m)
+	})
+	wg.Wait()
+
+	data = &MessageClientMessageData{
+		Type: "candidate",
+		Payload: map[string]interface{}{
+			"candidate": map[string]interface{}{
+				"candidate": "candidate:0 1 UDP 2122194687 198.51.100.7 51556 typ host",
+			},
+		},
+	}
+	require.NoError(data.CheckValid())
+	wg.Add(1)
+	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+		defer wg.Done()
+
+		assert.NoError(err)
+		assert.Empty(m)
+	})
+	wg.Wait()
+}
+
+func Test_JanusSubscriberFilterAnswer(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"start": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			if assert.NotNil(jsep) {
+				// The SDP received by Janus will be filtered from blocked candidates.
+				if sdpValue, found := jsep["sdp"]; assert.True(found) {
+					sdpText, ok := sdpValue.(string)
+					if assert.True(ok) {
+						assert.Equal(MockSdpAnswerAudioOnlyNoFilter, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+					}
+				}
+			}
+
+			return &janus.EventMsg{
+				Plugindata: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: map[string]interface{}{
+						"room":      room.id,
+						"started":   true,
+						"videoroom": "event",
+					},
+				},
+			}, nil
+		},
+		"trickle": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			return &janus.AckMsg{}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "publisher-id"
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, StreamTypeVideo, initiator2)
+	require.NoError(err)
+	defer sub.Close(context.Background())
+
+	// Send answer containing candidates that will be blocked / filtered.
+	data := &MessageClientMessageData{
+		Type: "answer",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpAnswerAudioOnly,
+		},
+	}
+	require.NoError(data.CheckValid())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+		defer wg.Done()
+
+		if assert.NoError(err) {
+			assert.Empty(m)
+		}
+	})
+	wg.Wait()
+
+	data = &MessageClientMessageData{
+		Type: "candidate",
+		Payload: map[string]interface{}{
+			"candidate": map[string]interface{}{
+				"candidate": "candidate:1 1 UDP 1685987071 192.168.0.1 49203 typ srflx raddr 198.51.100.7 rport 51556",
+			},
+		},
+	}
+	require.NoError(data.CheckValid())
+	wg.Add(1)
+	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+		defer wg.Done()
+
+		assert.ErrorContains(err, "filtered")
+		assert.Empty(m)
+	})
+	wg.Wait()
+
+	data = &MessageClientMessageData{
+		Type: "candidate",
+		Payload: map[string]interface{}{
+			"candidate": map[string]interface{}{
+				"candidate": "candidate:0 1 UDP 2122194687 198.51.100.7 51556 typ host",
+			},
+		},
+	}
+	require.NoError(data.CheckValid())
+	wg.Add(1)
+	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m map[string]interface{}) {
+		defer wg.Done()
+
+		assert.NoError(err)
+		assert.Empty(m)
+	})
+	wg.Wait()
 }
 
 func Test_JanusPublisherSubscriber(t *testing.T) {
@@ -512,8 +813,9 @@ func Test_JanusRemotePublisher(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"add_remote_publisher": func(room *TestJanusRoom, body map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+		"add_remote_publisher": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
+			assert.Nil(jsep)
 			if streams := body["streams"].([]interface{}); assert.Len(streams, 1) {
 				stream := streams[0].(map[string]interface{})
 				assert.Equal("0", stream["mid"])
@@ -533,8 +835,9 @@ func Test_JanusRemotePublisher(t *testing.T) {
 				},
 			}, nil
 		},
-		"remove_remote_publisher": func(room *TestJanusRoom, body map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+		"remove_remote_publisher": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
+			assert.Nil(jsep)
 			removed.Add(1)
 			return &janus.SuccessMsg{
 				PluginData: janus.PluginData{

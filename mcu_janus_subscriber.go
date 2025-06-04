@@ -294,6 +294,17 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 		}
 	case "answer":
 		p.deferred <- func() {
+			if FilterSDPCandidates(data.answerSdp, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
+				// Update request with filtered SDP.
+				marshalled, err := data.answerSdp.Marshal()
+				if err != nil {
+					go callback(fmt.Errorf("could not marshal filtered answer: %w", err), nil)
+					return
+				}
+
+				jsep_msg["sdp"] = string(marshalled)
+			}
+
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
@@ -304,6 +315,11 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 			}
 		}
 	case "candidate":
+		if FilterCandidate(data.candidate, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
+			go callback(ErrCandidateFiltered, nil)
+			return
+		}
+
 		p.deferred <- func() {
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()

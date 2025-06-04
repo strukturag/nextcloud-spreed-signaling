@@ -25,9 +25,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 
+	"github.com/pion/ice/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testCheckValid interface {
@@ -423,4 +426,169 @@ func Test_Welcome_AddRemoveFeature(t *testing.T) {
 
 	msg.RemoveFeature("three", "one")
 	assertEqualStrings(t, []string{"two"}, msg.Features)
+}
+
+func TestFilterCandidates(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	testcases := []struct {
+		candidate      string
+		allowed        string
+		blocked        string
+		expectFiltered bool
+	}{
+		// IPs can be filtered.
+		{
+			"candidate:1696121226 1 udp 2122129151 10.1.2.3 12345 typ host generation 0 ufrag YOs/ network-id 1",
+			"",
+			"10.0.0.0/8",
+			true,
+		},
+		{
+			"candidate:1696121226 1 udp 2122129151 1.2.3.4 12345 typ host generation 0 ufrag YOs/ network-id 1",
+			"",
+			"10.0.0.0/8",
+			false,
+		},
+		// IPs can be allowed.
+		{
+			"candidate:1696121226 1 udp 2122129151 10.1.2.3 12345 typ host generation 0 ufrag YOs/ network-id 1",
+			"10.1.0.0/16",
+			"10.0.0.0/8",
+			false,
+		},
+		// IPs can be blocked.
+		{
+			"candidate:1696121226 1 udp 2122129151 1.2.3.4 12345 typ host generation 0 ufrag YOs/ network-id 1",
+			"",
+			"1.2.0.0/16",
+			true,
+		},
+	}
+
+	for idx, tc := range testcases {
+		candidate, err := ice.UnmarshalCandidate(tc.candidate)
+		if !assert.NoError(err, "parsing candidate %s failed in testcase %d", tc.candidate, idx) {
+			continue
+		}
+
+		var allowed *AllowedIps
+		if tc.allowed != "" {
+			allowed, err = ParseAllowedIps(tc.allowed)
+			if !assert.NoError(err, "parsing allowed list %s failed in testcase %d", tc.allowed, idx) {
+				continue
+			}
+		}
+
+		var blocked *AllowedIps
+		if tc.blocked != "" {
+			blocked, err = ParseAllowedIps(tc.blocked)
+			if !assert.NoError(err, "parsing blocked list %s failed in testcase %d", tc.blocked, idx) {
+				continue
+			}
+		}
+
+		filtered := FilterCandidate(candidate, allowed, blocked)
+		assert.Equal(tc.expectFiltered, filtered, "failed in testcase %d", idx)
+	}
+}
+
+func TestFilterSDPCandidates(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	s, err := parseSDP(MockSdpOfferAudioOnly)
+	require.NoError(err)
+	if encoded, err := s.Marshal(); assert.NoError(err) {
+		assert.Equal(MockSdpOfferAudioOnly, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+	}
+
+	expectedBefore := map[string]int{
+		"audio": 4,
+	}
+	for _, m := range s.MediaDescriptions {
+		count := 0
+		for _, a := range m.Attributes {
+			if a.IsICECandidate() {
+				count++
+			}
+		}
+
+		assert.EqualValues(expectedBefore[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
+	}
+
+	blocked, err := ParseAllowedIps("192.0.0.0/24, 192.168.0.0/16")
+	require.NoError(err)
+
+	expectedAfter := map[string]int{
+		"audio": 2,
+	}
+	if filtered := FilterSDPCandidates(s, nil, blocked); assert.True(filtered, "should have filtered") {
+		for _, m := range s.MediaDescriptions {
+			count := 0
+			for _, a := range m.Attributes {
+				if a.IsICECandidate() {
+					count++
+				}
+			}
+
+			assert.EqualValues(expectedAfter[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
+		}
+	}
+
+	if encoded, err := s.Marshal(); assert.NoError(err) {
+		assert.NotEqual(MockSdpOfferAudioOnly, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+		assert.Equal(MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+	}
+}
+
+func TestNoFilterSDPCandidates(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	s, err := parseSDP(MockSdpOfferAudioOnlyNoFilter)
+	require.NoError(err)
+	if encoded, err := s.Marshal(); assert.NoError(err) {
+		assert.Equal(MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+	}
+
+	expectedBefore := map[string]int{
+		"audio": 2,
+	}
+	for _, m := range s.MediaDescriptions {
+		count := 0
+		for _, a := range m.Attributes {
+			if a.IsICECandidate() {
+				count++
+			}
+		}
+
+		assert.EqualValues(expectedBefore[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
+	}
+
+	blocked, err := ParseAllowedIps("192.0.0.0/24, 192.168.0.0/16")
+	require.NoError(err)
+
+	expectedAfter := map[string]int{
+		"audio": 2,
+	}
+	if filtered := FilterSDPCandidates(s, nil, blocked); assert.False(filtered, "should not have filtered") {
+		for _, m := range s.MediaDescriptions {
+			count := 0
+			for _, a := range m.Attributes {
+				if a.IsICECandidate() {
+					count++
+				}
+			}
+
+			assert.EqualValues(expectedAfter[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
+		}
+	}
+
+	if encoded, err := s.Marshal(); assert.NoError(err) {
+		assert.Equal(MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+	}
 }

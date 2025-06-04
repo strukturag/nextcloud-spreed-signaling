@@ -200,6 +200,9 @@ type Hub struct {
 
 	skipFederationVerify bool
 	federationTimeout    time.Duration
+
+	allowedCandidates atomic.Pointer[AllowedIps]
+	blockedCandidates atomic.Pointer[AllowedIps]
 }
 
 func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
@@ -388,6 +391,29 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		skipFederationVerify: skipFederationVerify,
 		federationTimeout:    federationTimeout,
 	}
+	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
+		allowed, err := ParseAllowedIps(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid allowedcandidates: %w", err)
+		}
+
+		log.Printf("Candidates allowlist: %s", allowed)
+		hub.allowedCandidates.Store(allowed)
+	} else {
+		log.Printf("No candidates allowlist")
+	}
+	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
+		blocked, err := ParseAllowedIps(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid blockedcandidates: %w", err)
+		}
+
+		log.Printf("Candidates blocklist: %s", blocked)
+		hub.blockedCandidates.Store(blocked)
+	} else {
+		log.Printf("No candidates blocklist")
+	}
+
 	hub.trustedProxies.Store(trustedProxiesIps)
 	if len(geoipOverrides) > 0 {
 		hub.geoipOverrides.Store(&geoipOverrides)
@@ -538,6 +564,29 @@ func (h *Hub) Reload(config *goconf.ConfigFile) {
 		h.geoipOverrides.Store(&geoipOverrides)
 	} else {
 		h.geoipOverrides.Store(nil)
+	}
+
+	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
+		if allowed, err := ParseAllowedIps(value); err != nil {
+			log.Printf("invalid allowedcandidates: %s", err)
+		} else {
+			log.Printf("Candidates allowlist: %s", allowed)
+			h.allowedCandidates.Store(allowed)
+		}
+	} else {
+		log.Printf("No candidates allowlist")
+		h.allowedCandidates.Store(nil)
+	}
+	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
+		if blocked, err := ParseAllowedIps(value); err != nil {
+			log.Printf("invalid blockedcandidates: %s", err)
+		} else {
+			log.Printf("Candidates blocklist: %s", blocked)
+			h.blockedCandidates.Store(blocked)
+		}
+	} else {
+		log.Printf("No candidates blocklist")
+		h.blockedCandidates.Store(nil)
 	}
 
 	if h.mcu != nil {
@@ -2662,6 +2711,11 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 		clientType = "subscriber"
 		mc = session.GetSubscriber(message.Recipient.SessionId, StreamType(data.RoomType))
 	default:
+		if data.Type == "candidate" && FilterCandidate(data.candidate, h.allowedCandidates.Load(), h.blockedCandidates.Load()) {
+			// Silently ignore filtered candidates.
+			return
+		}
+
 		if session.PublicId() == message.Recipient.SessionId {
 			if err := session.IsAllowedToSend(data); err != nil {
 				log.Printf("Session %s is not allowed to send candidate for %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
@@ -2688,10 +2742,12 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 
 	mc.SendMessage(session.Context(), message, data, func(err error, response map[string]interface{}) {
 		if err != nil {
-			log.Printf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
-			sendMcuProcessingFailed(session, client_message)
+			if !errors.Is(err, ErrCandidateFiltered) {
+				log.Printf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
+				sendMcuProcessingFailed(session, client_message)
+			}
 			return
-		} else if response == nil {
+		} else if len(response) == 0 {
 			// No response received
 			return
 		}
