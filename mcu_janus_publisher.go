@@ -179,6 +179,17 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 				return
 			}
 
+			if FilterSDPCandidates(data.offerSdp, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
+				// Update request with filtered SDP.
+				marshalled, err := data.offerSdp.Marshal()
+				if err != nil {
+					go callback(fmt.Errorf("could not marshal filtered offer: %w", err), nil)
+					return
+				}
+
+				jsep_msg["sdp"] = string(marshalled)
+			}
+
 			p.offerSdp.Store(data.offerSdp)
 			p.sdpFlags.Add(sdpHasOffer)
 			if p.sdpFlags.Get() == sdpHasAnswer|sdpHasOffer {
@@ -203,18 +214,16 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 					sdpString, ok := sdpData.(string)
 					if !ok {
 						log.Printf("Invalid sdp found in answer %+v", jsep)
+					} else if answerSdp, err := parseSDP(sdpString); err != nil {
+						log.Printf("Error parsing answer sdp %+v: %s", sdpString, err)
+						p.answerSdp.Store(nil)
+						p.sdpFlags.Remove(sdpHasAnswer)
 					} else {
-						var answerSdp sdp.SessionDescription
-						if err := answerSdp.UnmarshalString(sdpString); err != nil {
-							log.Printf("Error parsing answer sdp %+v: %s", sdpString, err)
-							p.answerSdp.Store(nil)
-							p.sdpFlags.Remove(sdpHasAnswer)
-						} else {
-							p.answerSdp.Store(&answerSdp)
-							p.sdpFlags.Add(sdpHasAnswer)
-							if p.sdpFlags.Get() == sdpHasAnswer|sdpHasOffer {
-								p.sdpReady.Close()
-							}
+						// Note: we don't need to filter the SDP received from Janus.
+						p.answerSdp.Store(answerSdp)
+						p.sdpFlags.Add(sdpHasAnswer)
+						if p.sdpFlags.Get() == sdpHasAnswer|sdpHasOffer {
+							p.sdpReady.Close()
 						}
 					}
 				}
@@ -223,6 +232,11 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			})
 		}
 	case "candidate":
+		if FilterCandidate(data.candidate, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
+			go callback(ErrCandidateFiltered, nil)
+			return
+		}
+
 		p.deferred <- func() {
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
