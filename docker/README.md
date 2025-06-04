@@ -55,6 +55,8 @@ The running container can be configured through different environment variables:
 - `PROXY_KEY_PREFIX`: Key prefix of proxy entries.
 - `MAX_STREAM_BITRATE`: Optional global maximum bitrate for audio/video streams.
 - `MAX_SCREEN_BITRATE`: Optional global maximum bitrate for screensharing streams.
+- `ALLOWED_CANDIDATES`: List of IP addresses / subnets that are allowed to be used by clients in candidates. The allowed list has preference over the blocked list below.
+- `BLOCKED_CANDIDATES`: List of IP addresses / subnets to filter from candidates received by clients.
 - `TURN_API_KEY`: API key that Janus will need to send when requesting TURN credentials.
 - `TURN_SECRET`: The shared secret to use for generating TURN credentials.
 - `TURN_SERVERS`: A comma-separated list of TURN servers to use.
@@ -117,6 +119,8 @@ The running container can be configured through different environment variables:
 - `JANUS_URL`: Url to Janus server.
 - `MAX_STREAM_BITRATE`: Optional maximum bitrate for audio/video streams.
 - `MAX_SCREEN_BITRATE`: Optional maximum bitrate for screensharing streams.
+- `ALLOWED_CANDIDATES`: List of IP addresses / subnets that are allowed to be used by clients in candidates. The allowed list has preference over the blocked list below.
+- `BLOCKED_CANDIDATES`: List of IP addresses / subnets to filter from candidates received by clients.
 - `STATS_IPS`: Comma-separated list of IP addresses that are allowed to access the stats endpoint.
 - `TRUSTED_PROXIES`: Comma-separated list of IPs / networks that are trusted proxies.
 - `ETCD_ENDPOINTS`: Static list of etcd endpoints (if etcd should be used).
