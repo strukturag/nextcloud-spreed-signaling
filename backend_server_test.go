@@ -37,6 +37,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1788,6 +1789,121 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 			assert.NotNil(response.Dialout.Error, "expected dialout error, got %s", string(body)) {
 			assert.Equal(errorCode, response.Dialout.Error.Code)
 			assert.Equal(errorMessage, response.Dialout.Error.Message)
+		}
+	}
+}
+
+func TestBackendServer_DialoutFirstFailed(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHelloInternalWithFeatures([]string{"start-dialout"}))
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloInternalWithFeatures([]string{"start-dialout"}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	_, err := client1.RunUntilHello(ctx)
+	require.NoError(err)
+
+	_, err = client2.RunUntilHello(ctx)
+	require.NoError(err)
+
+	roomId := "12345"
+	callId := "call-123"
+
+	var returnedError atomic.Bool
+
+	var wg sync.WaitGroup
+	runClient := func(client *TestClient) {
+		defer wg.Done()
+
+		msg, err := client.RunUntilMessage(ctx)
+		if !assert.NoError(err) {
+			return
+		}
+
+		if !assert.Equal("internal", msg.Type) ||
+			!assert.NotNil(msg.Internal) ||
+			!assert.Equal("dialout", msg.Internal.Type) ||
+			!assert.NotNil(msg.Internal.Dialout) {
+			return
+		}
+
+		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
+		assert.Equal(server.URL+"/", msg.Internal.Dialout.Backend)
+
+		var dialout *DialoutInternalClientMessage
+		// The first session should return an error to make sure the second is retried afterwards.
+		if returnedError.CompareAndSwap(false, true) {
+			errorCode := "error-code"
+			errorMessage := "rejected call"
+
+			dialout = &DialoutInternalClientMessage{
+				Type:  "error",
+				Error: NewError(errorCode, errorMessage),
+			}
+		} else {
+			dialout = &DialoutInternalClientMessage{
+				Type:   "status",
+				RoomId: msg.Internal.Dialout.RoomId,
+				Status: &DialoutStatusInternalClientMessage{
+					Status: "accepted",
+					CallId: callId,
+				},
+			}
+		}
+
+		response := &ClientMessage{
+			Id:   msg.Id,
+			Type: "internal",
+			Internal: &InternalClientMessage{
+				Type:    "dialout",
+				Dialout: dialout,
+			},
+		}
+		assert.NoError(client.WriteJSON(response))
+	}
+
+	wg.Add(1)
+	go runClient(client1)
+	wg.Add(1)
+	go runClient(client2)
+
+	defer func() {
+		wg.Wait()
+	}()
+
+	msg := &BackendServerRoomRequest{
+		Type: "dialout",
+		Dialout: &BackendRoomDialoutRequest{
+			Number: "+1234567890",
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	require.NoError(err)
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	assert.NoError(err)
+	require.Equal(http.StatusOK, res.StatusCode, "Expected success, got %s", string(body))
+
+	var response BackendServerRoomResponse
+	if err := json.Unmarshal(body, &response); assert.NoError(err) {
+		assert.Equal("dialout", response.Type)
+		if assert.NotNil(response.Dialout) {
+			assert.Nil(response.Dialout.Error, "expected dialout success, got %s", string(body))
+			assert.Equal(callId, response.Dialout.CallId)
 		}
 	}
 }

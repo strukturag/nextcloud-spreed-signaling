@@ -650,7 +650,7 @@ func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId string) (string, error) 
 	return h.roomSessions.GetSessionId(roomSessionId)
 }
 
-func (h *Hub) GetDialoutSession(roomId string, backend *Backend) *ClientSession {
+func (h *Hub) GetDialoutSessions(roomId string, backend *Backend) (result []*ClientSession) {
 	url := backend.Url()
 
 	h.mu.RLock()
@@ -661,11 +661,11 @@ func (h *Hub) GetDialoutSession(roomId string, backend *Backend) *ClientSession 
 		}
 
 		if session.GetClient() != nil {
-			return session
+			result = append(result, session)
 		}
 	}
 
-	return nil
+	return
 }
 
 func (h *Hub) GetBackend(u *url.URL) *Backend {
