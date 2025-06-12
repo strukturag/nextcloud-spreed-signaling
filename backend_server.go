@@ -53,6 +53,8 @@ const (
 	randomUsernameLength = 32
 
 	sessionIdNotInMeeting = "0"
+
+	startDialoutTimeout = 45 * time.Second
 )
 
 type BackendServer struct {
@@ -698,20 +700,7 @@ func isNumeric(s string) bool {
 	return checkNumeric.MatchString(s)
 }
 
-func (b *BackendServer) startDialout(roomid string, backend *Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
-	if err := request.Dialout.ValidateNumber(); err != nil {
-		return returnDialoutError(http.StatusBadRequest, err)
-	}
-
-	if !isNumeric(roomid) {
-		return returnDialoutError(http.StatusBadRequest, NewError("invalid_roomid", "The room id must be numeric."))
-	}
-
-	session := b.hub.GetDialoutSession(roomid, backend)
-	if session == nil {
-		return returnDialoutError(http.StatusNotFound, NewError("no_client_available", "No available client found to trigger dialout."))
-	}
-
+func (b *BackendServer) startDialoutInSession(ctx context.Context, session *ClientSession, roomid string, backend *Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
 	url := backend.Url()
 	if url == "" {
 		// Old-style compat backend, use client-provided URL.
@@ -734,7 +723,7 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, backendUrl
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	subCtx, cancel := context.WithTimeout(ctx, startDialoutTimeout)
 	defer cancel()
 
 	var response atomic.Pointer[DialoutInternalClientMessage]
@@ -748,26 +737,30 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, backendUrl
 	defer session.ClearResponseHandler(id)
 
 	if !session.SendMessage(msg) {
-		return returnDialoutError(http.StatusBadGateway, NewError("error_notify", "Could not notify about new dialout."))
+		return nil, NewError("error_notify", "Could not notify about new dialout.")
 	}
 
-	<-ctx.Done()
-	if err := ctx.Err(); err != nil && !errors.Is(err, context.Canceled) {
-		return returnDialoutError(http.StatusGatewayTimeout, NewError("timeout", "Timeout while waiting for dialout to start."))
+	<-subCtx.Done()
+	if err := subCtx.Err(); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, NewError("timeout", "Timeout while waiting for dialout to start.")
+		} else if errors.Is(err, context.Canceled) && errors.Is(ctx.Err(), context.Canceled) {
+			// Upstream request was cancelled.
+			return nil, err
+		}
 	}
 
 	dialout := response.Load()
 	if dialout == nil {
-		return returnDialoutError(http.StatusBadGateway, NewError("error_notify", "No dialout response received."))
+		return nil, NewError("error_notify", "No dialout response received.")
 	}
 
 	switch dialout.Type {
 	case "error":
-		return returnDialoutError(http.StatusBadGateway, dialout.Error)
+		return nil, dialout.Error
 	case "status":
 		if dialout.Status.Status != DialoutStatusAccepted {
-			log.Printf("Received unsupported dialout status when triggering dialout: %+v", dialout)
-			return returnDialoutError(http.StatusBadGateway, NewError("unsupported_status", "Unsupported dialout status received."))
+			return nil, NewError("unsupported_status", fmt.Sprintf("Unsupported dialout status received: %+v", dialout))
 		}
 
 		return &BackendServerRoomResponse{
@@ -776,10 +769,46 @@ func (b *BackendServer) startDialout(roomid string, backend *Backend, backendUrl
 				CallId: dialout.Status.CallId,
 			},
 		}, nil
+	default:
+		return nil, NewError("unsupported_type", fmt.Sprintf("Unsupported dialout type received: %+v", dialout))
+	}
+}
+
+func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend *Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
+	if err := request.Dialout.ValidateNumber(); err != nil {
+		return returnDialoutError(http.StatusBadRequest, err)
 	}
 
-	log.Printf("Received unsupported dialout type when triggering dialout: %+v", dialout)
-	return returnDialoutError(http.StatusBadGateway, NewError("unsupported_type", "Unsupported dialout type received."))
+	if !isNumeric(roomid) {
+		return returnDialoutError(http.StatusBadRequest, NewError("invalid_roomid", "The room id must be numeric."))
+	}
+
+	var sessionError *Error
+	sessions := b.hub.GetDialoutSessions(roomid, backend)
+	for _, session := range sessions {
+		if ctx.Err() != nil {
+			// Upstream request was cancelled.
+			break
+		}
+
+		response, err := b.startDialoutInSession(ctx, session, roomid, backend, backendUrl, request)
+		if err != nil {
+			log.Printf("Error starting dialout request %+v in session %s: %+v", request.Dialout, session.PublicId(), err)
+			var e *Error
+			if sessionError == nil && errors.As(err, &e) {
+				sessionError = e
+			}
+			continue
+		}
+
+		return response, nil
+	}
+
+	if sessionError != nil {
+		return returnDialoutError(http.StatusBadGateway, sessionError)
+	}
+
+	return returnDialoutError(http.StatusNotFound, NewError("no_client_available", "No available client found to trigger dialout."))
 }
 
 func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body []byte) {
@@ -879,7 +908,7 @@ func (b *BackendServer) roomHandler(w http.ResponseWriter, r *http.Request, body
 	case "switchto":
 		err = b.sendRoomSwitchTo(roomid, backend, &request)
 	case "dialout":
-		response, err = b.startDialout(roomid, backend, backendUrl, &request)
+		response, err = b.startDialout(r.Context(), roomid, backend, backendUrl, &request)
 	default:
 		http.Error(w, "Unsupported request type: "+request.Type, http.StatusBadRequest)
 		return
