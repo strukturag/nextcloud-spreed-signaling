@@ -54,18 +54,31 @@ import (
 )
 
 var (
-	DuplicateClient     = NewError("duplicate_client", "Client already registered.")
-	HelloExpected       = NewError("hello_expected", "Expected Hello request.")
+	// HelloExpected is returned if a client sends a message before the "hello" request.
+	HelloExpected = NewError("hello_expected", "Expected Hello request.")
+	// InvalidHelloVersion is returned if the version in the "hello" message is not supported.
 	InvalidHelloVersion = NewError("invalid_hello_version", "The hello version is not supported.")
-	UserAuthFailed      = NewError("auth_failed", "The user could not be authenticated.")
-	RoomJoinFailed      = NewError("room_join_failed", "Could not join the room.")
-	InvalidClientType   = NewError("invalid_client_type", "The client type is not supported.")
-	InvalidBackendUrl   = NewError("invalid_backend", "The backend URL is not supported.")
-	InvalidToken        = NewError("invalid_token", "The passed token is invalid.")
-	NoSuchSession       = NewError("no_such_session", "The session to resume does not exist.")
-	TokenNotValidYet    = NewError("token_not_valid_yet", "The token is not valid yet.")
-	TokenExpired        = NewError("token_expired", "The token is expired.")
-	TooManyRequests     = NewError("too_many_requests", "Too many requests.")
+	// UserAuthFailed is returned if the Talk response to a v1 hello is not an error but also not a valid auth response.
+	UserAuthFailed = NewError("auth_failed", "The user could not be authenticated.")
+	// RoomJoinFailed is returned if the Talk response to a room join request is not an error and not a valid join response.
+	RoomJoinFailed = NewError("room_join_failed", "Could not join the room.")
+	// InvalidClientType is returned if the client type in the "hello" request is not supported.
+	InvalidClientType = NewError("invalid_client_type", "The client type is not supported.")
+	// InvalidBackendUrl is returned if no backend is configured for URL in the "hello" request.
+	InvalidBackendUrl = NewError("invalid_backend", "The backend URL is not supported.")
+	// InvalidToken is returned if the token in a "hello" request could not be validated.
+	InvalidToken = NewError("invalid_token", "The passed token is invalid.")
+	// NoSuchSession is returned if the session to be resumed is unknown or expired.
+	NoSuchSession = NewError("no_such_session", "The session to resume does not exist.")
+	// TokenNotValidYet is returned if the token in a "hello" request could be authenticated but is not valid yet.
+	// This hints to a mismatch in the time between the server running Talk and the server running the signaling server.
+	TokenNotValidYet = NewError("token_not_valid_yet", "The token is not valid yet.")
+	// TokenExpired is returned if the token in a "hello" request could be authenticated but is expired.
+	// This hints to a mismatch in the time between the server running Talk and the server running the signaling server,
+	// but could also be a client trying to connect with an old token.
+	TokenExpired = NewError("token_expired", "The token is expired.")
+	// TooManyRequests is returned if brute force detection reports too many failed "hello" requests.
+	TooManyRequests = NewError("too_many_requests", "Too many requests.")
 
 	// Maximum number of concurrent requests to a backend.
 	defaultMaxConcurrentRequestsPerHost = 8
