@@ -15,6 +15,7 @@ require (
 	github.com/nats-io/nats.go v1.43.0
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
 	github.com/oschwald/maxminddb-golang v1.13.1
+	github.com/pion/ice/v4 v4.0.10
 	github.com/pion/sdp/v3 v3.0.13
 	github.com/pquerna/cachecontrol v0.2.0
 	github.com/prometheus/client_golang v1.22.0
@@ -56,7 +57,13 @@ require (
 	github.com/nats-io/jwt/v2 v2.7.4 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
+	github.com/pion/dtls/v3 v3.0.6 // indirect
+	github.com/pion/logging v0.2.3 // indirect
+	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
+	github.com/pion/stun/v3 v3.0.0 // indirect
+	github.com/pion/transport/v3 v3.0.7 // indirect
+	github.com/pion/turn/v4 v4.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
@@ -65,6 +72,7 @@ require (
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
+	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
 	go.etcd.io/etcd/pkg/v3 v3.6.1 // indirect

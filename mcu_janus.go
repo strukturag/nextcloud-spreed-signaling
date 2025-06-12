@@ -137,9 +137,12 @@ type clientInterface interface {
 
 type mcuJanusSettings struct {
 	mcuCommonSettings
+
+	allowedCandidates atomic.Pointer[AllowedIps]
+	blockedCandidates atomic.Pointer[AllowedIps]
 }
 
-func newMcuJanusSettings(config *goconf.ConfigFile) (McuSettings, error) {
+func newMcuJanusSettings(config *goconf.ConfigFile) (*mcuJanusSettings, error) {
 	settings := &mcuJanusSettings{}
 	if err := settings.load(config); err != nil {
 		return nil, err
@@ -160,6 +163,32 @@ func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
 	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
 	log.Printf("Using a timeout of %s for MCU requests", mcuTimeout)
 	s.setTimeout(mcuTimeout)
+
+	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
+		allowed, err := ParseAllowedIps(value)
+		if err != nil {
+			return fmt.Errorf("invalid allowedcandidates: %w", err)
+		}
+
+		log.Printf("Candidates allowlist: %s", allowed)
+		s.allowedCandidates.Store(allowed)
+	} else {
+		log.Printf("No candidates allowlist")
+		s.allowedCandidates.Store(nil)
+	}
+	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
+		blocked, err := ParseAllowedIps(value)
+		if err != nil {
+			return fmt.Errorf("invalid blockedcandidates: %w", err)
+		}
+
+		log.Printf("Candidates blocklist: %s", blocked)
+		s.blockedCandidates.Store(blocked)
+	} else {
+		log.Printf("No candidates blocklist")
+		s.blockedCandidates.Store(nil)
+	}
+
 	return nil
 }
 
@@ -173,7 +202,7 @@ type mcuJanus struct {
 	url string
 	mu  sync.Mutex
 
-	settings McuSettings
+	settings *mcuJanusSettings
 
 	createJanusGateway func(ctx context.Context, wsURL string, listener GatewayListener) (JanusGatewayInterface, error)
 

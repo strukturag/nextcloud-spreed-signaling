@@ -26,12 +26,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/pion/ice/v4"
 	"github.com/pion/sdp/v3"
 )
 
@@ -49,6 +52,11 @@ const (
 var (
 	ErrNoSdp      = NewError("no_sdp", "Payload does not contain a SDP.")
 	ErrInvalidSdp = NewError("invalid_sdp", "Payload does not contain a valid SDP.")
+
+	ErrNoCandidate      = NewError("no_candidate", "Payload does not contain a candidate.")
+	ErrInvalidCandidate = NewError("invalid_candidate", "Payload does not contain a valid candidate.")
+
+	ErrCandidateFiltered = errors.New("candidate was filtered")
 )
 
 func makePtr[T any](v T) *T {
@@ -718,13 +726,54 @@ type MessageClientMessageData struct {
 
 	offerSdp  *sdp.SessionDescription // Only set if Type == "offer"
 	answerSdp *sdp.SessionDescription // Only set if Type == "answer"
+	candidate ice.Candidate           // Only set if Type == "candidate"
 }
+
+func (m *MessageClientMessageData) String() string {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", m, err)
+	}
+	return string(data)
+}
+
+func parseSDP(s string) (*sdp.SessionDescription, error) {
+	var sdp sdp.SessionDescription
+	if err := sdp.UnmarshalString(s); err != nil {
+		return nil, NewErrorDetail("invalid_sdp", "Error parsing SDP from payload.", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
+
+	for _, m := range sdp.MediaDescriptions {
+		for idx, a := range m.Attributes {
+			if !a.IsICECandidate() {
+				continue
+			}
+
+			if _, err := ice.UnmarshalCandidate(a.Value); err != nil {
+				return nil, NewErrorDetail("invalid_sdp", "Error parsing candidate from media description.", map[string]interface{}{
+					"media": m.MediaName.Media,
+					"idx":   idx,
+					"error": err.Error(),
+				})
+			}
+		}
+	}
+
+	return &sdp, nil
+}
+
+var (
+	emptyCandidate = &ice.CandidateHost{}
+)
 
 func (m *MessageClientMessageData) CheckValid() error {
 	if m.RoomType != "" && !IsValidStreamType(m.RoomType) {
 		return fmt.Errorf("invalid room type: %s", m.RoomType)
 	}
-	if m.Type == "offer" || m.Type == "answer" {
+	switch m.Type {
+	case "offer", "answer":
 		sdpValue, found := m.Payload["sdp"]
 		if !found {
 			return ErrNoSdp
@@ -734,21 +783,99 @@ func (m *MessageClientMessageData) CheckValid() error {
 			return ErrInvalidSdp
 		}
 
-		var sdp sdp.SessionDescription
-		if err := sdp.Unmarshal([]byte(sdpText)); err != nil {
-			return NewErrorDetail("invalid_sdp", "Error parsing SDP from payload.", map[string]interface{}{
-				"error": err.Error(),
-			})
+		sdp, err := parseSDP(sdpText)
+		if err != nil {
+			return err
 		}
 
 		switch m.Type {
 		case "offer":
-			m.offerSdp = &sdp
+			m.offerSdp = sdp
 		case "answer":
-			m.answerSdp = &sdp
+			m.answerSdp = sdp
+		}
+	case "candidate":
+		candValue, found := m.Payload["candidate"]
+		if !found {
+			return ErrNoCandidate
+		}
+		candItem, ok := candValue.(map[string]interface{})
+		if !ok {
+			return ErrInvalidCandidate
+		}
+		candValue, ok = candItem["candidate"]
+		if !ok {
+			return ErrInvalidCandidate
+		}
+		candText, ok := candValue.(string)
+		if !ok {
+			return ErrInvalidCandidate
+		}
+
+		if candText == "" {
+			m.candidate = emptyCandidate
+		} else {
+			cand, err := ice.UnmarshalCandidate(candText)
+			if err != nil {
+				return NewErrorDetail("invalid_candidate", "Error parsing candidate from payload.", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+			m.candidate = cand
 		}
 	}
 	return nil
+}
+
+func FilterCandidate(c ice.Candidate, allowed *AllowedIps, blocked *AllowedIps) bool {
+	switch c {
+	case nil:
+		return true
+	case emptyCandidate:
+		return false
+	}
+
+	ip := net.ParseIP(c.Address())
+	if len(ip) == 0 || ip.IsUnspecified() {
+		return true
+	}
+
+	// Whitelist has preference.
+	if allowed != nil && allowed.Allowed(ip) {
+		return false
+	}
+
+	// Check if address is blocked manually.
+	if blocked != nil && blocked.Allowed(ip) {
+		return true
+	}
+
+	return false
+}
+
+func FilterSDPCandidates(s *sdp.SessionDescription, allowed *AllowedIps, blocked *AllowedIps) bool {
+	modified := false
+	for _, m := range s.MediaDescriptions {
+		m.Attributes = slices.DeleteFunc(m.Attributes, func(a sdp.Attribute) bool {
+			if !a.IsICECandidate() {
+				return false
+			}
+
+			if a.Value == "" {
+				return false
+			}
+
+			c, err := ice.UnmarshalCandidate(a.Value)
+			if err != nil || FilterCandidate(c, allowed, blocked) {
+				modified = true
+				return true
+			}
+
+			return false
+		})
+	}
+
+	return modified
 }
 
 func (m *MessageClientMessage) CheckValid() error {

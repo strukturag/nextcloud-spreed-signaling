@@ -82,6 +82,13 @@ url = ws://localhost:8188/
 # Default is 2 mbit/sec.
 #maxscreenbitrate = 2097152
 
+# List of IP addresses / subnets that are allowed to be used by clients in
+# candidates. The allowed list has preference over the blocked list below.
+#allowedcandidates = 10.0.0.0/8
+
+# List of IP addresses / subnets to filter from candidates received by clients.
+#blockedcandidates = 1.2.3.0/24
+
 [stats]
 # Comma-separated list of IP addresses that are allowed to access the stats
 # endpoint. Leave empty (or commented) to only allow access from "127.0.0.1".

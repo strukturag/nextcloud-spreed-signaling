@@ -179,6 +179,13 @@ connectionsperhost = 8
 # proxy server that is used.
 #maxscreenbitrate = 2097152
 
+# List of IP addresses / subnets that are allowed to be used by clients in
+# candidates. The allowed list has preference over the blocked list below.
+#allowedcandidates = 10.0.0.0/8
+
+# List of IP addresses / subnets to filter from candidates received by clients.
+#blockedcandidates = 1.2.3.0/24
+
 # For type "proxy": timeout in seconds for requests to the proxy server.
 #proxytimeout = 2
 
