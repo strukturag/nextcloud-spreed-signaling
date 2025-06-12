@@ -285,13 +285,18 @@ authorized, the backend returns an error and the hello request will be rejected.
 
 ### Error codes
 
-- `unsupported-version`: The requested version is not supported.
-- `auth-failed`: The session could not be authenticated.
-- `too-many-sessions`: Too many sessions exist for this user id.
+- `invalid_request`: The backend request for the v1 hello could not be authenticated. Check your shared secret.
+- `invalid_hello_version`: The requested `hello` version is not supported.
+- `auth_failed`: The session could not be authenticated.
 - `invalid_backend`: The requested backend URL is not supported.
 - `invalid_client_type`: The [client type](#client-types) is not supported.
+- `invalid_ticket`: The passed ticket in the v1 hello is invalid.
+- `no_such_user`: The user id in the v1 hello does not exists.
 - `invalid_token`: The passed token is invalid (can happen for
-  [client type `internal`](#client-type-internal)).
+  [client type `internal`](#client-type-internal) or v2 requests).
+- `token_not_valid_yet`: The token could be authenticated but is not valid yet.
+- `token_expired`: The token could be authenticated but is expired.
+- `too_many_requests`: Too many failed requests from this client.
 
 
 ### Client types
@@ -389,6 +394,7 @@ server will return an error and a normal `hello` handshake has to be performed.
 ### Error codes
 
 - `no_such_session`: The session id is no longer valid.
+- `too_many_requests`: Too many failed requests from this client.
 
 
 ## Releasing sessions
@@ -521,8 +527,11 @@ user, the backend returns an error and the room request will be rejected.
 
 ### Error codes
 
+- `invalid_request`: The backend request could not be authenticated. Check your shared secret.
 - `no_such_room`: The requested room does not exist or the user is not invited
   to the room.
+- `duplicate_session`: The given session already joined the room.
+- `room_join_failed`: The Talk backend returned an unexpected response while joining the room.
 
 
 ## Join federated room
