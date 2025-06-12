@@ -203,6 +203,14 @@ func (r *BackendRoomDialoutRequest) ValidateNumber() *Error {
 	return nil
 }
 
+func (r *BackendRoomDialoutRequest) String() string {
+	data, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", r, err)
+	}
+	return string(data)
+}
+
 type TransientAction string
 
 const (
