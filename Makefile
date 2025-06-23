@@ -144,6 +144,7 @@ common: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES)
 	for file in $(EASYJSON_FILES); do \
 		rm -f easyjson-bootstrap*.go; \
 		TMPDIR=$(TMPDIR) PATH="$(GODIR)":$(PATH) "$(GOPATHBIN)/easyjson" -all $$file; \
+		rm -f *_easyjson_easyjson.go; \
 	done
 
 $(BINDIR):

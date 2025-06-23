@@ -150,6 +150,12 @@ if [ ! -f "$CONFIG" ]; then
   if [ -n "$MAX_SCREEN_BITRATE" ]; then
     sed -i "s|#maxscreenbitrate =.*|maxscreenbitrate = $MAX_SCREEN_BITRATE|" "$CONFIG"
   fi
+  if [ -n "$ALLOWED_CANDIDATES" ]; then
+    sed -i "s|#allowedcandidates =.*|allowedcandidates = $ALLOWED_CANDIDATES|" "$CONFIG"
+  fi
+  if [ -n "$BLOCKED_CANDIDATES" ]; then
+    sed -i "s|#blockedcandidates =.*|blockedcandidates = $BLOCKED_CANDIDATES|" "$CONFIG"
+  fi
 
   if [ -n "$SKIP_VERIFY" ]; then
     sed -i "s|#skipverify =.*|skipverify = $SKIP_VERIFY|" "$CONFIG"
