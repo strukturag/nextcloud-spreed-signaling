@@ -2388,7 +2388,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 			return
 		}
 
-		if msg.Options != nil {
+		if msg.Options != nil && msg.Options.ActorId != "" && msg.Options.ActorType != "" {
 			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, publicSessionId)
 			request.Room.ActorId = msg.Options.ActorId
 			request.Room.ActorType = msg.Options.ActorType
