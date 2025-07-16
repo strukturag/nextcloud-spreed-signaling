@@ -86,6 +86,48 @@ func TestFileWatcher_File(t *testing.T) {
 	})
 }
 
+func TestFileWatcher_CurrentDir(t *testing.T) {
+	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+		require := require.New(t)
+		assert := assert.New(t)
+		tmpdir := t.TempDir()
+		require.NoError(os.Chdir(tmpdir))
+		filename := path.Join(tmpdir, "test.txt")
+		require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
+
+		modified := make(chan struct{})
+		w, err := NewFileWatcher("./"+path.Base(filename), func(filename string) {
+			modified <- struct{}{}
+		})
+		require.NoError(err)
+		defer w.Close()
+
+		require.NoError(os.WriteFile(filename, []byte("Updated"), 0644))
+		<-modified
+
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+		defer cancel()
+
+		select {
+		case <-modified:
+			assert.Fail("should not have received another event")
+		case <-ctxTimeout.Done():
+		}
+
+		require.NoError(os.WriteFile(filename, []byte("Updated"), 0644))
+		<-modified
+
+		ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+		defer cancel()
+
+		select {
+		case <-modified:
+			assert.Fail("should not have received another event")
+		case <-ctxTimeout.Done():
+		}
+	})
+}
+
 func TestFileWatcher_Rename(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)

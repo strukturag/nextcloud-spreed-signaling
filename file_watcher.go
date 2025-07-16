@@ -112,20 +112,22 @@ func (f *FileWatcher) run() {
 			return
 		}
 
+		filename := path.Clean(event.Name)
+
 		// Use timer to deduplicate multiple events for the same file.
 		mu.Lock()
-		t, found := timers[event.Name]
+		t, found := timers[filename]
 		mu.Unlock()
 		if !found {
 			t = time.AfterFunc(deduplicate, func() {
 				f.callback(f.filename)
 
 				mu.Lock()
-				delete(timers, event.Name)
+				delete(timers, filename)
 				mu.Unlock()
 			})
 			mu.Lock()
-			timers[event.Name] = t
+			timers[filename] = t
 			mu.Unlock()
 		} else {
 			t.Reset(deduplicate)
