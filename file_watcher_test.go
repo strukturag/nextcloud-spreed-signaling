@@ -305,3 +305,90 @@ func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
 	case <-ctxTimeout.Done():
 	}
 }
+
+func TestFileWatcher_UpdateSymlinkFolder(t *testing.T) {
+	// This mimics what k8s is doing with configmaps / secrets.
+	require := require.New(t)
+	assert := assert.New(t)
+	tmpdir := t.TempDir()
+
+	// File is in a versioned folder.
+	version1Path := path.Join(tmpdir, "version1")
+	require.NoError(os.Mkdir(version1Path, 0755))
+	sourceFilename1 := path.Join(version1Path, "test.txt")
+	require.NoError(os.WriteFile(sourceFilename1, []byte("Hello world!"), 0644))
+
+	// Versioned folder is symlinked to a generic "data" folder.
+	dataPath := path.Join(tmpdir, "data")
+	require.NoError(os.Symlink("version1", dataPath))
+
+	// File in root is symlinked from generic "data" folder.
+	filename := path.Join(tmpdir, "test.txt")
+	require.NoError(os.Symlink("data/test.txt", filename))
+
+	modified := make(chan struct{})
+	w, err := NewFileWatcher(filename, func(filename string) {
+		modified <- struct{}{}
+	})
+	require.NoError(err)
+	defer w.Close()
+
+	// New file is created in a new versioned subfolder.
+	version2Path := path.Join(tmpdir, "version2")
+	require.NoError(os.Mkdir(version2Path, 0755))
+
+	sourceFilename2 := path.Join(version2Path, "test.txt")
+	require.NoError(os.WriteFile(sourceFilename2, []byte("Updated"), 0644))
+
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+	defer cancel()
+
+	select {
+	case <-modified:
+		assert.Fail("should not have received another event")
+	case <-ctxTimeout.Done():
+	}
+
+	// Create temporary symlink to new versioned subfolder...
+	require.NoError(os.Symlink("version2", dataPath+".tmp"))
+	// ...atomically update generic "data" symlink...
+	require.NoError(os.Rename(dataPath+".tmp", dataPath))
+	// ...and old versioned subfolder is removed (this will trigger the event).
+	require.NoError(os.RemoveAll(version1Path))
+
+	<-modified
+
+	// Another new file is created in a new versioned subfolder.
+	version3Path := path.Join(tmpdir, "version3")
+	require.NoError(os.Mkdir(version3Path, 0755))
+
+	sourceFilename3 := path.Join(version3Path, "test.txt")
+	require.NoError(os.WriteFile(sourceFilename3, []byte("Updated again"), 0644))
+
+	ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+	defer cancel()
+
+	select {
+	case <-modified:
+		assert.Fail("should not have received another event")
+	case <-ctxTimeout.Done():
+	}
+
+	// Create temporary symlink to new versioned subfolder...
+	require.NoError(os.Symlink("version3", dataPath+".tmp"))
+	// ...atomically update generic "data" symlink...
+	require.NoError(os.Rename(dataPath+".tmp", dataPath))
+	// ...and old versioned subfolder is removed (this will trigger the event).
+	require.NoError(os.RemoveAll(version2Path))
+
+	<-modified
+
+	ctxTimeout, cancel = context.WithTimeout(context.Background(), testWatcherNoEventTimeout)
+	defer cancel()
+
+	select {
+	case <-modified:
+		assert.Fail("should not have received another event")
+	case <-ctxTimeout.Done():
+	}
+}

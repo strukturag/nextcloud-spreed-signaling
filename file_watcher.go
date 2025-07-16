@@ -61,18 +61,8 @@ type FileWatcher struct {
 }
 
 func NewFileWatcher(filename string, callback FileWatcherCallback) (*FileWatcher, error) {
-	realFilename, err := filepath.EvalSymlinks(filename)
-	if err != nil {
-		return nil, err
-	}
-
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, err
-	}
-
-	if err := watcher.Add(realFilename); err != nil {
-		watcher.Close() // nolint
 		return nil, err
 	}
 
@@ -85,15 +75,33 @@ func NewFileWatcher(filename string, callback FileWatcherCallback) (*FileWatcher
 
 	w := &FileWatcher{
 		filename: filename,
-		target:   realFilename,
 		callback: callback,
 		watcher:  watcher,
 
 		closeCtx:  closeCtx,
 		closeFunc: closeFunc,
 	}
+	if err := w.updateWatcher(); err != nil {
+		watcher.Close() // nolint
+		return nil, err
+	}
+
 	go w.run()
 	return w, nil
+}
+
+func (f *FileWatcher) updateWatcher() error {
+	realFilename, err := filepath.EvalSymlinks(f.filename)
+	if err != nil {
+		return err
+	}
+
+	if err := f.watcher.Add(realFilename); err != nil {
+		return err
+	}
+
+	f.target = realFilename
+	return nil
 }
 
 func (f *FileWatcher) Close() error {
@@ -137,7 +145,20 @@ func (f *FileWatcher) run() {
 	for {
 		select {
 		case event := <-f.watcher.Events:
-			if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Create) && !event.Has(fsnotify.Rename) {
+			if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Create) && !event.Has(fsnotify.Rename) && !event.Has(fsnotify.Remove) {
+				continue
+			}
+
+			if event.Has(fsnotify.Remove) {
+				// Watched target has been deleted, assume it was symlinked and try to watch new target.
+				if event.Name != f.target {
+					continue
+				}
+
+				triggerEvent(event)
+				if err := f.updateWatcher(); err != nil {
+					log.Printf("Error updating watcher after %s is deleted: %s", event.Name, err)
+				}
 				continue
 			}
 
