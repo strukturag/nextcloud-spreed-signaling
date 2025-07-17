@@ -273,9 +273,15 @@ if [ ! -f "$CONFIG" ]; then
     for backend in $BACKENDS; do
       echo "[$backend]" >> "$CONFIG"
 
-      declare var="BACKEND_${backend^^}_URL"
+      declare var="BACKEND_${backend^^}_URLS"
       if [ -n "${!var}" ]; then
-        echo "url = ${!var}" >> "$CONFIG"
+        echo "urls = ${!var}" >> "$CONFIG"
+      else
+        declare var_compat="BACKEND_${backend^^}_URL"
+        if [ -n "${!var_compat}" ]; then
+          echo "Variable $var_compat is deprecated, use $var instead."
+          echo "urls = ${!var_compat}" >> "$CONFIG"
+        fi
       fi
 
       declare var="BACKEND_${backend^^}_SHARED_SECRET"

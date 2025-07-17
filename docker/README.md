@@ -30,7 +30,8 @@ The running container can be configured through different environment variables:
 - `BACKENDS`: Space-separated list of backend ids.
 - `BACKENDS_TIMEOUT`: Timeout in seconds for requests to backends.
 - `CONNECTIONS_PER_HOST`: Maximum number of concurrent backend connections per host.
-- `BACKEND_<ID>_URL`: Url of backend `ID` (where `ID` is the uppercase backend id).
+- `BACKEND_<ID>_URLS`: Comma-separated list of urls of backend `ID` (where `ID` is the uppercase backend id).
+- `BACKEND_<ID>_URL`: Url of backend `ID` (where `ID` is the uppercase backend id, deprecated).
 - `BACKEND_<ID>_SHARED_SECRET`: Shared secret for backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_SESSION_LIMIT`: Optional session limit for backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_MAX_STREAM_BITRATE`: Optional maximum bitrate for audio/video streams in backend `ID` (where `ID` is the uppercase backend id).
