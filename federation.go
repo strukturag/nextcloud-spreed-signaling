@@ -65,6 +65,8 @@ func getCloudUrl(s string) string {
 	}
 	if pos := strings.Index(s, "/ocs/v"); pos != -1 {
 		s = s[:pos]
+	} else {
+		s = strings.TrimSuffix(s, "/")
 	}
 	return s
 }
@@ -606,6 +608,7 @@ func (c *FederationClient) updateEventUsers(users []map[string]interface{}, loca
 	localCloudUrlLen := len(localCloudUrl)
 	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
 	checkSessionId := true
+	log.Printf("XXX local=%s remote=%s", localCloudUrl, remoteCloudUrl)
 	for _, u := range users {
 		if actorType, found := getStringMapEntry[string](u, "actorType"); found {
 			if actorId, found := getStringMapEntry[string](u, "actorId"); found {

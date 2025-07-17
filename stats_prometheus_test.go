@@ -32,7 +32,20 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func ResetStatsValue[T prometheus.Gauge](t *testing.T, collector T) {
+	// Make sure test is not executed with "t.Parallel()"
+	t.Setenv("PARALLEL_CHECK", "1")
+
+	collector.Set(0)
+	t.Cleanup(func() {
+		collector.Set(0)
+	})
+}
+
 func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64) {
+	// Make sure test is not executed with "t.Parallel()"
+	t.Setenv("PARALLEL_CHECK", "1")
+
 	ch := make(chan *prometheus.Desc, 1)
 	collector.Describe(ch)
 	desc := <-ch
@@ -41,7 +54,8 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 		assert := assert.New(t)
 		pc := make([]uintptr, 10)
 		n := runtime.Callers(2, pc)
-		if assert.NotEqualValues(0, n, "Expected value %f for %s, got %f", value, desc, v) {
+		if n == 0 {
+			assert.EqualValues(value, v, "failed for %s", desc)
 			return
 		}
 

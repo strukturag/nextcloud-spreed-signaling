@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -178,53 +179,58 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		return
 	}
 
-	backend := &Backend{
-		id:        key,
-		url:       info.Url,
-		parsedUrl: info.parsedUrl,
-		secret:    []byte(info.Secret),
+	allowHttp := slices.ContainsFunc(info.parsedUrls, func(u *url.URL) bool {
+		return u.Scheme == "http"
+	})
 
-		allowHttp: info.parsedUrl.Scheme == "http",
+	backend := &Backend{
+		id:     key,
+		urls:   info.Urls,
+		secret: []byte(info.Secret),
+
+		allowHttp: allowHttp,
 
 		maxStreamBitrate: info.MaxStreamBitrate,
 		maxScreenBitrate: info.MaxScreenBitrate,
 		sessionLimit:     info.SessionLimit,
 	}
 
-	host := info.parsedUrl.Host
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.keyInfos[key] = &info
-	entries, found := s.backends[host]
-	if !found {
-		// Simple case, first backend for this host
-		log.Printf("Added backend %s (from %s)", info.Url, key)
-		s.backends[host] = []*Backend{backend}
-		updateBackendStats(backend)
-		statsBackendsCurrent.Inc()
-		s.wakeupForTesting()
-		return
-	}
+	added := false
+	for idx, u := range info.parsedUrls {
+		host := u.Host
+		entries, found := s.backends[host]
+		if !found {
+			// Simple case, first backend for this host
+			log.Printf("Added backend %s (from %s)", info.Urls[idx], key)
+			s.backends[host] = []*Backend{backend}
+			added = true
+			continue
+		}
 
-	// Was the backend changed?
-	replaced := false
-	for idx, entry := range entries {
-		if entry.id == key {
-			log.Printf("Updated backend %s (from %s)", info.Url, key)
-			updateBackendStats(backend)
-			entries[idx] = backend
-			replaced = true
-			break
+		// Was the backend changed?
+		replaced := false
+		for idx, entry := range entries {
+			if entry.id == key {
+				log.Printf("Updated backend %s (from %s)", info.Urls[idx], key)
+				entries[idx] = backend
+				replaced = true
+				break
+			}
+		}
+
+		if !replaced {
+			// New backend, add to list.
+			log.Printf("Added backend %s (from %s)", info.Urls[idx], key)
+			s.backends[host] = append(entries, backend)
+			added = true
 		}
 	}
-
-	if !replaced {
-		// New backend, add to list.
-		log.Printf("Added backend %s (from %s)", info.Url, key)
-		s.backends[host] = append(entries, backend)
-		updateBackendStats(backend)
+	updateBackendStats(backend)
+	if added {
 		statsBackendsCurrent.Inc()
 	}
 	s.wakeupForTesting()
@@ -240,27 +246,47 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prev
 	}
 
 	delete(s.keyInfos, key)
-	host := info.parsedUrl.Host
-	entries, found := s.backends[host]
-	if !found {
-		return
-	}
-
-	log.Printf("Removing backend %s (from %s)", info.Url, key)
-	newEntries := make([]*Backend, 0, len(entries)-1)
-	for _, entry := range entries {
-		if entry.id == key {
-			updateBackendStats(entry)
-			statsBackendsCurrent.Dec()
+	var deleted map[string][]*Backend
+	seen := make(map[string]bool)
+	for idx, u := range info.parsedUrls {
+		host := u.Host
+		entries, found := s.backends[host]
+		if !found {
+			if d, ok := deleted[host]; ok {
+				if slices.ContainsFunc(d, func(b *Backend) bool {
+					return slices.Contains(b.urls, u.String())
+				}) {
+					log.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
+				}
+			}
 			continue
 		}
 
-		newEntries = append(newEntries, entry)
-	}
-	if len(newEntries) > 0 {
-		s.backends[host] = newEntries
-	} else {
-		delete(s.backends, host)
+		log.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
+		newEntries := make([]*Backend, 0, len(entries)-1)
+		for _, entry := range entries {
+			if entry.id == key {
+				if len(info.parsedUrls) > 1 {
+					if deleted == nil {
+						deleted = make(map[string][]*Backend)
+					}
+					deleted[host] = append(deleted[host], entry)
+				}
+				if !seen[entry.Id()] {
+					seen[entry.Id()] = true
+					updateBackendStats(entry)
+					statsBackendsCurrent.Dec()
+				}
+				continue
+			}
+
+			newEntries = append(newEntries, entry)
+		}
+		if len(newEntries) > 0 {
+			s.backends[host] = newEntries
+		} else {
+			delete(s.backends, host)
+		}
 	}
 	s.wakeupForTesting()
 }

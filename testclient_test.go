@@ -126,7 +126,7 @@ func checkMessageType(message *ServerMessage, expectedType string) error {
 
 func checkMessageSender(hub *Hub, sender *MessageServerMessageSender, senderType string, hello *HelloServerMessage) error {
 	if sender.Type != senderType {
-		return fmt.Errorf("Expected sender type %s, got %s", senderType, sender.SessionId)
+		return fmt.Errorf("Expected sender type %s, got %s", senderType, sender.Type)
 	} else if sender.SessionId != hello.SessionId {
 		return fmt.Errorf("Expected session id %+v, got %+v",
 			getPubliceSessionIdData(hub, hello.SessionId), getPubliceSessionIdData(hub, sender.SessionId))

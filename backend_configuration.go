@@ -22,8 +22,10 @@
 package signaling
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 
@@ -42,11 +44,9 @@ var (
 )
 
 type Backend struct {
-	id        string
-	url       string
-	parsedUrl *url.URL
-	secret    []byte
-	compat    bool
+	id     string
+	urls   []string
+	secret []byte
 
 	allowHttp bool
 
@@ -56,6 +56,8 @@ type Backend struct {
 	sessionLimit uint64
 	sessionsLock sync.Mutex
 	sessions     map[string]bool
+
+	counted bool
 }
 
 func (b *Backend) Id() string {
@@ -67,7 +69,23 @@ func (b *Backend) Secret() []byte {
 }
 
 func (b *Backend) IsCompat() bool {
-	return b.compat
+	return len(b.urls) == 0
+}
+
+func (b *Backend) Equal(other *Backend) bool {
+	if b == other {
+		return true
+	} else if b == nil || other == nil {
+		return false
+	}
+
+	return b.id == other.id &&
+		b.allowHttp == other.allowHttp &&
+		b.maxStreamBitrate == other.maxStreamBitrate &&
+		b.maxScreenBitrate == other.maxScreenBitrate &&
+		b.sessionLimit == other.sessionLimit &&
+		bytes.Equal(b.secret, other.secret) &&
+		slices.Equal(b.urls, other.urls)
 }
 
 func (b *Backend) IsUrlAllowed(u *url.URL) bool {
@@ -81,12 +99,23 @@ func (b *Backend) IsUrlAllowed(u *url.URL) bool {
 	}
 }
 
-func (b *Backend) Url() string {
-	return b.url
+func (b *Backend) HasUrl(url string) bool {
+	if b.IsCompat() {
+		// Old-style configuration, only hosts are configured.
+		return true
+	}
+
+	for _, u := range b.urls {
+		if strings.HasPrefix(url, u) {
+			return true
+		}
+	}
+
+	return false
 }
 
-func (b *Backend) ParsedUrl() *url.URL {
-	return b.parsedUrl
+func (b *Backend) Urls() []string {
+	return b.urls
 }
 
 func (b *Backend) Limit() int {
@@ -152,6 +181,12 @@ func (s *backendStorageCommon) GetBackends() []*Backend {
 	for _, entries := range s.backends {
 		result = append(result, entries...)
 	}
+	slices.SortFunc(result, func(a, b *Backend) int {
+		return strings.Compare(a.Id(), b.Id())
+	})
+	result = slices.CompactFunc(result, func(a, b *Backend) bool {
+		return a.Id() == b.Id()
+	})
 	return result
 }
 
@@ -173,10 +208,7 @@ func (s *backendStorageCommon) getBackendLocked(u *url.URL) *Backend {
 			continue
 		}
 
-		if entry.url == "" {
-			// Old-style configuration, only hosts are configured.
-			return entry
-		} else if strings.HasPrefix(url, entry.url) {
+		if entry.HasUrl(url) {
 			return entry
 		}
 	}
