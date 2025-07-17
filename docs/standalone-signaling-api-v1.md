@@ -1849,13 +1849,33 @@ Message format (Backend -> Server)
       "dialout" {
         "number": "e164-target-number",
         "options": {
-          ...arbitrary options that will be sent back to validate...
+          ...additional options...
         }
       }
     }
 
 Please note that this requires a connected internal client that supports
 dialout (e.g. the SIP bridge).
+
+The `options` will be sent to Nextcloud Talk for validation of the dialout
+request. A field `caller` can be included containing the data that should be
+sent as `From` header in the outgoing call, or a field `anonymous` with value
+`true` to trigger an anonymous outgoing call (CLIR).
+
+Example request (dialout to `+49123456789` and use `+491122334455` as caller):
+
+    {
+      "type": "dialout"
+      "dialout" {
+        "number": "+49123456789",
+        "options": {
+          "attendeeId": "abcdef",
+          "actorType": "actor-type",
+          "actorId": "the-actor",
+          "caller": "+491122334455"
+        }
+      }
+    }
 
 Message format (Server -> Backend, request was accepted)
 
