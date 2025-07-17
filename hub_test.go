@@ -131,6 +131,21 @@ func getTestConfigWithMultipleBackends(server *httptest.Server) (*goconf.ConfigF
 	return config, nil
 }
 
+func getTestConfigWithMultipleUrls(server *httptest.Server) (*goconf.ConfigFile, error) {
+	config, err := getTestConfig(server)
+	if err != nil {
+		return nil, err
+	}
+
+	config.RemoveOption("backend", "allowed")
+	config.RemoveOption("backend", "secret")
+	config.AddOption("backend", "backends", "backend1")
+
+	config.AddOption("backend1", "urls", strings.Join([]string{server.URL + "/one", server.URL + "/two/"}, ","))
+	config.AddOption("backend1", "secret", string(testBackendSecret))
+	return config, nil
+}
+
 func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
 	require := require.New(t)
 	r := mux.NewRouter()
@@ -168,6 +183,13 @@ func CreateHubForTest(t *testing.T) (*Hub, AsyncEvents, *mux.Router, *httptest.S
 
 func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
 	h, events, r, server := CreateHubForTestWithConfig(t, getTestConfigWithMultipleBackends)
+	registerBackendHandlerUrl(t, r, "/one")
+	registerBackendHandlerUrl(t, r, "/two")
+	return h, events, r, server
+}
+
+func CreateHubWithMultipleUrlsForTest(t *testing.T) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
+	h, events, r, server := CreateHubForTestWithConfig(t, getTestConfigWithMultipleUrls)
 	registerBackendHandlerUrl(t, r, "/one")
 	registerBackendHandlerUrl(t, r, "/two")
 	return h, events, r, server
@@ -4442,6 +4464,59 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	}
 }
 
+func TestSendBetweenDifferentUrls(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubWithMultipleUrlsForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	params1 := TestBackendClientAuthParams{
+		UserId: "user1",
+	}
+	require.NoError(client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1))
+	hello1, err := client1.RunUntilHello(ctx)
+	require.NoError(err)
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+
+	params2 := TestBackendClientAuthParams{
+		UserId: "user2",
+	}
+	require.NoError(client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2))
+	hello2, err := client2.RunUntilHello(ctx)
+	require.NoError(err)
+
+	recipient1 := MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}
+	recipient2 := MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello2.Hello.SessionId,
+	}
+
+	data1 := "from-1-to-2"
+	client1.SendMessage(recipient2, data1) // nolint
+	data2 := "from-2-to-1"
+	client2.SendMessage(recipient1, data2) // nolint
+
+	var payload string
+	if err := checkReceiveClientMessage(ctx, client1, "session", hello2.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data2, payload)
+	}
+	if err := checkReceiveClientMessage(ctx, client2, "session", hello1.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data1, payload)
+	}
+}
+
 func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
@@ -4524,6 +4599,76 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 		assert.Fail("Expected no payload", "received %+v", payload)
 	} else {
 		assert.ErrorIs(err, ErrNoMessageReceived)
+	}
+}
+
+func TestSameRoomOnDifferentUrls(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubWithMultipleUrlsForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+
+	params1 := TestBackendClientAuthParams{
+		UserId: "user1",
+	}
+	require.NoError(client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1))
+	hello1, err := client1.RunUntilHello(ctx)
+	require.NoError(err)
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+
+	params2 := TestBackendClientAuthParams{
+		UserId: "user2",
+	}
+	require.NoError(client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2))
+	hello2, err := client2.RunUntilHello(ctx)
+	require.NoError(err)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+	hub.ru.RLock()
+	var rooms []*Room
+	for _, room := range hub.rooms {
+		defer room.Close()
+		rooms = append(rooms, room)
+	}
+	hub.ru.RUnlock()
+
+	assert.Len(rooms, 1)
+
+	recipient := MessageClientMessageRecipient{
+		Type: "room",
+	}
+
+	data1 := "from-1-to-2"
+	client1.SendMessage(recipient, data1) // nolint
+	data2 := "from-2-to-1"
+	client2.SendMessage(recipient, data2) // nolint
+
+	var payload string
+	if err := checkReceiveClientMessage(ctx, client1, "room", hello2.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data2, payload)
+	}
+	if err := checkReceiveClientMessage(ctx, client2, "room", hello1.Hello, &payload); assert.NoError(err) {
+		assert.Equal(data1, payload)
 	}
 }
 

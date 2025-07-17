@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/dlintw/goconf"
@@ -610,4 +611,167 @@ func TestBackendCommonSecret(t *testing.T) {
 	if b2 := cfg.GetBackend(u2); assert.NotNil(b2) {
 		assert.Equal(string(testBackendSecret), string(b2.Secret()))
 	}
+}
+
+func TestBackendChangeUrls(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	u1, err := url.Parse("http://domain1.invalid/")
+	require.NoError(err)
+	u2, err := url.Parse("http://domain2.invalid/")
+	require.NoError(err)
+	original_config := goconf.NewConfigFile()
+	original_config.AddOption("backend", "backends", "backend1,backend2")
+	original_config.AddOption("backend", "secret", string(testBackendSecret))
+	original_config.AddOption("backend1", "urls", u1.String())
+	original_config.AddOption("backend2", "urls", u2.String())
+	cfg, err := NewBackendConfiguration(original_config, nil)
+	require.NoError(err)
+
+	if b1 := cfg.GetBackend(u1); assert.NotNil(b1) {
+		assert.Equal("backend1", b1.Id())
+		assert.Equal(string(testBackendSecret), string(b1.Secret()))
+		assert.Equal([]string{u1.String()}, b1.Urls())
+	}
+	if b2 := cfg.GetBackend(u2); assert.NotNil(b2) {
+		assert.Equal("backend2", b2.Id())
+		assert.Equal(string(testBackendSecret), string(b2.Secret()))
+		assert.Equal([]string{u2.String()}, b2.Urls())
+	}
+
+	// Add url.
+	updated_config := goconf.NewConfigFile()
+	updated_config.AddOption("backend", "backends", "backend1")
+	updated_config.AddOption("backend", "secret", string(testBackendSecret))
+	updated_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
+	updated_config.AddOption("backend1", "urls", strings.Join([]string{u1.String(), u2.String()}, ","))
+	cfg.Reload(updated_config)
+
+	if b1 := cfg.GetBackend(u1); assert.NotNil(b1) {
+		assert.Equal("backend1", b1.Id())
+		assert.Equal(string(testBackendSecret)+"-backend1", string(b1.Secret()))
+		assert.Equal([]string{u1.String(), u2.String()}, b1.Urls())
+	}
+	if b1 := cfg.GetBackend(u2); assert.NotNil(b1) {
+		assert.Equal("backend1", b1.Id())
+		assert.Equal(string(testBackendSecret)+"-backend1", string(b1.Secret()))
+		assert.Equal([]string{u1.String(), u2.String()}, b1.Urls())
+	}
+
+	// No change reload.
+	cfg.Reload(updated_config)
+	if b1 := cfg.GetBackend(u1); assert.NotNil(b1) {
+		assert.Equal("backend1", b1.Id())
+		assert.Equal(string(testBackendSecret)+"-backend1", string(b1.Secret()))
+		assert.Equal([]string{u1.String(), u2.String()}, b1.Urls())
+	}
+	if b1 := cfg.GetBackend(u2); assert.NotNil(b1) {
+		assert.Equal("backend1", b1.Id())
+		assert.Equal(string(testBackendSecret)+"-backend1", string(b1.Secret()))
+		assert.Equal([]string{u1.String(), u2.String()}, b1.Urls())
+	}
+
+	// Remove url.
+	updated_config = goconf.NewConfigFile()
+	updated_config.AddOption("backend", "backends", "backend1")
+	updated_config.AddOption("backend", "secret", string(testBackendSecret))
+	updated_config.AddOption("backend1", "urls", u2.String())
+	cfg.Reload(updated_config)
+
+	if b1 := cfg.GetBackend(u2); assert.NotNil(b1) {
+		assert.Equal("backend1", b1.Id())
+		assert.Equal(string(testBackendSecret), string(b1.Secret()))
+		assert.Equal([]string{u2.String()}, b1.Urls())
+	}
+}
+
+func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	etcd, client := NewEtcdClientForTest(t)
+
+	url1 := "https://domain1.invalid/foo"
+	initialSecret1 := string(testBackendSecret) + "-backend1-initial"
+	secret1 := string(testBackendSecret) + "-backend1"
+
+	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"urls\":[\""+url1+"\"],\"secret\":\""+initialSecret1+"\"}"))
+
+	config := goconf.NewConfigFile()
+	config.AddOption("backend", "backendtype", "etcd")
+	config.AddOption("backend", "backendprefix", "/backends")
+
+	cfg, err := NewBackendConfiguration(config, client)
+	require.NoError(err)
+	defer cfg.Close()
+
+	storage := cfg.storage.(*backendStorageEtcd)
+	ch := storage.getWakeupChannelForTesting()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	require.NoError(storage.WaitForInitialized(ctx))
+
+	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
+		assert.Equal([]string{url1}, backends[0].Urls()) &&
+		assert.Equal(initialSecret1, string(backends[0].Secret())) {
+		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
+			assert.Equal(backends[0], backend)
+		}
+	}
+
+	url2 := "https://domain1.invalid/bar"
+
+	drainWakeupChannel(ch)
+	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"urls\":[\""+url1+"\",\""+url2+"\"],\"secret\":\""+secret1+"\"}"))
+	<-ch
+	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
+		assert.Equal([]string{url2, url1}, backends[0].Urls()) &&
+		assert.Equal(secret1, string(backends[0].Secret())) {
+		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
+			assert.Equal(backends[0], backend)
+		}
+		if backend := cfg.GetBackend(mustParse(url2)); assert.NotNil(backend) {
+			assert.Equal(backends[0], backend)
+		}
+	}
+
+	url3 := "https://domain2.invalid/foo"
+	secret3 := string(testBackendSecret) + "-backend3"
+
+	drainWakeupChannel(ch)
+	SetEtcdValue(etcd, "/backends/3_three", []byte("{\"urls\":[\""+url3+"\"],\"secret\":\""+secret3+"\"}"))
+	<-ch
+	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) &&
+		assert.Equal([]string{url2, url1}, backends[0].Urls()) &&
+		assert.Equal(secret1, string(backends[0].Secret())) &&
+		assert.Equal([]string{url3}, backends[1].Urls()) &&
+		assert.Equal(secret3, string(backends[1].Secret())) {
+		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
+			assert.Equal(backends[0], backend)
+		} else if backend := cfg.GetBackend(mustParse(url2)); assert.NotNil(backend) {
+			assert.Equal(backends[0], backend)
+		} else if backend := cfg.GetBackend(mustParse(url3)); assert.NotNil(backend) {
+			assert.Equal(backends[1], backend)
+		}
+	}
+
+	drainWakeupChannel(ch)
+	DeleteEtcdValue(etcd, "/backends/1_one")
+	<-ch
+	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) {
+		assert.Equal([]string{url3}, backends[0].Urls())
+		assert.Equal(secret3, string(backends[0].Secret()))
+	}
+
+	drainWakeupChannel(ch)
+	DeleteEtcdValue(etcd, "/backends/3_three")
+	<-ch
+
+	_, found := storage.backends["domain1.invalid"]
+	assert.False(found, "Should have removed host information")
 }
