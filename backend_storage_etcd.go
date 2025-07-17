@@ -199,6 +199,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 	defer s.mu.Unlock()
 
 	s.keyInfos[key] = &info
+	added := false
 	for idx, u := range info.parsedUrls {
 		host := u.Host
 		entries, found := s.backends[host]
@@ -206,9 +207,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 			// Simple case, first backend for this host
 			log.Printf("Added backend %s (from %s)", info.Urls[idx], key)
 			s.backends[host] = []*Backend{backend}
-			updateBackendStats(backend)
-			statsBackendsCurrent.Inc()
-			s.wakeupForTesting()
+			added = true
 			continue
 		}
 
@@ -217,7 +216,6 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		for idx, entry := range entries {
 			if entry.id == key {
 				log.Printf("Updated backend %s (from %s)", info.Urls[idx], key)
-				updateBackendStats(backend)
 				entries[idx] = backend
 				replaced = true
 				break
@@ -228,9 +226,12 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 			// New backend, add to list.
 			log.Printf("Added backend %s (from %s)", info.Urls[idx], key)
 			s.backends[host] = append(entries, backend)
-			updateBackendStats(backend)
-			statsBackendsCurrent.Inc()
+			added = true
 		}
+	}
+	updateBackendStats(backend)
+	if added {
+		statsBackendsCurrent.Inc()
 	}
 	s.wakeupForTesting()
 }
@@ -246,6 +247,7 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prev
 
 	delete(s.keyInfos, key)
 	var deleted map[string][]*Backend
+	seen := make(map[string]bool)
 	for idx, u := range info.parsedUrls {
 		host := u.Host
 		entries, found := s.backends[host]
@@ -270,8 +272,11 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prev
 					}
 					deleted[host] = append(deleted[host], entry)
 				}
-				updateBackendStats(entry)
-				statsBackendsCurrent.Dec()
+				if !seen[entry.Id()] {
+					seen[entry.Id()] = true
+					updateBackendStats(entry)
+					statsBackendsCurrent.Dec()
+				}
 				continue
 			}
 

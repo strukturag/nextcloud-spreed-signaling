@@ -33,6 +33,8 @@ import (
 type backendStorageStatic struct {
 	backendStorageCommon
 
+	backendsById map[string]*Backend
+
 	// Deprecated
 	allowAll      bool
 	commonSecret  []byte
@@ -48,6 +50,7 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 		sessionLimit = 0
 	}
 	backends := make(map[string][]*Backend)
+	backendsById := make(map[string]*Backend)
 	var compatBackend *Backend
 	numBackends := 0
 	if allowAll {
@@ -59,11 +62,13 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 			allowHttp: allowHttp,
 
 			sessionLimit: uint64(sessionLimit),
+			counted:      true,
 		}
 		if sessionLimit > 0 {
 			log.Printf("Allow a maximum of %d sessions", sessionLimit)
 		}
 		updateBackendStats(compatBackend)
+		backendsById[compatBackend.id] = compatBackend
 		numBackends++
 	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
 		added := make(map[string]*Backend)
@@ -75,7 +80,9 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 		}
 		for _, be := range added {
 			log.Printf("Backend %s added for %s", be.id, strings.Join(be.urls, ", "))
+			backendsById[be.id] = be
 			updateBackendStats(be)
+			be.counted = true
 		}
 		numBackends += len(added)
 	} else if allowedUrls, _ := config.GetString("backend", "allowed"); allowedUrls != "" {
@@ -102,6 +109,7 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 				allowHttp: allowHttp,
 
 				sessionLimit: uint64(sessionLimit),
+				counted:      true,
 			}
 			hosts := make([]string, 0, len(allowMap))
 			for host := range allowMap {
@@ -116,6 +124,7 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 				log.Printf("Allow a maximum of %d sessions", sessionLimit)
 			}
 			updateBackendStats(compatBackend)
+			backendsById[compatBackend.id] = compatBackend
 			numBackends++
 		}
 	}
@@ -130,6 +139,8 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 			backends: backends,
 		},
 
+		backendsById: backendsById,
+
 		allowAll:      allowAll,
 		commonSecret:  []byte(commonSecret),
 		compatBackend: compatBackend,
@@ -139,25 +150,51 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 func (s *backendStorageStatic) Close() {
 }
 
-func (s *backendStorageStatic) RemoveBackendsForHost(host string, seen map[string]bool) {
+func (s *backendStorageStatic) RemoveBackendsForHost(host string, seen map[string]seenState) {
 	if oldBackends := s.backends[host]; len(oldBackends) > 0 {
 		deleted := 0
 		for _, backend := range oldBackends {
-			if seen[backend.Id()] {
+			if seen[backend.Id()] == seenDeleted {
 				continue
 			}
 
-			seen[backend.Id()] = true
-			log.Printf("Backend %s removed for %s", backend.id, strings.Join(backend.urls, ", "))
-			deleteBackendStats(backend)
-			deleted++
+			seen[backend.Id()] = seenDeleted
+			urls := filter(backend.urls, func(s string) bool {
+				return !strings.Contains(s, "://"+host)
+			})
+			log.Printf("Backend %s removed for %s", backend.id, strings.Join(urls, ", "))
+			if len(urls) == len(backend.urls) && backend.counted {
+				deleteBackendStats(backend)
+				delete(s.backendsById, backend.Id())
+				deleted++
+				backend.counted = false
+			}
 		}
 		statsBackendsCurrent.Sub(float64(deleted))
 	}
 	delete(s.backends, host)
 }
 
-func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen map[string]bool) {
+func filter[T any](s []T, del func(T) bool) []T {
+	result := make([]T, 0, len(s))
+	for _, e := range s {
+		if !del(e) {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+type seenState int
+
+const (
+	seenNotSeen seenState = iota
+	seenAdded
+	seenUpdated
+	seenDeleted
+)
+
+func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen map[string]seenState) {
 	for existingIndex, existingBackend := range s.backends[host] {
 		found := false
 		index := 0
@@ -170,10 +207,12 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 				found = true
 				s.backends[host][existingIndex] = newBackend
 				backends = append(backends[:index], backends[index+1:]...)
-				if !seen[newBackend.id] {
-					seen[newBackend.id] = true
+				if seen[newBackend.id] != seenUpdated {
+					seen[newBackend.id] = seenUpdated
 					log.Printf("Backend %s updated for %s", newBackend.id, strings.Join(newBackend.urls, ", "))
 					updateBackendStats(newBackend)
+					newBackend.counted = existingBackend.counted
+					s.backendsById[newBackend.id] = newBackend
 				}
 				break
 			}
@@ -182,11 +221,18 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 		if !found {
 			removed := s.backends[host][existingIndex]
 			s.backends[host] = append(s.backends[host][:existingIndex], s.backends[host][existingIndex+1:]...)
-			if !seen[removed.id] {
-				seen[removed.id] = true
-				log.Printf("Backend %s removed for %s", removed.id, strings.Join(removed.urls, ", "))
-				deleteBackendStats(removed)
-				statsBackendsCurrent.Dec()
+			if seen[removed.id] != seenDeleted {
+				seen[removed.id] = seenDeleted
+				urls := filter(removed.urls, func(s string) bool {
+					return !strings.Contains(s, "://"+host)
+				})
+				log.Printf("Backend %s removed for %s", removed.id, strings.Join(urls, ", "))
+				if len(urls) == len(removed.urls) && removed.counted {
+					deleteBackendStats(removed)
+					delete(s.backendsById, removed.Id())
+					statsBackendsCurrent.Dec()
+					removed.counted = false
+				}
 			}
 		}
 	}
@@ -195,14 +241,23 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 
 	addedBackends := 0
 	for _, added := range backends {
-		if seen[added.id] {
+		if seen[added.id] == seenAdded {
 			continue
 		}
 
-		seen[added.id] = true
+		seen[added.id] = seenAdded
+		if prev, found := s.backendsById[added.id]; found {
+			added.counted = prev.counted
+		} else {
+			s.backendsById[added.id] = added
+		}
+
 		log.Printf("Backend %s added for %s", added.id, strings.Join(added.urls, ", "))
-		updateBackendStats(added)
-		addedBackends++
+		if !added.counted {
+			updateBackendStats(added)
+			addedBackends++
+			added.counted = true
+		}
 	}
 	statsBackendsCurrent.Add(float64(addedBackends))
 }
@@ -350,7 +405,7 @@ func (s *backendStorageStatic) Reload(config *goconf.ConfigFile) {
 		configuredHosts := getConfiguredHosts(backendIds, config, commonSecret)
 
 		// remove backends that are no longer configured
-		seen := make(map[string]bool)
+		seen := make(map[string]seenState)
 		for hostname := range s.backends {
 			if _, ok := configuredHosts[hostname]; !ok {
 				s.RemoveBackendsForHost(hostname, seen)
@@ -360,6 +415,12 @@ func (s *backendStorageStatic) Reload(config *goconf.ConfigFile) {
 		// rewrite backends adding newly configured ones and rewriting existing ones
 		for hostname, configuredBackends := range configuredHosts {
 			s.UpsertHost(hostname, configuredBackends, seen)
+		}
+	} else {
+		// remove all backends
+		seen := make(map[string]seenState)
+		for hostname := range s.backends {
+			s.RemoveBackendsForHost(hostname, seen)
 		}
 	}
 }

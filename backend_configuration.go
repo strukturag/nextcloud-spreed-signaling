@@ -56,6 +56,8 @@ type Backend struct {
 	sessionLimit uint64
 	sessionsLock sync.Mutex
 	sessions     map[string]bool
+
+	counted bool
 }
 
 func (b *Backend) Id() string {
@@ -179,6 +181,12 @@ func (s *backendStorageCommon) GetBackends() []*Backend {
 	for _, entries := range s.backends {
 		result = append(result, entries...)
 	}
+	slices.SortFunc(result, func(a, b *Backend) int {
+		return strings.Compare(a.Id(), b.Id())
+	})
+	result = slices.CompactFunc(result, func(a, b *Backend) bool {
+		return a.Id() == b.Id()
+	})
 	return result
 }
 
