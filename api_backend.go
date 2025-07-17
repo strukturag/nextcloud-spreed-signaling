@@ -454,7 +454,7 @@ type BackendInformationEtcd struct {
 	SessionLimit uint64 `json:"sessionlimit,omitempty"`
 }
 
-func (p *BackendInformationEtcd) CheckValid() error {
+func (p *BackendInformationEtcd) CheckValid() (err error) {
 	if p.Secret == "" {
 		return fmt.Errorf("secret missing")
 	}
@@ -462,17 +462,31 @@ func (p *BackendInformationEtcd) CheckValid() error {
 	if len(p.Urls) > 0 {
 		slices.Sort(p.Urls)
 		p.Urls = slices.Compact(p.Urls)
-		for idx, u := range p.Urls {
+		seen := make(map[string]bool)
+		outIdx := 0
+		for _, u := range p.Urls {
 			parsedUrl, err := url.Parse(u)
 			if err != nil {
 				return fmt.Errorf("invalid url %s: %w", u, err)
 			}
+
 			if strings.Contains(parsedUrl.Host, ":") && hasStandardPort(parsedUrl) {
 				parsedUrl.Host = parsedUrl.Hostname()
-				p.Urls[idx] = parsedUrl.String()
+				u = parsedUrl.String()
+				p.Urls[outIdx] = u
+			} else {
+				p.Urls[outIdx] = u
 			}
-
+			if seen[u] {
+				continue
+			}
+			seen[u] = true
 			p.parsedUrls = append(p.parsedUrls, parsedUrl)
+			outIdx++
+		}
+		if len(p.Urls) != outIdx {
+			clear(p.Urls[outIdx:])
+			p.Urls = p.Urls[:outIdx]
 		}
 	} else if p.Url != "" {
 		parsedUrl, err := url.Parse(p.Url)
