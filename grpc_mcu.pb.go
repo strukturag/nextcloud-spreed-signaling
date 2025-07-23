@@ -92,12 +92,14 @@ func (x *GetPublisherIdRequest) GetStreamType() string {
 }
 
 type GetPublisherIdReply struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PublisherId   string                 `protobuf:"bytes,1,opt,name=publisherId,proto3" json:"publisherId,omitempty"`
-	ProxyUrl      string                 `protobuf:"bytes,2,opt,name=proxyUrl,proto3" json:"proxyUrl,omitempty"`
-	Ip            string                 `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	PublisherId    string                 `protobuf:"bytes,1,opt,name=publisherId,proto3" json:"publisherId,omitempty"`
+	ProxyUrl       string                 `protobuf:"bytes,2,opt,name=proxyUrl,proto3" json:"proxyUrl,omitempty"`
+	Ip             string                 `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`
+	ConnectToken   string                 `protobuf:"bytes,4,opt,name=connectToken,proto3" json:"connectToken,omitempty"`
+	PublisherToken string                 `protobuf:"bytes,5,opt,name=publisherToken,proto3" json:"publisherToken,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetPublisherIdReply) Reset() {
@@ -151,6 +153,20 @@ func (x *GetPublisherIdReply) GetIp() string {
 	return ""
 }
 
+func (x *GetPublisherIdReply) GetConnectToken() string {
+	if x != nil {
+		return x.ConnectToken
+	}
+	return ""
+}
+
+func (x *GetPublisherIdReply) GetPublisherToken() string {
+	if x != nil {
+		return x.PublisherToken
+	}
+	return ""
+}
+
 var File_grpc_mcu_proto protoreflect.FileDescriptor
 
 const file_grpc_mcu_proto_rawDesc = "" +
@@ -160,11 +176,13 @@ const file_grpc_mcu_proto_rawDesc = "" +
 	"\tsessionId\x18\x01 \x01(\tR\tsessionId\x12\x1e\n" +
 	"\n" +
 	"streamType\x18\x02 \x01(\tR\n" +
-	"streamType\"c\n" +
+	"streamType\"\xaf\x01\n" +
 	"\x13GetPublisherIdReply\x12 \n" +
 	"\vpublisherId\x18\x01 \x01(\tR\vpublisherId\x12\x1a\n" +
 	"\bproxyUrl\x18\x02 \x01(\tR\bproxyUrl\x12\x0e\n" +
-	"\x02ip\x18\x03 \x01(\tR\x02ip2^\n" +
+	"\x02ip\x18\x03 \x01(\tR\x02ip\x12\"\n" +
+	"\fconnectToken\x18\x04 \x01(\tR\fconnectToken\x12&\n" +
+	"\x0epublisherToken\x18\x05 \x01(\tR\x0epublisherToken2^\n" +
 	"\x06RpcMcu\x12T\n" +
 	"\x0eGetPublisherId\x12 .signaling.GetPublisherIdRequest\x1a\x1e.signaling.GetPublisherIdReply\"\x00B<Z:github.com/strukturag/nextcloud-spreed-signaling;signalingb\x06proto3"
 
