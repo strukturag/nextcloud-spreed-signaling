@@ -38,4 +38,6 @@ message GetPublisherIdReply {
   string publisherId = 1;
   string proxyUrl = 2;
   string ip = 3;
+  string connectToken = 4;
+  string publisherToken = 5;
 }
