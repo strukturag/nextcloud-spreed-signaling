@@ -690,6 +690,23 @@ func (c *TestClient) RunUntilMessage(ctx context.Context) (message *ServerMessag
 	return
 }
 
+func (c *TestClient) RunUntilError(ctx context.Context, code string) (*Error, error) {
+	message, err := c.RunUntilMessage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkUnexpectedClose(err); err != nil {
+		return nil, err
+	}
+	if err := checkMessageType(message, "error"); err != nil {
+		return nil, err
+	}
+	if message.Error.Code != code {
+		return nil, fmt.Errorf("expected error %s, got %s", code, message.Error.Code)
+	}
+	return message.Error, nil
+}
+
 func (c *TestClient) RunUntilHello(ctx context.Context) (message *ServerMessage, err error) {
 	if message, err = c.RunUntilMessage(ctx); err != nil {
 		return nil, err
