@@ -127,6 +127,15 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId)
 }
 
+func (p *mcuJanusSubscriber) closeClient(ctx context.Context) bool {
+	if !p.mcuJanusClient.closeClient(ctx) {
+		return false
+	}
+
+	statsSubscribersCurrent.WithLabelValues(string(p.streamType)).Dec()
+	return true
+}
+
 func (p *mcuJanusSubscriber) Close(ctx context.Context) {
 	p.mu.Lock()
 	closed := p.closeClient(ctx)
@@ -134,7 +143,6 @@ func (p *mcuJanusSubscriber) Close(ctx context.Context) {
 
 	if closed {
 		p.mcu.SubscriberDisconnected(p.Id(), p.publisher, p.streamType)
-		statsSubscribersCurrent.WithLabelValues(string(p.streamType)).Dec()
 	}
 	p.mcu.unregisterClient(p)
 	p.listener.SubscriberClosed(p)
@@ -206,6 +214,7 @@ retry:
 			p.sid = strconv.FormatUint(handle.Id, 10)
 			p.listener.SubscriberSidUpdated(p)
 			p.closeChan = make(chan struct{}, 1)
+			statsSubscribersCurrent.WithLabelValues(string(p.streamType)).Inc()
 			go p.run(p.handle, p.closeChan)
 			log.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId)
 			goto retry
@@ -215,7 +224,7 @@ retry:
 			switch error_code {
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
 				log.Printf("Publisher %s not created yet for %s, not joining room %d as subscriber", p.publisher, p.streamType, p.roomId)
-				p.listener.SubscriberClosed(p)
+				go p.Close(context.Background())
 				callback(fmt.Errorf("Publisher %s not created yet for %s", p.publisher, p.streamType), nil)
 				return
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
@@ -228,7 +237,7 @@ retry:
 			}
 
 			if err := waiter.Wait(ctx); err != nil {
-				p.listener.SubscriberClosed(p)
+				go p.Close(context.Background())
 				callback(err, nil)
 				return
 			}
