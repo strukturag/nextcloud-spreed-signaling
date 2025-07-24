@@ -192,13 +192,11 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 	ctx, cancel := context.WithTimeout(context.Background(), s.hub.backendTimeout)
 	defer cancel()
 
-	if options := s.Options(); options != nil {
+	if options := s.Options(); options != nil && options.ActorId != "" && options.ActorType != "" {
 		request := NewBackendClientRoomRequest(room.Id(), s.UserId(), s.PublicId())
 		request.Room.Action = "leave"
-		if options != nil {
-			request.Room.ActorId = options.ActorId
-			request.Room.ActorType = options.ActorType
-		}
+		request.Room.ActorId = options.ActorId
+		request.Room.ActorType = options.ActorType
 
 		var response BackendClientResponse
 		if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
