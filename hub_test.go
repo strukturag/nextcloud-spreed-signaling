@@ -429,6 +429,11 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 			assert.Empty(request.Room.ActorType)
 			assert.Empty(request.Room.ActorId)
 		}
+	} else if strings.Contains(t.Name(), "VirtualSessionActorInformation") && request.Room.UserId == "user1" {
+		if request.Room.Action == "" || request.Room.Action == "join" || request.Room.Action == "leave" {
+			assert.Equal("actor-type", request.Room.ActorType, "failed for %+v", request.Room)
+			assert.Equal("actor-id", request.Room.ActorId, "failed for %+v", request.Room)
+		}
 	}
 
 	// Allow joining any room.
