@@ -65,6 +65,9 @@ type TestJanusGateway struct {
 	rooms        map[uint64]*TestJanusRoom
 	handlers     map[string]TestJanusHandler
 
+	attachCount atomic.Int32
+	joinCount   atomic.Int32
+
 	handleRooms map[*TestJanusHandle]*TestJanusRoom
 }
 
@@ -158,6 +161,33 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 	case "join":
 		rid := body["room"].(float64)
 		room := g.rooms[uint64(rid)]
+		error_code := JANUS_OK
+		if body["ptype"] == "subscriber" {
+			if strings.Contains(g.t.Name(), "NoSuchRoom") {
+				if g.joinCount.Add(1) == 1 {
+					error_code = JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM
+				}
+			} else if strings.Contains(g.t.Name(), "AlreadyJoined") {
+				if g.joinCount.Add(1) == 1 {
+					error_code = JANUS_VIDEOROOM_ERROR_ALREADY_JOINED
+				}
+			} else if strings.Contains(g.t.Name(), "SubscriberTimeout") {
+				if g.joinCount.Add(1) == 1 {
+					error_code = JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED
+				}
+			}
+		}
+		if error_code != JANUS_OK {
+			return &janus.EventMsg{
+				Plugindata: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: map[string]interface{}{
+						"error_code": error_code,
+					},
+				},
+			}
+		}
+
 		if room == nil {
 			return &janus.EventMsg{
 				Plugindata: janus.PluginData{
@@ -207,7 +237,8 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 			sdp := publisher.sdp.Load()
 			return &janus.EventMsg{
 				Jsep: map[string]interface{}{
-					"sdp": sdp.(string),
+					"type": "offer",
+					"sdp":  sdp.(string),
 				},
 			}
 		}
@@ -275,6 +306,10 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 						handle.sdp.Store(sdp.(string))
 						// Simulate "connected" event.
 						go func() {
+							if strings.Contains(g.t.Name(), "SubscriberTimeout") {
+								return
+							}
+
 							time.Sleep(10 * time.Millisecond)
 							session.Lock()
 							h, found := session.Handles[handle.id]
@@ -317,6 +352,17 @@ func (g *TestJanusGateway) processRequest(msg map[string]interface{}) interface{
 
 	switch method {
 	case "attach":
+		if strings.Contains(g.t.Name(), "AlreadyJoinedAttachError") {
+			if g.attachCount.Add(1) == 4 {
+				return &janus.ErrorMsg{
+					Err: janus.ErrorData{
+						Code:   JANUS_ERROR_UNKNOWN,
+						Reason: "Fail for test",
+					},
+				}
+			}
+		}
+
 		handle := &TestJanusHandle{
 			id: g.hid.Add(1),
 		}
@@ -1211,4 +1257,345 @@ func Test_JanusRemotePublisher(t *testing.T) {
 
 	assert.EqualValues(1, added.Load())
 	assert.EqualValues(1, removed.Load())
+}
+
+func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
+	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
+	defer checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"configure": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			return &janus.EventMsg{
+				Jsep: map[string]interface{}{
+					"type": "answer",
+					"sdp":  MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	hub, _, _, server := CreateHubForTest(t)
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
+	hello1, err := client1.RunUntilHello(ctx)
+	require.NoError(err)
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
+	hello2, err := client2.RunUntilHello(ctx)
+	require.NoError(err)
+
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	// Give message processing some time.
+	time.Sleep(10 * time.Millisecond)
+
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+	// Simulate request from the backend that sessions joined the call.
+	users1 := []map[string]interface{}{
+		{
+			"sessionId": hello1.Hello.SessionId,
+			"inCall":    1,
+		},
+		{
+			"sessionId": hello2.Hello.SessionId,
+			"inCall":    1,
+		},
+	}
+	room := hub.getRoom(roomId)
+	require.NotNil(room, "Could not find room %s", roomId)
+	room.PublishUsersInCallChanged(users1, users1)
+	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", nil))
+	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
+
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}))
+
+	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+
+	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}))
+
+	_, err = client2.RunUntilError(ctx, "processing_failed")
+	require.NoError(err)
+
+	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}))
+
+	require.NoError(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
+}
+
+func test_JanusSubscriberAlreadyJoined(t *testing.T) {
+	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
+	defer checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"configure": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			return &janus.EventMsg{
+				Jsep: map[string]interface{}{
+					"type": "answer",
+					"sdp":  MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	hub, _, _, server := CreateHubForTest(t)
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
+	hello1, err := client1.RunUntilHello(ctx)
+	require.NoError(err)
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
+	hello2, err := client2.RunUntilHello(ctx)
+	require.NoError(err)
+
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	// Give message processing some time.
+	time.Sleep(10 * time.Millisecond)
+
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+	// Simulate request from the backend that sessions joined the call.
+	users1 := []map[string]interface{}{
+		{
+			"sessionId": hello1.Hello.SessionId,
+			"inCall":    1,
+		},
+		{
+			"sessionId": hello2.Hello.SessionId,
+			"inCall":    1,
+		},
+	}
+	room := hub.getRoom(roomId)
+	require.NotNil(room, "Could not find room %s", roomId)
+	room.PublishUsersInCallChanged(users1, users1)
+	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", nil))
+	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
+
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}))
+
+	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+
+	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}))
+
+	if strings.Contains(t.Name(), "AttachError") {
+		_, err = client2.RunUntilError(ctx, "processing_failed")
+		require.NoError(err)
+
+		require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: hello1.Hello.SessionId,
+		}, MessageClientMessageData{
+			Type:     "requestoffer",
+			RoomType: "video",
+		}))
+	}
+
+	require.NoError(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
+}
+
+func Test_JanusSubscriberAlreadyJoined(t *testing.T) {
+	test_JanusSubscriberAlreadyJoined(t)
+}
+
+func Test_JanusSubscriberAlreadyJoinedAttachError(t *testing.T) {
+	test_JanusSubscriberAlreadyJoined(t)
+}
+
+func Test_JanusSubscriberTimeout(t *testing.T) {
+	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
+	defer checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"configure": func(room *TestJanusRoom, body, jsep map[string]interface{}) (interface{}, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			return &janus.EventMsg{
+				Jsep: map[string]interface{}{
+					"type": "answer",
+					"sdp":  MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	hub, _, _, server := CreateHubForTest(t)
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHello(testDefaultUserId + "1"))
+	hello1, err := client1.RunUntilHello(ctx)
+	require.NoError(err)
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHello(testDefaultUserId + "2"))
+	hello2, err := client2.RunUntilHello(ctx)
+	require.NoError(err)
+
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg, err := client1.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	// Give message processing some time.
+	time.Sleep(10 * time.Millisecond)
+
+	roomMsg, err = client2.JoinRoom(ctx, roomId)
+	require.NoError(err)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+	// Simulate request from the backend that sessions joined the call.
+	users1 := []map[string]interface{}{
+		{
+			"sessionId": hello1.Hello.SessionId,
+			"inCall":    1,
+		},
+		{
+			"sessionId": hello2.Hello.SessionId,
+			"inCall":    1,
+		},
+	}
+	room := hub.getRoom(roomId)
+	require.NotNil(room, "Could not find room %s", roomId)
+	room.PublishUsersInCallChanged(users1, users1)
+	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", nil))
+	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
+
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: map[string]interface{}{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}))
+
+	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+
+	oldTimeout := mcu.settings.timeout.Swap(100 * int64(time.Millisecond))
+
+	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}))
+
+	_, err = client2.RunUntilError(ctx, "processing_failed")
+	require.NoError(err)
+
+	mcu.settings.timeout.Store(oldTimeout)
+
+	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}))
+
+	require.NoError(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
 }
