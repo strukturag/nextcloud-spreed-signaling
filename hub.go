@@ -2397,10 +2397,10 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 			return
 		}
 
-		if msg.Options != nil && msg.Options.ActorId != "" && msg.Options.ActorType != "" {
+		if options := msg.Options; options != nil && options.ActorId != "" && options.ActorType != "" {
 			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, publicSessionId)
-			request.Room.ActorId = msg.Options.ActorId
-			request.Room.ActorType = msg.Options.ActorType
+			request.Room.ActorId = options.ActorId
+			request.Room.ActorType = options.ActorType
 			request.Room.InCall = sess.GetInCall()
 
 			var response BackendClientResponse
