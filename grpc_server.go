@@ -41,6 +41,8 @@ import (
 
 var (
 	GrpcServerId string
+
+	ErrNoProxyMcu = errors.New("no proxy mcu")
 )
 
 func init() {
@@ -62,6 +64,7 @@ type GrpcServerHub interface {
 	GetRoomForBackend(roomId string, backend *Backend) *Room
 
 	GetBackend(u *url.URL) *Backend
+	CreateProxyToken(publisherId string) (string, error)
 }
 
 type GrpcServer struct {
@@ -275,6 +278,15 @@ func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherId
 		}
 		if ip := publisher.conn.ip; ip != nil {
 			reply.Ip = ip.String()
+		}
+		var err error
+		if reply.ConnectToken, err = s.hub.CreateProxyToken(""); err != nil && !errors.Is(err, ErrNoProxyMcu) {
+			log.Printf("Error creating proxy token for connection: %s", err)
+			return nil, status.Error(codes.Internal, "error creating proxy connect token")
+		}
+		if reply.PublisherToken, err = s.hub.CreateProxyToken(publisher.Id()); err != nil && !errors.Is(err, ErrNoProxyMcu) {
+			log.Printf("Error creating proxy token for publisher %s: %s", publisher.Id(), err)
+			return nil, status.Error(codes.Internal, "error creating proxy publisher token")
 		}
 		return reply, nil
 	}

@@ -292,7 +292,7 @@ func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, bac
 	return
 }
 
-func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, streamType StreamType) (string, string, net.IP, error) {
+func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, streamType StreamType) (string, string, net.IP, string, string, error) {
 	statsGrpcClientCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Get %s publisher id %s on %s", streamType, sessionId, c.Target())
@@ -301,12 +301,12 @@ func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, strea
 		StreamType: string(streamType),
 	}, grpc.WaitForReady(true))
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-		return "", "", nil, nil
+		return "", "", nil, "", "", nil
 	} else if err != nil {
-		return "", "", nil, err
+		return "", "", nil, "", "", err
 	}
 
-	return response.GetPublisherId(), response.GetProxyUrl(), net.ParseIP(response.GetIp()), nil
+	return response.GetPublisherId(), response.GetProxyUrl(), net.ParseIP(response.GetIp()), response.GetConnectToken(), response.GetPublisherToken(), nil
 }
 
 func (c *GrpcClient) GetSessionCount(ctx context.Context, url string) (uint32, error) {

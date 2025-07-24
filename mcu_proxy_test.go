@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -214,6 +215,26 @@ func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxySer
 		return nil, fmt.Errorf("expected hello, got %+v", msg)
 	}
 
+	token, err := jwt.ParseWithClaims(msg.Hello.Token, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+		claims, ok := token.Claims.(*TokenClaims)
+		if !assert.True(c.t, ok, "unsupported claims type: %+v", token.Claims) {
+			return nil, errors.New("unsupported claims type")
+		}
+
+		key, found := c.server.tokens[claims.Issuer]
+		if !assert.True(c.t, found) {
+			return nil, fmt.Errorf("no key found for issuer")
+		}
+
+		return key, nil
+	})
+	if assert.NoError(c.t, err) {
+		if assert.True(c.t, token.Valid) {
+			_, ok := token.Claims.(*TokenClaims)
+			assert.True(c.t, ok)
+		}
+	}
+
 	response := &ProxyServerMessage{
 		Id:   msg.Id,
 		Type: "hello",
@@ -293,6 +314,25 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 			for _, server := range c.server.servers {
 				if server.URL != msg.Command.RemoteUrl {
 					continue
+				}
+
+				token, err := jwt.ParseWithClaims(msg.Command.RemoteToken, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+					claims, ok := token.Claims.(*TokenClaims)
+					if !assert.True(c.t, ok, "unsupported claims type: %+v", token.Claims) {
+						return nil, errors.New("unsupported claims type")
+					}
+
+					key, found := server.tokens[claims.Issuer]
+					if !assert.True(c.t, found) {
+						return nil, fmt.Errorf("no key found for issuer")
+					}
+
+					return key, nil
+				})
+				if assert.NoError(c.t, err) {
+					if claims, ok := token.Claims.(*TokenClaims); assert.True(c.t, token.Valid) && assert.True(c.t, ok) {
+						assert.Equal(c.t, msg.Command.PublisherId, claims.Subject)
+					}
 				}
 
 				pub = server.getPublisher(msg.Command.PublisherId)
@@ -450,6 +490,7 @@ type TestProxyServerHandler struct {
 	URL      string
 	server   *httptest.Server
 	servers  []*TestProxyServerHandler
+	tokens   map[string]*rsa.PublicKey
 	upgrader *websocket.Upgrader
 	country  string
 
@@ -637,6 +678,7 @@ func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler
 	upgrader := websocket.Upgrader{}
 	proxyHandler := &TestProxyServerHandler{
 		t:           t,
+		tokens:      make(map[string]*rsa.PublicKey),
 		upgrader:    &upgrader,
 		country:     country,
 		clients:     make(map[string]*testProxyServerClient),
@@ -663,7 +705,7 @@ type proxyTestOptions struct {
 	servers []*TestProxyServerHandler
 }
 
-func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuProxy {
+func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx int) *mcuProxy {
 	t.Helper()
 	require := require.New(t)
 	if options.etcd == nil {
@@ -689,13 +731,15 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuP
 			NewProxyServerForTest(t, "DE"),
 		}
 	}
+	tokenId := fmt.Sprintf("test-token-%d", idx)
 	for _, s := range options.servers {
 		s.servers = options.servers
+		s.tokens[tokenId] = &tokenKey.PublicKey
 		urls = append(urls, s.URL)
 		waitingMap[s.URL] = true
 	}
 	cfg.AddOption("mcu", "url", strings.Join(urls, " "))
-	cfg.AddOption("mcu", "token_id", "test-token")
+	cfg.AddOption("mcu", "token_id", tokenId)
 	cfg.AddOption("mcu", "token_key", privkeyFile)
 
 	etcdConfig := goconf.NewConfigFile()
@@ -744,25 +788,25 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions) *mcuP
 	return proxy
 }
 
-func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandler) *mcuProxy {
+func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandler, idx int) *mcuProxy {
 	t.Helper()
 
 	return newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		servers: servers,
-	})
+	}, idx)
 }
 
-func newMcuProxyForTest(t *testing.T) *mcuProxy {
+func newMcuProxyForTest(t *testing.T, idx int) *mcuProxy {
 	t.Helper()
 	server := NewProxyServerForTest(t, "DE")
 
-	return newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{server})
+	return newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{server}, idx)
 }
 
 func Test_ProxyPublisherSubscriber(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()
-	mcu := newMcuProxyForTest(t)
+	mcu := newMcuProxyForTest(t, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -798,7 +842,7 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 func Test_ProxyPublisherCodecs(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()
-	mcu := newMcuProxyForTest(t)
+	mcu := newMcuProxyForTest(t, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -825,7 +869,7 @@ func Test_ProxyPublisherCodecs(t *testing.T) {
 func Test_ProxyWaitForPublisher(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()
-	mcu := newMcuProxyForTest(t)
+	mcu := newMcuProxyForTest(t, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -880,7 +924,7 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		server1,
 		server2,
-	})
+	}, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -950,7 +994,7 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		server1,
 		server2,
-	})
+	}, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1023,7 +1067,7 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		server1,
 		server2,
-	})
+	}, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1073,7 +1117,7 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		serverDE,
 		serverUS,
-	})
+	}, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1121,7 +1165,7 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		serverDE,
 		serverUS,
-	})
+	}, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1169,7 +1213,7 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		serverDE,
 		serverUS,
-	})
+	}, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1213,7 +1257,7 @@ func Test_ProxySubscriberContinent(t *testing.T) {
 	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		serverDE,
 		serverUS,
-	})
+	}, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1257,7 +1301,7 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		serverDE,
 		serverUS,
-	})
+	}, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1321,7 +1365,7 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 	mcu := newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{
 		serverDE,
 		serverUS,
-	})
+	}, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1379,6 +1423,7 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 }
 
 type mockGrpcServerHub struct {
+	proxy             atomic.Pointer[mcuProxy]
 	sessionsLock      sync.Mutex
 	sessionByPublicId map[string]Session
 }
@@ -1420,6 +1465,15 @@ func (h *mockGrpcServerHub) GetRoomForBackend(roomId string, backend *Backend) *
 	return nil
 }
 
+func (h *mockGrpcServerHub) CreateProxyToken(publisherId string) (string, error) {
+	proxy := h.proxy.Load()
+	if proxy == nil {
+		return "", errors.New("not a proxy mcu")
+	}
+
+	return proxy.createToken(publisherId)
+}
+
 func Test_ProxyRemotePublisher(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()
@@ -1446,14 +1500,16 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 			server1,
 			server2,
 		},
-	})
+	}, 1)
+	hub1.proxy.Store(mcu1)
 	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
 		},
-	})
+	}, 2)
+	hub2.proxy.Store(mcu2)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1530,7 +1586,8 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 			server2,
 			server3,
 		},
-	})
+	}, 1)
+	hub1.proxy.Store(mcu1)
 	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
@@ -1538,7 +1595,8 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 			server2,
 			server3,
 		},
-	})
+	}, 2)
+	hub2.proxy.Store(mcu2)
 	mcu3 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
@@ -1546,7 +1604,8 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 			server2,
 			server3,
 		},
-	})
+	}, 3)
+	hub3.proxy.Store(mcu3)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1628,14 +1687,16 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 			server1,
 			server2,
 		},
-	})
+	}, 1)
+	hub1.proxy.Store(mcu1)
 	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
 		},
-	})
+	}, 2)
+	hub2.proxy.Store(mcu2)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1721,13 +1782,15 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
-	})
+	}, 1)
+	hub1.proxy.Store(mcu1)
 	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server2,
 		},
-	})
+	}, 2)
+	hub2.proxy.Store(mcu2)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1801,4 +1864,171 @@ loop:
 			}
 		}
 	}
+}
+
+func Test_ProxyConnectToken(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+
+	etcd := NewEtcdForTest(t)
+
+	grpcServer1, addr1 := NewGrpcServerForTest(t)
+	grpcServer2, addr2 := NewGrpcServerForTest(t)
+
+	hub1 := &mockGrpcServerHub{}
+	hub2 := &mockGrpcServerHub{}
+	grpcServer1.hub = hub1
+	grpcServer2.hub = hub2
+
+	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+
+	server1 := NewProxyServerForTest(t, "DE")
+	server2 := NewProxyServerForTest(t, "DE")
+
+	// Signaling server instances are in a cluster but don't share their proxies,
+	// i.e. they are only known to their local proxy, not the one of the other
+	// signaling server - so the connection token must be passed between them.
+	mcu1 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		etcd: etcd,
+		servers: []*TestProxyServerHandler{
+			server1,
+		},
+	}, 1)
+	hub1.proxy.Store(mcu1)
+	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		etcd: etcd,
+		servers: []*TestProxyServerHandler{
+			server2,
+		},
+	}, 2)
+	hub2.proxy.Store(mcu2)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+
+	session1 := &ClientSession{
+		publicId:   pubId,
+		publishers: make(map[StreamType]McuPublisher),
+	}
+	hub1.addSession(session1)
+	defer hub1.removeSession(session1)
+
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(t, err)
+
+	defer pub.Close(context.Background())
+
+	session1.mu.Lock()
+	session1.publishers[StreamTypeVideo] = pub
+	session1.publisherWaiters.Wakeup()
+	session1.mu.Unlock()
+
+	subListener := &MockMcuListener{
+		publicId: "subscriber-public",
+	}
+	subInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
+	require.NoError(t, err)
+
+	defer sub.Close(context.Background())
+}
+
+func Test_ProxyPublisherToken(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+
+	etcd := NewEtcdForTest(t)
+
+	grpcServer1, addr1 := NewGrpcServerForTest(t)
+	grpcServer2, addr2 := NewGrpcServerForTest(t)
+
+	hub1 := &mockGrpcServerHub{}
+	hub2 := &mockGrpcServerHub{}
+	grpcServer1.hub = hub1
+	grpcServer2.hub = hub2
+
+	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+
+	server1 := NewProxyServerForTest(t, "DE")
+	server2 := NewProxyServerForTest(t, "US")
+
+	// Signaling server instances are in a cluster but don't share their proxies,
+	// i.e. they are only known to their local proxy, not the one of the other
+	// signaling server - so the connection token must be passed between them.
+	// Also the subscriber is connecting from a different country, so a remote
+	// stream will be created that needs a valid token from the remote proxy.
+	mcu1 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		etcd: etcd,
+		servers: []*TestProxyServerHandler{
+			server1,
+		},
+	}, 1)
+	hub1.proxy.Store(mcu1)
+	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		etcd: etcd,
+		servers: []*TestProxyServerHandler{
+			server2,
+		},
+	}, 2)
+	hub2.proxy.Store(mcu2)
+	// Support remote subscribers for the tests.
+	server1.servers = append(server1.servers, server2)
+	server2.servers = append(server2.servers, server1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+
+	session1 := &ClientSession{
+		publicId:   pubId,
+		publishers: make(map[StreamType]McuPublisher),
+	}
+	hub1.addSession(session1)
+	defer hub1.removeSession(session1)
+
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(t, err)
+
+	defer pub.Close(context.Background())
+
+	session1.mu.Lock()
+	session1.publishers[StreamTypeVideo] = pub
+	session1.publisherWaiters.Wakeup()
+	session1.mu.Unlock()
+
+	subListener := &MockMcuListener{
+		publicId: "subscriber-public",
+	}
+	subInitiator := &MockMcuInitiator{
+		country: "US",
+	}
+	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
+	require.NoError(t, err)
+
+	defer sub.Close(context.Background())
 }

@@ -722,6 +722,15 @@ func (h *Hub) GetBackend(u *url.URL) *Backend {
 	return h.backend.GetBackend(u)
 }
 
+func (h *Hub) CreateProxyToken(publisherId string) (string, error) {
+	proxy, ok := h.mcu.(*mcuProxy)
+	if !ok {
+		return "", ErrNoProxyMcu
+	}
+
+	return proxy.createToken(publisherId)
+}
+
 func (h *Hub) checkExpiredSessions(now time.Time) {
 	for session, expires := range h.expiredSessions {
 		if now.After(expires) {
