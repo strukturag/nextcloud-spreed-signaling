@@ -39,7 +39,7 @@ import (
 
 func TestRoom_InCall(t *testing.T) {
 	type Testcase struct {
-		Value  interface{}
+		Value  any
 		InCall bool
 		Valid  bool
 	}

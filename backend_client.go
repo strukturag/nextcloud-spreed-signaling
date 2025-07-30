@@ -117,7 +117,7 @@ func isOcsRequest(u *url.URL) bool {
 
 // PerformJSONRequest sends a JSON POST request to the given url and decodes
 // the result into "response".
-func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, request interface{}, response interface{}) error {
+func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, request any, response any) error {
 	if u == nil {
 		return fmt.Errorf("no url passed to perform JSON request %+v", request)
 	}

@@ -427,7 +427,7 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentStringStringMap, users []map[string]interface{}) []map[string]interface{} {
+func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentStringStringMap, users []map[string]any) []map[string]any {
 	if len(users) == 0 {
 		return users
 	}
@@ -453,7 +453,7 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 		}
 
 		wg.Add(1)
-		go func(roomSessionId string, u map[string]interface{}) {
+		go func(roomSessionId string, u map[string]any) {
 			defer wg.Done()
 			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
 				log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
@@ -468,7 +468,7 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 	}
 	wg.Wait()
 
-	result := make([]map[string]interface{}, 0, len(users))
+	result := make([]map[string]any, 0, len(users))
 	for _, user := range users {
 		if _, found := user["sessionId"]; found {
 			result = append(result, user)
@@ -524,7 +524,7 @@ loop:
 		}
 
 		sessionId := user["sessionId"].(string)
-		permissionsList, ok := permissionsInterface.([]interface{})
+		permissionsList, ok := permissionsInterface.([]any)
 		if !ok {
 			log.Printf("Received invalid permissions %+v (%s) for session %s", permissionsInterface, reflect.TypeOf(permissionsInterface), sessionId)
 			continue

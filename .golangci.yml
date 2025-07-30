@@ -29,6 +29,7 @@ linters:
         - name: superfluous-else
         #- name: unused-parameter
         - name: unreachable-code
+        - name: use-any
         - name: redefines-builtin-id
   exclusions:
     generated: lax

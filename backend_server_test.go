@@ -829,7 +829,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 			msg := &BackendServerRoomRequest{
 				Type: "participants",
 				Participants: &BackendRoomParticipantsRequest{
-					Changed: []map[string]interface{}{
+					Changed: []map[string]any{
 						{
 							"sessionId":   roomId + "-" + hello1.Hello.SessionId,
 							"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
@@ -839,7 +839,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 							"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
 						},
 					},
-					Users: []map[string]interface{}{
+					Users: []map[string]any{
 						{
 							"sessionId":   roomId + "-" + hello1.Hello.SessionId,
 							"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
@@ -911,13 +911,13 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	msg := &BackendServerRoomRequest{
 		Type: "participants",
 		Participants: &BackendRoomParticipantsRequest{
-			Changed: []map[string]interface{}{
+			Changed: []map[string]any{
 				{
 					"sessionId":   roomId + "-" + hello.Hello.SessionId,
 					"permissions": []Permission{},
 				},
 			},
-			Users: []map[string]interface{}{
+			Users: []map[string]any{
 				{
 					"sessionId":   roomId + "-" + hello.Hello.SessionId,
 					"permissions": []Permission{},
@@ -988,7 +988,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			Type: "incall",
 			InCall: &BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
-				Changed: []map[string]interface{}{
+				Changed: []map[string]any{
 					{
 						"sessionId": roomId + "-" + hello1.Hello.SessionId,
 						"inCall":    7,
@@ -998,7 +998,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 						"inCall":    3,
 					},
 				},
-				Users: []map[string]interface{}{
+				Users: []map[string]any{
 					{
 						"sessionId": roomId + "-" + hello1.Hello.SessionId,
 						"inCall":    7,
@@ -1035,7 +1035,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			Type: "incall",
 			InCall: &BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
-				Changed: []map[string]interface{}{
+				Changed: []map[string]any{
 					{
 						"sessionId": roomId + "-" + hello1.Hello.SessionId,
 						"inCall":    7,
@@ -1045,7 +1045,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 						"inCall":    3,
 					},
 				},
-				Users: []map[string]interface{}{
+				Users: []map[string]any{
 					{
 						"sessionId": roomId + "-" + hello1.Hello.SessionId,
 						"inCall":    7,

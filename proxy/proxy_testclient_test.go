@@ -125,7 +125,7 @@ func (c *ProxyTestClient) SendBye() error {
 	return c.WriteJSON(hello)
 }
 
-func (c *ProxyTestClient) WriteJSON(data interface{}) error {
+func (c *ProxyTestClient) WriteJSON(data any) error {
 	if msg, ok := data.(*signaling.ProxyClientMessage); ok {
 		if err := msg.CheckValid(); err != nil {
 			return err
@@ -188,7 +188,7 @@ func checkMessageType(message *signaling.ProxyServerMessage, expectedType string
 	return nil
 }
 
-func (c *ProxyTestClient) SendHello(key interface{}) error {
+func (c *ProxyTestClient) SendHello(key any) error {
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),

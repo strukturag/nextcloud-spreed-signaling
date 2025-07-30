@@ -37,11 +37,11 @@ func (m *MockMcuListener) PublicId() string {
 	return m.publicId
 }
 
-func (m *MockMcuListener) OnUpdateOffer(client McuClient, offer map[string]interface{}) {
+func (m *MockMcuListener) OnUpdateOffer(client McuClient, offer map[string]any) {
 
 }
 
-func (m *MockMcuListener) OnIceCandidate(client McuClient, candidate interface{}) {
+func (m *MockMcuListener) OnIceCandidate(client McuClient, candidate any) {
 
 }
 

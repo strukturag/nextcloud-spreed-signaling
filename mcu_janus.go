@@ -61,7 +61,7 @@ func getStreamId(publisherId string, streamType StreamType) string {
 	return fmt.Sprintf("%s|%s", publisherId, streamType)
 }
 
-func getPluginValue(data janus.PluginData, pluginName string, key string) interface{} {
+func getPluginValue(data janus.PluginData, pluginName string, key string) any {
 	if data.Plugin != pluginName {
 		return nil
 	}
@@ -69,7 +69,7 @@ func getPluginValue(data janus.PluginData, pluginName string, key string) interf
 	return data.Data[key]
 }
 
-func convertIntValue(value interface{}) (uint64, error) {
+func convertIntValue(value any) (uint64, error) {
 	switch t := value.(type) {
 	case float64:
 		if t < 0 {
@@ -520,7 +520,7 @@ type mcuJanusConnectionStats struct {
 	Uptime     *time.Time `json:"uptime,omitempty"`
 }
 
-func (m *mcuJanus) GetStats() interface{} {
+func (m *mcuJanus) GetStats() any {
 	result := mcuJanusConnectionStats{
 		Url: m.url,
 	}
@@ -568,7 +568,7 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamTyp
 }
 
 func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id string, streamType StreamType, settings NewPublisherSettings) (uint64, int, error) {
-	create_msg := map[string]interface{}{
+	create_msg := map[string]any{
 		"request":     "create",
 		"description": getStreamId(id, streamType),
 		// We publish every stream in its own Janus room.
@@ -642,7 +642,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		return nil, 0, 0, 0, err
 	}
 
-	msg := map[string]interface{}{
+	msg := map[string]any{
 		"request": "join",
 		"ptype":   "publisher",
 		"room":    roomId,
@@ -834,7 +834,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 		return nil, err
 	}
 
-	response, err := handle.Request(ctx, map[string]interface{}{
+	response, err := handle.Request(ctx, map[string]any{
 		"request": "add_remote_publisher",
 		"room":    roomId,
 		"id":      streamTypeUserIds[streamType],

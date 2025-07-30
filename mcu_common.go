@@ -56,9 +56,9 @@ const (
 type McuListener interface {
 	PublicId() string
 
-	OnUpdateOffer(client McuClient, offer map[string]interface{})
+	OnUpdateOffer(client McuClient, offer map[string]any)
 
-	OnIceCandidate(client McuClient, candidate interface{})
+	OnIceCandidate(client McuClient, candidate any)
 	OnIceCompleted(client McuClient)
 
 	SubscriberSidUpdated(subscriber McuSubscriber)
@@ -127,7 +127,7 @@ type Mcu interface {
 	SetOnConnected(func())
 	SetOnDisconnected(func())
 
-	GetStats() interface{}
+	GetStats() any
 	GetServerInfoSfu() *BackendServerInfoSfu
 
 	NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)
@@ -205,7 +205,7 @@ type McuClient interface {
 
 	Close(ctx context.Context)
 
-	SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{}))
+	SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any))
 }
 
 type McuPublisher interface {

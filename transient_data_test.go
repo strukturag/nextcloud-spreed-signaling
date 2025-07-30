@@ -216,7 +216,7 @@ func Test_TransientMessages(t *testing.T) {
 		require.ErrorIs(err, context.DeadlineExceeded)
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"hello": "world",
 	}
 	require.NoError(client1.SetTransientData("foo", data, 0))
@@ -273,7 +273,7 @@ func Test_TransientMessages(t *testing.T) {
 		require.LessOrEqual(len(ignored), 1, "Received too many messages: %+v", ignored)
 	}
 
-	require.NoError(checkMessageTransientInitial(msg, map[string]interface{}{
+	require.NoError(checkMessageTransientInitial(msg, map[string]any{
 		"abc": data,
 	}))
 

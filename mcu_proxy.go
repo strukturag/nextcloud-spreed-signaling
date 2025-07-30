@@ -101,7 +101,7 @@ func (c *mcuProxyPubSubCommon) MaxBitrate() int {
 	return c.maxBitrate
 }
 
-func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClientMessage, callback func(error, map[string]interface{})) {
+func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClientMessage, callback func(error, map[string]any)) {
 	c.conn.performAsyncRequest(ctx, msg, func(err error, response *ProxyServerMessage) {
 		if err != nil {
 			callback(err, nil)
@@ -124,7 +124,7 @@ func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClie
 func (c *mcuProxyPubSubCommon) doProcessPayload(client McuClient, msg *PayloadProxyServerMessage) {
 	switch msg.Type {
 	case "offer":
-		c.listener.OnUpdateOffer(client, msg.Payload["offer"].(map[string]interface{}))
+		c.listener.OnUpdateOffer(client, msg.Payload["offer"].(map[string]any))
 	case "candidate":
 		c.listener.OnIceCandidate(client, msg.Payload["candidate"])
 	default:
@@ -195,7 +195,7 @@ func (p *mcuProxyPublisher) Close(ctx context.Context) {
 	log.Printf("Deleted publisher %s at %s", p.proxyId, p.conn)
 }
 
-func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any)) {
 	msg := &ProxyClientMessage{
 		Type: "payload",
 		Payload: &PayloadProxyClientMessage{
@@ -307,7 +307,7 @@ func (s *mcuProxySubscriber) Close(ctx context.Context) {
 	}
 }
 
-func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any)) {
 	msg := &ProxyClientMessage{
 		Type: "payload",
 		Payload: &PayloadProxyClientMessage{
@@ -1796,7 +1796,7 @@ type mcuProxyStats struct {
 	Details    []*mcuProxyConnectionStats `json:"details"`
 }
 
-func (m *mcuProxy) GetStats() interface{} {
+func (m *mcuProxy) GetStats() any {
 	result := &mcuProxyStats{}
 
 	m.connectionsMu.RLock()

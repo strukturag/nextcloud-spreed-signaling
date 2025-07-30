@@ -137,7 +137,7 @@ func checkMessageSender(hub *Hub, sender *MessageServerMessageSender, senderType
 	return nil
 }
 
-func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
+func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
 	message, err := client.RunUntilMessage(ctx)
 	if err := checkUnexpectedClose(err); err != nil {
 		return err
@@ -159,15 +159,15 @@ func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, client
 	return nil
 }
 
-func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error {
+func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender) error {
 	return checkReceiveClientMessageWithSenderAndRecipient(ctx, client, senderType, hello, payload, sender, nil)
 }
 
-func checkReceiveClientMessage(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
+func checkReceiveClientMessage(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any) error {
 	return checkReceiveClientMessageWithSenderAndRecipient(ctx, client, senderType, hello, payload, nil, nil)
 }
 
-func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
+func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
 	message, err := client.RunUntilMessage(ctx)
 	if err := checkUnexpectedClose(err); err != nil {
 		return err
@@ -189,11 +189,11 @@ func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, client
 	return nil
 }
 
-func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}, sender **MessageServerMessageSender) error { // nolint
+func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender) error { // nolint
 	return checkReceiveClientControlWithSenderAndRecipient(ctx, client, senderType, hello, payload, sender, nil)
 }
 
-func checkReceiveClientControl(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload interface{}) error {
+func checkReceiveClientControl(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any) error {
 	return checkReceiveClientControlWithSenderAndRecipient(ctx, client, senderType, hello, payload, nil, nil)
 }
 
@@ -363,7 +363,7 @@ func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId string
 	return nil
 }
 
-func (c *TestClient) WriteJSON(data interface{}) error {
+func (c *TestClient) WriteJSON(data any) error {
 	if !strings.Contains(c.t.Name(), "HelloUnsupportedVersion") {
 		if msg, ok := data.(*ClientMessage); ok {
 			if err := msg.CheckValid(); err != nil {
@@ -377,7 +377,7 @@ func (c *TestClient) WriteJSON(data interface{}) error {
 	return c.conn.WriteJSON(data)
 }
 
-func (c *TestClient) EnsuerWriteJSON(data interface{}) {
+func (c *TestClient) EnsuerWriteJSON(data any) {
 	require.NoError(c.t, c.WriteJSON(data), "Could not write JSON %+v", data)
 }
 
@@ -401,7 +401,7 @@ func (c *TestClient) SendHelloV2WithFeatures(userid string, features []string) e
 	return c.SendHelloV2WithTimesAndFeatures(userid, now, now.Add(time.Minute), features)
 }
 
-func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time.Time, expiresAt time.Time, userdata map[string]interface{}) (string, error) {
+func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time.Time, expiresAt time.Time, userdata map[string]any) (string, error) {
 	data, err := json.Marshal(userdata)
 	if err != nil {
 		return "", err
@@ -434,7 +434,7 @@ func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time
 }
 
 func (c *TestClient) CreateHelloV2Token(userid string, issuedAt time.Time, expiresAt time.Time) (string, error) {
-	userdata := map[string]interface{}{
+	userdata := map[string]any{
 		"displayname": "Displayname " + userid,
 	}
 
@@ -497,7 +497,7 @@ func (c *TestClient) SendHelloInternalWithFeatures(features []string) error {
 	return c.SendHelloParams("", HelloVersionV1, "internal", features, params)
 }
 
-func (c *TestClient) SendHelloParams(url string, version string, clientType string, features []string, params interface{}) error {
+func (c *TestClient) SendHelloParams(url string, version string, clientType string, features []string, params any) error {
 	data, err := json.Marshal(params)
 	require.NoError(c.t, err)
 
@@ -526,7 +526,7 @@ func (c *TestClient) SendBye() error {
 	return c.WriteJSON(hello)
 }
 
-func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data interface{}) error {
+func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data any) error {
 	payload, err := json.Marshal(data)
 	require.NoError(c.t, err)
 
@@ -541,7 +541,7 @@ func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data i
 	return c.WriteJSON(message)
 }
 
-func (c *TestClient) SendControl(recipient MessageClientMessageRecipient, data interface{}) error {
+func (c *TestClient) SendControl(recipient MessageClientMessageRecipient, data any) error {
 	payload, err := json.Marshal(data)
 	require.NoError(c.t, err)
 
@@ -606,7 +606,7 @@ func (c *TestClient) SendInternalDialout(msg *DialoutInternalClientMessage) erro
 	return c.WriteJSON(message)
 }
 
-func (c *TestClient) SetTransientData(key string, value interface{}, ttl time.Duration) error {
+func (c *TestClient) SetTransientData(key string, value any, ttl time.Duration) error {
 	payload, err := json.Marshal(value)
 	require.NoError(c.t, err)
 
@@ -998,7 +998,7 @@ func (c *TestClient) RunUntilOffer(ctx context.Context, offer string) error {
 		return err
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	if err := json.Unmarshal(message.Message.Data, &data); err != nil {
 		return err
 	}
@@ -1007,7 +1007,7 @@ func (c *TestClient) RunUntilOffer(ctx context.Context, offer string) error {
 		return fmt.Errorf("expected data type offer, got %+v", data)
 	}
 
-	payload := data["payload"].(map[string]interface{})
+	payload := data["payload"].(map[string]any)
 	if payload["type"].(string) != "offer" {
 		return fmt.Errorf("expected payload type offer, got %+v", payload)
 	}
@@ -1042,7 +1042,7 @@ func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string
 		}
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	if err := json.Unmarshal(message.Message.Data, &data); err != nil {
 		return err
 	}
@@ -1051,7 +1051,7 @@ func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string
 		return fmt.Errorf("expected data type answer, got %+v", data)
 	}
 
-	payload := data["payload"].(map[string]interface{})
+	payload := data["payload"].(map[string]any)
 	if payload["type"].(string) != "answer" {
 		return fmt.Errorf("expected payload type answer, got %+v", payload)
 	}
@@ -1062,7 +1062,7 @@ func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string
 	return nil
 }
 
-func checkMessageTransientSet(message *ServerMessage, key string, value interface{}, oldValue interface{}) error {
+func checkMessageTransientSet(message *ServerMessage, key string, value any, oldValue any) error {
 	if err := checkMessageType(message, "transient"); err != nil {
 		return err
 	} else if message.TransientData.Type != "set" {
@@ -1078,7 +1078,7 @@ func checkMessageTransientSet(message *ServerMessage, key string, value interfac
 	return nil
 }
 
-func checkMessageTransientRemove(message *ServerMessage, key string, oldValue interface{}) error {
+func checkMessageTransientRemove(message *ServerMessage, key string, oldValue any) error {
 	if err := checkMessageType(message, "transient"); err != nil {
 		return err
 	} else if message.TransientData.Type != "remove" {
@@ -1092,7 +1092,7 @@ func checkMessageTransientRemove(message *ServerMessage, key string, oldValue in
 	return nil
 }
 
-func checkMessageTransientInitial(message *ServerMessage, data map[string]interface{}) error {
+func checkMessageTransientInitial(message *ServerMessage, data map[string]any) error {
 	if err := checkMessageType(message, "transient"); err != nil {
 		return err
 	} else if message.TransientData.Type != "initial" {

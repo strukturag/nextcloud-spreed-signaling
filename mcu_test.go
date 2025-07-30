@@ -66,7 +66,7 @@ func (m *TestMCU) SetOnConnected(f func()) {
 func (m *TestMCU) SetOnDisconnected(f func()) {
 }
 
-func (m *TestMCU) GetStats() interface{} {
+func (m *TestMCU) GetStats() any {
 	return nil
 }
 
@@ -196,7 +196,7 @@ func (p *TestMCUPublisher) SetMedia(mt MediaType) {
 	p.settings.MediaTypes = mt
 }
 
-func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any)) {
 	go func() {
 		if p.isClosed() {
 			callback(fmt.Errorf("Already closed"), nil)
@@ -210,13 +210,13 @@ func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClie
 				p.sdp = sdp
 				switch sdp {
 				case MockSdpOfferAudioOnly:
-					callback(nil, map[string]interface{}{
+					callback(nil, map[string]any{
 						"type": "answer",
 						"sdp":  MockSdpAnswerAudioOnly,
 					})
 					return
 				case MockSdpOfferAudioAndVideo:
-					callback(nil, map[string]interface{}{
+					callback(nil, map[string]any{
 						"type": "answer",
 						"sdp":  MockSdpAnswerAudioAndVideo,
 					})
@@ -252,7 +252,7 @@ func (s *TestMCUSubscriber) Publisher() string {
 	return s.publisher.id
 }
 
-func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any)) {
 	go func() {
 		if s.isClosed() {
 			callback(fmt.Errorf("Already closed"), nil)
@@ -269,7 +269,7 @@ func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageCli
 				return
 			}
 
-			callback(nil, map[string]interface{}{
+			callback(nil, map[string]any{
 				"type": "offer",
 				"sdp":  sdp,
 			})

@@ -139,7 +139,7 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	notify := false
 	p.mu.Lock()
 	if handle := p.handle; handle != nil && p.roomId != 0 {
-		destroy_msg := map[string]interface{}{
+		destroy_msg := map[string]any{
 			"request": "destroy",
 			"room":    p.roomId,
 		}
@@ -167,7 +167,7 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	p.mcuJanusClient.Close(ctx)
 }
 
-func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any)) {
 	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {
@@ -201,7 +201,7 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
-			p.sendOffer(msgctx, jsep_msg, func(err error, jsep map[string]interface{}) {
+			p.sendOffer(msgctx, jsep_msg, func(err error, jsep map[string]any) {
 				if err != nil {
 					callback(err, jsep)
 					return
@@ -403,7 +403,7 @@ func getPublisherRemoteId(id string, remoteId string, hostname string, port int,
 }
 
 func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
-	msg := map[string]interface{}{
+	msg := map[string]any{
 		"request":      "publish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],
@@ -440,7 +440,7 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, 
 }
 
 func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
-	msg := map[string]interface{}{
+	msg := map[string]any{
 		"request":      "unpublish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],

@@ -63,7 +63,7 @@ func makePtr[T any](v T) *T {
 	return &v
 }
 
-func getStringMapEntry[T any](m map[string]interface{}, key string) (s T, ok bool) {
+func getStringMapEntry[T any](m map[string]any, key string) (s T, ok bool) {
 	var defaultValue T
 	v, found := m[key]
 	if !found {
@@ -268,7 +268,7 @@ func NewError(code string, message string) *Error {
 	return NewErrorDetail(code, message, nil)
 }
 
-func NewErrorDetail(code string, message string, details interface{}) *Error {
+func NewErrorDetail(code string, message string, details any) *Error {
 	var rawDetails json.RawMessage
 	if details != nil {
 		var err error
@@ -728,10 +728,10 @@ type MessageClientMessage struct {
 }
 
 type MessageClientMessageData struct {
-	Type     string                 `json:"type"`
-	Sid      string                 `json:"sid"`
-	RoomType string                 `json:"roomType"`
-	Payload  map[string]interface{} `json:"payload"`
+	Type     string         `json:"type"`
+	Sid      string         `json:"sid"`
+	RoomType string         `json:"roomType"`
+	Payload  map[string]any `json:"payload"`
 
 	// Only supported if Type == "offer"
 	Bitrate     int    `json:"bitrate,omitempty"`
@@ -756,7 +756,7 @@ func (m *MessageClientMessageData) String() string {
 func parseSDP(s string) (*sdp.SessionDescription, error) {
 	var sdp sdp.SessionDescription
 	if err := sdp.UnmarshalString(s); err != nil {
-		return nil, NewErrorDetail("invalid_sdp", "Error parsing SDP from payload.", map[string]interface{}{
+		return nil, NewErrorDetail("invalid_sdp", "Error parsing SDP from payload.", map[string]any{
 			"error": err.Error(),
 		})
 	}
@@ -768,7 +768,7 @@ func parseSDP(s string) (*sdp.SessionDescription, error) {
 			}
 
 			if _, err := ice.UnmarshalCandidate(a.Value); err != nil {
-				return nil, NewErrorDetail("invalid_sdp", "Error parsing candidate from media description.", map[string]interface{}{
+				return nil, NewErrorDetail("invalid_sdp", "Error parsing candidate from media description.", map[string]any{
 					"media": m.MediaName.Media,
 					"idx":   idx,
 					"error": err.Error(),
@@ -815,7 +815,7 @@ func (m *MessageClientMessageData) CheckValid() error {
 		if !found {
 			return ErrNoCandidate
 		}
-		candItem, ok := candValue.(map[string]interface{})
+		candItem, ok := candValue.(map[string]any)
 		if !ok {
 			return ErrInvalidCandidate
 		}
@@ -833,7 +833,7 @@ func (m *MessageClientMessageData) CheckValid() error {
 		} else {
 			cand, err := ice.UnmarshalCandidate(candText)
 			if err != nil {
-				return NewErrorDetail("invalid_candidate", "Error parsing candidate from payload.", map[string]interface{}{
+				return NewErrorDetail("invalid_candidate", "Error parsing candidate from payload.", map[string]any{
 					"error": err.Error(),
 				})
 			}
@@ -1142,9 +1142,9 @@ type RoomEventServerMessage struct {
 	RoomId     string          `json:"roomid"`
 	Properties json.RawMessage `json:"properties,omitempty"`
 	// TODO(jojo): Change "InCall" to "int" when #914 has landed in NC Talk.
-	InCall  json.RawMessage          `json:"incall,omitempty"`
-	Changed []map[string]interface{} `json:"changed,omitempty"`
-	Users   []map[string]interface{} `json:"users,omitempty"`
+	InCall  json.RawMessage  `json:"incall,omitempty"`
+	Changed []map[string]any `json:"changed,omitempty"`
+	Users   []map[string]any `json:"users,omitempty"`
 
 	All bool `json:"all,omitempty"`
 }
@@ -1179,7 +1179,7 @@ type RoomFlagsServerMessage struct {
 	Flags     uint32 `json:"flags"`
 }
 
-type ChatComment map[string]interface{}
+type ChatComment map[string]any
 
 type RoomEventMessageDataChat struct {
 	Comment *ChatComment `json:"comment,omitempty"`
@@ -1248,12 +1248,12 @@ type EventServerMessageSwitchTo struct {
 // MCU-related types
 
 type AnswerOfferMessage struct {
-	To       string                 `json:"to"`
-	From     string                 `json:"from"`
-	Type     string                 `json:"type"`
-	RoomType string                 `json:"roomType"`
-	Payload  map[string]interface{} `json:"payload"`
-	Sid      string                 `json:"sid,omitempty"`
+	To       string         `json:"to"`
+	From     string         `json:"from"`
+	Type     string         `json:"type"`
+	RoomType string         `json:"roomType"`
+	Payload  map[string]any `json:"payload"`
+	Sid      string         `json:"sid,omitempty"`
 }
 
 // Type "transient"
@@ -1284,8 +1284,8 @@ func (m *TransientDataClientMessage) CheckValid() error {
 type TransientDataServerMessage struct {
 	Type string `json:"type"`
 
-	Key      string                 `json:"key,omitempty"`
-	OldValue interface{}            `json:"oldvalue,omitempty"`
-	Value    interface{}            `json:"value,omitempty"`
-	Data     map[string]interface{} `json:"data,omitempty"`
+	Key      string         `json:"key,omitempty"`
+	OldValue any            `json:"oldvalue,omitempty"`
+	Value    any            `json:"value,omitempty"`
+	Data     map[string]any `json:"data,omitempty"`
 }
