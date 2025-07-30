@@ -277,9 +277,9 @@ type CommandProxyServerMessage struct {
 type PayloadProxyClientMessage struct {
 	Type string `json:"type"`
 
-	ClientId string                 `json:"clientId"`
-	Sid      string                 `json:"sid,omitempty"`
-	Payload  map[string]interface{} `json:"payload,omitempty"`
+	ClientId string         `json:"clientId"`
+	Sid      string         `json:"sid,omitempty"`
+	Payload  map[string]any `json:"payload,omitempty"`
 }
 
 func (m *PayloadProxyClientMessage) CheckValid() error {
@@ -308,8 +308,8 @@ func (m *PayloadProxyClientMessage) CheckValid() error {
 type PayloadProxyServerMessage struct {
 	Type string `json:"type"`
 
-	ClientId string                 `json:"clientId"`
-	Payload  map[string]interface{} `json:"payload"`
+	ClientId string         `json:"clientId"`
+	Payload  map[string]any `json:"payload"`
 }
 
 // Type "event"

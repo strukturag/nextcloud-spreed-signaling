@@ -1355,20 +1355,20 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 	default:
 		return nil, nil, InvalidClientType
 	}
-	token, err := jwt.ParseWithClaims(tokenString, tokenClaims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, tokenClaims, func(token *jwt.Token) (any, error) {
 		// Only public-private-key algorithms are supported.
-		var loadKeyFunc func([]byte) (interface{}, error)
+		var loadKeyFunc func([]byte) (any, error)
 		switch token.Method.(type) {
 		case *jwt.SigningMethodRSA:
-			loadKeyFunc = func(data []byte) (interface{}, error) {
+			loadKeyFunc = func(data []byte) (any, error) {
 				return jwt.ParseRSAPublicKeyFromPEM(data)
 			}
 		case *jwt.SigningMethodECDSA:
-			loadKeyFunc = func(data []byte) (interface{}, error) {
+			loadKeyFunc = func(data []byte) (any, error) {
 				return jwt.ParseECPublicKeyFromPEM(data)
 			}
 		case *jwt.SigningMethodEd25519:
-			loadKeyFunc = func(data []byte) (interface{}, error) {
+			loadKeyFunc = func(data []byte) (any, error) {
 				if !bytes.HasPrefix(data, []byte("-----BEGIN ")) {
 					// Nextcloud sends the Ed25519 key as base64-encoded public key data.
 					decoded, err := base64.StdEncoding.DecodeString(string(data))
@@ -1673,7 +1673,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 				return
 			}
 
-			var details interface{}
+			var details any
 			var ce *tls.CertificateVerificationError
 			if errors.As(err, &ce) {
 				details = map[string]string{
@@ -2155,7 +2155,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 					return
 				}
 
-				mc.SendMessage(session.Context(), msg, clientData, func(err error, response map[string]interface{}) {
+				mc.SendMessage(session.Context(), msg, clientData, func(err error, response map[string]any) {
 					if err != nil {
 						log.Printf("Could not send MCU message %+v for session %s to %s: %s", clientData, session.PublicId(), recipient.PublicId(), err)
 						sendMcuProcessingFailed(session, message)
@@ -2749,7 +2749,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 		return
 	}
 
-	mc.SendMessage(session.Context(), message, data, func(err error, response map[string]interface{}) {
+	mc.SendMessage(session.Context(), message, data, func(err error, response map[string]any) {
 		if err != nil {
 			if !errors.Is(err, ErrCandidateFiltered) {
 				log.Printf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
@@ -2765,7 +2765,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 	})
 }
 
-func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *MessageClientMessage, data *MessageClientMessageData, response map[string]interface{}) {
+func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *MessageClientMessage, data *MessageClientMessageData, response map[string]any) {
 	var response_message *ServerMessage
 	switch response["type"] {
 	case "answer":
@@ -2880,8 +2880,8 @@ func (h *Hub) processRoomParticipants(message *BackendServerRoomRequest) {
 	room.PublishUsersChanged(message.Participants.Changed, message.Participants.Users)
 }
 
-func (h *Hub) GetStats() map[string]interface{} {
-	result := make(map[string]interface{})
+func (h *Hub) GetStats() map[string]any {
+	result := make(map[string]any)
 	h.ru.RLock()
 	result["rooms"] = len(h.rooms)
 	h.ru.RUnlock()

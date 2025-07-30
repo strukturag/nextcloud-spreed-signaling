@@ -118,7 +118,7 @@ func (s *RemoteSession) sendProxyMessage(message []byte) error {
 	return proxy.Send(msg)
 }
 
-func (s *RemoteSession) sendMessage(message interface{}) error {
+func (s *RemoteSession) sendMessage(message any) error {
 	data, err := json.Marshal(message)
 	if err != nil {
 		return err

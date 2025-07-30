@@ -219,7 +219,7 @@ func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxySer
 		return nil, fmt.Errorf("expected hello, got %+v", msg)
 	}
 
-	token, err := jwt.ParseWithClaims(msg.Hello.Token, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(msg.Hello.Token, &TokenClaims{}, func(token *jwt.Token) (any, error) {
 		claims, ok := token.Claims.(*TokenClaims)
 		if !assert.True(c.t, ok, "unsupported claims type: %+v", token.Claims) {
 			return nil, errors.New("unsupported claims type")
@@ -328,7 +328,7 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 					continue
 				}
 
-				token, err := jwt.ParseWithClaims(msg.Command.RemoteToken, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+				token, err := jwt.ParseWithClaims(msg.Command.RemoteToken, &TokenClaims{}, func(token *jwt.Token) (any, error) {
 					claims, ok := token.Claims.(*TokenClaims)
 					if !assert.True(c.t, ok, "unsupported claims type: %+v", token.Claims) {
 						return nil, errors.New("unsupported claims type")

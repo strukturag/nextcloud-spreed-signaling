@@ -145,7 +145,7 @@ func (c *LoopbackNatsClient) unsubscribe(s *loopbackNatsSubscription) {
 	}
 }
 
-func (c *LoopbackNatsClient) Publish(subject string, message interface{}) error {
+func (c *LoopbackNatsClient) Publish(subject string, message any) error {
 	if strings.HasSuffix(subject, ".") || strings.Contains(subject, " ") {
 		return nats.ErrBadSubject
 	}
@@ -168,6 +168,6 @@ func (c *LoopbackNatsClient) Publish(subject string, message interface{}) error 
 	return nil
 }
 
-func (c *LoopbackNatsClient) Decode(msg *nats.Msg, v interface{}) error {
+func (c *LoopbackNatsClient) Decode(msg *nats.Msg, v any) error {
 	return json.Unmarshal(msg.Data, v)
 }

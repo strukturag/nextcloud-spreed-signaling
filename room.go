@@ -80,7 +80,7 @@ type Room struct {
 	statsRoomSessionsCurrent *prometheus.GaugeVec
 
 	// Users currently in the room
-	users []map[string]interface{}
+	users []map[string]any
 
 	// Timestamps of last backend requests for the different types.
 	lastRoomRequests map[string]int64
@@ -458,7 +458,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	if virtualSession, ok := session.(*VirtualSession); ok {
 		delete(r.virtualSessions, virtualSession)
 		// Handle case where virtual session was also sent by Nextcloud.
-		users := make([]map[string]interface{}, 0, len(r.users))
+		users := make([]map[string]any, 0, len(r.users))
 		for _, u := range r.users {
 			if u["sessionId"] != sid {
 				users = append(users, u)
@@ -631,7 +631,7 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[string]*Inter
 	return
 }
 
-func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]interface{} {
+func (r *Room) addInternalSessions(users []map[string]any) []map[string]any {
 	now := time.Now().Unix()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -675,7 +675,7 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 		}
 	}
 	for session := range r.internalSessions {
-		u := map[string]interface{}{
+		u := map[string]any{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
@@ -687,7 +687,7 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 		users = append(users, u)
 	}
 	for _, session := range clusteredInternalSessions {
-		u := map[string]interface{}{
+		u := map[string]any{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.GetSessionId(),
 			"lastPing":  now,
@@ -704,7 +704,7 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 			continue
 		}
 		skipSession[sid] = true
-		users = append(users, map[string]interface{}{
+		users = append(users, map[string]any{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
@@ -716,7 +716,7 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 			continue
 		}
 
-		users = append(users, map[string]interface{}{
+		users = append(users, map[string]any{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
@@ -726,14 +726,14 @@ func (r *Room) addInternalSessions(users []map[string]interface{}) []map[string]
 	return users
 }
 
-func (r *Room) filterPermissions(users []map[string]interface{}) []map[string]interface{} {
+func (r *Room) filterPermissions(users []map[string]any) []map[string]any {
 	for _, user := range users {
 		delete(user, "permissions")
 	}
 	return users
 }
 
-func IsInCall(value interface{}) (bool, bool) {
+func IsInCall(value any) (bool, bool) {
 	switch value := value.(type) {
 	case bool:
 		return value, true
@@ -753,7 +753,7 @@ func IsInCall(value interface{}) (bool, bool) {
 	}
 }
 
-func (r *Room) PublishUsersInCallChanged(changed []map[string]interface{}, users []map[string]interface{}) {
+func (r *Room) PublishUsersInCallChanged(changed []map[string]any, users []map[string]any) {
 	r.users = users
 	for _, user := range changed {
 		inCallInterface, found := user["inCall"]
@@ -908,7 +908,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	}
 }
 
-func (r *Room) PublishUsersChanged(changed []map[string]interface{}, users []map[string]interface{}) {
+func (r *Room) PublishUsersChanged(changed []map[string]any, users []map[string]any) {
 	changed = r.filterPermissions(changed)
 	users = r.filterPermissions(users)
 
@@ -929,7 +929,7 @@ func (r *Room) PublishUsersChanged(changed []map[string]interface{}, users []map
 	}
 }
 
-func (r *Room) getParticipantsUpdateMessage(users []map[string]interface{}) *ServerMessage {
+func (r *Room) getParticipantsUpdateMessage(users []map[string]any) *ServerMessage {
 	users = r.filterPermissions(users)
 
 	message := &ServerMessage{
@@ -1206,11 +1206,11 @@ func (r *Room) notifyInternalRoomDeleted() {
 	}
 }
 
-func (r *Room) SetTransientData(key string, value interface{}) {
+func (r *Room) SetTransientData(key string, value any) {
 	r.transientData.Set(key, value)
 }
 
-func (r *Room) SetTransientDataTTL(key string, value interface{}, ttl time.Duration) {
+func (r *Room) SetTransientDataTTL(key string, value any, ttl time.Duration) {
 	r.transientData.SetTTL(key, value, ttl)
 }
 

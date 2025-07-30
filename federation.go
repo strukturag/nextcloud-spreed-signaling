@@ -603,7 +603,7 @@ func (c *FederationClient) joinRoom() error {
 	})
 }
 
-func (c *FederationClient) updateEventUsers(users []map[string]interface{}, localSessionId string, remoteSessionId string) {
+func (c *FederationClient) updateEventUsers(users []map[string]any, localSessionId string, remoteSessionId string) {
 	localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
 	localCloudUrlLen := len(localCloudUrl)
 	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
@@ -668,7 +668,7 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 		c.updateSessionSender(msg.Control.Sender, localSessionId, remoteSessionId)
 		// Special handling for "forceMute" event.
 		if len(msg.Control.Data) > 0 && msg.Control.Data[0] == '{' {
-			var data map[string]interface{}
+			var data map[string]any
 			if err := json.Unmarshal(msg.Control.Data, &data); err == nil {
 				if action, found := data["action"]; found && action == "forceMute" {
 					if peerId, found := data["peerId"]; found && peerId == remoteSessionId {
@@ -864,7 +864,7 @@ func (c *FederationClient) sendMessageLocked(message *ClientMessage) error {
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	writer, err := c.conn.NextWriter(websocket.TextMessage)
 	if err == nil {
-		if m, ok := (interface{}(message)).(easyjson.Marshaler); ok {
+		if m, ok := (any(message)).(easyjson.Marshaler); ok {
 			_, err = easyjson.MarshalToWriter(m, writer)
 		} else {
 			err = json.NewEncoder(writer).Encode(message)

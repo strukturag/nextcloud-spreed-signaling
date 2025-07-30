@@ -28,7 +28,7 @@ import (
 
 type cacheEntry struct {
 	key   string
-	value interface{}
+	value any
 }
 
 type LruCache struct {
@@ -46,7 +46,7 @@ func NewLruCache(size int) *LruCache {
 	}
 }
 
-func (c *LruCache) Set(key string, value interface{}) {
+func (c *LruCache) Set(key string, value any) {
 	c.mu.Lock()
 	if v, found := c.data[key]; found {
 		c.entries.MoveToFront(v)
@@ -66,7 +66,7 @@ func (c *LruCache) Set(key string, value interface{}) {
 	c.mu.Unlock()
 }
 
-func (c *LruCache) Get(key string) interface{} {
+func (c *LruCache) Get(key string) any {
 	c.mu.Lock()
 	if v, found := c.data[key]; found {
 		c.entries.MoveToFront(v)

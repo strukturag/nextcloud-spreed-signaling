@@ -32,7 +32,7 @@ import (
 type protoSerializer struct {
 }
 
-func (s *protoSerializer) Serialize(src interface{}) ([]byte, error) {
+func (s *protoSerializer) Serialize(src any) ([]byte, error) {
 	msg, ok := src.(proto.Message)
 	if !ok {
 		return nil, fmt.Errorf("can't serialize type %T", src)
@@ -40,7 +40,7 @@ func (s *protoSerializer) Serialize(src interface{}) ([]byte, error) {
 	return proto.Marshal(msg)
 }
 
-func (s *protoSerializer) Deserialize(src []byte, dst interface{}) error {
+func (s *protoSerializer) Deserialize(src []byte, dst any) error {
 	msg, ok := dst.(proto.Message)
 	if !ok {
 		return fmt.Errorf("can't deserialize type %T", src)

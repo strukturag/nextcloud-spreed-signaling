@@ -125,19 +125,19 @@ var (
 	}
 )
 
-var msgtypes = map[string]func() interface{}{
-	"error":       func() interface{} { return &janus.ErrorMsg{} },
-	"success":     func() interface{} { return &janus.SuccessMsg{} },
-	"detached":    func() interface{} { return &janus.DetachedMsg{} },
-	"server_info": func() interface{} { return &InfoMsg{} },
-	"ack":         func() interface{} { return &janus.AckMsg{} },
-	"event":       func() interface{} { return &janus.EventMsg{} },
-	"webrtcup":    func() interface{} { return &janus.WebRTCUpMsg{} },
-	"media":       func() interface{} { return &janus.MediaMsg{} },
-	"hangup":      func() interface{} { return &janus.HangupMsg{} },
-	"slowlink":    func() interface{} { return &janus.SlowLinkMsg{} },
-	"timeout":     func() interface{} { return &janus.TimeoutMsg{} },
-	"trickle":     func() interface{} { return &TrickleMsg{} },
+var msgtypes = map[string]func() any{
+	"error":       func() any { return &janus.ErrorMsg{} },
+	"success":     func() any { return &janus.SuccessMsg{} },
+	"detached":    func() any { return &janus.DetachedMsg{} },
+	"server_info": func() any { return &InfoMsg{} },
+	"ack":         func() any { return &janus.AckMsg{} },
+	"event":       func() any { return &janus.EventMsg{} },
+	"webrtcup":    func() any { return &janus.WebRTCUpMsg{} },
+	"media":       func() any { return &janus.MediaMsg{} },
+	"hangup":      func() any { return &janus.HangupMsg{} },
+	"slowlink":    func() any { return &janus.SlowLinkMsg{} },
+	"timeout":     func() any { return &janus.TimeoutMsg{} },
+	"trickle":     func() any { return &TrickleMsg{} },
 }
 
 type InfoMsg struct {
@@ -171,8 +171,8 @@ func unexpected(request string) error {
 }
 
 type transaction struct {
-	ch       chan interface{}
-	incoming chan interface{}
+	ch       chan any
+	incoming chan any
 	closer   *Closer
 }
 
@@ -187,7 +187,7 @@ func (t *transaction) run() {
 	}
 }
 
-func (t *transaction) add(msg interface{}) {
+func (t *transaction) add(msg any) {
 	t.incoming <- msg
 }
 
@@ -197,15 +197,15 @@ func (t *transaction) quit() {
 
 func newTransaction() *transaction {
 	t := &transaction{
-		ch:       make(chan interface{}, 1),
-		incoming: make(chan interface{}, 8),
+		ch:       make(chan any, 1),
+		incoming: make(chan any, 8),
 		closer:   NewCloser(),
 	}
 	return t
 }
 
-func newRequest(method string) (map[string]interface{}, *transaction) {
-	req := make(map[string]interface{}, 8)
+func newRequest(method string) (map[string]any, *transaction) {
+	req := make(map[string]any, 8)
 	req["janus"] = method
 	return req, newTransaction()
 }
@@ -225,7 +225,7 @@ type JanusGatewayInterface interface {
 	Create(context.Context) (*JanusSession, error)
 	Close() error
 
-	send(map[string]interface{}, *transaction) (uint64, error)
+	send(map[string]any, *transaction) (uint64, error)
 	removeTransaction(uint64)
 
 	removeSession(*JanusSession)
@@ -263,7 +263,7 @@ type JanusGateway struct {
 
 // 	gateway := new(Gateway)
 // 	//gateway.conn = conn
-// 	gateway.transactions = make(map[uint64]chan interface{})
+// 	gateway.transactions = make(map[uint64]chan any)
 // 	gateway.Sessions = make(map[uint64]*JanusSession)
 
 // 	go gateway.recv()
@@ -338,7 +338,7 @@ func (gateway *JanusGateway) removeTransaction(id uint64) {
 	}
 }
 
-func (gateway *JanusGateway) send(msg map[string]interface{}, t *transaction) (uint64, error) {
+func (gateway *JanusGateway) send(msg map[string]any, t *transaction) (uint64, error) {
 	id := gateway.nextTransaction.Add(1)
 	msg["transaction"] = strconv.FormatUint(id, 10)
 	data, err := json.Marshal(msg)
@@ -367,7 +367,7 @@ func (gateway *JanusGateway) send(msg map[string]interface{}, t *transaction) (u
 	return id, nil
 }
 
-func passMsg(ch chan interface{}, msg interface{}) {
+func passMsg(ch chan any, msg any) {
 	ch <- msg
 }
 
@@ -508,7 +508,7 @@ func (gateway *JanusGateway) recv() {
 	}
 }
 
-func waitForMessage(ctx context.Context, t *transaction) (interface{}, error) {
+func waitForMessage(ctx context.Context, t *transaction) (any, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -599,7 +599,7 @@ type JanusSession struct {
 	gateway JanusGatewayInterface
 }
 
-func (session *JanusSession) send(msg map[string]interface{}, t *transaction) (uint64, error) {
+func (session *JanusSession) send(msg map[string]any, t *transaction) (uint64, error) {
 	msg["session_id"] = session.Id
 	return session.gateway.send(msg, t)
 }
@@ -631,7 +631,7 @@ func (session *JanusSession) Attach(ctx context.Context, plugin string) (*JanusH
 	handle := new(JanusHandle)
 	handle.session = session
 	handle.Id = success.Data.ID
-	handle.Events = make(chan interface{}, 8)
+	handle.Events = make(chan any, 8)
 
 	session.Lock()
 	session.Handles[handle.Id] = handle
@@ -706,18 +706,18 @@ type JanusHandle struct {
 
 	// Events is a receive only channel that can be used to receive events
 	// related to this handle from the gateway.
-	Events chan interface{}
+	Events chan any
 
 	session *JanusSession
 }
 
-func (handle *JanusHandle) send(msg map[string]interface{}, t *transaction) (uint64, error) {
+func (handle *JanusHandle) send(msg map[string]any, t *transaction) (uint64, error) {
 	msg["handle_id"] = handle.Id
 	return handle.session.send(msg, t)
 }
 
 // send sync request
-func (handle *JanusHandle) Request(ctx context.Context, body interface{}) (*janus.SuccessMsg, error) {
+func (handle *JanusHandle) Request(ctx context.Context, body any) (*janus.SuccessMsg, error) {
 	req, ch := newRequest("message")
 	if body != nil {
 		req["body"] = body
@@ -746,7 +746,7 @@ func (handle *JanusHandle) Request(ctx context.Context, body interface{}) (*janu
 // body should be the plugin data to be passed to the plugin, and jsep should
 // contain an optional SDP offer/answer to establish a WebRTC PeerConnection.
 // On success, an EventMsg will be returned and error will be nil.
-func (handle *JanusHandle) Message(ctx context.Context, body, jsep interface{}) (*janus.EventMsg, error) {
+func (handle *JanusHandle) Message(ctx context.Context, body, jsep any) (*janus.EventMsg, error) {
 	req, ch := newRequest("message")
 	if body != nil {
 		req["body"] = body
@@ -787,7 +787,7 @@ GetMessage: // No tears..
 //	}
 //
 // On success, an AckMsg will be returned and error will be nil.
-func (handle *JanusHandle) Trickle(ctx context.Context, candidate interface{}) (*janus.AckMsg, error) {
+func (handle *JanusHandle) Trickle(ctx context.Context, candidate any) (*janus.AckMsg, error) {
 	req, ch := newRequest("trickle")
 	req["candidate"] = candidate
 	id, err := handle.send(req, ch)
@@ -814,7 +814,7 @@ func (handle *JanusHandle) Trickle(ctx context.Context, candidate interface{}) (
 // a new PeerConnection with a plugin.
 // candidates should be an array of ICE candidates.
 // On success, an AckMsg will be returned and error will be nil.
-func (handle *JanusHandle) TrickleMany(ctx context.Context, candidates interface{}) (*janus.AckMsg, error) {
+func (handle *JanusHandle) TrickleMany(ctx context.Context, candidates any) (*janus.AckMsg, error) {
 	req, ch := newRequest("trickle")
 	req["candidates"] = candidates
 	id, err := handle.send(req, ch)

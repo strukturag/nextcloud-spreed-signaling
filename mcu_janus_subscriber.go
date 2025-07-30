@@ -48,14 +48,14 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 			log.Printf("Subscriber %d: associated room has been destroyed, closing", p.handleId)
 			go p.Close(ctx)
 		case "updated":
-			streams, ok := getPluginValue(event.Plugindata, pluginVideoRoom, "streams").([]interface{})
+			streams, ok := getPluginValue(event.Plugindata, pluginVideoRoom, "streams").([]any)
 			if !ok || len(streams) == 0 {
 				// The streams list will be empty if no stream was changed.
 				return
 			}
 
 			for _, stream := range streams {
-				if stream, ok := stream.(map[string]interface{}); ok {
+				if stream, ok := stream.(map[string]any); ok {
 					if (stream["type"] == "audio" || stream["type"] == "video") && stream["active"] != false {
 						return
 					}
@@ -149,7 +149,7 @@ func (p *mcuJanusSubscriber) Close(ctx context.Context) {
 	p.mcuJanusClient.Close(ctx)
 }
 
-func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelection, callback func(error, map[string]interface{})) {
+func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelection, callback func(error, map[string]any)) {
 	handle := p.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
@@ -161,13 +161,13 @@ func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelecti
 
 	loggedNotPublishingYet := false
 retry:
-	join_msg := map[string]interface{}{
+	join_msg := map[string]any{
 		"request": "join",
 		"ptype":   "subscriber",
 		"room":    p.roomId,
 	}
 	if p.mcu.isMultistream() {
-		join_msg["streams"] = []map[string]interface{}{
+		join_msg["streams"] = []map[string]any{
 			{
 				"feed": streamTypeUserIds[p.streamType],
 			},
@@ -255,14 +255,14 @@ retry:
 	callback(nil, join_response.Jsep)
 }
 
-func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection, callback func(error, map[string]interface{})) {
+func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection, callback func(error, map[string]any)) {
 	handle := p.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
 	}
 
-	configure_msg := map[string]interface{}{
+	configure_msg := map[string]any{
 		"request": "configure",
 		"update":  true,
 	}
@@ -278,7 +278,7 @@ func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection
 	callback(nil, configure_response.Jsep)
 }
 
-func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]interface{})) {
+func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any)) {
 	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {

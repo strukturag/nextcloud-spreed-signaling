@@ -428,7 +428,7 @@ func (c *Client) writeInternal(message json.Marshaler) bool {
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	writer, err := c.conn.NextWriter(websocket.TextMessage)
 	if err == nil {
-		if m, ok := (interface{}(message)).(easyjson.Marshaler); ok {
+		if m, ok := (any(message)).(easyjson.Marshaler); ok {
 			_, err = easyjson.MarshalToWriter(m, writer)
 		} else {
 			err = json.NewEncoder(writer).Encode(message)

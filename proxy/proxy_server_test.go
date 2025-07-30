@@ -375,7 +375,7 @@ func (m *TestMCU) SetOnConnected(f func()) {
 func (m *TestMCU) SetOnDisconnected(f func()) {
 }
 
-func (m *TestMCU) GetStats() interface{} {
+func (m *TestMCU) GetStats() any {
 	return nil
 }
 
@@ -420,7 +420,7 @@ func (p *TestMCUPublisher) MaxBitrate() int {
 func (p *TestMCUPublisher) Close(ctx context.Context) {
 }
 
-func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, map[string]interface{})) {
+func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, map[string]any)) {
 	callback(errors.New("not implemented"), nil)
 }
 
@@ -673,7 +673,7 @@ func (p *TestRemotePublisher) Close(ctx context.Context) {
 	}
 }
 
-func (p *TestRemotePublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, map[string]interface{})) {
+func (p *TestRemotePublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, map[string]any)) {
 	callback(errors.New("not implemented"), nil)
 }
 
@@ -729,7 +729,7 @@ func (s *TestRemoteSubscriber) Close(ctx context.Context) {
 	s.closeFunc()
 }
 
-func (s *TestRemoteSubscriber) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, map[string]interface{})) {
+func (s *TestRemoteSubscriber) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, map[string]any)) {
 	callback(errors.New("not implemented"), nil)
 }
 
