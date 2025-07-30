@@ -138,40 +138,29 @@ func Test_TransientMessages(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
 	require := require.New(t)
-	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	client1 := NewTestClient(t, server, hub)
-	defer client1.CloseWithBye()
-	require.NoError(client1.SendHello(testDefaultUserId + "1"))
-	hello1, err := client1.RunUntilHello(ctx)
-	require.NoError(err)
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
 
 	require.NoError(client1.SetTransientData("foo", "bar", 0))
-	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageError(msg, "not_in_room"))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageError(t, msg, "not_in_room")
 	}
 
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
-	require.NoError(client2.SendHello(testDefaultUserId + "2"))
-	hello2, err := client2.RunUntilHello(ctx)
-	require.NoError(err)
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 
 	// Join room by id.
 	roomId := "test-room"
-	roomMsg, err := client1.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Give message processing some time.
 	time.Sleep(10 * time.Millisecond)
 
-	roomMsg, err = client2.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
@@ -187,22 +176,22 @@ func Test_TransientMessages(t *testing.T) {
 	session2.SetPermissions([]Permission{})
 
 	require.NoError(client2.SetTransientData("foo", "bar", 0))
-	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageError(msg, "not_allowed"))
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageError(t, msg, "not_allowed")
 	}
 
 	require.NoError(client1.SetTransientData("foo", "bar", 0))
 
-	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientSet(t, msg, "foo", "bar", nil))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, "foo", "bar", nil)
 	}
-	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientSet(t, msg, "foo", "bar", nil))
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, "foo", "bar", nil)
 	}
 
 	require.NoError(client2.RemoveTransientData("foo"))
-	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageError(msg, "not_allowed"))
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageError(t, msg, "not_allowed")
 	}
 
 	// Setting the same value is ignored by the server.
@@ -210,31 +199,27 @@ func Test_TransientMessages(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 
-	if msg, err := client1.RunUntilMessage(ctx2); err == nil {
-		assert.Nil(msg, "Expected no payload")
-	} else {
-		require.ErrorIs(err, context.DeadlineExceeded)
-	}
+	client1.RunUntilErrorIs(ctx2, context.DeadlineExceeded)
 
 	data := map[string]any{
 		"hello": "world",
 	}
 	require.NoError(client1.SetTransientData("foo", data, 0))
 
-	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientSet(t, msg, "foo", data, "bar"))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, "foo", data, "bar")
 	}
-	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientSet(t, msg, "foo", data, "bar"))
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, "foo", data, "bar")
 	}
 
 	require.NoError(client1.RemoveTransientData("foo"))
 
-	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientRemove(t, msg, "foo", data))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageTransientRemove(t, msg, "foo", data)
 	}
-	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientRemove(t, msg, "foo", data))
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientRemove(t, msg, "foo", data)
 	}
 
 	// Removing a non-existing key is ignored by the server.
@@ -242,43 +227,32 @@ func Test_TransientMessages(t *testing.T) {
 	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel3()
 
-	if msg, err := client1.RunUntilMessage(ctx3); err == nil {
-		assert.Nil(msg, "Expected no payload")
-	} else {
-		require.ErrorIs(err, context.DeadlineExceeded)
-	}
+	client1.RunUntilErrorIs(ctx3, context.DeadlineExceeded)
 
 	require.NoError(client1.SetTransientData("abc", data, 10*time.Millisecond))
 
-	client3 := NewTestClient(t, server, hub)
-	defer client3.CloseWithBye()
-	require.NoError(client3.SendHello(testDefaultUserId + "3"))
-	hello3, err := client3.RunUntilHello(ctx)
-	require.NoError(err)
-
-	roomMsg, err = client3.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	client3, hello3 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"3")
+	roomMsg = MustSucceed2(t, client3.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	_, ignored, err := client3.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello, hello3.Hello)
-	require.NoError(err)
+	_, ignored, ok := client3.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello, hello3.Hello)
+	require.True(ok)
 
 	var msg *ServerMessage
 	if len(ignored) == 0 {
-		msg, err = client3.RunUntilMessage(ctx)
-		require.NoError(err)
+		msg = MustSucceed1(t, client3.RunUntilMessage, ctx)
 	} else if len(ignored) == 1 {
 		msg = ignored[0]
 	} else {
 		require.LessOrEqual(len(ignored), 1, "Received too many messages: %+v", ignored)
 	}
 
-	require.NoError(checkMessageTransientInitial(t, msg, StringMap{
+	checkMessageTransientInitial(t, msg, StringMap{
 		"abc": data,
-	}))
+	})
 
 	time.Sleep(10 * time.Millisecond)
-	if msg, err = client3.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientRemove(t, msg, "abc", data))
+	if msg, ok = client3.RunUntilMessage(ctx); ok {
+		checkMessageTransientRemove(t, msg, "abc", data)
 	}
 }

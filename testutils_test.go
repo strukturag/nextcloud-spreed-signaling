@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"os/signal"
@@ -95,4 +96,39 @@ func dumpGoroutines(prefix string, w io.Writer) {
 	}
 	profile := pprof.Lookup("goroutine")
 	profile.WriteTo(w, 2) // nolint
+}
+
+func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, hello1 *ServerMessage, client2 *TestClient, hello2 *ServerMessage) {
+	t.Helper()
+	// We will receive "joined" events for all clients. The ordering is not
+	// defined as messages are processed and sent by asynchronous event handlers.
+	client1.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+}
+
+func MustSucceed1[T any, A1 any](t *testing.T, f func(a1 A1) (T, bool), a1 A1) T {
+	t.Helper()
+	result, ok := f(a1)
+	if !ok {
+		t.FailNow()
+	}
+	return result
+}
+
+func MustSucceed2[T any, A1 any, A2 any](t *testing.T, f func(a1 A1, a2 A2) (T, bool), a1 A1, a2 A2) T {
+	t.Helper()
+	result, ok := f(a1, a2)
+	if !ok {
+		t.FailNow()
+	}
+	return result
+}
+
+func MustSucceed3[T any, A1 any, A2 any, A3 any](t *testing.T, f func(a1 A1, a2 A2, a3 A3) (T, bool), a1 A1, a2 A2, a3 A3) T {
+	t.Helper()
+	result, ok := f(a1, a2, a3)
+	if !ok {
+		t.FailNow()
+	}
+	return result
 }

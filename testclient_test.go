@@ -22,12 +22,12 @@
 package signaling
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http/httptest"
@@ -76,146 +76,129 @@ func getPubliceSessionIdData(h *Hub, publicId string) *SessionIdData {
 	return decodedPublic
 }
 
-func checkUnexpectedClose(err error) error {
-	if err != nil && websocket.IsUnexpectedCloseError(err,
-		websocket.CloseNormalClosure,
-		websocket.CloseGoingAway,
-		websocket.CloseNoStatusReceived) {
-		return fmt.Errorf("Connection was closed with unexpected error: %s", err)
+func checkMessageType(t *testing.T, message *ServerMessage, expectedType string) bool {
+	assert := assert.New(t)
+	if !assert.NotNil(message, "no message received") {
+		return false
 	}
 
-	return nil
-}
+	failed := !assert.Equal(expectedType, message.Type, "invalid message type")
 
-func checkMessageType(message *ServerMessage, expectedType string) error {
-	if message == nil {
-		return ErrNoMessageReceived
-	}
-
-	if message.Type != expectedType {
-		return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
-	}
 	switch message.Type {
 	case "hello":
-		if message.Hello == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
+		if !assert.NotNil(message.Hello, "hello missing in %+v", message) {
+			failed = true
 		}
 	case "message":
-		if message.Message == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
-		} else if len(message.Message.Data) == 0 {
-			return fmt.Errorf("Received message without data")
+		if assert.NotNil(message.Message, "message missing in %+v", message) {
+			if !assert.NotEmpty(message.Message.Data, "message %+v has no data", message) {
+				failed = true
+			}
+		} else {
+			failed = true
 		}
 	case "room":
-		if message.Room == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
+		if !assert.NotNil(message.Room, "room missing in %+v", message) {
+			failed = true
 		}
 	case "event":
-		if message.Event == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
+		if !assert.NotNil(message.Event, "event missing in %+v", message) {
+			failed = true
 		}
 	case "transient":
-		if message.TransientData == nil {
-			return fmt.Errorf("Expected \"%s\" message, got %+v", expectedType, message)
+		if !assert.NotNil(message.TransientData, "transient data missing in %+v", message) {
+			failed = true
 		}
 	}
-
-	return nil
+	return !failed
 }
 
-func checkMessageSender(hub *Hub, sender *MessageServerMessageSender, senderType string, hello *HelloServerMessage) error {
-	if sender.Type != senderType {
-		return fmt.Errorf("Expected sender type %s, got %s", senderType, sender.Type)
-	} else if sender.SessionId != hello.SessionId {
-		return fmt.Errorf("Expected session id %+v, got %+v",
-			getPubliceSessionIdData(hub, hello.SessionId), getPubliceSessionIdData(hub, sender.SessionId))
-	} else if sender.UserId != hello.UserId {
-		return fmt.Errorf("Expected user id %s, got %s", hello.UserId, sender.UserId)
-	}
-
-	return nil
+func checkMessageSender(t *testing.T, hub *Hub, sender *MessageServerMessageSender, senderType string, hello *HelloServerMessage) bool {
+	assert := assert.New(t)
+	return assert.Equal(senderType, sender.Type, "invalid sender type in %+v", sender) &&
+		assert.Equal(hello.SessionId, sender.SessionId, "invalid session id, expectd %+v, got %+v in %+v",
+			getPubliceSessionIdData(hub, hello.SessionId),
+			getPubliceSessionIdData(hub, sender.SessionId),
+			sender,
+		) &&
+		assert.Equal(hello.UserId, sender.UserId, "invalid userid in %+v", sender)
 }
 
-func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
-	message, err := client.RunUntilMessage(ctx)
-	if err := checkUnexpectedClose(err); err != nil {
-		return err
-	} else if err := checkMessageType(message, "message"); err != nil {
-		return err
-	} else if err := checkMessageSender(client.hub, message.Message.Sender, senderType, hello); err != nil {
-		return err
-	} else {
-		if err := json.Unmarshal(message.Message.Data, payload); err != nil {
-			return err
-		}
+func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) bool {
+	assert := assert.New(t)
+	message, ok := client.RunUntilMessage(ctx)
+	if !ok ||
+		!checkMessageType(t, message, "message") ||
+		!checkMessageSender(t, client.hub, message.Message.Sender, senderType, hello) ||
+		!assert.NoError(json.Unmarshal(message.Message.Data, payload)) {
+		return false
 	}
+
 	if sender != nil {
 		*sender = message.Message.Sender
 	}
 	if recipient != nil {
 		*recipient = message.Message.Recipient
 	}
-	return nil
+	return true
 }
 
-func checkReceiveClientMessageWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender) error {
-	return checkReceiveClientMessageWithSenderAndRecipient(ctx, client, senderType, hello, payload, sender, nil)
+func checkReceiveClientMessageWithSender(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender) bool {
+	return checkReceiveClientMessageWithSenderAndRecipient(ctx, t, client, senderType, hello, payload, sender, nil)
 }
 
-func checkReceiveClientMessage(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any) error {
-	return checkReceiveClientMessageWithSenderAndRecipient(ctx, client, senderType, hello, payload, nil, nil)
+func checkReceiveClientMessage(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any) bool {
+	return checkReceiveClientMessageWithSenderAndRecipient(ctx, t, client, senderType, hello, payload, nil, nil)
 }
 
-func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) error {
-	message, err := client.RunUntilMessage(ctx)
-	if err := checkUnexpectedClose(err); err != nil {
-		return err
-	} else if err := checkMessageType(message, "control"); err != nil {
-		return err
-	} else if err := checkMessageSender(client.hub, message.Control.Sender, senderType, hello); err != nil {
-		return err
-	} else {
-		if err := json.Unmarshal(message.Control.Data, payload); err != nil {
-			return err
-		}
+func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) bool {
+	assert := assert.New(t)
+	message, ok := client.RunUntilMessage(ctx)
+	if !ok ||
+		!checkMessageType(t, message, "control") ||
+		!checkMessageSender(t, client.hub, message.Control.Sender, senderType, hello) ||
+		!assert.NoError(json.Unmarshal(message.Control.Data, payload)) {
+		return false
 	}
+
 	if sender != nil {
 		*sender = message.Control.Sender
 	}
 	if recipient != nil {
 		*recipient = message.Control.Recipient
 	}
-	return nil
+	return true
 }
 
-func checkReceiveClientControlWithSender(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender) error { // nolint
-	return checkReceiveClientControlWithSenderAndRecipient(ctx, client, senderType, hello, payload, sender, nil)
+func checkReceiveClientControlWithSender(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender) bool { // nolint
+	return checkReceiveClientControlWithSenderAndRecipient(ctx, t, client, senderType, hello, payload, sender, nil)
 }
 
-func checkReceiveClientControl(ctx context.Context, client *TestClient, senderType string, hello *HelloServerMessage, payload any) error {
-	return checkReceiveClientControlWithSenderAndRecipient(ctx, client, senderType, hello, payload, nil, nil)
+func checkReceiveClientControl(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any) bool {
+	return checkReceiveClientControlWithSenderAndRecipient(ctx, t, client, senderType, hello, payload, nil, nil)
 }
 
-func checkReceiveClientEvent(ctx context.Context, client *TestClient, eventType string, msg **EventServerMessage) error {
-	message, err := client.RunUntilMessage(ctx)
-	if err := checkUnexpectedClose(err); err != nil {
-		return err
-	} else if err := checkMessageType(message, "event"); err != nil {
-		return err
-	} else if message.Event.Type != eventType {
-		return fmt.Errorf("Expected \"%s\" event type, got \"%s\"", eventType, message.Event.Type)
-	} else {
-		if msg != nil {
-			*msg = message.Event
-		}
+func checkReceiveClientEvent(ctx context.Context, t *testing.T, client *TestClient, eventType string, msg **EventServerMessage) bool {
+	assert := assert.New(t)
+	message, ok := client.RunUntilMessage(ctx)
+	if !ok ||
+		!checkMessageType(t, message, "event") ||
+		!assert.Equal(eventType, message.Event.Type, "invalid event type in %+v", message) {
+		return false
 	}
-	return nil
+
+	if msg != nil {
+		*msg = message.Event
+	}
+	return true
 }
 
 type TestClient struct {
-	t      *testing.T
-	hub    *Hub
-	server *httptest.Server
+	t       *testing.T
+	assert  *assert.Assertions
+	require *require.Assertions
+	hub     *Hub
+	server  *httptest.Server
 
 	mu        sync.Mutex
 	conn      *websocket.Conn
@@ -250,9 +233,11 @@ func NewTestClientContext(ctx context.Context, t *testing.T, server *httptest.Se
 	}()
 
 	return &TestClient{
-		t:      t,
-		hub:    hub,
-		server: server,
+		t:       t,
+		assert:  assert.New(t),
+		require: require.New(t),
+		hub:     hub,
+		server:  server,
 
 		conn:      conn,
 		localAddr: conn.LocalAddr(),
@@ -267,10 +252,21 @@ func NewTestClient(t *testing.T, server *httptest.Server, hub *Hub) *TestClient 
 	defer cancel()
 
 	client := NewTestClientContext(ctx, t, server, hub)
-	msg, err := client.RunUntilMessage(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, "welcome", msg.Type)
+	if msg, ok := client.RunUntilMessage(ctx); ok {
+		assert.Equal(t, "welcome", msg.Type, "invalid initial message type in %+v", msg)
+	}
 	return client
+}
+
+func NewTestClientWithHello(ctx context.Context, t *testing.T, server *httptest.Server, hub *Hub, userId string) (*TestClient, *ServerMessage) {
+	client := NewTestClient(t, server, hub)
+	t.Cleanup(func() {
+		client.CloseWithBye()
+	})
+
+	require.NoError(t, client.SendHello(userId))
+	hello := MustSucceed1(t, client.RunUntilHello, ctx)
+	return client, hello
 }
 
 func (c *TestClient) CloseWithBye() {
@@ -675,56 +671,115 @@ func (c *TestClient) GetPendingMessages(ctx context.Context) ([]*ServerMessage, 
 	return result, nil
 }
 
-func (c *TestClient) RunUntilMessage(ctx context.Context) (message *ServerMessage, err error) {
+func (c *TestClient) RunUntilClosed(ctx context.Context) bool {
+	select {
+	case err := <-c.readErrorChan:
+		if c.assert.Error(err) && websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
+			return true
+		}
+
+		c.assert.NoError(err, "Received unexpected error")
+	case msg := <-c.messageChan:
+		var m ServerMessage
+		if err := json.Unmarshal(msg, &m); c.assert.NoError(err, "error decoding received message") {
+			c.assert.Fail("Server should have closed the connection", "received %+v", m)
+		}
+	case <-ctx.Done():
+		c.assert.NoError(ctx.Err(), "error while waiting for closed connection")
+	}
+	return false
+}
+
+func (c *TestClient) RunUntilErrorIs(ctx context.Context, targets ...error) bool {
+	var err error
 	select {
 	case err = <-c.readErrorChan:
 	case msg := <-c.messageChan:
 		var m ServerMessage
-		if err = json.Unmarshal(msg, &m); err == nil {
-			message = &m
+		if err := json.Unmarshal(msg, &m); c.assert.NoError(err, "error decoding received message") {
+			c.assert.Fail("received message", "expected one of errors %+v, got message %+v", targets, m)
 		}
+		return false
 	case <-ctx.Done():
 		err = ctx.Err()
 	}
-	return
+
+	if c.assert.Error(err, "expected one of errors %+v", targets) {
+		for _, t := range targets {
+			if errors.Is(err, t) {
+				return true
+			}
+		}
+
+		c.assert.Fail("invalid error", "expected one of errors %+v, got %s", targets, err)
+	}
+
+	return false
 }
 
-func (c *TestClient) RunUntilError(ctx context.Context, code string) (*Error, error) {
-	message, err := c.RunUntilMessage(ctx)
-	if err != nil {
-		return nil, err
+func (c *TestClient) RunUntilMessage(ctx context.Context) (*ServerMessage, bool) {
+	select {
+	case err := <-c.readErrorChan:
+		c.assert.NoError(err, "error reading while waiting for message")
+		return nil, false
+	case msg := <-c.messageChan:
+		var m ServerMessage
+		if err := json.Unmarshal(msg, &m); c.assert.NoError(err, "error decoding received message") {
+			return &m, true
+		}
+	case <-ctx.Done():
+		c.assert.NoError(ctx.Err(), "error while waiting for message")
 	}
-	if err := checkUnexpectedClose(err); err != nil {
-		return nil, err
-	}
-	if err := checkMessageType(message, "error"); err != nil {
-		return nil, err
-	}
-	if message.Error.Code != code {
-		return nil, fmt.Errorf("expected error %s, got %s", code, message.Error.Code)
-	}
-	return message.Error, nil
+	return nil, false
 }
 
-func (c *TestClient) RunUntilHello(ctx context.Context) (message *ServerMessage, err error) {
-	if message, err = c.RunUntilMessage(ctx); err != nil {
-		return nil, err
+func (c *TestClient) RunUntilMessageOrClosed(ctx context.Context) (*ServerMessage, bool) {
+	select {
+	case err := <-c.readErrorChan:
+		if c.assert.Error(err) && websocket.IsCloseError(err, websocket.CloseNoStatusReceived) {
+			return nil, true
+		}
+
+		c.assert.NoError(err, "Received unexpected error")
+		return nil, false
+	case msg := <-c.messageChan:
+		var m ServerMessage
+		if err := json.Unmarshal(msg, &m); c.assert.NoError(err, "error decoding received message") {
+			return &m, true
+		}
+	case <-ctx.Done():
+		c.assert.NoError(ctx.Err(), "error while waiting for message")
 	}
-	if err := checkUnexpectedClose(err); err != nil {
-		return nil, err
+	return nil, false
+}
+
+func (c *TestClient) RunUntilError(ctx context.Context, code string) (*Error, bool) {
+	message, ok := c.RunUntilMessage(ctx)
+	if !ok ||
+		!checkMessageType(c.t, message, "error") ||
+		!c.assert.Equal(code, message.Error.Code, "invalid error code in %+v", message) {
+		return nil, false
 	}
-	if err := checkMessageType(message, "hello"); err != nil {
-		return nil, err
+
+	return message.Error, true
+}
+
+func (c *TestClient) RunUntilHello(ctx context.Context) (*ServerMessage, bool) {
+	message, ok := c.RunUntilMessage(ctx)
+	if !ok ||
+		!checkMessageType(c.t, message, "hello") {
+		return nil, false
 	}
+
 	c.publicId = message.Hello.SessionId
-	return message, nil
+	return message, true
 }
 
-func (c *TestClient) JoinRoom(ctx context.Context, roomId string) (message *ServerMessage, err error) {
+func (c *TestClient) JoinRoom(ctx context.Context, roomId string) (*ServerMessage, bool) {
 	return c.JoinRoomWithRoomSession(ctx, roomId, roomId+"-"+c.publicId)
 }
 
-func (c *TestClient) JoinRoomWithRoomSession(ctx context.Context, roomId string, roomSessionId string) (message *ServerMessage, err error) {
+func (c *TestClient) JoinRoomWithRoomSession(ctx context.Context, roomId string, roomSessionId string) (message *ServerMessage, ok bool) {
 	msg := &ClientMessage{
 		Id:   "ABCD",
 		Type: "room",
@@ -733,80 +788,63 @@ func (c *TestClient) JoinRoomWithRoomSession(ctx context.Context, roomId string,
 			SessionId: roomSessionId,
 		},
 	}
-	if err := c.WriteJSON(msg); err != nil {
-		return nil, err
+	if err := c.WriteJSON(msg); !c.assert.NoError(err) {
+		return nil, false
 	}
 
-	if message, err = c.RunUntilMessage(ctx); err != nil {
-		return nil, err
+	if message, ok = c.RunUntilMessage(ctx); !ok ||
+		!checkMessageType(c.t, message, "room") ||
+		!c.assert.Equal(msg.Id, message.Id, "invalid message id in %+v", message) {
+		return nil, false
 	}
-	if err := checkUnexpectedClose(err); err != nil {
-		return nil, err
-	}
-	if err := checkMessageType(message, "room"); err != nil {
-		return nil, err
-	}
-	if message.Id != msg.Id {
-		return nil, fmt.Errorf("expected message id %s, got %s", msg.Id, message.Id)
-	}
-	return message, nil
+
+	return message, true
 }
 
-func checkMessageRoomId(message *ServerMessage, roomId string) error {
-	if err := checkMessageType(message, "room"); err != nil {
-		return err
-	}
-	if message.Room.RoomId != roomId {
-		return fmt.Errorf("Expected room id %s, got %+v", roomId, message.Room)
-	}
-	return nil
+func checkMessageRoomId(t *testing.T, message *ServerMessage, roomId string) bool {
+	return checkMessageType(t, message, "room") &&
+		assert.Equal(t, roomId, message.Room.RoomId, "invalid room id in %+v", message)
 }
 
-func (c *TestClient) RunUntilRoom(ctx context.Context, roomId string) error {
-	message, err := c.RunUntilMessage(ctx)
-	if err != nil {
-		return err
-	}
-	if err := checkUnexpectedClose(err); err != nil {
-		return err
-	}
-	return checkMessageRoomId(message, roomId)
+func (c *TestClient) RunUntilRoom(ctx context.Context, roomId string) bool {
+	message, ok := c.RunUntilMessage(ctx)
+	return ok && checkMessageRoomId(c.t, message, roomId)
 }
 
-func (c *TestClient) checkMessageJoined(message *ServerMessage, hello *HelloServerMessage) error {
+func (c *TestClient) checkMessageJoined(message *ServerMessage, hello *HelloServerMessage) bool {
 	return c.checkMessageJoinedSession(message, hello.SessionId, hello.UserId)
 }
 
-func (c *TestClient) checkSingleMessageJoined(message *ServerMessage) error {
-	if err := checkMessageType(message, "event"); err != nil {
-		return err
-	} else if message.Event.Target != "room" {
-		return fmt.Errorf("Expected event target room, got %+v", message.Event)
-	} else if message.Event.Type != "join" {
-		return fmt.Errorf("Expected event type join, got %+v", message.Event)
-	} else if len(message.Event.Join) != 1 {
-		return fmt.Errorf("Expected one join event entry, got %+v", message.Event)
-	}
-	return nil
+func (c *TestClient) checkSingleMessageJoined(message *ServerMessage) bool {
+	return checkMessageType(c.t, message, "event") &&
+		c.assert.Equal("room", message.Event.Target, "invalid event target in %+v", message) &&
+		c.assert.Equal("join", message.Event.Type, "invalid event type in %+v", message) &&
+		c.assert.Len(message.Event.Join, 1, "invalid number of join event entries in %+v", message)
 }
 
-func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId string, userId string) error {
-	if err := c.checkSingleMessageJoined(message); err != nil {
-		return err
+func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId string, userId string) bool {
+	if !c.checkSingleMessageJoined(message) {
+		return false
 	}
 
+	failed := false
 	evt := message.Event.Join[0]
-	if sessionId != "" && evt.SessionId != sessionId {
-		return fmt.Errorf("Expected join session id %+v, got %+v",
-			getPubliceSessionIdData(c.hub, sessionId), getPubliceSessionIdData(c.hub, evt.SessionId))
+	if sessionId != "" {
+		if !c.assert.Equal(sessionId, evt.SessionId, "invalid join session id: expected %+v, got %+v in %+v",
+			getPubliceSessionIdData(c.hub, sessionId),
+			getPubliceSessionIdData(c.hub, evt.SessionId),
+			message,
+		) {
+			failed = true
+		}
 	}
-	if evt.UserId != userId {
-		return fmt.Errorf("Expected join user id %s, got %+v", userId, evt)
+	if !c.assert.Equal(userId, evt.UserId, "invalid user id in %+v", evt) {
+		failed = true
 	}
-	return nil
+	return !failed
 }
 
-func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*HelloServerMessage) ([]*EventServerMessageSessionEntry, []*ServerMessage, error) {
+func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*HelloServerMessage) ([]*EventServerMessageSessionEntry, []*ServerMessage, bool) {
 	received := make([]*EventServerMessageSessionEntry, len(hello))
 	var ignored []*ServerMessage
 	hellos := make(map[*HelloServerMessage]int, len(hello))
@@ -814,16 +852,20 @@ func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*Hell
 		hellos[h] = idx
 	}
 	for len(hellos) > 0 {
-		message, err := c.RunUntilMessage(ctx)
-		if err != nil {
-			return nil, nil, fmt.Errorf("got error while waiting for %+v: %w", hellos, err)
+		message, ok := c.RunUntilMessage(ctx)
+		if !ok {
+			return nil, nil, false
 		}
 
-		if err := checkMessageType(message, "event"); err != nil {
+		if message.Type != "event" || message.Event == nil {
 			ignored = append(ignored, message)
 			continue
 		} else if message.Event.Target != "room" || message.Event.Type != "join" {
 			ignored = append(ignored, message)
+			continue
+		}
+
+		if !checkMessageType(c.t, message, "event") {
 			continue
 		}
 
@@ -841,310 +883,265 @@ func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*Hell
 					}
 				}
 			}
-			if !found {
-				return nil, nil, fmt.Errorf("expected one of the passed hello sessions, got %+v", message.Event.Join[0])
-			}
+			c.assert.True(found, "expected one of the passed hello sessions, got %+v", message.Event.Join)
 		}
 	}
-	return received, ignored, nil
+	return received, ignored, true
 }
 
-func (c *TestClient) RunUntilJoined(ctx context.Context, hello ...*HelloServerMessage) error {
-	_, unexpected, err := c.RunUntilJoinedAndReturn(ctx, hello...)
-	if err != nil {
-		return err
-	}
-	if len(unexpected) > 0 {
-		return fmt.Errorf("Received unexpected messages: %+v", unexpected)
-	}
-	return nil
+func (c *TestClient) RunUntilJoined(ctx context.Context, hello ...*HelloServerMessage) bool {
+	_, unexpected, ok := c.RunUntilJoinedAndReturn(ctx, hello...)
+	return ok && c.assert.Empty(unexpected, "Received unexpected messages: %+v", unexpected)
 }
 
-func (c *TestClient) checkMessageRoomLeave(message *ServerMessage, hello *HelloServerMessage) error {
+func (c *TestClient) checkMessageRoomLeave(message *ServerMessage, hello *HelloServerMessage) bool {
 	return c.checkMessageRoomLeaveSession(message, hello.SessionId)
 }
 
-func (c *TestClient) checkMessageRoomLeaveSession(message *ServerMessage, sessionId string) error {
-	if err := checkMessageType(message, "event"); err != nil {
-		return err
-	} else if message.Event.Target != "room" {
-		return fmt.Errorf("Expected event target room, got %+v", message.Event)
-	} else if message.Event.Type != "leave" {
-		return fmt.Errorf("Expected event type leave, got %+v", message.Event)
-	} else if len(message.Event.Leave) != 1 {
-		return fmt.Errorf("Expected one leave event entry, got %+v", message.Event)
-	} else if message.Event.Leave[0] != sessionId {
-		return fmt.Errorf("Expected leave session id %+v, got %+v",
-			getPubliceSessionIdData(c.hub, sessionId), getPubliceSessionIdData(c.hub, message.Event.Leave[0]))
-	}
-	return nil
+func (c *TestClient) checkMessageRoomLeaveSession(message *ServerMessage, sessionId string) bool {
+	return checkMessageType(c.t, message, "event") &&
+		c.assert.Equal("room", message.Event.Target, "invalid target in %+v", message) &&
+		c.assert.Equal("leave", message.Event.Type, "invalid event type in %+v", message) &&
+		c.assert.Len(message.Event.Leave, 1, "invalid number of leave event entries: %+v", message.Event) &&
+		c.assert.Equal(sessionId, message.Event.Leave[0], "invalid leave session: expected %+v, got %+v in %+v",
+			getPubliceSessionIdData(c.hub, sessionId),
+			getPubliceSessionIdData(c.hub, message.Event.Leave[0]),
+			message,
+		)
 }
 
-func (c *TestClient) RunUntilLeft(ctx context.Context, hello *HelloServerMessage) error {
-	message, err := c.RunUntilMessage(ctx)
-	if err != nil {
-		return err
-	}
-
-	return c.checkMessageRoomLeave(message, hello)
+func (c *TestClient) RunUntilLeft(ctx context.Context, hello *HelloServerMessage) bool {
+	message, ok := c.RunUntilMessage(ctx)
+	return ok && c.checkMessageRoomLeave(message, hello)
 }
 
-func checkMessageRoomlistUpdate(message *ServerMessage) (*RoomEventServerMessage, error) {
-	if err := checkMessageType(message, "event"); err != nil {
-		return nil, err
-	} else if message.Event.Target != "roomlist" {
-		return nil, fmt.Errorf("Expected event target room, got %+v", message.Event)
-	} else if message.Event.Type != "update" || message.Event.Update == nil {
-		return nil, fmt.Errorf("Expected event type update, got %+v", message.Event)
-	} else {
-		return message.Event.Update, nil
+func checkMessageRoomlistUpdate(t *testing.T, message *ServerMessage) (*RoomEventServerMessage, bool) {
+	assert := assert.New(t)
+	if !checkMessageType(t, message, "event") ||
+		!assert.Equal("roomlist", message.Event.Target, "invalid event target in %+v", message) ||
+		!assert.Equal("update", message.Event.Type, "invalid event type in %+v", message) ||
+		!assert.NotNil(message.Event.Update, "update missing in %+v", message) {
+		return nil, false
 	}
+
+	return message.Event.Update, true
 }
 
-func (c *TestClient) RunUntilRoomlistUpdate(ctx context.Context) (*RoomEventServerMessage, error) {
-	message, err := c.RunUntilMessage(ctx)
-	if err != nil {
-		return nil, err
+func (c *TestClient) RunUntilRoomlistUpdate(ctx context.Context) (*RoomEventServerMessage, bool) {
+	message, ok := c.RunUntilMessage(ctx)
+	if !ok {
+		return nil, false
 	}
 
-	return checkMessageRoomlistUpdate(message)
+	return checkMessageRoomlistUpdate(c.t, message)
 }
 
-func checkMessageRoomlistDisinvite(message *ServerMessage) (*RoomDisinviteEventServerMessage, error) {
-	if err := checkMessageType(message, "event"); err != nil {
-		return nil, err
-	} else if message.Event.Target != "roomlist" {
-		return nil, fmt.Errorf("Expected event target room, got %+v", message.Event)
-	} else if message.Event.Type != "disinvite" || message.Event.Disinvite == nil {
-		return nil, fmt.Errorf("Expected event type disinvite, got %+v", message.Event)
+func checkMessageRoomlistDisinvite(t *testing.T, message *ServerMessage) (*RoomDisinviteEventServerMessage, bool) {
+	assert := assert.New(t)
+	if !checkMessageType(t, message, "event") ||
+		!assert.Equal("roomlist", message.Event.Target, "invalid event target in %+v", message) ||
+		!assert.Equal("disinvite", message.Event.Type, "invalid event type in %+v", message) ||
+		!assert.NotNil(message.Event.Disinvite, "disinvite missing in %+v", message) {
+		return nil, false
 	}
 
-	return message.Event.Disinvite, nil
+	return message.Event.Disinvite, true
 }
 
-func (c *TestClient) RunUntilRoomlistDisinvite(ctx context.Context) (*RoomDisinviteEventServerMessage, error) {
-	message, err := c.RunUntilMessage(ctx)
-	if err != nil {
-		return nil, err
+func (c *TestClient) RunUntilRoomlistDisinvite(ctx context.Context) (*RoomDisinviteEventServerMessage, bool) {
+	message, ok := c.RunUntilMessage(ctx)
+	if !ok {
+		return nil, false
 	}
 
-	return checkMessageRoomlistDisinvite(message)
+	return checkMessageRoomlistDisinvite(c.t, message)
 }
 
-func checkMessageParticipantsInCall(message *ServerMessage) (*RoomEventServerMessage, error) {
-	if err := checkMessageType(message, "event"); err != nil {
-		return nil, err
-	} else if message.Event.Target != "participants" {
-		return nil, fmt.Errorf("Expected event target participants, got %+v", message.Event)
-	} else if message.Event.Type != "update" || message.Event.Update == nil {
-		return nil, fmt.Errorf("Expected event type update, got %+v", message.Event)
+func checkMessageParticipantsInCall(t *testing.T, message *ServerMessage) (*RoomEventServerMessage, bool) {
+	assert := assert.New(t)
+	if !checkMessageType(t, message, "event") ||
+		!assert.Equal("participants", message.Event.Target, "invalid event target in %+v", message) ||
+		!assert.Equal("update", message.Event.Type, "invalid event type in %+v", message) ||
+		!assert.NotNil(message.Event.Update, "update missing in %+v", message) {
+		return nil, false
 	}
 
-	return message.Event.Update, nil
+	return message.Event.Update, true
 }
 
-func checkMessageParticipantFlags(message *ServerMessage) (*RoomFlagsServerMessage, error) {
-	if err := checkMessageType(message, "event"); err != nil {
-		return nil, err
-	} else if message.Event.Target != "participants" {
-		return nil, fmt.Errorf("Expected event target room, got %+v", message.Event)
-	} else if message.Event.Type != "flags" || message.Event.Flags == nil {
-		return nil, fmt.Errorf("Expected event type flags, got %+v", message.Event)
+func checkMessageParticipantFlags(t *testing.T, message *ServerMessage) (*RoomFlagsServerMessage, bool) {
+	assert := assert.New(t)
+	if !checkMessageType(t, message, "event") ||
+		!assert.Equal("participants", message.Event.Target, "invalid event target in %+v", message) ||
+		!assert.Equal("flags", message.Event.Type, "invalid event type in %+v", message) ||
+		!assert.NotNil(message.Event.Flags, "flags missing in %+v", message) {
+		return nil, false
 	}
 
-	return message.Event.Flags, nil
+	return message.Event.Flags, true
 }
 
-func checkMessageRoomMessage(message *ServerMessage) (*RoomEventMessage, error) {
-	if err := checkMessageType(message, "event"); err != nil {
-		return nil, err
-	} else if message.Event.Target != "room" {
-		return nil, fmt.Errorf("Expected event target room, got %+v", message.Event)
-	} else if message.Event.Type != "message" || message.Event.Message == nil {
-		return nil, fmt.Errorf("Expected event type message, got %+v", message.Event)
+func checkMessageRoomMessage(t *testing.T, message *ServerMessage) (*RoomEventMessage, bool) {
+	assert := assert.New(t)
+	if !checkMessageType(t, message, "event") ||
+		!assert.Equal("room", message.Event.Target, "invalid event target in %+v", message) ||
+		!assert.Equal("message", message.Event.Type, "invalid event type in %+v", message) ||
+		!assert.NotNil(message.Event.Message, "message missing in %+v", message) {
+		return nil, false
 	}
 
-	return message.Event.Message, nil
+	return message.Event.Message, true
 }
 
-func (c *TestClient) RunUntilRoomMessage(ctx context.Context) (*RoomEventMessage, error) {
-	message, err := c.RunUntilMessage(ctx)
-	if err != nil {
-		return nil, err
+func (c *TestClient) RunUntilRoomMessage(ctx context.Context) (*RoomEventMessage, bool) {
+	message, ok := c.RunUntilMessage(ctx)
+	if !ok {
+		return nil, false
 	}
 
-	return checkMessageRoomMessage(message)
+	return checkMessageRoomMessage(c.t, message)
 }
 
-func checkMessageError(message *ServerMessage, msgid string) error {
-	if err := checkMessageType(message, "error"); err != nil {
-		return err
-	} else if message.Error.Code != msgid {
-		return fmt.Errorf("Expected error \"%s\", got \"%s\" (%+v)", msgid, message.Error.Code, message.Error)
-	}
-
-	return nil
+func checkMessageError(t *testing.T, message *ServerMessage, msgid string) bool {
+	return checkMessageType(t, message, "error") &&
+		assert.Equal(t, msgid, message.Error.Code, "invalid error code in %+v", message)
 }
 
-func (c *TestClient) RunUntilOffer(ctx context.Context, offer string) error {
-	message, err := c.RunUntilMessage(ctx)
-	if err != nil {
-		return err
-	}
-	if err := checkUnexpectedClose(err); err != nil {
-		return err
-	} else if err := checkMessageType(message, "message"); err != nil {
-		return err
+func (c *TestClient) RunUntilOffer(ctx context.Context, offer string) bool {
+	message, ok := c.RunUntilMessage(ctx)
+	if !ok || !checkMessageType(c.t, message, "message") {
+		return false
 	}
 
 	var data StringMap
-	if err := json.Unmarshal(message.Message.Data, &data); err != nil {
-		return err
+	if err := json.Unmarshal(message.Message.Data, &data); !c.assert.NoError(err) {
+		return false
 	}
 
-	if dt, ok := GetStringMapEntry[string](data, "type"); !ok || dt != "offer" {
-		return fmt.Errorf("expected data type offer, got %+v", data)
+	if dt, ok := GetStringMapEntry[string](data, "type"); !c.assert.True(ok, "no/invalid type in %+v", data) ||
+		!c.assert.Equal("offer", dt, "invalid data type in %+v", data) {
+		return false
 	}
 
-	payload, ok := ConvertStringMap(data["payload"])
-	if !ok {
-		return fmt.Errorf("expected string map, got %+v", data["payload"])
-	}
-	if pt, ok := GetStringMapEntry[string](payload, "type"); !ok || pt != "offer" {
-		return fmt.Errorf("expected payload type offer, got %+v", payload)
-	}
-	if sdp, ok := GetStringMapEntry[string](payload, "sdp"); !ok || sdp != offer {
-		return fmt.Errorf("expected payload offer %s, got %+v", offer, payload)
+	if payload, ok := ConvertStringMap(data["payload"]); !c.assert.True(ok, "not a string map, got %+v", data["payload"]) {
+		return false
+	} else {
+		if pt, ok := GetStringMapEntry[string](payload, "type"); !c.assert.True(ok, "no/invalid type in payload %+v", payload) ||
+			!c.assert.Equal("offer", pt, "invalid payload type in %+v", payload) {
+			return false
+		}
+		if sdp, ok := GetStringMapEntry[string](payload, "sdp"); !c.assert.True(ok, "no/invalid sdp in payload %+v", payload) ||
+			!c.assert.Equal(offer, sdp, "invalid payload offer") {
+			return false
+		}
 	}
 
-	return nil
+	return true
 }
 
-func (c *TestClient) RunUntilAnswer(ctx context.Context, answer string) error {
+func (c *TestClient) RunUntilAnswer(ctx context.Context, answer string) bool {
 	return c.RunUntilAnswerFromSender(ctx, answer, nil)
 }
 
-func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string, sender *MessageServerMessageSender) error {
-	message, err := c.RunUntilMessage(ctx)
-	if err != nil {
-		return err
-	}
-	if err := checkUnexpectedClose(err); err != nil {
-		return err
-	} else if err := checkMessageType(message, "message"); err != nil {
-		return err
+func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string, sender *MessageServerMessageSender) bool {
+	message, ok := c.RunUntilMessage(ctx)
+	if !ok || !checkMessageType(c.t, message, "message") {
+		return false
 	}
 
 	if sender != nil {
-		if err := checkMessageSender(c.hub, message.Message.Sender, sender.Type, &HelloServerMessage{
+		if !checkMessageSender(c.t, c.hub, message.Message.Sender, sender.Type, &HelloServerMessage{
 			SessionId: sender.SessionId,
 			UserId:    sender.UserId,
-		}); err != nil {
-			return err
+		}) {
+			return false
 		}
 	}
 
 	var data StringMap
-	if err := json.Unmarshal(message.Message.Data, &data); err != nil {
-		return err
+	if err := json.Unmarshal(message.Message.Data, &data); !c.assert.NoError(err) {
+		return false
 	}
 
-	if dt, ok := GetStringMapEntry[string](data, "type"); !ok || dt != "answer" {
-		return fmt.Errorf("expected data type answer, got %+v", data)
+	if dt, ok := GetStringMapEntry[string](data, "type"); !c.assert.True(ok, "no/invalid type in %+v", data) ||
+		!c.assert.Equal("answer", dt, "invalid data type in %+v", data) {
+		return false
 	}
 
-	payload, ok := ConvertStringMap(data["payload"])
-	if !ok {
-		return fmt.Errorf("expected string map, got %+v", payload)
-	}
-	if pt, ok := GetStringMapEntry[string](payload, "type"); !ok || pt != "answer" {
-		return fmt.Errorf("expected payload type answer, got %+v", payload)
-	}
-	if sdp, ok := GetStringMapEntry[string](payload, "sdp"); !ok || sdp != answer {
-		return fmt.Errorf("expected payload answer %s, got %+v", answer, payload)
+	if payload, ok := ConvertStringMap(data["payload"]); !c.assert.True(ok, "not a string map, got %+v", data["payload"]) {
+		return false
+	} else {
+		if pt, ok := GetStringMapEntry[string](payload, "type"); !c.assert.True(ok, "no/invalid type in payload %+v", payload) ||
+			!c.assert.Equal("answer", pt, "invalid payload type in %+v", payload) {
+			return false
+		}
+		if sdp, ok := GetStringMapEntry[string](payload, "sdp"); !c.assert.True(ok, "no/invalid sdp in payload %+v", payload) ||
+			!c.assert.Equal(answer, sdp, "invalid payload answer") {
+			return false
+		}
 	}
 
-	return nil
+	return true
 }
 
-func checkMessageTransientSet(t *testing.T, message *ServerMessage, key string, value any, oldValue any) error {
-	if err := checkMessageType(message, "transient"); err != nil {
-		return err
-	}
-
+func checkMessageTransientSet(t *testing.T, message *ServerMessage, key string, value any, oldValue any) bool {
 	assert := assert.New(t)
-	assert.Equal("set", message.TransientData.Type, "invalid message type")
-	assert.Equal(key, message.TransientData.Key, "invalid key")
-	assert.EqualValues(value, message.TransientData.Value, "invalid value")
-	assert.EqualValues(oldValue, message.TransientData.OldValue, "invalid old value")
-	return nil
+	return checkMessageType(t, message, "transient") &&
+		assert.Equal("set", message.TransientData.Type, "invalid message type in %+v", message) &&
+		assert.Equal(key, message.TransientData.Key, "invalid key in %+v", message) &&
+		assert.EqualValues(value, message.TransientData.Value, "invalid value in %+v", message) &&
+		assert.EqualValues(oldValue, message.TransientData.OldValue, "invalid old value in %+v", message)
 }
 
-func checkMessageTransientRemove(t *testing.T, message *ServerMessage, key string, oldValue any) error {
-	if err := checkMessageType(message, "transient"); err != nil {
-		return err
-	}
-
+func checkMessageTransientRemove(t *testing.T, message *ServerMessage, key string, oldValue any) bool {
 	assert := assert.New(t)
-	assert.Equal("remove", message.TransientData.Type, "invalid message type")
-	assert.Equal(key, message.TransientData.Key, "invalid key")
-	assert.EqualValues(oldValue, message.TransientData.OldValue, "invalid old value")
-	return nil
+	return checkMessageType(t, message, "transient") &&
+		assert.Equal("remove", message.TransientData.Type, "invalid message type in %+v", message) &&
+		assert.Equal(key, message.TransientData.Key, "invalid key in %+v", message) &&
+		assert.EqualValues(oldValue, message.TransientData.OldValue, "invalid old value in %+v", message)
 }
 
-func checkMessageTransientInitial(t *testing.T, message *ServerMessage, data StringMap) error {
-	if err := checkMessageType(message, "transient"); err != nil {
-		return err
-	}
-
+func checkMessageTransientInitial(t *testing.T, message *ServerMessage, data StringMap) bool {
 	assert := assert.New(t)
-	assert.Equal("initial", message.TransientData.Type, "invalid message type")
-	assert.EqualValues(data, message.TransientData.Data, "invalid initial data")
-	return nil
+	return checkMessageType(t, message, "transient") &&
+		assert.Equal("initial", message.TransientData.Type, "invalid message type in %+v", message) &&
+		assert.EqualValues(data, message.TransientData.Data, "invalid initial data in %+v", message)
 }
 
-func checkMessageInCallAll(message *ServerMessage, roomId string, inCall int) error {
-	if err := checkMessageType(message, "event"); err != nil {
-		return err
-	} else if message.Event.Type != "update" {
-		return fmt.Errorf("Expected update event, got %+v", message.Event)
-	} else if message.Event.Target != "participants" {
-		return fmt.Errorf("Expected participants update event, got %+v", message.Event)
-	} else if message.Event.Update.RoomId != roomId {
-		return fmt.Errorf("Expected participants update event for room %s, got %+v", roomId, message.Event.Update)
-	} else if !message.Event.Update.All {
-		return fmt.Errorf("Expected participants update event for all, got %+v", message.Event.Update)
-	} else if !bytes.Equal(message.Event.Update.InCall, []byte(strconv.FormatInt(int64(inCall), 10))) {
-		return fmt.Errorf("Expected incall flags %d, got %+v", inCall, message.Event.Update)
-	}
-	return nil
+func checkMessageInCallAll(t *testing.T, message *ServerMessage, roomId string, inCall int) bool {
+	assert := assert.New(t)
+	return checkMessageType(t, message, "event") &&
+		assert.Equal("update", message.Event.Type, "invalid event type, got %+v", message.Event) &&
+		assert.Equal("participants", message.Event.Target, "invalid event target, got %+v", message.Event) &&
+		assert.Equal(roomId, message.Event.Update.RoomId, "invalid event update room id, got %+v", message.Event) &&
+		assert.True(message.Event.Update.All, "expected participants update event for all, got %+v", message.Event) &&
+		assert.EqualValues(strconv.FormatInt(int64(inCall), 10), message.Event.Update.InCall, "expected incall flags %d, got %+v", inCall, message.Event.Update)
 }
 
-func checkMessageSwitchTo(message *ServerMessage, roomId string, details json.RawMessage) (*EventServerMessageSwitchTo, error) {
-	if err := checkMessageType(message, "event"); err != nil {
-		return nil, err
-	} else if message.Event.Type != "switchto" {
-		return nil, fmt.Errorf("Expected switchto event, got %+v", message.Event)
-	} else if message.Event.Target != "room" {
-		return nil, fmt.Errorf("Expected room switchto event, got %+v", message.Event)
-	} else if message.Event.SwitchTo.RoomId != roomId {
-		return nil, fmt.Errorf("Expected room switchto event for room %s, got %+v", roomId, message.Event)
+func checkMessageSwitchTo(t *testing.T, message *ServerMessage, roomId string, details json.RawMessage) (*EventServerMessageSwitchTo, bool) {
+	assert := assert.New(t)
+	if !checkMessageType(t, message, "event") ||
+		!assert.Equal("switchto", message.Event.Type, "invalid event type, got %+v", message.Event) ||
+		!assert.Equal("room", message.Event.Target, "invalid event target, got %+v", message.Event) ||
+		!assert.Equal(roomId, message.Event.SwitchTo.RoomId, "invalid event switchto room id, got %+v", message.Event) {
+		return nil, false
 	}
 	if details != nil {
-		if message.Event.SwitchTo.Details == nil || !bytes.Equal(details, message.Event.SwitchTo.Details) {
-			return nil, fmt.Errorf("Expected details %s, got %+v", string(details), message.Event)
+		if !assert.NotEmpty(message.Event.SwitchTo.Details, "details missing in %+v", message) ||
+			!assert.Equal(details, message.Event.SwitchTo.Details, "invalid details, got %+v", message.Event) {
+			return nil, false
 		}
-	} else if message.Event.SwitchTo.Details != nil {
-		return nil, fmt.Errorf("Expected no details, got %+v", message.Event)
+	} else if assert.Empty(message.Event.SwitchTo.Details, "expected no details in %+v", message) {
+		return nil, false
 	}
-	return message.Event.SwitchTo, nil
+	return message.Event.SwitchTo, true
 }
 
-func (c *TestClient) RunUntilSwitchTo(ctx context.Context, roomId string, details json.RawMessage) (*EventServerMessageSwitchTo, error) {
-	message, err := c.RunUntilMessage(ctx)
-	if err != nil {
-		return nil, err
+func (c *TestClient) RunUntilSwitchTo(ctx context.Context, roomId string, details json.RawMessage) (*EventServerMessageSwitchTo, bool) {
+	message, ok := c.RunUntilMessage(ctx)
+	if !ok {
+		return nil, false
 	}
 
-	return checkMessageSwitchTo(message, roomId, details)
+	return checkMessageSwitchTo(c.t, message, roomId, details)
 }

@@ -144,22 +144,15 @@ func TestBandwidth_Client(t *testing.T) {
 
 	hub.SetMcu(mcu)
 
-	client := NewTestClient(t, server, hub)
-	defer client.CloseWithBye()
-
-	require.NoError(client.SendHello(testDefaultUserId))
-
-	hello, err := client.RunUntilHello(ctx)
-	require.NoError(err)
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
 
 	// Join room by id.
 	roomId := "test-room"
-	roomMsg, err := client.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// We will receive a "joined" event.
-	assert.NoError(client.RunUntilJoined(ctx, hello.Hello))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	// Client may not send an offer with audio and video.
 	bitrate := 10000
@@ -176,7 +169,7 @@ func TestBandwidth_Client(t *testing.T) {
 		},
 	}))
 
-	require.NoError(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+	require.True(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
 
 	pub := mcu.GetPublisher(hello.Hello.SessionId)
 	require.NotNil(pub)
@@ -223,17 +216,15 @@ func TestBandwidth_Backend(t *testing.T) {
 			}
 			require.NoError(client.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params))
 
-			hello, err := client.RunUntilHello(ctx)
-			require.NoError(err)
+			hello := MustSucceed1(t, client.RunUntilHello, ctx)
 
 			// Join room by id.
 			roomId := "test-room"
-			roomMsg, err := client.JoinRoom(ctx, roomId)
-			require.NoError(err)
+			roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// We will receive a "joined" event.
-			require.NoError(client.RunUntilJoined(ctx, hello.Hello))
+			require.True(client.RunUntilJoined(ctx, hello.Hello))
 
 			// Client may not send an offer with audio and video.
 			bitrate := 10000
@@ -250,7 +241,7 @@ func TestBandwidth_Backend(t *testing.T) {
 				},
 			}))
 
-			require.NoError(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+			require.True(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
 
 			pub := mcu.GetPublisher(hello.Hello.SessionId)
 			require.NotNil(pub, "Could not find publisher")

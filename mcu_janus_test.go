@@ -1265,7 +1265,11 @@ func Test_JanusRemotePublisher(t *testing.T) {
 
 func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
-	defer checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+		}
+	})
 
 	CatchLogForTest(t)
 	require := require.New(t)
@@ -1290,32 +1294,20 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	client1 := NewTestClient(t, server, hub)
-	defer client1.CloseWithBye()
-	require.NoError(client1.SendHello(testDefaultUserId + "1"))
-	hello1, err := client1.RunUntilHello(ctx)
-	require.NoError(err)
-
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
-	require.NoError(client2.SendHello(testDefaultUserId + "2"))
-	hello2, err := client2.RunUntilHello(ctx)
-	require.NoError(err)
-
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
 
 	// Join room by id.
 	roomId := "test-room"
-	roomMsg, err := client1.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Give message processing some time.
 	time.Sleep(10 * time.Millisecond)
 
-	roomMsg, err = client2.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
@@ -1334,8 +1326,8 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
 	room.PublishUsersInCallChanged(users1, users1)
-	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", nil))
-	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
+	checkReceiveClientEvent(ctx, t, client1, "update", nil)
+	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
 	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
@@ -1348,7 +1340,7 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 		},
 	}))
 
-	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
 
 	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
@@ -1358,8 +1350,7 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 		RoomType: "video",
 	}))
 
-	_, err = client2.RunUntilError(ctx, "processing_failed")
-	require.NoError(err)
+	MustSucceed2(t, client2.RunUntilError, ctx, "processing_failed") // nolint
 
 	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
@@ -1369,12 +1360,16 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 		RoomType: "video",
 	}))
 
-	require.NoError(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
+	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
 func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
-	defer checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+		}
+	})
 
 	CatchLogForTest(t)
 	require := require.New(t)
@@ -1399,32 +1394,20 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	client1 := NewTestClient(t, server, hub)
-	defer client1.CloseWithBye()
-	require.NoError(client1.SendHello(testDefaultUserId + "1"))
-	hello1, err := client1.RunUntilHello(ctx)
-	require.NoError(err)
-
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
-	require.NoError(client2.SendHello(testDefaultUserId + "2"))
-	hello2, err := client2.RunUntilHello(ctx)
-	require.NoError(err)
-
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
 
 	// Join room by id.
 	roomId := "test-room"
-	roomMsg, err := client1.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Give message processing some time.
 	time.Sleep(10 * time.Millisecond)
 
-	roomMsg, err = client2.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
@@ -1443,8 +1426,8 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
 	room.PublishUsersInCallChanged(users1, users1)
-	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", nil))
-	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
+	checkReceiveClientEvent(ctx, t, client1, "update", nil)
+	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
 	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
@@ -1457,7 +1440,7 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 		},
 	}))
 
-	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
 
 	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
@@ -1468,8 +1451,7 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	}))
 
 	if strings.Contains(t.Name(), "AttachError") {
-		_, err = client2.RunUntilError(ctx, "processing_failed")
-		require.NoError(err)
+		MustSucceed2(t, client2.RunUntilError, ctx, "processing_failed") // nolint
 
 		require.NoError(client2.SendMessage(MessageClientMessageRecipient{
 			Type:      "session",
@@ -1480,7 +1462,7 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 		}))
 	}
 
-	require.NoError(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
+	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
 func Test_JanusSubscriberAlreadyJoined(t *testing.T) {
@@ -1493,7 +1475,11 @@ func Test_JanusSubscriberAlreadyJoinedAttachError(t *testing.T) {
 
 func Test_JanusSubscriberTimeout(t *testing.T) {
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
-	defer checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+		}
+	})
 
 	CatchLogForTest(t)
 	require := require.New(t)
@@ -1518,32 +1504,20 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	client1 := NewTestClient(t, server, hub)
-	defer client1.CloseWithBye()
-	require.NoError(client1.SendHello(testDefaultUserId + "1"))
-	hello1, err := client1.RunUntilHello(ctx)
-	require.NoError(err)
-
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
-	require.NoError(client2.SendHello(testDefaultUserId + "2"))
-	hello2, err := client2.RunUntilHello(ctx)
-	require.NoError(err)
-
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
 
 	// Join room by id.
 	roomId := "test-room"
-	roomMsg, err := client1.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Give message processing some time.
 	time.Sleep(10 * time.Millisecond)
 
-	roomMsg, err = client2.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
@@ -1562,8 +1536,8 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
 	room.PublishUsersInCallChanged(users1, users1)
-	assert.NoError(checkReceiveClientEvent(ctx, client1, "update", nil))
-	assert.NoError(checkReceiveClientEvent(ctx, client2, "update", nil))
+	checkReceiveClientEvent(ctx, t, client1, "update", nil)
+	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
 	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
@@ -1576,7 +1550,7 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 		},
 	}))
 
-	require.NoError(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
 
 	oldTimeout := mcu.settings.timeout.Swap(100 * int64(time.Millisecond))
 
@@ -1588,8 +1562,7 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 		RoomType: "video",
 	}))
 
-	_, err = client2.RunUntilError(ctx, "processing_failed")
-	require.NoError(err)
+	MustSucceed2(t, client2.RunUntilError, ctx, "processing_failed") // nolint
 
 	mcu.settings.timeout.Store(oldTimeout)
 
@@ -1601,5 +1574,5 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 		RoomType: "video",
 	}))
 
-	require.NoError(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
+	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
