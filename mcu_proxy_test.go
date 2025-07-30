@@ -47,6 +47,10 @@ import (
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
+const (
+	timeoutTestTimeout = 100 * time.Millisecond
+)
+
 func TestMcuProxyStats(t *testing.T) {
 	collectAndLint(t, proxyMcuStats...)
 }
@@ -270,6 +274,10 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 	var response *ProxyServerMessage
 	switch msg.Command.Type {
 	case "create-publisher":
+		if strings.Contains(c.t.Name(), "ProxyPublisherTimeout") {
+			time.Sleep(2 * timeoutTestTimeout)
+			defer c.server.Wakeup()
+		}
 		pub := c.server.createPublisher()
 
 		if assert.NotNil(c.t, msg.Command.PublisherSettings) {
@@ -296,6 +304,10 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 		}
 		c.server.updateLoad(1)
 	case "delete-publisher":
+		if strings.Contains(c.t.Name(), "ProxyPublisherTimeout") {
+			defer c.server.Wakeup()
+		}
+
 		if pub, found := c.server.deletePublisher(msg.Command.ClientId); !found {
 			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("publisher %s not found", msg.Command.ClientId))
 		} else {
@@ -345,6 +357,10 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 		if pub == nil {
 			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("publisher %s not found", msg.Command.PublisherId))
 		} else {
+			if strings.Contains(c.t.Name(), "ProxySubscriberTimeout") {
+				time.Sleep(2 * timeoutTestTimeout)
+				defer c.server.Wakeup()
+			}
 			sub := c.server.createSubscriber(pub)
 			response = &ProxyServerMessage{
 				Id:   msg.Id,
@@ -357,6 +373,9 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 			c.server.updateLoad(1)
 		}
 	case "delete-subscriber":
+		if strings.Contains(c.t.Name(), "ProxySubscriberTimeout") {
+			defer c.server.Wakeup()
+		}
 		if sub, found := c.server.deleteSubscriber(msg.Command.ClientId); !found {
 			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("subscriber %s not found", msg.Command.ClientId))
 		} else {
@@ -501,6 +520,8 @@ type TestProxyServerHandler struct {
 	clients     map[string]*testProxyServerClient
 	publishers  map[string]*testProxyServerPublisher
 	subscribers map[string]*testProxyServerSubscriber
+
+	wakeupChan chan struct{}
 }
 
 func (h *TestProxyServerHandler) createPublisher() *testProxyServerPublisher {
@@ -672,6 +693,19 @@ func (h *TestProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	go client.run()
 }
 
+func (h *TestProxyServerHandler) Wakeup() {
+	h.wakeupChan <- struct{}{}
+}
+
+func (h *TestProxyServerHandler) WaitForWakeup(ctx context.Context) error {
+	select {
+	case <-h.wakeupChan:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler {
 	t.Helper()
 
@@ -684,6 +718,7 @@ func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler
 		clients:     make(map[string]*testProxyServerClient),
 		publishers:  make(map[string]*testProxyServerPublisher),
 		subscribers: make(map[string]*testProxyServerSubscriber),
+		wakeupChan:  make(chan struct{}),
 	}
 	server := httptest.NewServer(proxyHandler)
 	proxyHandler.server = server
@@ -2031,4 +2066,97 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
+}
+
+func Test_ProxyPublisherTimeout(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := NewProxyServerForTest(t, "DE")
+	mcu := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{server},
+	}, 0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+
+	settings := mcu.settings.(*mcuProxySettings)
+	settings.timeout.Store(timeoutTestTimeout.Nanoseconds())
+
+	// Creating the publisher will timeout locally.
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
+	if pub != nil {
+		defer pub.Close(context.Background())
+	}
+	assert.ErrorContains(err, "no MCU connection available")
+
+	// Wait for publisher to be created on the proxy side.
+	require.NoError(server.WaitForWakeup(ctx), "publisher not created")
+
+	// The local side will remove the (unused) publisher from the proxy.
+	require.NoError(server.WaitForWakeup(ctx), "unused publisher not deleted")
+}
+
+func Test_ProxySubscriberTimeout(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := NewProxyServerForTest(t, "DE")
+	mcu := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{server},
+	}, 0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := "the-publisher"
+	pubSid := "1234567890"
+	pubListener := &MockMcuListener{
+		publicId: pubId + "-public",
+	}
+	pubInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, StreamTypeVideo, NewPublisherSettings{
+		MediaTypes: MediaTypeVideo | MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	subListener := &MockMcuListener{
+		publicId: "subscriber-public",
+	}
+	subInitiator := &MockMcuInitiator{
+		country: "DE",
+	}
+
+	settings := mcu.settings.(*mcuProxySettings)
+	settings.timeout.Store(timeoutTestTimeout.Nanoseconds())
+
+	// Creating the subscriber will timeout locally.
+	sub, err := mcu.NewSubscriber(ctx, subListener, pubId, StreamTypeVideo, subInitiator)
+	if sub != nil {
+		defer sub.Close(context.Background())
+	}
+	assert.ErrorIs(err, context.DeadlineExceeded)
+
+	// Wait for subscriber to be created on the proxy side.
+	require.NoError(server.WaitForWakeup(ctx), "subscriber not created")
+
+	// The local side will remove the (unused) subscriber from the proxy.
+	require.NoError(server.WaitForWakeup(ctx), "unused subscriber not deleted")
 }
