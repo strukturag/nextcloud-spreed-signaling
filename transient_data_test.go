@@ -194,10 +194,10 @@ func Test_TransientMessages(t *testing.T) {
 	require.NoError(client1.SetTransientData("foo", "bar", 0))
 
 	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientSet(msg, "foo", "bar", nil))
+		require.NoError(checkMessageTransientSet(t, msg, "foo", "bar", nil))
 	}
 	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientSet(msg, "foo", "bar", nil))
+		require.NoError(checkMessageTransientSet(t, msg, "foo", "bar", nil))
 	}
 
 	require.NoError(client2.RemoveTransientData("foo"))
@@ -222,19 +222,19 @@ func Test_TransientMessages(t *testing.T) {
 	require.NoError(client1.SetTransientData("foo", data, 0))
 
 	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientSet(msg, "foo", data, "bar"))
+		require.NoError(checkMessageTransientSet(t, msg, "foo", data, "bar"))
 	}
 	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientSet(msg, "foo", data, "bar"))
+		require.NoError(checkMessageTransientSet(t, msg, "foo", data, "bar"))
 	}
 
 	require.NoError(client1.RemoveTransientData("foo"))
 
 	if msg, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientRemove(msg, "foo", data))
+		require.NoError(checkMessageTransientRemove(t, msg, "foo", data))
 	}
 	if msg, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientRemove(msg, "foo", data))
+		require.NoError(checkMessageTransientRemove(t, msg, "foo", data))
 	}
 
 	// Removing a non-existing key is ignored by the server.
@@ -273,12 +273,12 @@ func Test_TransientMessages(t *testing.T) {
 		require.LessOrEqual(len(ignored), 1, "Received too many messages: %+v", ignored)
 	}
 
-	require.NoError(checkMessageTransientInitial(msg, map[string]any{
+	require.NoError(checkMessageTransientInitial(t, msg, StringMap{
 		"abc": data,
 	}))
 
 	time.Sleep(10 * time.Millisecond)
 	if msg, err = client3.RunUntilMessage(ctx); assert.NoError(err) {
-		require.NoError(checkMessageTransientRemove(msg, "abc", data))
+		require.NoError(checkMessageTransientRemove(t, msg, "abc", data))
 	}
 }

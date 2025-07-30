@@ -55,7 +55,7 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 			}
 
 			for _, stream := range streams {
-				if stream, ok := stream.(map[string]any); ok {
+				if stream, ok := ConvertStringMap(stream); ok {
 					if (stream["type"] == "audio" || stream["type"] == "video") && stream["active"] != false {
 						return
 					}
@@ -149,7 +149,7 @@ func (p *mcuJanusSubscriber) Close(ctx context.Context) {
 	p.mcuJanusClient.Close(ctx)
 }
 
-func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelection, callback func(error, map[string]any)) {
+func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelection, callback func(error, StringMap)) {
 	handle := p.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
@@ -161,13 +161,13 @@ func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelecti
 
 	loggedNotPublishingYet := false
 retry:
-	join_msg := map[string]any{
+	join_msg := StringMap{
 		"request": "join",
 		"ptype":   "subscriber",
 		"room":    p.roomId,
 	}
 	if p.mcu.isMultistream() {
-		join_msg["streams"] = []map[string]any{
+		join_msg["streams"] = []StringMap{
 			{
 				"feed": streamTypeUserIds[p.streamType],
 			},
@@ -255,14 +255,14 @@ retry:
 	callback(nil, join_response.Jsep)
 }
 
-func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection, callback func(error, map[string]any)) {
+func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection, callback func(error, StringMap)) {
 	handle := p.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
 	}
 
-	configure_msg := map[string]any{
+	configure_msg := StringMap{
 		"request": "configure",
 		"update":  true,
 	}
@@ -278,7 +278,7 @@ func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection
 	callback(nil, configure_response.Jsep)
 }
 
-func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any)) {
+func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
 	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {

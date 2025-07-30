@@ -139,7 +139,7 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	notify := false
 	p.mu.Lock()
 	if handle := p.handle; handle != nil && p.roomId != 0 {
-		destroy_msg := map[string]any{
+		destroy_msg := StringMap{
 			"request": "destroy",
 			"room":    p.roomId,
 		}
@@ -167,7 +167,7 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	p.mcuJanusClient.Close(ctx)
 }
 
-func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any)) {
+func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
 	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {
@@ -201,30 +201,25 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
-			p.sendOffer(msgctx, jsep_msg, func(err error, jsep map[string]any) {
+			p.sendOffer(msgctx, jsep_msg, func(err error, jsep StringMap) {
 				if err != nil {
 					callback(err, jsep)
 					return
 				}
 
-				sdpData, found := jsep["sdp"]
+				sdpString, found := GetStringMapEntry[string](jsep, "sdp")
 				if !found {
-					log.Printf("No sdp found in answer %+v", jsep)
+					log.Printf("No/invalid sdp found in answer %+v", jsep)
+				} else if answerSdp, err := parseSDP(sdpString); err != nil {
+					log.Printf("Error parsing answer sdp %+v: %s", sdpString, err)
+					p.answerSdp.Store(nil)
+					p.sdpFlags.Remove(sdpHasAnswer)
 				} else {
-					sdpString, ok := sdpData.(string)
-					if !ok {
-						log.Printf("Invalid sdp found in answer %+v", jsep)
-					} else if answerSdp, err := parseSDP(sdpString); err != nil {
-						log.Printf("Error parsing answer sdp %+v: %s", sdpString, err)
-						p.answerSdp.Store(nil)
-						p.sdpFlags.Remove(sdpHasAnswer)
-					} else {
-						// Note: we don't need to filter the SDP received from Janus.
-						p.answerSdp.Store(answerSdp)
-						p.sdpFlags.Add(sdpHasAnswer)
-						if p.sdpFlags.Get() == sdpHasAnswer|sdpHasOffer {
-							p.sdpReady.Close()
-						}
+					// Note: we don't need to filter the SDP received from Janus.
+					p.answerSdp.Store(answerSdp)
+					p.sdpFlags.Add(sdpHasAnswer)
+					if p.sdpFlags.Get() == sdpHasAnswer|sdpHasOffer {
+						p.sdpReady.Close()
 					}
 				}
 
@@ -403,7 +398,7 @@ func getPublisherRemoteId(id string, remoteId string, hostname string, port int,
 }
 
 func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
-	msg := map[string]any{
+	msg := StringMap{
 		"request":      "publish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],
@@ -440,7 +435,7 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, 
 }
 
 func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
-	msg := map[string]any{
+	msg := StringMap{
 		"request":      "unpublish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],

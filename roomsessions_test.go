@@ -63,7 +63,7 @@ func (s *DummySession) UserData() json.RawMessage {
 	return nil
 }
 
-func (s *DummySession) ParsedUserData() (map[string]any, error) {
+func (s *DummySession) ParsedUserData() (StringMap, error) {
 	return nil, nil
 }
 

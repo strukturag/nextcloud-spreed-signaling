@@ -171,7 +171,7 @@ func TestBandwidth_Client(t *testing.T) {
 		Sid:      "54321",
 		RoomType: "video",
 		Bitrate:  bitrate,
-		Payload: map[string]any{
+		Payload: StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -245,7 +245,7 @@ func TestBandwidth_Backend(t *testing.T) {
 				Sid:      "54321",
 				RoomType: string(streamType),
 				Bitrate:  bitrate,
-				Payload: map[string]any{
+				Payload: StringMap{
 					"sdp": MockSdpOfferAudioAndVideo,
 				},
 			}))

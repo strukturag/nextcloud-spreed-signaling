@@ -427,7 +427,7 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentStringStringMap, users []map[string]any) []map[string]any {
+func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentStringStringMap, users []StringMap) []StringMap {
 	if len(users) == 0 {
 		return users
 	}
@@ -453,7 +453,7 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 		}
 
 		wg.Add(1)
-		go func(roomSessionId string, u map[string]any) {
+		go func(roomSessionId string, u StringMap) {
 			defer wg.Done()
 			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
 				log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
@@ -468,7 +468,7 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 	}
 	wg.Wait()
 
-	result := make([]map[string]any, 0, len(users))
+	result := make([]StringMap, 0, len(users))
 	for _, user := range users {
 		if _, found := user["sessionId"]; found {
 			result = append(result, user)

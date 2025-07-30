@@ -2155,7 +2155,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 					return
 				}
 
-				mc.SendMessage(session.Context(), msg, clientData, func(err error, response map[string]any) {
+				mc.SendMessage(session.Context(), msg, clientData, func(err error, response StringMap) {
 					if err != nil {
 						log.Printf("Could not send MCU message %+v for session %s to %s: %s", clientData, session.PublicId(), recipient.PublicId(), err)
 						sendMcuProcessingFailed(session, message)
@@ -2749,7 +2749,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 		return
 	}
 
-	mc.SendMessage(session.Context(), message, data, func(err error, response map[string]any) {
+	mc.SendMessage(session.Context(), message, data, func(err error, response StringMap) {
 		if err != nil {
 			if !errors.Is(err, ErrCandidateFiltered) {
 				log.Printf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
@@ -2765,7 +2765,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 	})
 }
 
-func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *MessageClientMessage, data *MessageClientMessageData, response map[string]any) {
+func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *MessageClientMessage, data *MessageClientMessageData, response StringMap) {
 	var response_message *ServerMessage
 	switch response["type"] {
 	case "answer":
@@ -2880,8 +2880,8 @@ func (h *Hub) processRoomParticipants(message *BackendServerRoomRequest) {
 	room.PublishUsersChanged(message.Participants.Changed, message.Participants.Users)
 }
 
-func (h *Hub) GetStats() map[string]any {
-	result := make(map[string]any)
+func (h *Hub) GetStats() StringMap {
+	result := make(StringMap)
 	h.ru.RLock()
 	result["rooms"] = len(h.rooms)
 	h.ru.RUnlock()

@@ -56,7 +56,7 @@ type Session interface {
 
 	UserId() string
 	UserData() json.RawMessage
-	ParsedUserData() (map[string]any, error)
+	ParsedUserData() (StringMap, error)
 
 	Backend() *Backend
 	BackendUrl() string
@@ -74,13 +74,13 @@ type Session interface {
 	SendMessage(message *ServerMessage) bool
 }
 
-func parseUserData(data json.RawMessage) func() (map[string]any, error) {
-	return sync.OnceValues(func() (map[string]any, error) {
+func parseUserData(data json.RawMessage) func() (StringMap, error) {
+	return sync.OnceValues(func() (StringMap, error) {
 		if len(data) == 0 {
 			return nil, nil
 		}
 
-		var m map[string]any
+		var m StringMap
 		if err := json.Unmarshal(data, &m); err != nil {
 			return nil, err
 		}

@@ -603,14 +603,14 @@ func (c *FederationClient) joinRoom() error {
 	})
 }
 
-func (c *FederationClient) updateEventUsers(users []map[string]any, localSessionId string, remoteSessionId string) {
+func (c *FederationClient) updateEventUsers(users []StringMap, localSessionId string, remoteSessionId string) {
 	localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
 	localCloudUrlLen := len(localCloudUrl)
 	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
 	checkSessionId := true
 	for _, u := range users {
-		if actorType, found := getStringMapEntry[string](u, "actorType"); found {
-			if actorId, found := getStringMapEntry[string](u, "actorId"); found {
+		if actorType, found := GetStringMapEntry[string](u, "actorType"); found {
+			if actorId, found := GetStringMapEntry[string](u, "actorId"); found {
 				switch actorType {
 				case ActorTypeFederatedUsers:
 					if strings.HasSuffix(actorId, localCloudUrl) {
@@ -626,10 +626,10 @@ func (c *FederationClient) updateEventUsers(users []map[string]any, localSession
 
 		if checkSessionId {
 			key := "sessionId"
-			sid, found := getStringMapEntry[string](u, key)
+			sid, found := GetStringMapEntry[string](u, key)
 			if !found {
 				key := "sessionid"
-				sid, found = getStringMapEntry[string](u, key)
+				sid, found = GetStringMapEntry[string](u, key)
 			}
 			if found && sid == remoteSessionId {
 				u[key] = localSessionId
@@ -668,7 +668,7 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 		c.updateSessionSender(msg.Control.Sender, localSessionId, remoteSessionId)
 		// Special handling for "forceMute" event.
 		if len(msg.Control.Data) > 0 && msg.Control.Data[0] == '{' {
-			var data map[string]any
+			var data StringMap
 			if err := json.Unmarshal(msg.Control.Data, &data); err == nil {
 				if action, found := data["action"]; found && action == "forceMute" {
 					if peerId, found := data["peerId"]; found && peerId == remoteSessionId {

@@ -80,7 +80,7 @@ type Room struct {
 	statsRoomSessionsCurrent *prometheus.GaugeVec
 
 	// Users currently in the room
-	users []map[string]any
+	users []StringMap
 
 	// Timestamps of last backend requests for the different types.
 	lastRoomRequests map[string]int64
@@ -458,7 +458,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	if virtualSession, ok := session.(*VirtualSession); ok {
 		delete(r.virtualSessions, virtualSession)
 		// Handle case where virtual session was also sent by Nextcloud.
-		users := make([]map[string]any, 0, len(r.users))
+		users := make([]StringMap, 0, len(r.users))
 		for _, u := range r.users {
 			if u["sessionId"] != sid {
 				users = append(users, u)
@@ -631,7 +631,7 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[string]*Inter
 	return
 }
 
-func (r *Room) addInternalSessions(users []map[string]any) []map[string]any {
+func (r *Room) addInternalSessions(users []StringMap) []StringMap {
 	now := time.Now().Unix()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -675,7 +675,7 @@ func (r *Room) addInternalSessions(users []map[string]any) []map[string]any {
 		}
 	}
 	for session := range r.internalSessions {
-		u := map[string]any{
+		u := StringMap{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
@@ -687,7 +687,7 @@ func (r *Room) addInternalSessions(users []map[string]any) []map[string]any {
 		users = append(users, u)
 	}
 	for _, session := range clusteredInternalSessions {
-		u := map[string]any{
+		u := StringMap{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.GetSessionId(),
 			"lastPing":  now,
@@ -704,7 +704,7 @@ func (r *Room) addInternalSessions(users []map[string]any) []map[string]any {
 			continue
 		}
 		skipSession[sid] = true
-		users = append(users, map[string]any{
+		users = append(users, StringMap{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
@@ -716,7 +716,7 @@ func (r *Room) addInternalSessions(users []map[string]any) []map[string]any {
 			continue
 		}
 
-		users = append(users, map[string]any{
+		users = append(users, StringMap{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
@@ -726,7 +726,7 @@ func (r *Room) addInternalSessions(users []map[string]any) []map[string]any {
 	return users
 }
 
-func (r *Room) filterPermissions(users []map[string]any) []map[string]any {
+func (r *Room) filterPermissions(users []StringMap) []StringMap {
 	for _, user := range users {
 		delete(user, "permissions")
 	}
@@ -753,7 +753,7 @@ func IsInCall(value any) (bool, bool) {
 	}
 }
 
-func (r *Room) PublishUsersInCallChanged(changed []map[string]any, users []map[string]any) {
+func (r *Room) PublishUsersInCallChanged(changed []StringMap, users []StringMap) {
 	r.users = users
 	for _, user := range changed {
 		inCallInterface, found := user["inCall"]
@@ -908,7 +908,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	}
 }
 
-func (r *Room) PublishUsersChanged(changed []map[string]any, users []map[string]any) {
+func (r *Room) PublishUsersChanged(changed []StringMap, users []StringMap) {
 	changed = r.filterPermissions(changed)
 	users = r.filterPermissions(users)
 
@@ -929,7 +929,7 @@ func (r *Room) PublishUsersChanged(changed []map[string]any, users []map[string]
 	}
 }
 
-func (r *Room) getParticipantsUpdateMessage(users []map[string]any) *ServerMessage {
+func (r *Room) getParticipantsUpdateMessage(users []StringMap) *ServerMessage {
 	users = r.filterPermissions(users)
 
 	message := &ServerMessage{

@@ -31,7 +31,6 @@ import (
 	"fmt"
 	"net"
 	"net/http/httptest"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -401,7 +400,7 @@ func (c *TestClient) SendHelloV2WithFeatures(userid string, features []string) e
 	return c.SendHelloV2WithTimesAndFeatures(userid, now, now.Add(time.Minute), features)
 }
 
-func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time.Time, expiresAt time.Time, userdata map[string]any) (string, error) {
+func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time.Time, expiresAt time.Time, userdata StringMap) (string, error) {
 	data, err := json.Marshal(userdata)
 	if err != nil {
 		return "", err
@@ -434,7 +433,7 @@ func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time
 }
 
 func (c *TestClient) CreateHelloV2Token(userid string, issuedAt time.Time, expiresAt time.Time) (string, error) {
-	userdata := map[string]any{
+	userdata := StringMap{
 		"displayname": "Displayname " + userid,
 	}
 
@@ -998,21 +997,24 @@ func (c *TestClient) RunUntilOffer(ctx context.Context, offer string) error {
 		return err
 	}
 
-	var data map[string]any
+	var data StringMap
 	if err := json.Unmarshal(message.Message.Data, &data); err != nil {
 		return err
 	}
 
-	if data["type"].(string) != "offer" {
+	if dt, ok := GetStringMapEntry[string](data, "type"); !ok || dt != "offer" {
 		return fmt.Errorf("expected data type offer, got %+v", data)
 	}
 
-	payload := data["payload"].(map[string]any)
-	if payload["type"].(string) != "offer" {
+	payload, ok := ConvertStringMap(data["payload"])
+	if !ok {
+		return fmt.Errorf("expected string map, got %+v", data["payload"])
+	}
+	if pt, ok := GetStringMapEntry[string](payload, "type"); !ok || pt != "offer" {
 		return fmt.Errorf("expected payload type offer, got %+v", payload)
 	}
-	if payload["sdp"].(string) != offer {
-		return fmt.Errorf("expected payload answer %s, got %+v", offer, payload)
+	if sdp, ok := GetStringMapEntry[string](payload, "sdp"); !ok || sdp != offer {
+		return fmt.Errorf("expected payload offer %s, got %+v", offer, payload)
 	}
 
 	return nil
@@ -1042,65 +1044,62 @@ func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string
 		}
 	}
 
-	var data map[string]any
+	var data StringMap
 	if err := json.Unmarshal(message.Message.Data, &data); err != nil {
 		return err
 	}
 
-	if data["type"].(string) != "answer" {
+	if dt, ok := GetStringMapEntry[string](data, "type"); !ok || dt != "answer" {
 		return fmt.Errorf("expected data type answer, got %+v", data)
 	}
 
-	payload := data["payload"].(map[string]any)
-	if payload["type"].(string) != "answer" {
+	payload, ok := ConvertStringMap(data["payload"])
+	if !ok {
+		return fmt.Errorf("expected string map, got %+v", payload)
+	}
+	if pt, ok := GetStringMapEntry[string](payload, "type"); !ok || pt != "answer" {
 		return fmt.Errorf("expected payload type answer, got %+v", payload)
 	}
-	if payload["sdp"].(string) != answer {
+	if sdp, ok := GetStringMapEntry[string](payload, "sdp"); !ok || sdp != answer {
 		return fmt.Errorf("expected payload answer %s, got %+v", answer, payload)
 	}
 
 	return nil
 }
 
-func checkMessageTransientSet(message *ServerMessage, key string, value any, oldValue any) error {
+func checkMessageTransientSet(t *testing.T, message *ServerMessage, key string, value any, oldValue any) error {
 	if err := checkMessageType(message, "transient"); err != nil {
 		return err
-	} else if message.TransientData.Type != "set" {
-		return fmt.Errorf("Expected transient set, got %+v", message.TransientData)
-	} else if message.TransientData.Key != key {
-		return fmt.Errorf("Expected transient set key %s, got %+v", key, message.TransientData)
-	} else if !reflect.DeepEqual(message.TransientData.Value, value) {
-		return fmt.Errorf("Expected transient set value %+v, got %+v", value, message.TransientData.Value)
-	} else if !reflect.DeepEqual(message.TransientData.OldValue, oldValue) {
-		return fmt.Errorf("Expected transient set old value %+v, got %+v", oldValue, message.TransientData.OldValue)
 	}
 
+	assert := assert.New(t)
+	assert.Equal("set", message.TransientData.Type, "invalid message type")
+	assert.Equal(key, message.TransientData.Key, "invalid key")
+	assert.EqualValues(value, message.TransientData.Value, "invalid value")
+	assert.EqualValues(oldValue, message.TransientData.OldValue, "invalid old value")
 	return nil
 }
 
-func checkMessageTransientRemove(message *ServerMessage, key string, oldValue any) error {
+func checkMessageTransientRemove(t *testing.T, message *ServerMessage, key string, oldValue any) error {
 	if err := checkMessageType(message, "transient"); err != nil {
 		return err
-	} else if message.TransientData.Type != "remove" {
-		return fmt.Errorf("Expected transient remove, got %+v", message.TransientData)
-	} else if message.TransientData.Key != key {
-		return fmt.Errorf("Expected transient remove key %s, got %+v", key, message.TransientData)
-	} else if !reflect.DeepEqual(message.TransientData.OldValue, oldValue) {
-		return fmt.Errorf("Expected transient remove old value %+v, got %+v", oldValue, message.TransientData.OldValue)
 	}
 
+	assert := assert.New(t)
+	assert.Equal("remove", message.TransientData.Type, "invalid message type")
+	assert.Equal(key, message.TransientData.Key, "invalid key")
+	assert.EqualValues(oldValue, message.TransientData.OldValue, "invalid old value")
 	return nil
 }
 
-func checkMessageTransientInitial(message *ServerMessage, data map[string]any) error {
+func checkMessageTransientInitial(t *testing.T, message *ServerMessage, data StringMap) error {
 	if err := checkMessageType(message, "transient"); err != nil {
 		return err
-	} else if message.TransientData.Type != "initial" {
-		return fmt.Errorf("Expected transient initial, got %+v", message.TransientData)
-	} else if !reflect.DeepEqual(message.TransientData.Data, data) {
-		return fmt.Errorf("Expected transient initial data %+v, got %+v", data, message.TransientData.Data)
 	}
 
+	assert := assert.New(t)
+	assert.Equal("initial", message.TransientData.Type, "invalid message type")
+	assert.EqualValues(data, message.TransientData.Data, "invalid initial data")
 	return nil
 }
 
