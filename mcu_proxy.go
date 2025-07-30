@@ -184,7 +184,7 @@ func (p *mcuProxyPublisher) Close(ctx context.Context) {
 		},
 	}
 
-	if response, err := p.conn.performSyncRequest(ctx, msg); err != nil {
+	if response, _, err := p.conn.performSyncRequest(ctx, msg); err != nil {
 		log.Printf("Could not delete publisher %s at %s: %s", p.proxyId, p.conn, err)
 		return
 	} else if response.Type == "error" {
@@ -284,7 +284,7 @@ func (s *mcuProxySubscriber) Close(ctx context.Context) {
 		},
 	}
 
-	if response, err := s.conn.performSyncRequest(ctx, msg); err != nil {
+	if response, _, err := s.conn.performSyncRequest(ctx, msg); err != nil {
 		if s.publisherConn != nil {
 			log.Printf("Could not delete remote subscriber %s at %s (forwarded to %s): %s", s.proxyId, s.conn, s.publisherConn, err)
 		} else {
@@ -339,6 +339,8 @@ func (s *mcuProxySubscriber) ProcessEvent(msg *EventProxyServerMessage) {
 	}
 }
 
+type mcuProxyCallback func(response *ProxyServerMessage)
+
 type mcuProxyConnection struct {
 	proxy        *mcuProxy
 	rawUrl       string
@@ -371,7 +373,8 @@ type mcuProxyConnection struct {
 	version    atomic.Value
 	features   atomic.Value
 
-	callbacks map[string]func(*ProxyServerMessage)
+	callbacks         map[string]mcuProxyCallback
+	deferredCallbacks map[string]mcuProxyCallback
 
 	publishersLock sync.RWMutex
 	publishers     map[string]*mcuProxyPublisher
@@ -395,7 +398,7 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP, token str
 		connectToken: token,
 		closer:       NewCloser(),
 		closedDone:   NewCloser(),
-		callbacks:    make(map[string]func(*ProxyServerMessage)),
+		callbacks:    make(map[string]mcuProxyCallback),
 		publishers:   make(map[string]*mcuProxyPublisher),
 		publisherIds: make(map[string]string),
 		subscribers:  make(map[string]*mcuProxySubscriber),
@@ -917,6 +920,7 @@ func (c *mcuProxyConnection) clearCallbacks() {
 	defer c.mu.Unlock()
 
 	clear(c.callbacks)
+	clear(c.deferredCallbacks)
 }
 
 func (c *mcuProxyConnection) getCallback(id string) func(*ProxyServerMessage) {
@@ -928,6 +932,33 @@ func (c *mcuProxyConnection) getCallback(id string) func(*ProxyServerMessage) {
 		delete(c.callbacks, id)
 	}
 	return callback
+}
+
+func (c *mcuProxyConnection) registerDeferredCallback(msgId string, callback mcuProxyCallback) {
+	if msgId == "" {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.callbacks, msgId)
+	if c.deferredCallbacks == nil {
+		c.deferredCallbacks = make(map[string]mcuProxyCallback)
+	}
+	c.deferredCallbacks[msgId] = callback
+}
+
+func (c *mcuProxyConnection) getDeferredCallback(msgId string) mcuProxyCallback {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	result, found := c.deferredCallbacks[msgId]
+	if found {
+		delete(c.deferredCallbacks, msgId)
+	}
+
+	return result
 }
 
 func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
@@ -991,9 +1022,11 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 	if proxyDebugMessages {
 		log.Printf("Received from %s: %+v", c, msg)
 	}
-	callback := c.getCallback(msg.Id)
-	if callback != nil {
+	if callback := c.getCallback(msg.Id); callback != nil {
 		callback(msg)
+		return
+	} else if callback := c.getDeferredCallback(msg.Id); callback != nil {
+		go callback(msg)
 		return
 	}
 
@@ -1138,7 +1171,7 @@ func (c *mcuProxyConnection) sendMessageLocked(msg *ProxyClientMessage) error {
 	return c.conn.WriteJSON(msg)
 }
 
-func (c *mcuProxyConnection) performAsyncRequest(ctx context.Context, msg *ProxyClientMessage, callback func(err error, response *ProxyServerMessage)) {
+func (c *mcuProxyConnection) performAsyncRequest(ctx context.Context, msg *ProxyClientMessage, callback func(err error, response *ProxyServerMessage)) string {
 	msgId := strconv.FormatInt(c.msgId.Add(1), 10)
 	msg.Id = msgId
 
@@ -1150,18 +1183,27 @@ func (c *mcuProxyConnection) performAsyncRequest(ctx context.Context, msg *Proxy
 	if err := c.sendMessageLocked(msg); err != nil {
 		delete(c.callbacks, msgId)
 		go callback(err, nil)
-		return
+		return ""
 	}
+
+	context.AfterFunc(ctx, func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		delete(c.callbacks, msgId)
+	})
+
+	return msgId
 }
 
-func (c *mcuProxyConnection) performSyncRequest(ctx context.Context, msg *ProxyClientMessage) (*ProxyServerMessage, error) {
+func (c *mcuProxyConnection) performSyncRequest(ctx context.Context, msg *ProxyClientMessage) (*ProxyServerMessage, string, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	errChan := make(chan error, 1)
 	responseChan := make(chan *ProxyServerMessage, 1)
-	c.performAsyncRequest(ctx, msg, func(err error, response *ProxyServerMessage) {
+	msgId := c.performAsyncRequest(ctx, msg, func(err error, response *ProxyServerMessage) {
 		if err != nil {
 			errChan <- err
 		} else {
@@ -1171,12 +1213,42 @@ func (c *mcuProxyConnection) performSyncRequest(ctx context.Context, msg *ProxyC
 
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, msgId, ctx.Err()
 	case err := <-errChan:
-		return nil, err
+		return nil, msgId, err
 	case response := <-responseChan:
-		return response, nil
+		return response, msgId, nil
 	}
+}
+
+func (c *mcuProxyConnection) deferredDeletePublisher(id string, streamType StreamType, response *ProxyServerMessage) {
+	if response.Type == "error" {
+		log.Printf("Publisher for %s was not created at %s: %s", id, c, response.Error)
+		return
+	}
+
+	proxyId := response.Command.Id
+	log.Printf("Created unused %s publisher %s on %s for %s", streamType, proxyId, c, id)
+	msg := &ProxyClientMessage{
+		Type: "command",
+		Command: &CommandProxyClientMessage{
+			Type:     "delete-publisher",
+			ClientId: proxyId,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), c.proxy.settings.Timeout())
+	defer cancel()
+
+	if response, _, err := c.performSyncRequest(ctx, msg); err != nil {
+		log.Printf("Could not delete publisher %s at %s: %s", proxyId, c, err)
+		return
+	} else if response.Type == "error" {
+		log.Printf("Could not delete publisher %s at %s: %s", proxyId, c, response.Error)
+		return
+	}
+
+	log.Printf("Deleted publisher %s at %s", proxyId, c)
 }
 
 func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings) (McuPublisher, error) {
@@ -1193,9 +1265,13 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 		},
 	}
 
-	response, err := c.performSyncRequest(ctx, msg)
+	response, msgId, err := c.performSyncRequest(ctx, msg)
 	if err != nil {
-		// TODO: Cancel request
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.registerDeferredCallback(msgId, func(response *ProxyServerMessage) {
+				c.deferredDeletePublisher(id, streamType, response)
+			})
+		}
 		return nil, err
 	} else if response.Type == "error" {
 		return nil, fmt.Errorf("error creating %s publisher for %s on %s: %+v", streamType, id, c, response.Error)
@@ -1213,6 +1289,49 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 	return publisher, nil
 }
 
+func (c *mcuProxyConnection) deferredDeleteSubscriber(publisherSessionId string, streamType StreamType, publisherConn *mcuProxyConnection, response *ProxyServerMessage) {
+	if response.Type == "error" {
+		log.Printf("Subscriber for %s was not created at %s: %s", publisherSessionId, c, response.Error)
+		return
+	}
+
+	proxyId := response.Command.Id
+	log.Printf("Created unused %s subscriber %s on %s for %s", streamType, proxyId, c, publisherSessionId)
+
+	msg := &ProxyClientMessage{
+		Type: "command",
+		Command: &CommandProxyClientMessage{
+			Type:     "delete-subscriber",
+			ClientId: proxyId,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), c.proxy.settings.Timeout())
+	defer cancel()
+
+	if response, _, err := c.performSyncRequest(ctx, msg); err != nil {
+		if publisherConn != nil {
+			log.Printf("Could not delete remote subscriber %s at %s (forwarded to %s): %s", proxyId, c, publisherConn, err)
+		} else {
+			log.Printf("Could not delete subscriber %s at %s: %s", proxyId, c, err)
+		}
+		return
+	} else if response.Type == "error" {
+		if publisherConn != nil {
+			log.Printf("Could not delete remote subscriber %s at %s (forwarded to %s): %s", proxyId, c, publisherConn, response.Error)
+		} else {
+			log.Printf("Could not delete subscriber %s at %s: %s", proxyId, c, response.Error)
+		}
+		return
+	}
+
+	if publisherConn != nil {
+		log.Printf("Deleted remote subscriber %s at %s (forwarded to %s)", proxyId, c, publisherConn)
+	} else {
+		log.Printf("Deleted subscriber %s at %s", proxyId, c)
+	}
+}
+
 func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuListener, publisherId string, publisherSessionId string, streamType StreamType) (McuSubscriber, error) {
 	msg := &ProxyClientMessage{
 		Type: "command",
@@ -1223,9 +1342,13 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 		},
 	}
 
-	response, err := c.performSyncRequest(ctx, msg)
+	response, msgId, err := c.performSyncRequest(ctx, msg)
 	if err != nil {
-		// TODO: Cancel request
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.registerDeferredCallback(msgId, func(response *ProxyServerMessage) {
+				c.deferredDeleteSubscriber(publisherSessionId, streamType, nil, response)
+			})
+		}
 		return nil, err
 	} else if response.Type == "error" {
 		return nil, fmt.Errorf("error creating %s subscriber for %s on %s: %+v", streamType, publisherSessionId, c, response.Error)
@@ -1266,9 +1389,13 @@ func (c *mcuProxyConnection) newRemoteSubscriber(ctx context.Context, listener M
 		},
 	}
 
-	response, err := c.performSyncRequest(ctx, msg)
+	response, msgId, err := c.performSyncRequest(ctx, msg)
 	if err != nil {
-		// TODO: Cancel request
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.registerDeferredCallback(msgId, func(response *ProxyServerMessage) {
+				c.deferredDeleteSubscriber(publisherSessionId, streamType, publisherConn, response)
+			})
+		}
 		return nil, err
 	} else if response.Type == "error" {
 		return nil, fmt.Errorf("error creating remote %s subscriber for %s on %s (forwarded to %s): %+v", streamType, publisherSessionId, c, publisherConn, response.Error)
@@ -1992,12 +2119,15 @@ func (m *mcuProxy) createSubscriber(ctx context.Context, listener McuListener, i
 			continue
 		}
 
+		subctx, cancel := context.WithTimeout(ctx, m.settings.Timeout())
+		defer cancel()
+
 		var subscriber McuSubscriber
 		var err error
 		if conn == info.conn {
-			subscriber, err = conn.newSubscriber(ctx, listener, info.id, publisher, streamType)
+			subscriber, err = conn.newSubscriber(subctx, listener, info.id, publisher, streamType)
 		} else {
-			subscriber, err = conn.newRemoteSubscriber(ctx, listener, info.id, publisher, streamType, info.conn, info.token)
+			subscriber, err = conn.newRemoteSubscriber(subctx, listener, info.id, publisher, streamType, info.conn, info.token)
 		}
 		if err != nil {
 			log.Printf("Could not create subscriber for %s publisher %s on %s: %s", streamType, publisher, conn, err)
@@ -2198,7 +2328,10 @@ func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publ
 		}
 	}
 
-	subscriber, err := publisherInfo.conn.newSubscriber(ctx, listener, publisherInfo.id, publisher, streamType)
+	subctx, cancel := context.WithTimeout(ctx, m.settings.Timeout())
+	defer cancel()
+
+	subscriber, err := publisherInfo.conn.newSubscriber(subctx, listener, publisherInfo.id, publisher, streamType)
 	if err != nil {
 		if publisherInfo.conn.IsTemporary() {
 			publisherInfo.conn.closeIfEmpty()
