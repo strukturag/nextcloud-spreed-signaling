@@ -50,7 +50,7 @@ type VirtualSession struct {
 	flags     Flags
 	options   *AddSessionOptions
 
-	parseUserData func() (map[string]any, error)
+	parseUserData func() (StringMap, error)
 }
 
 func GetVirtualSessionId(session Session, sessionId string) string {
@@ -144,7 +144,7 @@ func (s *VirtualSession) UserData() json.RawMessage {
 	return s.userData
 }
 
-func (s *VirtualSession) ParsedUserData() (map[string]any, error) {
+func (s *VirtualSession) ParsedUserData() (StringMap, error) {
 	return s.parseUserData()
 }
 
@@ -290,7 +290,7 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 				message.Message.Event.Disinvite != nil &&
 				message.Message.Event.Disinvite.RoomId == room.Id() {
 				log.Printf("Virtual session %s was disinvited from room %s, hanging up", s.PublicId(), room.Id())
-				payload := map[string]any{
+				payload := StringMap{
 					"type": "hangup",
 					"hangup": map[string]string{
 						"reason": "disinvited",

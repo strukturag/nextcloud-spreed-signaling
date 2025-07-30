@@ -591,7 +591,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				in.Skip()
 			} else {
 				in.Delim('{')
-				out.Payload = make(map[string]interface{})
+				out.Payload = make(StringMap)
 				for !in.IsDelim('}') {
 					key := string(in.String())
 					in.WantColon()
@@ -716,7 +716,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling5(in *jlex
 			} else {
 				in.Delim('{')
 				if !in.IsDelim('}') {
-					out.Payload = make(map[string]interface{})
+					out.Payload = make(StringMap)
 				} else {
 					out.Payload = nil
 				}

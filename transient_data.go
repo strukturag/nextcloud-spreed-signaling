@@ -33,7 +33,7 @@ type TransientListener interface {
 
 type TransientData struct {
 	mu        sync.Mutex
-	data      map[string]any
+	data      StringMap
 	listeners map[TransientListener]bool
 	timers    map[string]*time.Timer
 	ttlCh     chan<- struct{}
@@ -146,7 +146,7 @@ func (t *TransientData) removeAfterTTL(key string, value any, ttl time.Duration)
 
 func (t *TransientData) doSet(key string, value any, prev any, ttl time.Duration) {
 	if t.data == nil {
-		t.data = make(map[string]any)
+		t.data = make(StringMap)
 	}
 	t.data[key] = value
 	t.notifySet(key, prev, value)
@@ -251,11 +251,11 @@ func (t *TransientData) compareAndRemove(key string, old any) bool {
 }
 
 // GetData returns a copy of the internal data.
-func (t *TransientData) GetData() map[string]any {
+func (t *TransientData) GetData() StringMap {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	result := make(map[string]any)
+	result := make(StringMap)
 	for k, v := range t.data {
 		result[k] = v
 	}

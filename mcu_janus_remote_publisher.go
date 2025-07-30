@@ -124,7 +124,7 @@ func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
 
 	p.mu.Lock()
 	if handle := p.handle; handle != nil {
-		response, err := p.handle.Request(ctx, map[string]any{
+		response, err := p.handle.Request(ctx, StringMap{
 			"request": "remove_remote_publisher",
 			"room":    p.roomId,
 			"id":      streamTypeUserIds[p.streamType],
@@ -135,7 +135,7 @@ func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
 			log.Printf("Removed remote publisher: %+v", response)
 		}
 		if p.roomId != 0 {
-			destroy_msg := map[string]any{
+			destroy_msg := StringMap{
 				"request": "destroy",
 				"room":    p.roomId,
 			}

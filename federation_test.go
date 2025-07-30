@@ -111,7 +111,7 @@ func Test_Federation(t *testing.T) {
 	require.NotNil(room)
 
 	now := time.Now()
-	userdata := map[string]any{
+	userdata := StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -311,7 +311,7 @@ func Test_Federation(t *testing.T) {
 	}
 
 	// Special handling for the "forceMute" control event.
-	forceMute := map[string]any{
+	forceMute := StringMap{
 		"action": "forceMute",
 		"peerId": remoteSessionId,
 	}
@@ -319,7 +319,7 @@ func Test_Federation(t *testing.T) {
 		Type:      "session",
 		SessionId: remoteSessionId,
 	}, forceMute)) {
-		var payload map[string]any
+		var payload StringMap
 		if assert.NoError(checkReceiveClientControl(ctx, client2, "session", hello1.Hello, &payload)) {
 			// The sessionId in "peerId" will be replaced with the local one.
 			forceMute["peerId"] = hello2.Hello.SessionId
@@ -359,7 +359,7 @@ func Test_Federation(t *testing.T) {
 	}
 
 	// Simulate request from the backend that a federated user joined the call.
-	users := []map[string]any{
+	users := []StringMap{
 		{
 			"sessionId": remoteSessionId,
 			"inCall":    1,
@@ -383,7 +383,7 @@ func Test_Federation(t *testing.T) {
 	assert.Equal(federatedRoomId, event.Update.RoomId)
 
 	// Simulate request from the backend that a local user joined the call.
-	users = []map[string]any{
+	users = []StringMap{
 		{
 			"sessionId": hello1.Hello.SessionId,
 			"inCall":    1,
@@ -435,7 +435,7 @@ func Test_Federation(t *testing.T) {
 	hello4, err := client4.RunUntilHello(ctx)
 	require.NoError(err)
 
-	userdata = map[string]any{
+	userdata = StringMap{
 		"displayname": "Federated user 2",
 		"actorType":   "federated_users",
 		"actorId":     "the-other-federated-user-id",
@@ -532,7 +532,7 @@ func Test_FederationJoinRoomTwice(t *testing.T) {
 	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	now := time.Now()
-	userdata := map[string]any{
+	userdata := StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -643,7 +643,7 @@ func Test_FederationChangeRoom(t *testing.T) {
 	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	now := time.Now()
-	userdata := map[string]any{
+	userdata := StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -770,7 +770,7 @@ func Test_FederationMedia(t *testing.T) {
 	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	now := time.Now()
-	userdata := map[string]any{
+	userdata := StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -821,7 +821,7 @@ func Test_FederationMedia(t *testing.T) {
 		Type:     "offer",
 		Sid:      "12345",
 		RoomType: "screen",
-		Payload: map[string]any{
+		Payload: StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -867,7 +867,7 @@ func Test_FederationResume(t *testing.T) {
 	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	now := time.Now()
-	userdata := map[string]any{
+	userdata := StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -1000,7 +1000,7 @@ func Test_FederationResumeNewSession(t *testing.T) {
 	assert.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
 
 	now := time.Now()
-	userdata := map[string]any{
+	userdata := StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",

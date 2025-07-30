@@ -21,50 +21,33 @@
  */
 package signaling
 
-import (
-	"testing"
-)
+// StringMap maps string keys to arbitrary values.
+type StringMap map[string]any
 
-func TestCommonMcuStats(t *testing.T) {
-	collectAndLint(t, commonMcuStats...)
+func ConvertStringMap(ob any) (StringMap, bool) {
+	if ob == nil {
+		return nil, true
+	}
+
+	if m, ok := ob.(map[string]any); ok {
+		return StringMap(m), true
+	}
+
+	if m, ok := ob.(StringMap); ok {
+		return m, true
+	}
+
+	return nil, false
 }
 
-type MockMcuListener struct {
-	publicId string
-}
+// GetStringMapEntry returns an entry from a string map in a given type.
+func GetStringMapEntry[T any](m StringMap, key string) (s T, ok bool) {
+	var defaultValue T
+	v, found := m[key]
+	if !found {
+		return defaultValue, false
+	}
 
-func (m *MockMcuListener) PublicId() string {
-	return m.publicId
-}
-
-func (m *MockMcuListener) OnUpdateOffer(client McuClient, offer StringMap) {
-
-}
-
-func (m *MockMcuListener) OnIceCandidate(client McuClient, candidate any) {
-
-}
-
-func (m *MockMcuListener) OnIceCompleted(client McuClient) {
-
-}
-
-func (m *MockMcuListener) SubscriberSidUpdated(subscriber McuSubscriber) {
-
-}
-
-func (m *MockMcuListener) PublisherClosed(publisher McuPublisher) {
-
-}
-
-func (m *MockMcuListener) SubscriberClosed(subscriber McuSubscriber) {
-
-}
-
-type MockMcuInitiator struct {
-	country string
-}
-
-func (m *MockMcuInitiator) Country() string {
-	return m.country
+	s, ok = v.(T)
+	return
 }

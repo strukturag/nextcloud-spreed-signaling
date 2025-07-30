@@ -23,48 +23,34 @@ package signaling
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestCommonMcuStats(t *testing.T) {
-	collectAndLint(t, commonMcuStats...)
-}
+func TestConvertStringMap(t *testing.T) {
+	assert := assert.New(t)
+	d := map[string]any{
+		"foo": "bar",
+		"bar": 2,
+	}
 
-type MockMcuListener struct {
-	publicId string
-}
+	m, ok := ConvertStringMap(d)
+	if assert.True(ok) {
+		assert.EqualValues(d, m)
+	}
 
-func (m *MockMcuListener) PublicId() string {
-	return m.publicId
-}
+	if m, ok := ConvertStringMap(nil); assert.True(ok) {
+		assert.Nil(m)
+	}
 
-func (m *MockMcuListener) OnUpdateOffer(client McuClient, offer StringMap) {
+	_, ok = ConvertStringMap("foo")
+	assert.False(ok)
 
-}
+	_, ok = ConvertStringMap(1)
+	assert.False(ok)
 
-func (m *MockMcuListener) OnIceCandidate(client McuClient, candidate any) {
-
-}
-
-func (m *MockMcuListener) OnIceCompleted(client McuClient) {
-
-}
-
-func (m *MockMcuListener) SubscriberSidUpdated(subscriber McuSubscriber) {
-
-}
-
-func (m *MockMcuListener) PublisherClosed(publisher McuPublisher) {
-
-}
-
-func (m *MockMcuListener) SubscriberClosed(subscriber McuSubscriber) {
-
-}
-
-type MockMcuInitiator struct {
-	country string
-}
-
-func (m *MockMcuInitiator) Country() string {
-	return m.country
+	_, ok = ConvertStringMap(map[int]any{
+		1: "foo",
+	})
+	assert.False(ok)
 }

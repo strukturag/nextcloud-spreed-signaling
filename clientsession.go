@@ -65,7 +65,7 @@ type ClientSession struct {
 	userId     string
 	userData   json.RawMessage
 
-	parseUserData func() (map[string]any, error)
+	parseUserData func() (StringMap, error)
 
 	inCall              Flags
 	supportsPermissions bool
@@ -315,7 +315,7 @@ func (s *ClientSession) UserData() json.RawMessage {
 	return s.userData
 }
 
-func (s *ClientSession) ParsedUserData() (map[string]any, error) {
+func (s *ClientSession) ParsedUserData() (StringMap, error) {
 	return s.parseUserData()
 }
 
@@ -550,7 +550,7 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
 			request.Room.UpdateFromSession(s)
 			request.Room.Action = "leave"
-			var response map[string]any
+			var response StringMap
 			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
 				log.Printf("Could not notify about room session %s left room %s: %s", sid, room.Id(), err)
 			} else {
@@ -614,7 +614,7 @@ func (s *ClientSession) SetClient(client HandlerClient) HandlerClient {
 	return prev
 }
 
-func (s *ClientSession) sendOffer(client McuClient, sender string, streamType StreamType, offer map[string]any) {
+func (s *ClientSession) sendOffer(client McuClient, sender string, streamType StreamType, offer StringMap) {
 	offer_message := &AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
@@ -648,7 +648,7 @@ func (s *ClientSession) sendCandidate(client McuClient, sender string, streamTyp
 		From:     sender,
 		Type:     "candidate",
 		RoomType: string(streamType),
-		Payload: map[string]any{
+		Payload: StringMap{
 			"candidate": candidate,
 		},
 		Sid: client.Sid(),
@@ -713,7 +713,7 @@ func (s *ClientSession) SendMessages(messages []*ServerMessage) bool {
 	return true
 }
 
-func (s *ClientSession) OnUpdateOffer(client McuClient, offer map[string]any) {
+func (s *ClientSession) OnUpdateOffer(client McuClient, offer StringMap) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1108,7 +1108,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 				return
 			}
 
-			mc.SendMessage(s.Context(), nil, message.SendOffer.Data, func(err error, response map[string]any) {
+			mc.SendMessage(s.Context(), nil, message.SendOffer.Data, func(err error, response StringMap) {
 				if err != nil {
 					log.Printf("Could not send MCU message %+v for session %s to %s: %s", message.SendOffer.Data, message.SendOffer.SessionId, s.PublicId(), err)
 					if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
@@ -1171,7 +1171,7 @@ func filterDisplayNames(events []*EventServerMessageSessionEntry) []*EventServer
 			continue
 		}
 
-		var userdata map[string]any
+		var userdata StringMap
 		if err := json.Unmarshal(event.User, &userdata); err != nil {
 			result = append(result, event)
 			continue

@@ -143,15 +143,15 @@ type BackendRoomDeleteRequest struct {
 
 type BackendRoomInCallRequest struct {
 	// TODO(jojo): Change "InCall" to "int" when #914 has landed in NC Talk.
-	InCall  json.RawMessage  `json:"incall,omitempty"`
-	All     bool             `json:"all,omitempty"`
-	Changed []map[string]any `json:"changed,omitempty"`
-	Users   []map[string]any `json:"users,omitempty"`
+	InCall  json.RawMessage `json:"incall,omitempty"`
+	All     bool            `json:"all,omitempty"`
+	Changed []StringMap     `json:"changed,omitempty"`
+	Users   []StringMap     `json:"users,omitempty"`
 }
 
 type BackendRoomParticipantsRequest struct {
-	Changed []map[string]any `json:"changed,omitempty"`
-	Users   []map[string]any `json:"users,omitempty"`
+	Changed []StringMap `json:"changed,omitempty"`
+	Users   []StringMap `json:"users,omitempty"`
 }
 
 type BackendRoomMessageRequest struct {
@@ -315,8 +315,8 @@ func (r *BackendClientRoomRequest) UpdateFromSession(s Session) {
 	if s.ClientType() == HelloClientTypeFederation {
 		// Need to send additional data for requests of federated users.
 		if u, err := s.ParsedUserData(); err == nil && len(u) > 0 {
-			if actorType, found := getStringMapEntry[string](u, "actorType"); found {
-				if actorId, found := getStringMapEntry[string](u, "actorId"); found {
+			if actorType, found := GetStringMapEntry[string](u, "actorType"); found {
+				if actorId, found := GetStringMapEntry[string](u, "actorId"); found {
 					r.ActorId = actorId
 					r.ActorType = actorType
 				}

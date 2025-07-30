@@ -37,7 +37,7 @@ func (s *streamSelection) HasValues() bool {
 	return s.substream.Valid || s.temporal.Valid || s.audio.Valid || s.video.Valid
 }
 
-func (s *streamSelection) AddToMessage(message map[string]any) {
+func (s *streamSelection) AddToMessage(message StringMap) {
 	if s.substream.Valid {
 		message["substream"] = s.substream.Int16
 	}
@@ -52,7 +52,7 @@ func (s *streamSelection) AddToMessage(message map[string]any) {
 	}
 }
 
-func parseStreamSelection(payload map[string]any) (*streamSelection, error) {
+func parseStreamSelection(payload StringMap) (*streamSelection, error) {
 	var stream streamSelection
 	if value, found := payload["substream"]; found {
 		switch value := value.(type) {

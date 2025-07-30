@@ -2396,21 +2396,21 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling19(in *jle
 				in.Delim('[')
 				if out.Changed == nil {
 					if !in.IsDelim(']') {
-						out.Changed = make([]map[string]interface{}, 0, 8)
+						out.Changed = make([]StringMap, 0, 8)
 					} else {
-						out.Changed = []map[string]interface{}{}
+						out.Changed = []StringMap{}
 					}
 				} else {
 					out.Changed = (out.Changed)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v36 map[string]interface{}
+					var v36 StringMap
 					if in.IsNull() {
 						in.Skip()
 					} else {
 						in.Delim('{')
 						if !in.IsDelim('}') {
-							v36 = make(map[string]interface{})
+							v36 = make(StringMap)
 						} else {
 							v36 = nil
 						}
@@ -2443,21 +2443,21 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling19(in *jle
 				in.Delim('[')
 				if out.Users == nil {
 					if !in.IsDelim(']') {
-						out.Users = make([]map[string]interface{}, 0, 8)
+						out.Users = make([]StringMap, 0, 8)
 					} else {
-						out.Users = []map[string]interface{}{}
+						out.Users = []StringMap{}
 					}
 				} else {
 					out.Users = (out.Users)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v38 map[string]interface{}
+					var v38 StringMap
 					if in.IsNull() {
 						in.Skip()
 					} else {
 						in.Delim('{')
 						if !in.IsDelim('}') {
-							v38 = make(map[string]interface{})
+							v38 = make(StringMap)
 						} else {
 							v38 = nil
 						}
@@ -2855,21 +2855,21 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling22(in *jle
 				in.Delim('[')
 				if out.Changed == nil {
 					if !in.IsDelim(']') {
-						out.Changed = make([]map[string]interface{}, 0, 8)
+						out.Changed = make([]StringMap, 0, 8)
 					} else {
-						out.Changed = []map[string]interface{}{}
+						out.Changed = []StringMap{}
 					}
 				} else {
 					out.Changed = (out.Changed)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v52 map[string]interface{}
+					var v52 StringMap
 					if in.IsNull() {
 						in.Skip()
 					} else {
 						in.Delim('{')
 						if !in.IsDelim('}') {
-							v52 = make(map[string]interface{})
+							v52 = make(StringMap)
 						} else {
 							v52 = nil
 						}
@@ -2902,21 +2902,21 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling22(in *jle
 				in.Delim('[')
 				if out.Users == nil {
 					if !in.IsDelim(']') {
-						out.Users = make([]map[string]interface{}, 0, 8)
+						out.Users = make([]StringMap, 0, 8)
 					} else {
-						out.Users = []map[string]interface{}{}
+						out.Users = []StringMap{}
 					}
 				} else {
 					out.Users = (out.Users)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v54 map[string]interface{}
+					var v54 StringMap
 					if in.IsNull() {
 						in.Skip()
 					} else {
 						in.Delim('{')
 						if !in.IsDelim('}') {
-							v54 = make(map[string]interface{})
+							v54 = make(StringMap)
 						} else {
 							v54 = nil
 						}

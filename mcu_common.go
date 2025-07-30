@@ -56,7 +56,7 @@ const (
 type McuListener interface {
 	PublicId() string
 
-	OnUpdateOffer(client McuClient, offer map[string]any)
+	OnUpdateOffer(client McuClient, offer StringMap)
 
 	OnIceCandidate(client McuClient, candidate any)
 	OnIceCompleted(client McuClient)
@@ -205,7 +205,7 @@ type McuClient interface {
 
 	Close(ctx context.Context)
 
-	SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any))
+	SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap))
 }
 
 type McuPublisher interface {

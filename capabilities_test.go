@@ -66,14 +66,14 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 		if strings.Contains(t.Name(), "V3Api") {
 			features = append(features, "signaling-v3")
 		}
-		signaling := map[string]any{
+		signaling := StringMap{
 			"foo": "bar",
 			"baz": 42,
 		}
-		config := map[string]any{
+		config := StringMap{
 			"signaling": signaling,
 		}
-		spreedCapa, _ := json.Marshal(map[string]any{
+		spreedCapa, _ := json.Marshal(StringMap{
 			"features": features,
 			"config":   config,
 		})

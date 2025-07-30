@@ -158,7 +158,7 @@ func (s *ProxySession) SetClient(client *ProxyClient) *ProxyClient {
 	return prev
 }
 
-func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer map[string]any) {
+func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer signaling.StringMap) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
 		log.Printf("Received offer %+v from unknown %s client %s (%+v)", offer, client.StreamType(), client.Id(), client)
@@ -170,7 +170,7 @@ func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer map[strin
 		Payload: &signaling.PayloadProxyServerMessage{
 			Type:     "offer",
 			ClientId: id,
-			Payload: map[string]any{
+			Payload: signaling.StringMap{
 				"offer": offer,
 			},
 		},
@@ -190,7 +190,7 @@ func (s *ProxySession) OnIceCandidate(client signaling.McuClient, candidate any)
 		Payload: &signaling.PayloadProxyServerMessage{
 			Type:     "candidate",
 			ClientId: id,
-			Payload: map[string]any{
+			Payload: signaling.StringMap{
 				"candidate": candidate,
 			},
 		},

@@ -75,7 +75,7 @@ func (c *mcuJanusClient) MaxBitrate() int {
 func (c *mcuJanusClient) Close(ctx context.Context) {
 }
 
-func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, map[string]any)) {
+func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
 }
 
 func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
@@ -124,14 +124,14 @@ loop:
 	}
 }
 
-func (c *mcuJanusClient) sendOffer(ctx context.Context, offer map[string]any, callback func(error, map[string]any)) {
+func (c *mcuJanusClient) sendOffer(ctx context.Context, offer StringMap, callback func(error, StringMap)) {
 	handle := c.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
 	}
 
-	configure_msg := map[string]any{
+	configure_msg := StringMap{
 		"request": "configure",
 		"audio":   true,
 		"video":   true,
@@ -146,14 +146,14 @@ func (c *mcuJanusClient) sendOffer(ctx context.Context, offer map[string]any, ca
 	callback(nil, answer_msg.Jsep)
 }
 
-func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer map[string]any, callback func(error, map[string]any)) {
+func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer StringMap, callback func(error, StringMap)) {
 	handle := c.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
 	}
 
-	start_msg := map[string]any{
+	start_msg := StringMap{
 		"request": "start",
 		"room":    c.roomId,
 	}
@@ -166,7 +166,7 @@ func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer map[string]any, 
 	callback(nil, nil)
 }
 
-func (c *mcuJanusClient) sendCandidate(ctx context.Context, candidate any, callback func(error, map[string]any)) {
+func (c *mcuJanusClient) sendCandidate(ctx context.Context, candidate any, callback func(error, StringMap)) {
 	handle := c.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
@@ -188,7 +188,7 @@ func (c *mcuJanusClient) handleTrickle(event *TrickleMsg) {
 	}
 }
 
-func (c *mcuJanusClient) selectStream(ctx context.Context, stream *streamSelection, callback func(error, map[string]any)) {
+func (c *mcuJanusClient) selectStream(ctx context.Context, stream *streamSelection, callback func(error, StringMap)) {
 	handle := c.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
@@ -200,7 +200,7 @@ func (c *mcuJanusClient) selectStream(ctx context.Context, stream *streamSelecti
 		return
 	}
 
-	configure_msg := map[string]any{
+	configure_msg := StringMap{
 		"request": "configure",
 	}
 	if stream != nil {

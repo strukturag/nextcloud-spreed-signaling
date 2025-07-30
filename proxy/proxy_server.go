@@ -1344,7 +1344,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 	ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
 	defer cancel()
 
-	mcuClient.SendMessage(ctx2, nil, mcuData, func(err error, response map[string]any) {
+	mcuClient.SendMessage(ctx2, nil, mcuData, func(err error, response signaling.StringMap) {
 		var responseMsg *signaling.ProxyServerMessage
 		if errors.Is(err, signaling.ErrCandidateFiltered) {
 			// Silently ignore filtered candidates.
@@ -1586,8 +1586,8 @@ func (s *ProxyServer) GetClientId(client signaling.McuClient) string {
 	return s.clientIds[client.Id()]
 }
 
-func (s *ProxyServer) getStats() map[string]any {
-	result := map[string]any{
+func (s *ProxyServer) getStats() signaling.StringMap {
+	result := signaling.StringMap{
 		"sessions": s.GetSessionsCount(),
 		"load":     s.load.Load(),
 		"mcu":      s.mcu.GetStats(),

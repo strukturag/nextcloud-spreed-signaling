@@ -568,7 +568,7 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamTyp
 }
 
 func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id string, streamType StreamType, settings NewPublisherSettings) (uint64, int, error) {
-	create_msg := map[string]any{
+	create_msg := StringMap{
 		"request":     "create",
 		"description": getStreamId(id, streamType),
 		// We publish every stream in its own Janus room.
@@ -642,7 +642,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 		return nil, 0, 0, 0, err
 	}
 
-	msg := map[string]any{
+	msg := StringMap{
 		"request": "join",
 		"ptype":   "publisher",
 		"room":    roomId,
@@ -834,7 +834,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 		return nil, err
 	}
 
-	response, err := handle.Request(ctx, map[string]any{
+	response, err := handle.Request(ctx, StringMap{
 		"request": "add_remote_publisher",
 		"room":    roomId,
 		"id":      streamTypeUserIds[streamType],
