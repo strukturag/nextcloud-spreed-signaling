@@ -50,31 +50,9 @@ jobs:
     - name: Generate coverage report
       run: |
         make cover TIMEOUT=120s
-        echo "GOROOT=$(go env GOROOT)" >> $GITHUB_ENV
 
-    - name: Convert coverage to lcov
-      uses: jandelgado/gcov2lcov-action@v1.1.1
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
       with:
-        infile: cover.out
-        outfile: cover.lcov
-
-    - name: Coveralls Parallel
-      uses: coverallsapp/github-action@v2.3.6
-      env:
-        COVERALLS_FLAG_NAME: run-${{ matrix.go-version }}
-      with:
-        path-to-lcov: cover.lcov
-        github-token: ${{ secrets.github_token }}
-        parallel: true
-
-  finish:
-    permissions:
-      contents: none
-    needs: go
-    runs-on: ubuntu-latest
-    steps:
-    - name: Coveralls Finished
-      uses: coverallsapp/github-action@v2.3.6
-      with:
-        github-token: ${{ secrets.github_token }}
-        parallel-finished: true
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./cover.out
