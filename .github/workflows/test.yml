@@ -58,3 +58,4 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ./cover.out
+        flags: go-${{ matrix.go-version }}
