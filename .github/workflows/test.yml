@@ -5,6 +5,7 @@ on:
     branches: [ master ]
     paths:
       - '.github/workflows/test.yml'
+      - '.codecov.yml'
       - '**.go'
       - 'go.*'
       - 'Makefile'
@@ -12,6 +13,7 @@ on:
     branches: [ master ]
     paths:
       - '.github/workflows/test.yml'
+      - '.codecov.yml'
       - '**.go'
       - 'go.*'
       - 'Makefile'
