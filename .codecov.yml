@@ -1,0 +1,13 @@
+coverage:
+  status:
+    project:
+      default:
+        threshold: 2%
+
+comment:
+  layout: "header, diff, flags, files"
+  after_n_builds: 2
+
+ignore:
+  - "*_easyjson.go"
+  - "*.pb.go"
