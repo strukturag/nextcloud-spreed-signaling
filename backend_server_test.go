@@ -28,7 +28,6 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -43,7 +42,6 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -229,25 +227,29 @@ func performBackendRequest(requestUrl string, body []byte) (*http.Response, erro
 	return client.Do(request)
 }
 
-func expectRoomlistEvent(ch chan *AsyncMessage, msgType string) (*EventServerMessage, error) {
+func expectRoomlistEvent(t *testing.T, ch chan *AsyncMessage, msgType string) (*EventServerMessage, bool) {
+	assert := assert.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	select {
 	case message := <-ch:
-		if message.Type != "message" || message.Message == nil {
-			return nil, fmt.Errorf("Expected message type message, got %+v", message)
+		if !assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
+			!assert.NotNil(message.Message, "message missing, got %+v", message) {
+			return nil, false
 		}
 
 		msg := message.Message
-		if msg.Type != "event" || msg.Event == nil {
-			return nil, fmt.Errorf("Expected message type event, got %+v", msg)
+		if !assert.Equal("event", msg.Type, "invalid message type, got %+v", msg) ||
+			!assert.NotNil(msg.Event, "event missing, got %+v", msg) ||
+			!assert.Equal("roomlist", msg.Event.Target, "invalid event target, got %+v", msg.Event) ||
+			!assert.Equal(msgType, msg.Event.Type, "invalid event type, got %+v", msg.Event) {
+			return nil, false
 		}
-		if msg.Event.Target != "roomlist" || msg.Event.Type != msgType {
-			return nil, fmt.Errorf("Expected roomlist %s event, got %+v", msgType, msg.Event)
-		}
-		return msg.Event, nil
+
+		return msg.Event, true
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		assert.NoError(ctx.Err())
+		return nil, false
 	}
 }
 
@@ -439,11 +441,9 @@ func RunTestBackendServer_RoomInvite(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s: %s", res.Status, string(body))
 
-	if event, err := expectRoomlistEvent(eventsChan, "invite"); assert.NoError(err) {
-		if assert.NotNil(event.Invite) {
-			assert.Equal(roomId, event.Invite.RoomId)
-			assert.Equal(string(roomProperties), string(event.Invite.Properties))
-		}
+	if event, ok := expectRoomlistEvent(t, eventsChan, "invite"); ok && assert.NotNil(event.Invite) {
+		assert.Equal(roomId, event.Invite.RoomId)
+		assert.Equal(string(roomProperties), string(event.Invite.Properties))
 	}
 }
 
@@ -467,19 +467,14 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 
 	backend := hub.backend.GetBackend(u)
 
-	client := NewTestClient(t, server, hub)
-	defer client.CloseWithBye()
-	require.NoError(client.SendHello(testDefaultUserId))
-
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	hello, err := client.RunUntilHello(ctx)
-	require.NoError(err)
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
 
 	// Join room by id.
 	roomId := "test-room"
-	if room, err := client.JoinRoom(ctx, roomId); assert.NoError(err) {
+	if room, ok := client.JoinRoom(ctx, roomId); assert.True(ok) {
 		assert.Equal(roomId, room.Room.RoomId)
 	}
 
@@ -518,23 +513,17 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 	require.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s: %s", res.Status, string(body))
 
-	if event, err := expectRoomlistEvent(eventsChan, "disinvite"); assert.NoError(err) {
-		if assert.NotNil(event.Disinvite) {
-			assert.Equal(roomId, event.Disinvite.RoomId)
-			assert.Equal("disinvited", event.Disinvite.Reason)
-		}
+	if event, ok := expectRoomlistEvent(t, eventsChan, "disinvite"); ok && assert.NotNil(event.Disinvite) {
+		assert.Equal(roomId, event.Disinvite.RoomId)
+		assert.Equal("disinvited", event.Disinvite.Reason)
 		assert.Empty(string(event.Disinvite.Properties))
 	}
 
-	if message, err := client.RunUntilRoomlistDisinvite(ctx); assert.NoError(err) {
+	if message, ok := client.RunUntilRoomlistDisinvite(ctx); ok {
 		assert.Equal(roomId, message.RoomId)
 	}
 
-	if message, err := client.RunUntilMessage(ctx); err != nil && !websocket.IsCloseError(err, websocket.CloseNoStatusReceived) {
-		assert.NoError(err, "Received unexpected error")
-	} else if err == nil {
-		assert.Fail("Server should have closed the connection", "received %+v", *message)
-	}
+	client.RunUntilClosed(ctx)
 }
 
 func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
@@ -544,30 +533,19 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
-	client1 := NewTestClient(t, server, hub)
-	defer client1.CloseWithBye()
-	require.NoError(client1.SendHello(testDefaultUserId))
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
-	require.NoError(client2.SendHello(testDefaultUserId))
-
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	hello1, err := client1.RunUntilHello(ctx)
-	require.NoError(err)
-	hello2, err := client2.RunUntilHello(ctx)
-	require.NoError(err)
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
 
 	// Join room by id.
 	roomId1 := "test-room1"
-	_, err = client1.JoinRoom(ctx, roomId1)
-	require.NoError(err)
-	require.NoError(client1.RunUntilJoined(ctx, hello1.Hello))
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId1)
+	require.True(client1.RunUntilJoined(ctx, hello1.Hello))
 	roomId2 := "test-room2"
-	_, err = client2.JoinRoom(ctx, roomId2)
-	require.NoError(err)
-	require.NoError(client2.RunUntilJoined(ctx, hello2.Hello))
+	MustSucceed2(t, client2.JoinRoom, ctx, roomId2)
+	require.True(client2.RunUntilJoined(ctx, hello2.Hello))
 
 	msg := &BackendServerRoomRequest{
 		Type: "disinvite",
@@ -591,17 +569,13 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
-	if message, err := client1.RunUntilRoomlistDisinvite(ctx); assert.NoError(err) {
+	if message, ok := client1.RunUntilRoomlistDisinvite(ctx); ok {
 		assert.Equal(roomId1, message.RoomId)
 	}
 
-	if message, err := client1.RunUntilMessage(ctx); err != nil && !websocket.IsCloseError(err, websocket.CloseNoStatusReceived) {
-		assert.NoError(err)
-	} else if err == nil {
-		assert.Fail("Server should have closed the connection", "received %+v", *message)
-	}
+	client1.RunUntilClosed(ctx)
 
-	if message, err := client2.RunUntilRoomlistDisinvite(ctx); assert.NoError(err) {
+	if message, ok := client2.RunUntilRoomlistDisinvite(ctx); ok {
 		assert.Equal(roomId1, message.RoomId)
 	}
 
@@ -624,7 +598,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
-	if message, err := client2.RunUntilRoomlistUpdate(ctx); assert.NoError(err) {
+	if message, ok := client2.RunUntilRoomlistUpdate(ctx); ok {
 		assert.Equal(roomId2, message.RoomId)
 	}
 }
@@ -684,11 +658,9 @@ func RunTestBackendServer_RoomUpdate(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
-	if event, err := expectRoomlistEvent(eventsChan, "update"); assert.NoError(err) {
-		if assert.NotNil(event.Update) {
-			assert.Equal(roomId, event.Update.RoomId)
-			assert.Equal(string(roomProperties), string(event.Update.Properties))
-		}
+	if event, ok := expectRoomlistEvent(t, eventsChan, "update"); ok && assert.NotNil(event.Update) {
+		assert.Equal(roomId, event.Update.RoomId)
+		assert.Equal(string(roomProperties), string(event.Update.Properties))
 	}
 
 	// TODO: Use event to wait for asynchronous messages.
@@ -751,12 +723,10 @@ func RunTestBackendServer_RoomDelete(t *testing.T) {
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
 	// A deleted room is signalled as a "disinvite" event.
-	if event, err := expectRoomlistEvent(eventsChan, "disinvite"); assert.NoError(err) {
-		if assert.NotNil(event.Disinvite) {
-			assert.Equal(roomId, event.Disinvite.RoomId)
-			assert.Empty(event.Disinvite.Properties)
-			assert.Equal("deleted", event.Disinvite.Reason)
-		}
+	if event, ok := expectRoomlistEvent(t, eventsChan, "disinvite"); ok && assert.NotNil(event.Disinvite) {
+		assert.Equal(roomId, event.Disinvite.RoomId)
+		assert.Empty(event.Disinvite.Properties)
+		assert.Equal("deleted", event.Disinvite.Reason)
 	}
 
 	// TODO: Use event to wait for asynchronous messages.
@@ -787,20 +757,11 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
 			}
 
-			client1 := NewTestClient(t, server1, hub1)
-			defer client1.CloseWithBye()
-			require.NoError(client1.SendHello(testDefaultUserId + "1"))
-			client2 := NewTestClient(t, server2, hub2)
-			defer client2.CloseWithBye()
-			require.NoError(client2.SendHello(testDefaultUserId + "2"))
-
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
-			hello1, err := client1.RunUntilHello(ctx)
-			require.NoError(err)
-			hello2, err := client2.RunUntilHello(ctx)
-			require.NoError(err)
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
 
 			session1 := hub1.GetSessionByPublicId(hello1.Hello.SessionId)
 			require.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
@@ -815,11 +776,9 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 
 			// Join room by id.
 			roomId := "test-room"
-			roomMsg, err := client1.JoinRoom(ctx, roomId)
-			require.NoError(err)
+			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
-			roomMsg, err = client2.JoinRoom(ctx, roomId)
-			require.NoError(err)
+			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// Ignore "join" events.
@@ -880,15 +839,10 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
-	client := NewTestClient(t, server, hub)
-	defer client.CloseWithBye()
-	require.NoError(client.SendHello(testDefaultUserId))
-
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	hello, err := client.RunUntilHello(ctx)
-	require.NoError(err)
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
 
 	session := hub.GetSessionByPublicId(hello.Hello.SessionId)
 	assert.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
@@ -899,8 +853,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 
 	// Join room by id.
 	roomId := "test-room"
-	roomMsg, err := client.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
@@ -949,32 +902,21 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
-	client1 := NewTestClient(t, server, hub)
-	defer client1.CloseWithBye()
-	require.NoError(client1.SendHello(testDefaultUserId + "1"))
-	client2 := NewTestClient(t, server, hub)
-	defer client2.CloseWithBye()
-	require.NoError(client2.SendHello(testDefaultUserId + "2"))
-
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	hello1, err := client1.RunUntilHello(ctx)
-	require.NoError(err)
-	hello2, err := client2.RunUntilHello(ctx)
-	require.NoError(err)
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 
 	// Join room by id.
 	roomId := "test-room"
-	roomMsg, err := client1.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Give message processing some time.
 	time.Sleep(10 * time.Millisecond)
 
-	roomMsg, err = client2.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
@@ -1077,26 +1019,24 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 		return
 	}
 
-	msg1_a, err := client1.RunUntilMessage(ctx)
-	assert.NoError(err)
-	if in_call_1, err := checkMessageParticipantsInCall(msg1_a); assert.NoError(err) {
-		if len(in_call_1.Users) != 2 {
-			msg1_b, err := client1.RunUntilMessage(ctx)
-			assert.NoError(err)
-			if in_call_2, err := checkMessageParticipantsInCall(msg1_b); assert.NoError(err) {
-				assert.Len(in_call_2.Users, 2)
+	if msg1_a, ok := client1.RunUntilMessage(ctx); ok {
+		if in_call_1, ok := checkMessageParticipantsInCall(t, msg1_a); ok {
+			if len(in_call_1.Users) != 2 {
+				msg1_b, _ := client1.RunUntilMessage(ctx)
+				if in_call_2, ok := checkMessageParticipantsInCall(t, msg1_b); ok {
+					assert.Len(in_call_2.Users, 2)
+				}
 			}
 		}
 	}
 
-	msg2_a, err := client2.RunUntilMessage(ctx)
-	assert.NoError(err)
-	if in_call_1, err := checkMessageParticipantsInCall(msg2_a); assert.NoError(err) {
-		if len(in_call_1.Users) != 2 {
-			msg2_b, err := client2.RunUntilMessage(ctx)
-			assert.NoError(err)
-			if in_call_2, err := checkMessageParticipantsInCall(msg2_b); assert.NoError(err) {
-				assert.Len(in_call_2.Users, 2)
+	if msg2_a, ok := client2.RunUntilMessage(ctx); ok {
+		if in_call_1, ok := checkMessageParticipantsInCall(t, msg2_a); ok {
+			if len(in_call_1.Users) != 2 {
+				msg2_b, _ := client2.RunUntilMessage(ctx)
+				if in_call_2, ok := checkMessageParticipantsInCall(t, msg2_b); ok {
+					assert.Len(in_call_2.Users, 2)
+				}
 			}
 		}
 	}
@@ -1104,15 +1044,12 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
 
-	if msg1_c, err := client1.RunUntilMessage(ctx2); !assert.ErrorIs(err, context.DeadlineExceeded) {
-		assert.Fail("should have timeout out", "received %+v", msg1_c)
-	}
+	client1.RunUntilErrorIs(ctx2, context.DeadlineExceeded)
 
 	ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel3()
-	if msg2_c, err := client2.RunUntilMessage(ctx3); !assert.ErrorIs(err, context.DeadlineExceeded) {
-		assert.Fail("should have timeout out", "received %+v", msg2_c)
-	}
+
+	client2.RunUntilErrorIs(ctx3, context.DeadlineExceeded)
 }
 
 func TestBackendServer_InCallAll(t *testing.T) {
@@ -1136,20 +1073,11 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
 			}
 
-			client1 := NewTestClient(t, server1, hub1)
-			defer client1.CloseWithBye()
-			require.NoError(client1.SendHello(testDefaultUserId + "1"))
-			client2 := NewTestClient(t, server2, hub2)
-			defer client2.CloseWithBye()
-			require.NoError(client2.SendHello(testDefaultUserId + "2"))
-
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
-			hello1, err := client1.RunUntilHello(ctx)
-			require.NoError(err)
-			hello2, err := client2.RunUntilHello(ctx)
-			require.NoError(err)
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
 
 			session1 := hub1.GetSessionByPublicId(hello1.Hello.SessionId)
 			require.NotNil(session1, "Could not find session %s", hello1.Hello.SessionId)
@@ -1158,15 +1086,13 @@ func TestBackendServer_InCallAll(t *testing.T) {
 
 			// Join room by id.
 			roomId := "test-room"
-			roomMsg, err := client1.JoinRoom(ctx, roomId)
-			require.NoError(err)
+			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// Give message processing some time.
 			time.Sleep(10 * time.Millisecond)
 
-			roomMsg, err = client2.JoinRoom(ctx, roomId)
-			require.NoError(err)
+			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
@@ -1210,15 +1136,15 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				return
 			}
 
-			if msg1_a, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-				if in_call_1, err := checkMessageParticipantsInCall(msg1_a); assert.NoError(err) {
+			if msg1_a, ok := client1.RunUntilMessage(ctx); ok {
+				if in_call_1, ok := checkMessageParticipantsInCall(t, msg1_a); ok {
 					assert.True(in_call_1.All, "All flag not set in message %+v", in_call_1)
 					assert.Equal("7", string(in_call_1.InCall))
 				}
 			}
 
-			if msg2_a, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-				if in_call_1, err := checkMessageParticipantsInCall(msg2_a); assert.NoError(err) {
+			if msg2_a, ok := client2.RunUntilMessage(ctx); ok {
+				if in_call_1, ok := checkMessageParticipantsInCall(t, msg2_a); ok {
 					assert.True(in_call_1.All, "All flag not set in message %+v", in_call_1)
 					assert.Equal("7", string(in_call_1.InCall))
 				}
@@ -1230,20 +1156,12 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel2()
 
-			if message, err := client1.RunUntilMessage(ctx2); err == nil {
-				assert.Fail("Expected no message", "received %+v", message)
-			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-				assert.NoError(err)
-			}
+			client1.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 
 			ctx3, cancel3 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel3()
 
-			if message, err := client2.RunUntilMessage(ctx3); err == nil {
-				assert.Fail("Expected no message", "received %+v", message)
-			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-				assert.NoError(err)
-			}
+			client2.RunUntilErrorIs(ctx3, ErrNoMessageReceived, context.DeadlineExceeded)
 
 			wg.Add(1)
 			go func() {
@@ -1275,15 +1193,15 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				return
 			}
 
-			if msg1_a, err := client1.RunUntilMessage(ctx); assert.NoError(err) {
-				if in_call_1, err := checkMessageParticipantsInCall(msg1_a); assert.NoError(err) {
+			if msg1_a, ok := client1.RunUntilMessage(ctx); ok {
+				if in_call_1, ok := checkMessageParticipantsInCall(t, msg1_a); ok {
 					assert.True(in_call_1.All, "All flag not set in message %+v", in_call_1)
 					assert.Equal("0", string(in_call_1.InCall))
 				}
 			}
 
-			if msg2_a, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
-				if in_call_1, err := checkMessageParticipantsInCall(msg2_a); assert.NoError(err) {
+			if msg2_a, ok := client2.RunUntilMessage(ctx); ok {
+				if in_call_1, ok := checkMessageParticipantsInCall(t, msg2_a); ok {
 					assert.True(in_call_1.All, "All flag not set in message %+v", in_call_1)
 					assert.Equal("0", string(in_call_1.InCall))
 				}
@@ -1295,20 +1213,12 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			ctx4, cancel4 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel4()
 
-			if message, err := client1.RunUntilMessage(ctx4); err == nil {
-				assert.Fail("Expected no message", "received %+v", message)
-			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-				assert.NoError(err)
-			}
+			client1.RunUntilErrorIs(ctx4, ErrNoMessageReceived, context.DeadlineExceeded)
 
 			ctx5, cancel5 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel5()
 
-			if message, err := client2.RunUntilMessage(ctx5); err == nil {
-				assert.Fail("Expected no message", "received %+v", message)
-			} else if err != ErrNoMessageReceived && err != context.DeadlineExceeded {
-				assert.NoError(err)
-			}
+			client2.RunUntilErrorIs(ctx5, ErrNoMessageReceived, context.DeadlineExceeded)
 		})
 	}
 }
@@ -1320,20 +1230,14 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
-	client := NewTestClient(t, server, hub)
-	defer client.CloseWithBye()
-	require.NoError(client.SendHello(testDefaultUserId + "1"))
-
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	_, err := client.RunUntilHello(ctx)
-	require.NoError(err)
+	client, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
 
 	// Join room by id.
 	roomId := "test-room"
-	roomMsg, err := client.JoinRoom(ctx, roomId)
-	require.NoError(err)
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
@@ -1356,7 +1260,7 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
-	if message, err := client.RunUntilRoomMessage(ctx); assert.NoError(err) {
+	if message, ok := client.RunUntilRoomMessage(ctx); ok {
 		assert.Equal(roomId, message.RoomId)
 		assert.Equal(string(messageData), string(message.Data))
 	}
@@ -1504,8 +1408,7 @@ func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	_, err := client.RunUntilHello(ctx)
-	require.NoError(err)
+	MustSucceed1(t, client.RunUntilHello, ctx)
 
 	roomId := "12345"
 	msg := &BackendServerRoomRequest{
@@ -1548,8 +1451,7 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	_, err := client.RunUntilHello(ctx)
-	require.NoError(err)
+	MustSucceed1(t, client.RunUntilHello, ctx)
 
 	roomId := "12345"
 	callId := "call-123"
@@ -1558,8 +1460,8 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 	go func() {
 		defer close(stopped)
 
-		msg, err := client.RunUntilMessage(ctx)
-		if !assert.NoError(err) {
+		msg, ok := client.RunUntilMessage(ctx)
+		if !ok {
 			return
 		}
 
@@ -1635,8 +1537,7 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	_, err := client.RunUntilHello(ctx)
-	require.NoError(err)
+	MustSucceed1(t, client.RunUntilHello, ctx)
 
 	roomId := "12345"
 	callId := "call-123"
@@ -1645,8 +1546,8 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 	go func() {
 		defer close(stopped)
 
-		msg, err := client.RunUntilMessage(ctx)
-		if !assert.NoError(err) {
+		msg, ok := client.RunUntilMessage(ctx)
+		if !ok {
 			return
 		}
 
@@ -1722,8 +1623,7 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	_, err := client.RunUntilHello(ctx)
-	require.NoError(err)
+	MustSucceed1(t, client.RunUntilHello, ctx)
 
 	roomId := "12345"
 	errorCode := "error-code"
@@ -1733,8 +1633,8 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 	go func() {
 		defer close(stopped)
 
-		msg, err := client.RunUntilMessage(ctx)
-		if !assert.NoError(err) {
+		msg, ok := client.RunUntilMessage(ctx)
+		if !ok {
 			return
 		}
 
@@ -1811,11 +1711,8 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	_, err := client1.RunUntilHello(ctx)
-	require.NoError(err)
-
-	_, err = client2.RunUntilHello(ctx)
-	require.NoError(err)
+	MustSucceed1(t, client1.RunUntilHello, ctx)
+	MustSucceed1(t, client2.RunUntilHello, ctx)
 
 	roomId := "12345"
 	callId := "call-123"
@@ -1826,8 +1723,8 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 	runClient := func(client *TestClient) {
 		defer wg.Done()
 
-		msg, err := client.RunUntilMessage(ctx)
-		if !assert.NoError(err) {
+		msg, ok := client.RunUntilMessage(ctx)
+		if !ok {
 			return
 		}
 
