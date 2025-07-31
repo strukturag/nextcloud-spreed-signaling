@@ -1,0 +1,12 @@
+coverage:
+  status:
+    project:
+      default:
+        threshold: 2%
+
+comment:
+  after_n_builds: 2
+
+ignore:
+  - "*_easyjson.go"
+  - "*.pb.go"

@@ -111,10 +111,7 @@ test: vet
 
 cover: vet
 	rm -f cover.out && \
-	$(GO) test -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
-	sed -i "/_easyjson/d" cover.out && \
-	sed -i "/\.pb\.go/d" cover.out && \
-	$(GO) tool cover -func=cover.out
+	$(GO) test -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES)
 
 coverhtml: vet
 	rm -f cover.out && \
