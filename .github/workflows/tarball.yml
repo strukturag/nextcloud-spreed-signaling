@@ -58,7 +58,7 @@ jobs:
         go-version: ${{ matrix.go-version }}
 
     - name: Download tarball
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: tarball-${{ matrix.go-version }}
 
