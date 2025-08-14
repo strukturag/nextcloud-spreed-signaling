@@ -701,15 +701,9 @@ func (b *BackendServer) startDialoutInSession(ctx context.Context, session *Clie
 	}
 	if urls := backend.Urls(); len(urls) > 0 {
 		// Check if client-provided URL is registered for backend and use that.
-		found := false
-		for _, u := range urls {
-			if strings.HasPrefix(url, u) {
-				found = true
-				break
-			}
-		}
-
-		if !found {
+		if !slices.ContainsFunc(urls, func(u string) bool {
+			return strings.HasPrefix(url, u)
+		}) {
 			url = urls[0]
 		}
 	}

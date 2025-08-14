@@ -54,10 +54,10 @@ const (
 )
 
 func getWebsocketUrl(url string) string {
-	if strings.HasPrefix(url, "http://") {
-		return "ws://" + url[7:] + "/proxy"
-	} else if strings.HasPrefix(url, "https://") {
-		return "wss://" + url[8:] + "/proxy"
+	if url, found := strings.CutPrefix(url, "http://"); found {
+		return "ws://" + url + "/proxy"
+	} else if url, found := strings.CutPrefix(url, "https://"); found {
+		return "wss://" + url + "/proxy"
 	} else {
 		panic("Unsupported URL: " + url)
 	}
