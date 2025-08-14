@@ -30,9 +30,15 @@ import (
 func assertSessionHasPermission(t *testing.T, session Session, permission Permission) {
 	t.Helper()
 	assert.True(t, session.HasPermission(permission), "Session %s doesn't have permission %s", session.PublicId(), permission)
+	if cs, ok := session.(*ClientSession); ok {
+		assert.True(t, cs.HasAnyPermission(permission), "Session %s doesn't have permission %s", session.PublicId(), permission)
+	}
 }
 
 func assertSessionHasNotPermission(t *testing.T, session Session, permission Permission) {
 	t.Helper()
 	assert.False(t, session.HasPermission(permission), "Session %s has permission %s but shouldn't", session.PublicId(), permission)
+	if cs, ok := session.(*ClientSession); ok {
+		assert.False(t, cs.HasAnyPermission(permission), "Session %s has permission %s but shouldn't", session.PublicId(), permission)
+	}
 }
