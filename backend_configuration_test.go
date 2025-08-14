@@ -25,7 +25,7 @@ import (
 	"context"
 	"net/url"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,7 +36,6 @@ import (
 
 func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, invalid_urls []string) {
 	for _, u := range valid_urls {
-		u := u
 		t.Run(u, func(t *testing.T) {
 			assert := assert.New(t)
 			parsed, err := url.ParseRequestURI(u)
@@ -49,7 +48,6 @@ func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, i
 		})
 	}
 	for _, u := range invalid_urls {
-		u := u
 		t.Run(u, func(t *testing.T) {
 			assert := assert.New(t)
 			parsed, _ := url.ParseRequestURI(u)
@@ -60,7 +58,6 @@ func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, i
 
 func testBackends(t *testing.T, config *BackendConfiguration, valid_urls [][]string, invalid_urls []string) {
 	for _, entry := range valid_urls {
-		entry := entry
 		t.Run(entry[0], func(t *testing.T) {
 			assert := assert.New(t)
 			u := entry[0]
@@ -75,7 +72,6 @@ func testBackends(t *testing.T, config *BackendConfiguration, valid_urls [][]str
 		})
 	}
 	for _, u := range invalid_urls {
-		u := u
 		t.Run(u, func(t *testing.T) {
 			assert := assert.New(t)
 			parsed, _ := url.ParseRequestURI(u)
@@ -448,11 +444,9 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 }
 
 func sortBackends(backends []*Backend) []*Backend {
-	result := make([]*Backend, len(backends))
-	copy(result, backends)
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Id() < result[j].Id()
+	result := slices.Clone(backends)
+	slices.SortFunc(result, func(a, b *Backend) int {
+		return strings.Compare(a.Id(), b.Id())
 	})
 	return result
 }

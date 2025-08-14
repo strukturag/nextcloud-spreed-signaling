@@ -284,7 +284,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 	}
 
 	decodeCaches := make([]*LruCache, 0, numDecodeCaches)
-	for i := 0; i < numDecodeCaches; i++ {
+	for range numDecodeCaches {
 		decodeCaches = append(decodeCaches, NewLruCache(decodeCacheSize))
 	}
 

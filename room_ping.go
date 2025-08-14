@@ -167,10 +167,7 @@ func (p *RoomPing) sendPingsDirect(ctx context.Context, roomId string, url *url.
 func (p *RoomPing) sendPingsCombined(url *url.URL, entries []BackendPingEntry, limit int, timeout time.Duration) {
 	total := len(entries)
 	for idx := 0; idx < total; idx += limit {
-		end := idx + limit
-		if end > total {
-			end = total
-		}
+		end := min(idx+limit, total)
 		tosend := entries[idx:end]
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)

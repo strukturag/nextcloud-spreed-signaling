@@ -316,7 +316,7 @@ func TestWebsocketFeatures(t *testing.T) {
 	}
 	features := response.Header.Get("X-Spreed-Signaling-Features")
 	featuresList := make(map[string]bool)
-	for _, f := range strings.Split(features, ",") {
+	for f := range strings.SplitSeq(features, ",") {
 		f = strings.TrimSpace(f)
 		if f != "" {
 			if _, found := featuresList[f]; found {

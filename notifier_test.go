@@ -115,7 +115,7 @@ func TestNotifierDuplicate(t *testing.T) {
 	var wgStart sync.WaitGroup
 	var wgEnd sync.WaitGroup
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		wgStart.Add(1)
 		wgEnd.Add(1)
 

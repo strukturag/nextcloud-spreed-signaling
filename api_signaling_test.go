@@ -24,7 +24,7 @@ package signaling
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 
@@ -399,12 +399,12 @@ func assertEqualStrings(t *testing.T, expected, result []string) {
 	if expected == nil {
 		expected = make([]string, 0)
 	} else {
-		sort.Strings(expected)
+		slices.Sort(expected)
 	}
 	if result == nil {
 		result = make([]string, 0)
 	} else {
-		sort.Strings(result)
+		slices.Sort(result)
 	}
 
 	assert.Equal(t, expected, result)
@@ -418,11 +418,11 @@ func Test_Welcome_AddRemoveFeature(t *testing.T) {
 
 	msg.AddFeature("one", "two", "one")
 	assertEqualStrings(t, []string{"one", "two"}, msg.Features)
-	assert.True(sort.StringsAreSorted(msg.Features), "features should be sorted, got %+v", msg.Features)
+	assert.True(slices.IsSorted(msg.Features), "features should be sorted, got %+v", msg.Features)
 
 	msg.AddFeature("three")
 	assertEqualStrings(t, []string{"one", "two", "three"}, msg.Features)
-	assert.True(sort.StringsAreSorted(msg.Features), "features should be sorted, got %+v", msg.Features)
+	assert.True(slices.IsSorted(msg.Features), "features should be sorted, got %+v", msg.Features)
 
 	msg.RemoveFeature("three", "one")
 	assertEqualStrings(t, []string{"two"}, msg.Features)

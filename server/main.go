@@ -289,10 +289,7 @@ func main() {
 				}
 			case <-mcuRetryTimer.C:
 				// Retry connection
-				mcuRetry = mcuRetry * 2
-				if mcuRetry > maxMcuRetry {
-					mcuRetry = maxMcuRetry
-				}
+				mcuRetry = min(mcuRetry*2, maxMcuRetry)
 			}
 		}
 		if mcu != nil {
@@ -344,7 +341,7 @@ func main() {
 		if writeTimeout <= 0 {
 			writeTimeout = defaultWriteTimeout
 		}
-		for _, address := range strings.Split(saddr, " ") {
+		for address := range strings.SplitSeq(saddr, " ") {
 			go func(address string) {
 				log.Println("Listening on", address)
 				listener, err := createTLSListener(address, cert, key)
@@ -377,7 +374,7 @@ func main() {
 			writeTimeout = defaultWriteTimeout
 		}
 
-		for _, address := range strings.Split(addr, " ") {
+		for address := range strings.SplitSeq(addr, " ") {
 			go func(address string) {
 				log.Println("Listening on", address)
 				listener, err := createListener(address)

@@ -145,7 +145,7 @@ func TestThrottler_Bruteforce(t *testing.T) {
 
 	ctx := context.Background()
 
-	for i := 0; i < maxBruteforceAttempts; i++ {
+	for i := range maxBruteforceAttempts {
 		timing.now = timing.now.Add(time.Millisecond)
 		throttle, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
 		assert.NoError(err)
@@ -292,7 +292,7 @@ func TestThrottler_Negative(t *testing.T) {
 
 	ctx := context.Background()
 
-	for i := 0; i < maxBruteforceAttempts*10; i++ {
+	for i := range maxBruteforceAttempts * 10 {
 		timing.now = timing.now.Add(time.Millisecond)
 		throttle, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
 		if err != nil {

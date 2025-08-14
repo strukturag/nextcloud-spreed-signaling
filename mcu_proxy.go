@@ -35,7 +35,6 @@ import (
 	"net/url"
 	"os"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -766,10 +765,7 @@ func (c *mcuProxyConnection) scheduleReconnect() {
 	jitter := rand.Int64N(interval) - (interval / 2)
 	c.reconnectTimer.Reset(time.Duration(interval + jitter))
 
-	interval = interval * 2
-	if interval > int64(maxReconnectInterval) {
-		interval = int64(maxReconnectInterval)
-	}
+	interval = min(interval*2, int64(maxReconnectInterval))
 	c.reconnectInterval.Store(interval)
 }
 
@@ -1569,7 +1565,7 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 		}
 
 		var values []string
-		for _, v := range strings.Split(value, ",") {
+		for v := range strings.SplitSeq(value, ",") {
 			v = strings.ToUpper(strings.TrimSpace(v))
 			if !IsValidContinent(v) {
 				log.Printf("Ignore unknown continent %s for override %s", v, option)
@@ -1872,32 +1868,14 @@ func (m *mcuProxy) setContinentsMap(continentsMap map[string][]string) {
 
 type mcuProxyConnectionsList []*mcuProxyConnection
 
-func (l mcuProxyConnectionsList) Len() int {
-	return len(l)
-}
-
-func (l mcuProxyConnectionsList) Less(i, j int) bool {
-	return l[i].Load() < l[j].Load()
-}
-
-func (l mcuProxyConnectionsList) Swap(i, j int) {
-	l[i], l[j] = l[j], l[i]
-}
-
-func (l mcuProxyConnectionsList) Sort() {
-	sort.Sort(l)
-}
-
 func ContinentsOverlap(a, b []string) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false
 	}
 
 	for _, checkA := range a {
-		for _, checkB := range b {
-			if checkA == checkB {
-				return true
-			}
+		if slices.Contains(b, checkA) {
+			return true
 		}
 	}
 	return false
@@ -1958,10 +1936,10 @@ func (m *mcuProxy) getSortedConnections(initiator McuInitiator) []*mcuProxyConne
 	if m.connRequests.Add(1)%connectionSortRequests == 0 || m.nextSort.Load() <= now {
 		m.nextSort.Store(now + int64(connectionSortInterval))
 
-		sorted := make(mcuProxyConnectionsList, len(connections))
-		copy(sorted, connections)
-
-		sorted.Sort()
+		sorted := slices.Clone(connections)
+		slices.SortFunc(sorted, func(a, b *mcuProxyConnection) int {
+			return int(a.Load() - b.Load())
+		})
 
 		m.connectionsMu.Lock()
 		m.connections = sorted

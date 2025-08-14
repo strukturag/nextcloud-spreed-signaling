@@ -118,7 +118,6 @@ func Test_permissionsEqual(t *testing.T) {
 		},
 	}
 	for idx, test := range tests {
-		test := test
 		t.Run(strconv.Itoa(idx), func(t *testing.T) {
 			t.Parallel()
 			equal := permissionsEqual(test.a, test.b)

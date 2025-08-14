@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -101,9 +102,7 @@ func NewTestJanusGateway(t *testing.T) *TestJanusGateway {
 func (g *TestJanusGateway) registerHandlers(handlers map[string]TestJanusHandler) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	for name, handler := range handlers {
-		g.handlers[name] = handler
-	}
+	maps.Copy(g.handlers, handlers)
 }
 
 func (g *TestJanusGateway) Info(ctx context.Context) (*InfoMsg, error) {

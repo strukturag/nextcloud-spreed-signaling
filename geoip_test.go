@@ -46,8 +46,6 @@ func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
 	}
 
 	for ip, expected := range tests {
-		ip := ip
-		expected := expected
 		t.Run(ip, func(t *testing.T) {
 			country, err := reader.LookupCountry(net.ParseIP(ip))
 			if !assert.NoError(t, err, "Could not lookup %s", ip) {
@@ -113,8 +111,6 @@ func TestGeoLookupContinent(t *testing.T) {
 	}
 
 	for country, expected := range tests {
-		country := country
-		expected := expected
 		t.Run(country, func(t *testing.T) {
 			continents := LookupContinents(country)
 			if !assert.Equal(t, len(expected), len(continents), "Continents didn't match for %s: got %s, expected %s", country, continents, expected) {

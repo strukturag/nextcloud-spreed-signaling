@@ -29,7 +29,6 @@ import (
 	"net"
 	"net/url"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -290,27 +289,19 @@ func NewWelcomeServerMessage(version string, feature ...string) *WelcomeServerMe
 		Features: feature,
 	}
 	if len(feature) > 0 {
-		sort.Strings(message.Features)
+		slices.Sort(message.Features)
 	}
 	return message
 }
 
 func (m *WelcomeServerMessage) AddFeature(feature ...string) {
-	newFeatures := make([]string, len(m.Features))
-	copy(newFeatures, m.Features)
+	newFeatures := slices.Clone(m.Features)
 	for _, feat := range feature {
-		found := false
-		for _, f := range newFeatures {
-			if f == feat {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(newFeatures, feat) {
 			newFeatures = append(newFeatures, feat)
 		}
 	}
-	sort.Strings(newFeatures)
+	slices.Sort(newFeatures)
 	m.Features = newFeatures
 }
 
@@ -318,8 +309,8 @@ func (m *WelcomeServerMessage) RemoveFeature(feature ...string) {
 	newFeatures := make([]string, len(m.Features))
 	copy(newFeatures, m.Features)
 	for _, feat := range feature {
-		idx := sort.SearchStrings(newFeatures, feat)
-		if idx < len(newFeatures) && newFeatures[idx] == feat {
+		idx, found := slices.BinarySearch(newFeatures, feat)
+		if found {
 			newFeatures = append(newFeatures[:idx], newFeatures[idx+1:]...)
 		}
 	}

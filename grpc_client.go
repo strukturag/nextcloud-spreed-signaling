@@ -29,6 +29,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -531,13 +532,7 @@ func (c *GrpcClients) isClientAvailable(target string, client *GrpcClient) bool 
 		return false
 	}
 
-	for _, entry := range entries.clients {
-		if entry == client {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(entries.clients, client)
 }
 
 func (c *GrpcClients) getServerIdWithTimeout(ctx context.Context, client *GrpcClient) (string, string, error) {
@@ -617,7 +612,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 	}
 
 	targets, _ := config.GetString("grpc", "targets")
-	for _, target := range strings.Split(targets, ",") {
+	for target := range strings.SplitSeq(targets, ",") {
 		target = strings.TrimSpace(target)
 		if target == "" {
 			continue

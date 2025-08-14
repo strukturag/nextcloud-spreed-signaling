@@ -636,7 +636,7 @@ func (c *TestClient) DrainMessages(ctx context.Context) error {
 		return err
 	case <-c.messageChan:
 		n := len(c.messageChan)
-		for i := 0; i < n; i++ {
+		for range n {
 			<-c.messageChan
 		}
 	case <-ctx.Done():
@@ -657,7 +657,7 @@ func (c *TestClient) GetPendingMessages(ctx context.Context) ([]*ServerMessage, 
 		}
 		result = append(result, &m)
 		n := len(c.messageChan)
-		for i := 0; i < n; i++ {
+		for range n {
 			var m ServerMessage
 			msg = <-c.messageChan
 			if err := json.Unmarshal(msg, &m); err != nil {

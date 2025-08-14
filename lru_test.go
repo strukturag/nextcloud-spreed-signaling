@@ -32,12 +32,12 @@ func TestLruUnbound(t *testing.T) {
 	assert := assert.New(t)
 	lru := NewLruCache(0)
 	count := 10
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := fmt.Sprintf("%d", i)
 		lru.Set(key, i)
 	}
 	assert.Equal(count, lru.Len())
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := fmt.Sprintf("%d", i)
 		if value := lru.Get(key); assert.NotNil(value, "No value found for %s", key) {
 			assert.EqualValues(i, value)
@@ -46,7 +46,7 @@ func TestLruUnbound(t *testing.T) {
 	// The first key ("0") is now the oldest.
 	lru.RemoveOldest()
 	assert.Equal(count-1, lru.Len())
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i == 0 {
@@ -76,7 +76,7 @@ func TestLruUnbound(t *testing.T) {
 	// The last key ("9") is now the oldest.
 	lru.RemoveOldest()
 	assert.Equal(count-2, lru.Len())
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 {
@@ -91,7 +91,7 @@ func TestLruUnbound(t *testing.T) {
 	key := fmt.Sprintf("%d", count/2)
 	lru.Remove(key)
 	assert.Equal(count-3, lru.Len())
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 || i == count/2 {
@@ -108,13 +108,13 @@ func TestLruBound(t *testing.T) {
 	size := 2
 	lru := NewLruCache(size)
 	count := 10
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := fmt.Sprintf("%d", i)
 		lru.Set(key, i)
 	}
 	assert.Equal(size, lru.Len())
 	// Only the last "size" entries have been stored.
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i < count-size {

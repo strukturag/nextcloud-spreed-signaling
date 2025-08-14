@@ -71,7 +71,7 @@ func TestDeferredExecutor_Order(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	for x := 0; x < 10; x++ {
+	for x := range 10 {
 		e.Execute(getFunc(x))
 	}
 
@@ -80,7 +80,7 @@ func TestDeferredExecutor_Order(t *testing.T) {
 	})
 	<-done
 
-	for x := 0; x < 10; x++ {
+	for x := range 10 {
 		assert.Equal(t, entries[x], x, "Unexpected at position %d", x)
 	}
 }

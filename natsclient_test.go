@@ -94,7 +94,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 		}
 	}()
 	<-ready
-	for i := int32(0); i < maxPublish; i++ {
+	for range maxPublish {
 		assert.NoError(client.Publish("foo", []byte("hello")))
 
 		// Allow NATS goroutines to process messages.

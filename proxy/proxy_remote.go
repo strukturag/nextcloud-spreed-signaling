@@ -176,10 +176,7 @@ func (c *RemoteConnection) scheduleReconnect() {
 	jitter := rand.Int64N(interval) - (interval / 2)
 	c.reconnectTimer.Reset(time.Duration(interval + jitter))
 
-	interval = interval * 2
-	if interval > int64(maxReconnectInterval) {
-		interval = int64(maxReconnectInterval)
-	}
+	interval = min(interval*2, int64(maxReconnectInterval))
 	c.reconnectInterval.Store(interval)
 }
 
