@@ -38,7 +38,7 @@ jobs:
           skip-cache: true
 
   modernize:
-    name: golang
+    name: modernize
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
