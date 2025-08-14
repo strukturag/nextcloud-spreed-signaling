@@ -311,7 +311,7 @@ func (m *WelcomeServerMessage) RemoveFeature(feature ...string) {
 	for _, feat := range feature {
 		idx, found := slices.BinarySearch(newFeatures, feat)
 		if found {
-			newFeatures = append(newFeatures[:idx], newFeatures[idx+1:]...)
+			newFeatures = slices.Delete(newFeatures, idx, idx+1)
 		}
 	}
 	m.Features = newFeatures

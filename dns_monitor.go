@@ -26,6 +26,7 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -94,7 +95,7 @@ func (e *dnsMonitorEntry) setIPs(ips []net.IP, fromIP bool) {
 		found := false
 		for idx, newIP := range ips {
 			if oldIP.Equal(newIP) {
-				ips = append(ips[:idx], ips[idx+1:]...)
+				ips = slices.Delete(ips, idx, idx+1)
 				found = true
 				keepIPs = append(keepIPs, oldIP)
 				newIPs = append(newIPs, oldIP)
