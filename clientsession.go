@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -232,26 +233,6 @@ func (s *ClientSession) hasPermissionLocked(permission Permission) bool {
 	return false
 }
 
-func permissionsEqual(a, b map[Permission]bool) bool {
-	if a == nil && b == nil {
-		return true
-	} else if a != nil && b == nil {
-		return false
-	} else if a == nil && b != nil {
-		return false
-	}
-	if len(a) != len(b) {
-		return false
-	}
-
-	for k, v1 := range a {
-		if v2, found := b[k]; !found || v1 != v2 {
-			return false
-		}
-	}
-	return true
-}
-
 func (s *ClientSession) SetPermissions(permissions []Permission) {
 	var p map[Permission]bool
 	for _, permission := range permissions {
@@ -263,7 +244,7 @@ func (s *ClientSession) SetPermissions(permissions []Permission) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.supportsPermissions && permissionsEqual(s.permissions, p) {
+	if s.supportsPermissions && maps.Equal(s.permissions, p) {
 		return
 	}
 
