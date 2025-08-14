@@ -316,14 +316,11 @@ func TestWebsocketFeatures(t *testing.T) {
 	}
 	features := response.Header.Get("X-Spreed-Signaling-Features")
 	featuresList := make(map[string]bool)
-	for f := range strings.SplitSeq(features, ",") {
-		f = strings.TrimSpace(f)
-		if f != "" {
-			if _, found := featuresList[f]; found {
-				assert.Fail("duplicate feature", "id \"%s\" in \"%s\"", f, features)
-			}
-			featuresList[f] = true
+	for f := range signaling.SplitEntries(features, ",") {
+		if _, found := featuresList[f]; found {
+			assert.Fail("duplicate feature", "id \"%s\" in \"%s\"", f, features)
 		}
+		featuresList[f] = true
 	}
 	assert.NotEmpty(featuresList, "expected valid features header, got \"%s\"", features)
 	if _, found := featuresList["remote-streams"]; !found {

@@ -30,7 +30,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -100,7 +99,7 @@ func main() {
 			writeTimeout = defaultWriteTimeout
 		}
 
-		for address := range strings.SplitSeq(addr, " ") {
+		for address := range signaling.SplitEntries(addr, " ") {
 			go func(address string) {
 				log.Println("Listening on", address)
 				listener, err := net.Listen("tcp", address)

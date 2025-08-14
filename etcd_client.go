@@ -26,7 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,12 +103,7 @@ func (c *EtcdClient) getConfigStringWithFallback(config *goconf.ConfigFile, opti
 func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 	var endpoints []string
 	if endpointsString := c.getConfigStringWithFallback(config, "endpoints"); endpointsString != "" {
-		for ep := range strings.SplitSeq(endpointsString, ",") {
-			ep := strings.TrimSpace(ep)
-			if ep != "" {
-				endpoints = append(endpoints, ep)
-			}
-		}
+		endpoints = slices.Collect(SplitEntries(endpointsString, ","))
 	} else if discoverySrv := c.getConfigStringWithFallback(config, "discoverysrv"); discoverySrv != "" {
 		discoveryService := c.getConfigStringWithFallback(config, "discoveryservice")
 		clients, err := srv.GetClient("etcd-client", discoverySrv, discoveryService)

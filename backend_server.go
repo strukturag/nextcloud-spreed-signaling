@@ -37,6 +37,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -83,14 +84,7 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 	// TODO(jojo): Make the validity for TURN credentials configurable.
 	turnvalid := 24 * time.Hour
 
-	var turnserverslist []string
-	for s := range strings.SplitSeq(turnservers, ",") {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			turnserverslist = append(turnserverslist, s)
-		}
-	}
-
+	turnserverslist := slices.Collect(SplitEntries(turnservers, ","))
 	if len(turnserverslist) != 0 {
 		if turnapikey == "" {
 			return nil, fmt.Errorf("need a TURN API key if TURN servers are configured")
