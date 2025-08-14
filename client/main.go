@@ -35,7 +35,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -542,7 +541,7 @@ func main() {
 
 	urls := make([]url.URL, 0)
 	urlstrings := make([]string, 0)
-	for host := range strings.SplitSeq(*addr, ",") {
+	for host := range signaling.SplitEntries(*addr, ",") {
 		u := url.URL{
 			Scheme: "ws",
 			Host:   host,

@@ -30,7 +30,6 @@ import (
 	"log"
 	"net"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -612,12 +611,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 	}
 
 	targets, _ := config.GetString("grpc", "targets")
-	for target := range strings.SplitSeq(targets, ",") {
-		target = strings.TrimSpace(target)
-		if target == "" {
-			continue
-		}
-
+	for target := range SplitEntries(targets, ",") {
 		if entries, found := clientsMap[target]; found {
 			clients = append(clients, entries.clients...)
 			if dnsDiscovery && entries.entry == nil {

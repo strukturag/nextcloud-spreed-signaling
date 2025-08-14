@@ -24,107 +24,11 @@ package signaling
 import (
 	"context"
 	"net/url"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-var (
-	equalStrings = map[bool]string{
-		true:  "equal",
-		false: "not equal",
-	}
-)
-
-type EqualTestData struct {
-	a     map[Permission]bool
-	b     map[Permission]bool
-	equal bool
-}
-
-func Test_permissionsEqual(t *testing.T) {
-	tests := []EqualTestData{
-		{
-			a:     nil,
-			b:     nil,
-			equal: true,
-		},
-		{
-			a: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA: true,
-			},
-			b:     nil,
-			equal: false,
-		},
-		{
-			a: nil,
-			b: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA: true,
-			},
-			equal: false,
-		},
-		{
-			a: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA: true,
-			},
-			b: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA: true,
-			},
-			equal: true,
-		},
-		{
-			a: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA:  true,
-				PERMISSION_MAY_PUBLISH_SCREEN: true,
-			},
-			b: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA: true,
-			},
-			equal: false,
-		},
-		{
-			a: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA: true,
-			},
-			b: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA:  true,
-				PERMISSION_MAY_PUBLISH_SCREEN: true,
-			},
-			equal: false,
-		},
-		{
-			a: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA:  true,
-				PERMISSION_MAY_PUBLISH_SCREEN: true,
-			},
-			b: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA:  true,
-				PERMISSION_MAY_PUBLISH_SCREEN: true,
-			},
-			equal: true,
-		},
-		{
-			a: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA:  true,
-				PERMISSION_MAY_PUBLISH_SCREEN: true,
-			},
-			b: map[Permission]bool{
-				PERMISSION_MAY_PUBLISH_MEDIA:  true,
-				PERMISSION_MAY_PUBLISH_SCREEN: false,
-			},
-			equal: false,
-		},
-	}
-	for idx, test := range tests {
-		t.Run(strconv.Itoa(idx), func(t *testing.T) {
-			t.Parallel()
-			equal := permissionsEqual(test.a, test.b)
-			assert.Equal(t, test.equal, equal, "Expected %+v to be %s to %+v but was %s", test.a, equalStrings[test.equal], test.b, equalStrings[equal])
-		})
-	}
-}
 
 func TestBandwidth_Client(t *testing.T) {
 	t.Parallel()

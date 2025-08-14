@@ -30,46 +30,17 @@ type Flags struct {
 }
 
 func (f *Flags) Add(flags uint32) bool {
-	for {
-		old := f.flags.Load()
-		if old&flags == flags {
-			// Flags already set.
-			return false
-		}
-		newFlags := old | flags
-		if f.flags.CompareAndSwap(old, newFlags) {
-			return true
-		}
-		// Another thread updated the flags while we were checking, retry.
-	}
+	old := f.flags.Or(flags)
+	return old&flags != flags
 }
 
 func (f *Flags) Remove(flags uint32) bool {
-	for {
-		old := f.flags.Load()
-		if old&flags == 0 {
-			// Flags not set.
-			return false
-		}
-		newFlags := old & ^flags
-		if f.flags.CompareAndSwap(old, newFlags) {
-			return true
-		}
-		// Another thread updated the flags while we were checking, retry.
-	}
+	old := f.flags.And(^flags)
+	return old&flags != 0
 }
 
 func (f *Flags) Set(flags uint32) bool {
-	for {
-		old := f.flags.Load()
-		if old == flags {
-			return false
-		}
-
-		if f.flags.CompareAndSwap(old, flags) {
-			return true
-		}
-	}
+	return f.flags.Swap(flags) != flags
 }
 
 func (f *Flags) Get() uint32 {

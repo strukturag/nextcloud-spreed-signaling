@@ -27,7 +27,6 @@ import (
 	"maps"
 	"net"
 	"net/url"
-	"strings"
 	"sync"
 
 	"github.com/dlintw/goconf"
@@ -85,12 +84,7 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 	remove := maps.Clone(p.connectionsMap)
 
 	mcuUrl, _ := GetStringOptionWithEnv(config, "mcu", "url")
-	for u := range strings.SplitSeq(mcuUrl, " ") {
-		u = strings.TrimSpace(u)
-		if u == "" {
-			continue
-		}
-
+	for u := range SplitEntries(mcuUrl, " ") {
 		if existing, found := remove[u]; found {
 			// Proxy connection still exists in new configuration
 			delete(remove, u)
