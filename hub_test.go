@@ -802,7 +802,7 @@ func TestWebsocketFeatures(t *testing.T) {
 	assert.True(strings.HasPrefix(serverHeader, "nextcloud-spreed-signaling/"), "expected valid server header, got \"%s\"", serverHeader)
 	features := response.Header.Get("X-Spreed-Signaling-Features")
 	featuresList := make(map[string]bool)
-	for _, f := range strings.Split(features, ",") {
+	for f := range strings.SplitSeq(features, ",") {
 		f = strings.TrimSpace(f)
 		if f != "" {
 			_, found := featuresList[f]
@@ -1274,7 +1274,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 	var mu sync.Mutex
 	publicSessionIds := make([]string, 0)
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

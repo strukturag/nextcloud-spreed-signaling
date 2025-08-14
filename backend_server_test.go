@@ -1317,7 +1317,6 @@ func TestBackendServer_StatsAllowedIps(t *testing.T) {
 	}
 
 	for _, addr := range allowed {
-		addr := addr
 		t.Run(addr, func(t *testing.T) {
 			t.Parallel()
 			assert := assert.New(t)
@@ -1357,7 +1356,6 @@ func TestBackendServer_StatsAllowedIps(t *testing.T) {
 	}
 
 	for _, addr := range notAllowed {
-		addr := addr
 		t.Run(addr, func(t *testing.T) {
 			t.Parallel()
 			r := &http.Request{

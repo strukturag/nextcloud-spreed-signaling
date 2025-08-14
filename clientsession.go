@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -183,12 +184,7 @@ func (s *ClientSession) GetFeatures() []string {
 }
 
 func (s *ClientSession) HasFeature(feature string) bool {
-	for _, f := range s.features {
-		if f == feature {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.features, feature)
 }
 
 // HasPermission checks if the session has the passed permissions.
@@ -216,12 +212,9 @@ func (s *ClientSession) hasAnyPermissionLocked(permission ...Permission) bool {
 		return false
 	}
 
-	for _, p := range permission {
-		if s.hasPermissionLocked(p) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(permission, func(p Permission) bool {
+		return s.hasPermissionLocked(p)
+	})
 }
 
 func (s *ClientSession) hasPermissionLocked(permission Permission) bool {

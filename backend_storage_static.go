@@ -88,7 +88,7 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 	} else if allowedUrls, _ := config.GetString("backend", "allowed"); allowedUrls != "" {
 		// Old-style configuration, only hosts are configured and are using a common secret.
 		allowMap := make(map[string]bool)
-		for _, u := range strings.Split(allowedUrls, ",") {
+		for u := range strings.SplitSeq(allowedUrls, ",") {
 			u = strings.TrimSpace(u)
 			if idx := strings.IndexByte(u, '/'); idx != -1 {
 				log.Printf("WARNING: Removing path from allowed hostname \"%s\", check your configuration!", u)
@@ -265,7 +265,7 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	seen := make(map[string]bool)
 
-	for _, id := range strings.Split(backendIds, ",") {
+	for id := range strings.SplitSeq(backendIds, ",") {
 		id = strings.TrimSpace(id)
 		if id == "" {
 			continue

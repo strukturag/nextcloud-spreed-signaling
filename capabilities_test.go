@@ -554,7 +554,7 @@ func TestConcurrentExpired(t *testing.T) {
 	var numCached atomic.Uint32
 	var numFetched atomic.Uint32
 	var finished sync.WaitGroup
-	for i := 0; i < count; i++ {
+	for range count {
 		finished.Add(1)
 		go func() {
 			defer finished.Done()

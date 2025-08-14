@@ -100,7 +100,7 @@ func main() {
 			writeTimeout = defaultWriteTimeout
 		}
 
-		for _, address := range strings.Split(addr, " ") {
+		for address := range strings.SplitSeq(addr, " ") {
 			go func(address string) {
 				log.Println("Listening on", address)
 				listener, err := net.Listen("tcp", address)

@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"maps"
 	"reflect"
 	"sync"
 	"time"
@@ -256,8 +257,6 @@ func (t *TransientData) GetData() StringMap {
 	defer t.mu.Unlock()
 
 	result := make(StringMap)
-	for k, v := range t.data {
-		result[k] = v
-	}
+	maps.Copy(result, t.data)
 	return result
 }

@@ -339,10 +339,7 @@ func (m *mcuJanus) scheduleReconnect(err error) {
 		log.Printf("Reconnect to Janus gateway failed (%s), reconnecting in %s", err, m.reconnectInterval)
 	}
 
-	m.reconnectInterval = m.reconnectInterval * 2
-	if m.reconnectInterval > maxReconnectInterval {
-		m.reconnectInterval = maxReconnectInterval
-	}
+	m.reconnectInterval = min(m.reconnectInterval*2, maxReconnectInterval)
 }
 
 func (m *mcuJanus) ConnectionInterrupted() {

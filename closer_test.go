@@ -33,7 +33,7 @@ func TestCloserMulti(t *testing.T) {
 
 	var wg sync.WaitGroup
 	count := 10
-	for i := 0; i < count; i++ {
+	for range count {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

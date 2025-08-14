@@ -106,8 +106,6 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 	}
 
 	for country, test := range testcases {
-		country := country
-		test := test
 		t.Run(country, func(t *testing.T) {
 			sorted := sortConnectionsForCountry(test[0], country, nil)
 			for idx, conn := range sorted {
@@ -178,8 +176,6 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 		"OC": {"AS", "NA"},
 	}
 	for country, test := range testcases {
-		country := country
-		test := test
 		t.Run(country, func(t *testing.T) {
 			sorted := sortConnectionsForCountry(test[0], country, continentMap)
 			for idx, conn := range sorted {

@@ -83,7 +83,7 @@ func parseIPNet(s string) (*net.IPNet, error) {
 
 func ParseAllowedIps(allowed string) (*AllowedIps, error) {
 	var allowedIps []*net.IPNet
-	for _, ip := range strings.Split(allowed, ",") {
+	for ip := range strings.SplitSeq(allowed, ",") {
 		ip = strings.TrimSpace(ip)
 		if ip != "" {
 			i, err := parseIPNet(ip)

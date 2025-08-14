@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"net/url"
 	"strconv"
 	"strings"
@@ -615,15 +616,11 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[string]*Inter
 			if internal == nil {
 				internal = make(map[string]*InternalSessionData, len(clientInternal))
 			}
-			for sid, s := range clientInternal {
-				internal[sid] = s
-			}
+			maps.Copy(internal, clientInternal)
 			if virtual == nil {
 				virtual = make(map[string]*VirtualSessionData, len(clientVirtual))
 			}
-			for sid, s := range clientVirtual {
-				virtual[sid] = s
-			}
+			maps.Copy(virtual, clientVirtual)
 		}(client)
 	}
 	wg.Wait()

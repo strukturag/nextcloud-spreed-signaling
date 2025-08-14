@@ -542,7 +542,7 @@ func main() {
 
 	urls := make([]url.URL, 0)
 	urlstrings := make([]string, 0)
-	for _, host := range strings.Split(*addr, ",") {
+	for host := range strings.SplitSeq(*addr, ",") {
 		u := url.URL{
 			Scheme: "ws",
 			Host:   host,

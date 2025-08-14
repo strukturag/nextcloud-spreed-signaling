@@ -84,7 +84,7 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 	turnvalid := 24 * time.Hour
 
 	var turnserverslist []string
-	for _, s := range strings.Split(turnservers, ",") {
+	for s := range strings.SplitSeq(turnservers, ",") {
 		s = strings.TrimSpace(s)
 		if s != "" {
 			turnserverslist = append(turnserverslist, s)

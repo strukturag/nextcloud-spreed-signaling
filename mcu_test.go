@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"sync"
 	"sync/atomic"
 
@@ -107,10 +108,7 @@ func (m *TestMCU) GetPublishers() map[string]*TestMCUPublisher {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	result := make(map[string]*TestMCUPublisher, len(m.publishers))
-	for id, pub := range m.publishers {
-		result[id] = pub
-	}
+	result := maps.Clone(m.publishers)
 	return result
 }
 

@@ -71,10 +71,6 @@ func (b *exponentialBackoff) Wait(ctx context.Context) {
 	waiter, cancel := b.getContextWithTimeout(ctx, b.nextWait)
 	defer cancel()
 
-	b.nextWait = b.nextWait * 2
-	if b.nextWait > b.maxWait {
-		b.nextWait = b.maxWait
-	}
-
+	b.nextWait = min(b.nextWait*2, b.maxWait)
 	<-waiter.Done()
 }

@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sort"
+	"slices"
 	"sync/atomic"
 
 	"github.com/dlintw/goconf"
@@ -110,7 +110,7 @@ func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error 
 		for k := range tokenKeys {
 			keyIds = append(keyIds, k)
 		}
-		sort.Strings(keyIds)
+		slices.Sort(keyIds)
 		log.Printf("Enabled token keys: %v", keyIds)
 	}
 	t.setTokenKeys(tokenKeys)

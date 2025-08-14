@@ -24,6 +24,7 @@ package signaling
 import (
 	"errors"
 	"log"
+	"maps"
 	"net"
 	"net/url"
 	"strings"
@@ -81,13 +82,10 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 		p.dnsDiscovery = dnsDiscovery
 	}
 
-	remove := make(map[string]*ipList)
-	for u, ips := range p.connectionsMap {
-		remove[u] = ips
-	}
+	remove := maps.Clone(p.connectionsMap)
 
 	mcuUrl, _ := GetStringOptionWithEnv(config, "mcu", "url")
-	for _, u := range strings.Split(mcuUrl, " ") {
+	for u := range strings.SplitSeq(mcuUrl, " ") {
 		u = strings.TrimSpace(u)
 		if u == "" {
 			continue
