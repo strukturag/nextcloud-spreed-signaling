@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"log"
 	"math/rand/v2"
 	"net"
@@ -1565,8 +1566,8 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 		}
 
 		var values []string
-		for v := range strings.SplitSeq(value, ",") {
-			v = strings.ToUpper(strings.TrimSpace(v))
+		for v := range SplitEntries(value, ",") {
+			v = strings.ToUpper(v)
 			if !IsValidContinent(v) {
 				log.Printf("Ignore unknown continent %s for override %s", v, option)
 				continue
@@ -1623,12 +1624,10 @@ func (m *mcuProxy) createToken(subject string) (string, error) {
 func (m *mcuProxy) hasConnections() bool {
 	m.connectionsMu.RLock()
 	defer m.connectionsMu.RUnlock()
-	for _, conn := range m.connections {
-		if conn.IsConnected() {
-			return true
-		}
-	}
-	return false
+
+	return slices.ContainsFunc(m.connections, func(conn *mcuProxyConnection) bool {
+		return conn.IsConnected()
+	})
 }
 
 func (m *mcuProxy) WaitForConnections(ctx context.Context) error {
@@ -1694,53 +1693,48 @@ func (m *mcuProxy) AddConnection(ignoreErrors bool, url string, ips ...net.IP) e
 	return nil
 }
 
-func containsIP(ips []net.IP, ip net.IP) bool {
-	for _, i := range ips {
-		if i.Equal(ip) {
-			return true
+func (m *mcuProxy) iterateConnections(url string, ips []net.IP) iter.Seq[*mcuProxyConnection] {
+	return func(yield func(*mcuProxyConnection) bool) {
+		m.connectionsMu.Lock()
+		defer m.connectionsMu.Unlock()
+
+		conns, found := m.connectionsMap[url]
+		if !found {
+			return
 		}
-	}
 
-	return false
-}
-
-func (m *mcuProxy) iterateConnections(url string, ips []net.IP, f func(conn *mcuProxyConnection)) {
-	m.connectionsMu.Lock()
-	defer m.connectionsMu.Unlock()
-
-	conns, found := m.connectionsMap[url]
-	if !found {
-		return
-	}
-
-	var toRemove []*mcuProxyConnection
-	if len(ips) == 0 {
-		toRemove = conns
-	} else {
-		for _, conn := range conns {
-			if containsIP(ips, conn.ip) {
-				toRemove = append(toRemove, conn)
+		if len(ips) == 0 {
+			for _, conn := range conns {
+				if !yield(conn) {
+					return
+				}
+			}
+		} else {
+			for _, conn := range conns {
+				if slices.ContainsFunc(ips, func(i net.IP) bool {
+					return i.Equal(conn.ip)
+				}) {
+					if !yield(conn) {
+						return
+					}
+				}
 			}
 		}
-	}
-
-	for _, conn := range toRemove {
-		f(conn)
 	}
 }
 
 func (m *mcuProxy) RemoveConnection(url string, ips ...net.IP) {
-	m.iterateConnections(url, ips, func(conn *mcuProxyConnection) {
+	for conn := range m.iterateConnections(url, ips) {
 		log.Printf("Removing connection to %s", conn)
 		conn.closeIfEmpty()
-	})
+	}
 }
 
 func (m *mcuProxy) KeepConnection(url string, ips ...net.IP) {
-	m.iterateConnections(url, ips, func(conn *mcuProxyConnection) {
+	for conn := range m.iterateConnections(url, ips) {
 		conn.stopCloseIfEmpty()
 		conn.clearTemporary()
-	})
+	}
 }
 
 func (m *mcuProxy) Reload(config *goconf.ConfigFile) {
@@ -1764,20 +1758,21 @@ func (m *mcuProxy) removeConnection(c *mcuProxyConnection) {
 	defer m.connectionsMu.Unlock()
 
 	if conns, found := m.connectionsMap[c.rawUrl]; found {
-		for idx, conn := range conns {
-			if conn == c {
-				conns = append(conns[:idx], conns[idx+1:]...)
-				break
-			}
+		idx := slices.Index(conns, c)
+		if idx == -1 {
+			return
 		}
+
+		conns = slices.Delete(conns, idx, idx+1)
 		if len(conns) == 0 {
 			delete(m.connectionsMap, c.rawUrl)
-			m.connections = nil
-			for _, conns := range m.connectionsMap {
-				m.connections = append(m.connections, conns...)
-			}
 		} else {
 			m.connectionsMap[c.rawUrl] = conns
+		}
+
+		m.connections = nil
+		for _, conns := range m.connectionsMap {
+			m.connections = append(m.connections, conns...)
 		}
 
 		m.nextSort.Store(0)

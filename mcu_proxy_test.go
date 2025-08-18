@@ -29,10 +29,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -716,7 +718,10 @@ func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler
 		subscribers: make(map[string]*testProxyServerSubscriber),
 		wakeupChan:  make(chan struct{}),
 	}
-	server := httptest.NewServer(proxyHandler)
+	server := httptest.NewUnstartedServer(proxyHandler)
+	if !strings.Contains(t.Name(), "DnsDiscovery") {
+		server.Start()
+	}
 	proxyHandler.server = server
 	proxyHandler.URL = server.URL
 	t.Cleanup(func() {
@@ -736,7 +741,7 @@ type proxyTestOptions struct {
 	servers []*TestProxyServerHandler
 }
 
-func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx int) *mcuProxy {
+func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx int) (*mcuProxy, *goconf.ConfigFile) {
 	t.Helper()
 	require := require.New(t)
 	if options.etcd == nil {
@@ -754,6 +759,9 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "urltype", "static")
+	if strings.Contains(t.Name(), "DnsDiscovery") {
+		cfg.AddOption("mcu", "dnsdiscovery", "true")
+	}
 	cfg.AddOption("mcu", "proxytimeout", fmt.Sprintf("%d", int(testTimeout.Seconds())))
 	var urls []string
 	waitingMap := make(map[string]bool)
@@ -816,15 +824,16 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 		time.Sleep(time.Millisecond)
 	}
 
-	return proxy
+	return proxy, cfg
 }
 
 func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandler, idx int) *mcuProxy {
 	t.Helper()
 
-	return newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	proxy, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		servers: servers,
 	}, idx)
+	return proxy
 }
 
 func newMcuProxyForTest(t *testing.T, idx int) *mcuProxy {
@@ -832,6 +841,198 @@ func newMcuProxyForTest(t *testing.T, idx int) *mcuProxy {
 	server := NewProxyServerForTest(t, "DE")
 
 	return newMcuProxyForTestWithServers(t, []*TestProxyServerHandler{server}, idx)
+}
+
+func Test_ProxyAddRemoveConnections(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	assert := assert.New(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	server1 := NewProxyServerForTest(t, "DE")
+	mcu, config := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{
+			server1,
+		},
+	}, 0)
+
+	server2 := NewProxyServerForTest(t, "DE")
+	server1.servers = append(server1.servers, server2)
+	server2.servers = server1.servers
+	server2.tokens = server1.tokens
+	urls1 := []string{
+		server1.URL,
+		server2.URL,
+	}
+	config.AddOption("mcu", "url", strings.Join(urls1, " "))
+	mcu.Reload(config)
+
+	mcu.connectionsMu.RLock()
+	assert.Len(mcu.connections, 2)
+	mcu.connectionsMu.RUnlock()
+
+	// Wait until connection is established.
+	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	for waitCtx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		notAllConnected := slices.ContainsFunc(mcu.connections, func(conn *mcuProxyConnection) bool {
+			return !conn.IsConnected()
+		})
+		mcu.connectionsMu.RUnlock()
+		if notAllConnected {
+			time.Sleep(time.Millisecond)
+			continue
+		}
+
+		break
+	}
+	assert.NoError(waitCtx.Err(), "error while waiting for connection to be established")
+
+	urls2 := []string{
+		server2.URL,
+	}
+	config.AddOption("mcu", "url", strings.Join(urls2, " "))
+	mcu.Reload(config)
+
+	// Removing the connections takes a short while (asynchronously, closed when unused).
+	waitCtx, cancel = context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	for waitCtx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		if len(mcu.connections) != 1 {
+			mcu.connectionsMu.RUnlock()
+			time.Sleep(time.Millisecond)
+			continue
+		}
+
+		assert.Len(mcu.connections, 1)
+		assert.Equal(server2.URL, mcu.connections[0].rawUrl)
+		mcu.connectionsMu.RUnlock()
+		break
+	}
+	assert.NoError(waitCtx.Err(), "error while waiting for connection to be removed")
+}
+
+func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
+	CatchLogForTest(t)
+	assert := assert.New(t)
+	require := require.New(t)
+
+	lookup := newMockDnsLookupForTest(t)
+
+	server1 := NewProxyServerForTest(t, "DE")
+	server1.server.Start()
+	server1.URL = server1.server.URL
+	h, port, err := net.SplitHostPort(server1.server.Listener.Addr().String())
+	require.NoError(err)
+	ip1 := net.ParseIP(h)
+	require.NotNil(ip1, "failed for %s", h)
+
+	require.Contains(server1.URL, ip1.String())
+	server1.URL = strings.ReplaceAll(server1.URL, ip1.String(), "proxydomain.invalid")
+	u1, err := url.Parse(server1.URL)
+	require.NoError(err)
+	lookup.Set(u1.Hostname(), []net.IP{
+		ip1,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{
+			server1,
+		},
+	}, 0)
+
+	if assert.NotNil(mcu.connections[0].ip) {
+		assert.True(ip1.Equal(mcu.connections[0].ip), "ip addresses differ: expected %s, got %s", ip1.String(), mcu.connections[0].ip.String())
+	}
+
+	dnsMonitor := mcu.config.(*proxyConfigStatic).dnsMonitor
+	require.NotNil(dnsMonitor)
+
+	server2 := NewProxyServerForTest(t, "DE")
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.2:%s", port))
+	require.NoError(err)
+	assert.NoError(server2.server.Listener.Close())
+	server2.server.Listener = l
+	server2.server.Start()
+
+	server2.URL = server2.server.URL
+	h, _, err = net.SplitHostPort(server2.server.Listener.Addr().String())
+	require.NoError(err)
+	ip2 := net.ParseIP(h)
+	require.NotNil(ip2, "failed for %s", h)
+	require.Contains(server2.URL, ip2.String())
+	server2.URL = strings.ReplaceAll(server2.URL, ip2.String(), "proxydomain.invalid")
+
+	server1.servers = append(server1.servers, server2)
+	server2.servers = server1.servers
+	server2.tokens = server1.tokens
+
+	lookup.Set(u1.Hostname(), []net.IP{
+		ip1,
+		ip2,
+	})
+	dnsMonitor.checkHostnames()
+
+	// Wait until connection is established.
+	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	for waitCtx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		if len(mcu.connections) != 2 {
+			mcu.connectionsMu.RUnlock()
+			time.Sleep(time.Millisecond)
+			continue
+		}
+
+		notAllConnected := slices.ContainsFunc(mcu.connections, func(conn *mcuProxyConnection) bool {
+			return !conn.IsConnected()
+		})
+		mcu.connectionsMu.RUnlock()
+		if notAllConnected {
+			time.Sleep(time.Millisecond)
+			continue
+		}
+
+		break
+	}
+	assert.NoError(waitCtx.Err(), "error while waiting for connection to be established")
+
+	lookup.Set(u1.Hostname(), []net.IP{
+		ip2,
+	})
+	dnsMonitor.checkHostnames()
+
+	// Removing the connections takes a short while (asynchronously, closed when unused).
+	waitCtx, cancel = context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	for waitCtx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		if len(mcu.connections) != 1 {
+			mcu.connectionsMu.RUnlock()
+			time.Sleep(time.Millisecond)
+			continue
+		}
+
+		assert.Len(mcu.connections, 1)
+		assert.Equal(server1.URL, mcu.connections[0].rawUrl)
+		if assert.NotNil(mcu.connections[0].ip) {
+			assert.True(ip2.Equal(mcu.connections[0].ip), "ip addresses differ: expected %s, got %s", ip2.String(), mcu.connections[0].ip.String())
+		}
+		mcu.connectionsMu.RUnlock()
+		break
+	}
+	assert.NoError(waitCtx.Err(), "error while waiting for connection to be removed")
 }
 
 func Test_ProxyPublisherSubscriber(t *testing.T) {
@@ -1525,7 +1726,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
 
-	mcu1 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
@@ -1533,7 +1734,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 		},
 	}, 1)
 	hub1.proxy.Store(mcu1)
-	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
@@ -1610,7 +1811,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	server2 := NewProxyServerForTest(t, "US")
 	server3 := NewProxyServerForTest(t, "US")
 
-	mcu1 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
@@ -1619,7 +1820,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 		},
 	}, 1)
 	hub1.proxy.Store(mcu1)
-	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
@@ -1628,7 +1829,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 		},
 	}, 2)
 	hub2.proxy.Store(mcu2)
-	mcu3 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu3, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
@@ -1712,7 +1913,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
 
-	mcu1 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
@@ -1720,7 +1921,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 		},
 	}, 1)
 	hub1.proxy.Store(mcu1)
-	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
@@ -1808,14 +2009,14 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
 
-	mcu1 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
 	}, 1)
 	hub1.proxy.Store(mcu1)
-	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server2,
@@ -1920,14 +2121,14 @@ func Test_ProxyConnectToken(t *testing.T) {
 	// Signaling server instances are in a cluster but don't share their proxies,
 	// i.e. they are only known to their local proxy, not the one of the other
 	// signaling server - so the connection token must be passed between them.
-	mcu1 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
 	}, 1)
 	hub1.proxy.Store(mcu1)
-	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server2,
@@ -2003,14 +2204,14 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	// signaling server - so the connection token must be passed between them.
 	// Also the subscriber is connecting from a different country, so a remote
 	// stream will be created that needs a valid token from the remote proxy.
-	mcu1 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
 	}, 1)
 	hub1.proxy.Store(mcu1)
-	mcu2 := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		etcd: etcd,
 		servers: []*TestProxyServerHandler{
 			server2,
@@ -2070,7 +2271,7 @@ func Test_ProxyPublisherTimeout(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	server := NewProxyServerForTest(t, "DE")
-	mcu := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		servers: []*TestProxyServerHandler{server},
 	}, 0)
 
@@ -2111,7 +2312,7 @@ func Test_ProxySubscriberTimeout(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	server := NewProxyServerForTest(t, "DE")
-	mcu := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
 		servers: []*TestProxyServerHandler{server},
 	}, 0)
 

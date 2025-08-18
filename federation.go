@@ -58,9 +58,8 @@ func isClosedError(err error) bool {
 }
 
 func getCloudUrl(s string) string {
-	if strings.HasPrefix(s, "https://") {
-		s = s[8:]
-	} else {
+	var found bool
+	if s, found = strings.CutPrefix(s, "https://"); !found {
 		s = strings.TrimPrefix(s, "http://")
 	}
 	if pos := strings.Index(s, "/ocs/v"); pos != -1 {

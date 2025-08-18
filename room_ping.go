@@ -25,6 +25,7 @@ import (
 	"context"
 	"log"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 )
@@ -165,11 +166,7 @@ func (p *RoomPing) sendPingsDirect(ctx context.Context, roomId string, url *url.
 }
 
 func (p *RoomPing) sendPingsCombined(url *url.URL, entries []BackendPingEntry, limit int, timeout time.Duration) {
-	total := len(entries)
-	for idx := 0; idx < total; idx += limit {
-		end := min(idx+limit, total)
-		tosend := entries[idx:end]
-
+	for tosend := range slices.Chunk(entries, limit) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 

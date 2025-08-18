@@ -310,8 +310,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 
 	var geoip *GeoLookup
 	if geoipUrl != "" {
-		if strings.HasPrefix(geoipUrl, "file://") {
-			geoipUrl = geoipUrl[7:]
+		if geoipUrl, found := strings.CutPrefix(geoipUrl, "file://"); found {
 			log.Printf("Using GeoIP database from %s", geoipUrl)
 			geoip, err = NewGeoLookupFromFile(geoipUrl)
 		} else {

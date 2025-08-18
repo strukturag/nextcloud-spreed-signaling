@@ -59,10 +59,10 @@ type TestBackendClientAuthParams struct {
 }
 
 func getWebsocketUrl(url string) string {
-	if strings.HasPrefix(url, "http://") {
-		return "ws://" + url[7:] + "/spreed"
-	} else if strings.HasPrefix(url, "https://") {
-		return "wss://" + url[8:] + "/spreed"
+	if url, found := strings.CutPrefix(url, "http://"); found {
+		return "ws://" + url + "/spreed"
+	} else if url, found := strings.CutPrefix(url, "https://"); found {
+		return "wss://" + url + "/spreed"
 	} else {
 		panic("Unsupported URL: " + url)
 	}

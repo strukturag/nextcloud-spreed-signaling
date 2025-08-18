@@ -88,15 +88,15 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 	} else if allowedUrls, _ := config.GetString("backend", "allowed"); allowedUrls != "" {
 		// Old-style configuration, only hosts are configured and are using a common secret.
 		allowMap := make(map[string]bool)
-		for u := range strings.SplitSeq(allowedUrls, ",") {
-			u = strings.TrimSpace(u)
+		for u := range SplitEntries(allowedUrls, ",") {
 			if idx := strings.IndexByte(u, '/'); idx != -1 {
 				log.Printf("WARNING: Removing path from allowed hostname \"%s\", check your configuration!", u)
-				u = u[:idx]
+				if u = u[:idx]; u == "" {
+					continue
+				}
 			}
-			if u != "" {
-				allowMap[strings.ToLower(u)] = true
-			}
+
+			allowMap[strings.ToLower(u)] = true
 		}
 
 		if len(allowMap) == 0 {
@@ -159,7 +159,7 @@ func (s *backendStorageStatic) RemoveBackendsForHost(host string, seen map[strin
 			}
 
 			seen[backend.Id()] = seenDeleted
-			urls := filter(backend.urls, func(s string) bool {
+			urls := slices.DeleteFunc(backend.urls, func(s string) bool {
 				return !strings.Contains(s, "://"+host)
 			})
 			log.Printf("Backend %s removed for %s", backend.id, strings.Join(urls, ", "))
@@ -173,16 +173,6 @@ func (s *backendStorageStatic) RemoveBackendsForHost(host string, seen map[strin
 		statsBackendsCurrent.Sub(float64(deleted))
 	}
 	delete(s.backends, host)
-}
-
-func filter[T any](s []T, del func(T) bool) []T {
-	result := make([]T, 0, len(s))
-	for _, e := range s {
-		if !del(e) {
-			result = append(result, e)
-		}
-	}
-	return result
 }
 
 type seenState int
@@ -201,12 +191,12 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 		for _, newBackend := range backends {
 			if existingBackend.Equal(newBackend) {
 				found = true
-				backends = append(backends[:index], backends[index+1:]...)
+				backends = slices.Delete(backends, index, index+1)
 				break
 			} else if newBackend.id == existingBackend.id {
 				found = true
 				s.backends[host][existingIndex] = newBackend
-				backends = append(backends[:index], backends[index+1:]...)
+				backends = slices.Delete(backends, index, index+1)
 				if seen[newBackend.id] != seenUpdated {
 					seen[newBackend.id] = seenUpdated
 					log.Printf("Backend %s updated for %s", newBackend.id, strings.Join(newBackend.urls, ", "))
@@ -220,10 +210,10 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 		}
 		if !found {
 			removed := s.backends[host][existingIndex]
-			s.backends[host] = append(s.backends[host][:existingIndex], s.backends[host][existingIndex+1:]...)
+			s.backends[host] = slices.Delete(s.backends[host], existingIndex, existingIndex+1)
 			if seen[removed.id] != seenDeleted {
 				seen[removed.id] = seenDeleted
-				urls := filter(removed.urls, func(s string) bool {
+				urls := slices.DeleteFunc(removed.urls, func(s string) bool {
 					return !strings.Contains(s, "://"+host)
 				})
 				log.Printf("Backend %s removed for %s", removed.id, strings.Join(urls, ", "))
@@ -265,30 +255,16 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	seen := make(map[string]bool)
 
-	for id := range strings.SplitSeq(backendIds, ",") {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-
+	for id := range SplitEntries(backendIds, ",") {
 		if seen[id] {
 			continue
 		}
+
 		ids = append(ids, id)
 		seen[id] = true
 	}
 
 	return ids
-}
-
-func MapIf[T any](s []T, f func(T) (T, bool)) []T {
-	result := make([]T, 0, len(s))
-	for _, v := range s {
-		if v, ok := f(v); ok {
-			result = append(result, v)
-		}
-	}
-	return result
 }
 
 func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
@@ -324,12 +300,7 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecr
 
 		var urls []string
 		if u, _ := GetStringOptionWithEnv(config, id, "urls"); u != "" {
-			urls = strings.Split(u, ",")
-			urls = MapIf(urls, func(s string) (string, bool) {
-				s = strings.TrimSpace(s)
-				return s, len(s) > 0
-			})
-			slices.Sort(urls)
+			urls = slices.Sorted(SplitEntries(u, ","))
 			urls = slices.Compact(urls)
 		} else if u, _ := GetStringOptionWithEnv(config, id, "url"); u != "" {
 			if u = strings.TrimSpace(u); u != "" {

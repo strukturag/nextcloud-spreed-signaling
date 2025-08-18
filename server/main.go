@@ -35,7 +35,6 @@ import (
 	"os/signal"
 	"runtime"
 	runtimepprof "runtime/pprof"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -341,7 +340,7 @@ func main() {
 		if writeTimeout <= 0 {
 			writeTimeout = defaultWriteTimeout
 		}
-		for address := range strings.SplitSeq(saddr, " ") {
+		for address := range signaling.SplitEntries(saddr, " ") {
 			go func(address string) {
 				log.Println("Listening on", address)
 				listener, err := createTLSListener(address, cert, key)
@@ -374,7 +373,7 @@ func main() {
 			writeTimeout = defaultWriteTimeout
 		}
 
-		for address := range strings.SplitSeq(addr, " ") {
+		for address := range signaling.SplitEntries(addr, " ") {
 			go func(address string) {
 				log.Println("Listening on", address)
 				listener, err := createListener(address)
