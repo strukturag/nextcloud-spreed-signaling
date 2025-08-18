@@ -268,7 +268,6 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 }
 
 func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
-	t.Parallel()
 	CatchLogForTest(t)
 	assert := assert.New(t)
 	lookup := newMockDnsLookupForTest(t)

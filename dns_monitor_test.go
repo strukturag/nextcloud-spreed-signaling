@@ -42,6 +42,8 @@ type mockDnsLookup struct {
 }
 
 func newMockDnsLookupForTest(t *testing.T) *mockDnsLookup {
+	t.Helper()
+	t.Setenv("PARALLEL_CHECK", "1")
 	mock := &mockDnsLookup{
 		ips: make(map[string][]net.IP),
 	}
