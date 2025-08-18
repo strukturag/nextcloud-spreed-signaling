@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -717,7 +718,10 @@ func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler
 		subscribers: make(map[string]*testProxyServerSubscriber),
 		wakeupChan:  make(chan struct{}),
 	}
-	server := httptest.NewServer(proxyHandler)
+	server := httptest.NewUnstartedServer(proxyHandler)
+	if !strings.Contains(t.Name(), "DnsDiscovery") {
+		server.Start()
+	}
 	proxyHandler.server = server
 	proxyHandler.URL = server.URL
 	t.Cleanup(func() {
@@ -755,6 +759,9 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "urltype", "static")
+	if strings.Contains(t.Name(), "DnsDiscovery") {
+		cfg.AddOption("mcu", "dnsdiscovery", "true")
+	}
 	cfg.AddOption("mcu", "proxytimeout", fmt.Sprintf("%d", int(testTimeout.Seconds())))
 	var urls []string
 	waitingMap := make(map[string]bool)
@@ -905,6 +912,123 @@ func Test_ProxyAddRemoveConnections(t *testing.T) {
 
 		assert.Len(mcu.connections, 1)
 		assert.Equal(server2.URL, mcu.connections[0].rawUrl)
+		mcu.connectionsMu.RUnlock()
+		break
+	}
+	assert.NoError(waitCtx.Err(), "error while waiting for connection to be removed")
+}
+
+func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
+	CatchLogForTest(t)
+	assert := assert.New(t)
+	require := require.New(t)
+
+	lookup := newMockDnsLookupForTest(t)
+
+	server1 := NewProxyServerForTest(t, "DE")
+	server1.server.Start()
+	server1.URL = server1.server.URL
+	h, port, err := net.SplitHostPort(server1.server.Listener.Addr().String())
+	require.NoError(err)
+	ip1 := net.ParseIP(h)
+	require.NotNil(ip1, "failed for %s", h)
+
+	require.Contains(server1.URL, ip1.String())
+	server1.URL = strings.ReplaceAll(server1.URL, ip1.String(), "proxydomain.invalid")
+	u1, err := url.Parse(server1.URL)
+	require.NoError(err)
+	lookup.Set(u1.Hostname(), []net.IP{
+		ip1,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{
+			server1,
+		},
+	}, 0)
+
+	if assert.NotNil(mcu.connections[0].ip) {
+		assert.True(ip1.Equal(mcu.connections[0].ip), "ip addresses differ: expected %s, got %s", ip1.String(), mcu.connections[0].ip.String())
+	}
+
+	dnsMonitor := mcu.config.(*proxyConfigStatic).dnsMonitor
+	require.NotNil(dnsMonitor)
+
+	server2 := NewProxyServerForTest(t, "DE")
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.2:%s", port))
+	require.NoError(err)
+	assert.NoError(server2.server.Listener.Close())
+	server2.server.Listener = l
+	server2.server.Start()
+
+	server2.URL = server2.server.URL
+	h, _, err = net.SplitHostPort(server2.server.Listener.Addr().String())
+	require.NoError(err)
+	ip2 := net.ParseIP(h)
+	require.NotNil(ip2, "failed for %s", h)
+	require.Contains(server2.URL, ip2.String())
+	server2.URL = strings.ReplaceAll(server2.URL, ip2.String(), "proxydomain.invalid")
+
+	server1.servers = append(server1.servers, server2)
+	server2.servers = server1.servers
+	server2.tokens = server1.tokens
+
+	lookup.Set(u1.Hostname(), []net.IP{
+		ip1,
+		ip2,
+	})
+	dnsMonitor.checkHostnames()
+
+	// Wait until connection is established.
+	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	for waitCtx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		if len(mcu.connections) != 2 {
+			mcu.connectionsMu.RUnlock()
+			time.Sleep(time.Millisecond)
+			continue
+		}
+
+		notAllConnected := slices.ContainsFunc(mcu.connections, func(conn *mcuProxyConnection) bool {
+			return !conn.IsConnected()
+		})
+		mcu.connectionsMu.RUnlock()
+		if notAllConnected {
+			time.Sleep(time.Millisecond)
+			continue
+		}
+
+		break
+	}
+	assert.NoError(waitCtx.Err(), "error while waiting for connection to be established")
+
+	lookup.Set(u1.Hostname(), []net.IP{
+		ip2,
+	})
+	dnsMonitor.checkHostnames()
+
+	// Removing the connections takes a short while (asynchronously, closed when unused).
+	waitCtx, cancel = context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	for waitCtx.Err() == nil {
+		mcu.connectionsMu.RLock()
+		if len(mcu.connections) != 1 {
+			mcu.connectionsMu.RUnlock()
+			time.Sleep(time.Millisecond)
+			continue
+		}
+
+		assert.Len(mcu.connections, 1)
+		assert.Equal(server1.URL, mcu.connections[0].rawUrl)
+		if assert.NotNil(mcu.connections[0].ip) {
+			assert.True(ip2.Equal(mcu.connections[0].ip), "ip addresses differ: expected %s, got %s", ip2.String(), mcu.connections[0].ip.String())
+		}
 		mcu.connectionsMu.RUnlock()
 		break
 	}

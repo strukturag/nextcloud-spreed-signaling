@@ -1766,12 +1766,13 @@ func (m *mcuProxy) removeConnection(c *mcuProxyConnection) {
 		conns = slices.Delete(conns, idx, idx+1)
 		if len(conns) == 0 {
 			delete(m.connectionsMap, c.rawUrl)
-			m.connections = nil
-			for _, conns := range m.connectionsMap {
-				m.connections = append(m.connections, conns...)
-			}
 		} else {
 			m.connectionsMap[c.rawUrl] = conns
+		}
+
+		m.connections = nil
+		for _, conns := range m.connectionsMap {
+			m.connections = append(m.connections, conns...)
 		}
 
 		m.nextSort.Store(0)
