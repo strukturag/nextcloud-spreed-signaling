@@ -12,7 +12,7 @@ RUN touch /.dockerenv && \
 FROM alpine:3
 
 ENV CONFIG=/config/proxy.conf
-RUN adduser -D spreedbackend && \
+RUN adduser -D -S -H spreedbackend && \
     apk add --no-cache bash tzdata ca-certificates su-exec
 
 COPY --from=builder /workdir/bin/proxy /usr/bin/nextcloud-spreed-signaling-proxy
