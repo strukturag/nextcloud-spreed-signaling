@@ -56,12 +56,12 @@ func (m *AsyncMessage) String() string {
 type AsyncRoomMessage struct {
 	Type string `json:"type"`
 
-	SessionId  string `json:"sessionid,omitempty"`
-	ClientType string `json:"clienttype,omitempty"`
+	SessionId  PublicSessionId `json:"sessionid,omitempty"`
+	ClientType string          `json:"clienttype,omitempty"`
 }
 
 type SendOfferMessage struct {
 	MessageId string                    `json:"messageid,omitempty"`
-	SessionId string                    `json:"sessionid"`
+	SessionId PublicSessionId           `json:"sessionid"`
 	Data      *MessageClientMessageData `json:"data"`
 }

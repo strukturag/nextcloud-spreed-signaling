@@ -62,6 +62,20 @@ func makePtr[T any](v T) *T {
 	return &v
 }
 
+type PrivateSessionId string
+
+type PublicSessionId string
+
+type RoomSessionId string
+
+func (s RoomSessionId) IsFederated() bool {
+	return strings.HasPrefix(string(s), FederatedRoomSessionIdPrefix)
+}
+
+func (s RoomSessionId) WithoutFederation() RoomSessionId {
+	return RoomSessionId(strings.TrimPrefix(string(s), FederatedRoomSessionIdPrefix))
+}
+
 // ClientMessage is a message that is sent from a client to the server.
 type ClientMessage struct {
 	json.Marshaler
@@ -444,7 +458,7 @@ type HelloClientMessageAuth struct {
 type HelloClientMessage struct {
 	Version string `json:"version"`
 
-	ResumeId string `json:"resumeid"`
+	ResumeId PrivateSessionId `json:"resumeid"`
 
 	Features []string `json:"features,omitempty"`
 
@@ -596,9 +610,9 @@ var (
 type HelloServerMessage struct {
 	Version string `json:"version"`
 
-	SessionId string `json:"sessionid"`
-	ResumeId  string `json:"resumeid"`
-	UserId    string `json:"userid"`
+	SessionId PublicSessionId  `json:"sessionid"`
+	ResumeId  PrivateSessionId `json:"resumeid"`
+	UserId    string           `json:"userid"`
 
 	// TODO: Remove once all clients have switched to the "welcome" message.
 	Server *WelcomeServerMessage `json:"server,omitempty"`
@@ -621,8 +635,8 @@ type ByeServerMessage struct {
 // Type "room"
 
 type RoomClientMessage struct {
-	RoomId    string `json:"roomid"`
-	SessionId string `json:"sessionid,omitempty"`
+	RoomId    string        `json:"roomid"`
+	SessionId RoomSessionId `json:"sessionid,omitempty"`
 
 	Federation *RoomFederationMessage `json:"federation,omitempty"`
 }
@@ -697,8 +711,8 @@ const (
 type MessageClientMessageRecipient struct {
 	Type string `json:"type"`
 
-	SessionId string `json:"sessionid,omitempty"`
-	UserId    string `json:"userid,omitempty"`
+	SessionId PublicSessionId `json:"sessionid,omitempty"`
+	UserId    string          `json:"userid,omitempty"`
 }
 
 type MessageClientMessage struct {
@@ -892,8 +906,8 @@ func (m *MessageClientMessage) CheckValid() error {
 type MessageServerMessageSender struct {
 	Type string `json:"type"`
 
-	SessionId string `json:"sessionid,omitempty"`
-	UserId    string `json:"userid,omitempty"`
+	SessionId PublicSessionId `json:"sessionid,omitempty"`
+	UserId    string          `json:"userid,omitempty"`
 }
 
 type MessageServerMessageDataChat struct {
@@ -933,7 +947,7 @@ type ControlServerMessage struct {
 // Type "internal"
 
 type CommonSessionInternalClientMessage struct {
-	SessionId string `json:"sessionid"`
+	SessionId PublicSessionId `json:"sessionid"`
 
 	RoomId string `json:"roomid"`
 }
@@ -1146,9 +1160,9 @@ type RoomEventMessage struct {
 }
 
 type RoomFlagsServerMessage struct {
-	RoomId    string `json:"roomid"`
-	SessionId string `json:"sessionid"`
-	Flags     uint32 `json:"flags"`
+	RoomId    string          `json:"roomid"`
+	SessionId PublicSessionId `json:"sessionid"`
+	Flags     uint32          `json:"flags"`
 }
 
 type ChatComment StringMap
@@ -1169,7 +1183,7 @@ type EventServerMessage struct {
 
 	// Used for target "room"
 	Join     []*EventServerMessageSessionEntry `json:"join,omitempty"`
-	Leave    []string                          `json:"leave,omitempty"`
+	Leave    []PublicSessionId                 `json:"leave,omitempty"`
 	Change   []*EventServerMessageSessionEntry `json:"change,omitempty"`
 	SwitchTo *EventServerMessageSwitchTo       `json:"switchto,omitempty"`
 	Resumed  *bool                             `json:"resumed,omitempty"`
@@ -1193,11 +1207,11 @@ func (m *EventServerMessage) String() string {
 }
 
 type EventServerMessageSessionEntry struct {
-	SessionId     string          `json:"sessionid"`
+	SessionId     PublicSessionId `json:"sessionid"`
 	UserId        string          `json:"userid"`
 	Features      []string        `json:"features,omitempty"`
 	User          json.RawMessage `json:"user,omitempty"`
-	RoomSessionId string          `json:"roomsessionid,omitempty"`
+	RoomSessionId RoomSessionId   `json:"roomsessionid,omitempty"`
 	Federated     bool            `json:"federated,omitempty"`
 }
 
@@ -1220,12 +1234,12 @@ type EventServerMessageSwitchTo struct {
 // MCU-related types
 
 type AnswerOfferMessage struct {
-	To       string    `json:"to"`
-	From     string    `json:"from"`
-	Type     string    `json:"type"`
-	RoomType string    `json:"roomType"`
-	Payload  StringMap `json:"payload"`
-	Sid      string    `json:"sid,omitempty"`
+	To       PublicSessionId `json:"to"`
+	From     PublicSessionId `json:"from"`
+	Type     string          `json:"type"`
+	RoomType string          `json:"roomType"`
+	Payload  StringMap       `json:"payload"`
+	Sid      string          `json:"sid,omitempty"`
 }
 
 // Type "transient"

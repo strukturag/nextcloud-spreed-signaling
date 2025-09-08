@@ -51,13 +51,13 @@ type AsyncEvents interface {
 	RegisterUserListener(userId string, backend *Backend, listener AsyncUserEventListener) error
 	UnregisterUserListener(userId string, backend *Backend, listener AsyncUserEventListener)
 
-	RegisterSessionListener(sessionId string, backend *Backend, listener AsyncSessionEventListener) error
-	UnregisterSessionListener(sessionId string, backend *Backend, listener AsyncSessionEventListener)
+	RegisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) error
+	UnregisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener)
 
 	PublishBackendRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error
 	PublishRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error
 	PublishUserMessage(userId string, backend *Backend, message *AsyncMessage) error
-	PublishSessionMessage(sessionId string, backend *Backend, message *AsyncMessage) error
+	PublishSessionMessage(sessionId PublicSessionId, backend *Backend, message *AsyncMessage) error
 }
 
 func NewAsyncEvents(url string) (AsyncEvents, error) {

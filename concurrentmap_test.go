@@ -31,7 +31,7 @@ import (
 
 func TestConcurrentStringStringMap(t *testing.T) {
 	assert := assert.New(t)
-	var m ConcurrentStringStringMap
+	var m ConcurrentMap[string, string]
 	assert.Equal(0, m.Len())
 	v, found := m.Get("foo")
 	assert.False(found, "Expected missing entry, got %s", v)

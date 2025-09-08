@@ -58,9 +58,9 @@ func init() {
 }
 
 type GrpcServerHub interface {
-	GetSessionByResumeId(resumeId string) Session
-	GetSessionByPublicId(sessionId string) Session
-	GetSessionIdByRoomSessionId(roomSessionId string) (string, error)
+	GetSessionByResumeId(resumeId PrivateSessionId) Session
+	GetSessionByPublicId(sessionId PublicSessionId) Session
+	GetSessionIdByRoomSessionId(roomSessionId RoomSessionId) (PublicSessionId, error)
 	GetRoomForBackend(roomId string, backend *Backend) *Room
 
 	GetBackend(u *url.URL) *Backend
@@ -131,13 +131,13 @@ func (s *GrpcServer) LookupResumeId(ctx context.Context, request *LookupResumeId
 	statsGrpcServerCalls.WithLabelValues("LookupResumeId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Lookup session for resume id %s", request.ResumeId)
-	session := s.hub.GetSessionByResumeId(request.ResumeId)
+	session := s.hub.GetSessionByResumeId(PrivateSessionId(request.ResumeId))
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such room session id")
 	}
 
 	return &LookupResumeIdReply{
-		SessionId: session.PublicId(),
+		SessionId: string(session.PublicId()),
 	}, nil
 }
 
@@ -145,7 +145,7 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 	statsGrpcServerCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Lookup session id for room session id %s", request.RoomSessionId)
-	sid, err := s.hub.GetSessionIdByRoomSessionId(request.RoomSessionId)
+	sid, err := s.hub.GetSessionIdByRoomSessionId(RoomSessionId(request.RoomSessionId))
 	if errors.Is(err, ErrNoSuchRoomSession) {
 		return nil, status.Error(codes.NotFound, "no such room session id")
 	} else if err != nil {
@@ -153,7 +153,7 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 	}
 
 	if sid != "" && request.DisconnectReason != "" {
-		if session := s.hub.GetSessionByPublicId(sid); session != nil {
+		if session := s.hub.GetSessionByPublicId(PublicSessionId(sid)); session != nil {
 			log.Printf("Closing session %s because same room session %s connected", session.PublicId(), request.RoomSessionId)
 			session.LeaveRoom(false)
 			switch sess := session.(type) {
@@ -166,7 +166,7 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 		}
 	}
 	return &LookupSessionIdReply{
-		SessionId: sid,
+		SessionId: string(sid),
 	}, nil
 }
 
@@ -174,7 +174,7 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 	statsGrpcServerCalls.WithLabelValues("IsSessionInCall").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Check if session %s is in call %s on %s", request.SessionId, request.RoomId, request.BackendUrl)
-	session := s.hub.GetSessionByPublicId(request.SessionId)
+	session := s.hub.GetSessionByPublicId(PublicSessionId(request.SessionId))
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such session id")
 	}
@@ -239,7 +239,7 @@ func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *GetIntern
 
 		for session := range room.internalSessions {
 			result.InternalSessions = append(result.InternalSessions, &InternalSessionData{
-				SessionId: session.PublicId(),
+				SessionId: string(session.PublicId()),
 				InCall:    uint32(session.GetInCall()),
 				Features:  session.GetFeatures(),
 			})
@@ -247,7 +247,7 @@ func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *GetIntern
 
 		for session := range room.virtualSessions {
 			result.VirtualSessions = append(result.VirtualSessions, &VirtualSessionData{
-				SessionId: session.PublicId(),
+				SessionId: string(session.PublicId()),
 				InCall:    uint32(session.GetInCall()),
 			})
 		}
@@ -260,7 +260,7 @@ func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherId
 	statsGrpcServerCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Get %s publisher id for session %s", request.StreamType, request.SessionId)
-	session := s.hub.GetSessionByPublicId(request.SessionId)
+	session := s.hub.GetSessionByPublicId(PublicSessionId(request.SessionId))
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such session")
 	}

@@ -31,9 +31,9 @@ var (
 )
 
 type RoomSessions interface {
-	SetRoomSession(session Session, roomSessionId string) error
+	SetRoomSession(session Session, roomSessionId RoomSessionId) error
 	DeleteRoomSession(session Session)
 
-	GetSessionId(roomSessionId string) (string, error)
-	LookupSessionId(ctx context.Context, roomSessionId string, disconnectReason string) (string, error)
+	GetSessionId(roomSessionId RoomSessionId) (PublicSessionId, error)
+	LookupSessionId(ctx context.Context, roomSessionId RoomSessionId, disconnectReason string) (PublicSessionId, error)
 }

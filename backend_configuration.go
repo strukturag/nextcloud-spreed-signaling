@@ -55,7 +55,7 @@ type Backend struct {
 
 	sessionLimit uint64
 	sessionsLock sync.Mutex
-	sessions     map[string]bool
+	sessions     map[PublicSessionId]bool
 
 	counted bool
 }
@@ -142,7 +142,7 @@ func (b *Backend) AddSession(session Session) error {
 	b.sessionsLock.Lock()
 	defer b.sessionsLock.Unlock()
 	if b.sessions == nil {
-		b.sessions = make(map[string]bool)
+		b.sessions = make(map[PublicSessionId]bool)
 	} else if uint64(len(b.sessions)) >= b.sessionLimit {
 		statsBackendLimitExceededTotal.WithLabelValues(b.id).Inc()
 		return SessionLimitExceeded

@@ -35,12 +35,12 @@ type RemoteSession struct {
 	hub          *Hub
 	client       *Client
 	remoteClient *GrpcClient
-	sessionId    string
+	sessionId    PublicSessionId
 
 	proxy atomic.Pointer[SessionProxy]
 }
 
-func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessionId string) (*RemoteSession, error) {
+func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessionId PublicSessionId) (*RemoteSession, error) {
 	remoteSession := &RemoteSession{
 		hub:          hub,
 		client:       client,

@@ -28,6 +28,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -496,8 +497,8 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 			UserIds: []string{
 				testDefaultUserId,
 			},
-			SessionIds: []string{
-				roomId + "-" + hello.Hello.SessionId,
+			SessionIds: []RoomSessionId{
+				RoomSessionId(fmt.Sprintf("%s-%s"+roomId, hello.Hello.SessionId)),
 			},
 			AllUserIds: []string{},
 			Properties: roomProperties,
@@ -553,8 +554,8 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 			UserIds: []string{
 				testDefaultUserId,
 			},
-			SessionIds: []string{
-				roomId1 + "-" + hello1.Hello.SessionId,
+			SessionIds: []RoomSessionId{
+				RoomSessionId(fmt.Sprintf("%s-%s"+roomId1, hello1.Hello.SessionId)),
 			},
 			AllUserIds: []string{},
 		},
@@ -790,21 +791,21 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 				Participants: &BackendRoomParticipantsRequest{
 					Changed: []StringMap{
 						{
-							"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 							"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
 						},
 						{
-							"sessionId":   roomId + "-" + hello2.Hello.SessionId,
+							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
 							"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
 						},
 					},
 					Users: []StringMap{
 						{
-							"sessionId":   roomId + "-" + hello1.Hello.SessionId,
+							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 							"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
 						},
 						{
-							"sessionId":   roomId + "-" + hello2.Hello.SessionId,
+							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
 							"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
 						},
 					},
@@ -866,13 +867,13 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 		Participants: &BackendRoomParticipantsRequest{
 			Changed: []StringMap{
 				{
-					"sessionId":   roomId + "-" + hello.Hello.SessionId,
+					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{},
 				},
 			},
 			Users: []StringMap{
 				{
-					"sessionId":   roomId + "-" + hello.Hello.SessionId,
+					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{},
 				},
 			},
@@ -932,7 +933,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 				InCall: json.RawMessage("7"),
 				Changed: []StringMap{
 					{
-						"sessionId": roomId + "-" + hello1.Hello.SessionId,
+						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 						"inCall":    7,
 					},
 					{
@@ -942,7 +943,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 				},
 				Users: []StringMap{
 					{
-						"sessionId": roomId + "-" + hello1.Hello.SessionId,
+						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 						"inCall":    7,
 					},
 					{
@@ -979,21 +980,21 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 				InCall: json.RawMessage("7"),
 				Changed: []StringMap{
 					{
-						"sessionId": roomId + "-" + hello1.Hello.SessionId,
+						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 						"inCall":    7,
 					},
 					{
-						"sessionId": roomId + "-" + hello2.Hello.SessionId,
+						"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
 						"inCall":    3,
 					},
 				},
 				Users: []StringMap{
 					{
-						"sessionId": roomId + "-" + hello1.Hello.SessionId,
+						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 						"inCall":    7,
 					},
 					{
-						"sessionId": roomId + "-" + hello2.Hello.SessionId,
+						"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
 						"inCall":    3,
 					},
 				},

@@ -51,3 +51,20 @@ func GetStringMapEntry[T any](m StringMap, key string) (s T, ok bool) {
 	s, ok = v.(T)
 	return
 }
+
+func GetStringMapString[T ~string](m StringMap, key string) (T, bool) {
+	var defaultValue T
+	v, found := m[key]
+	if !found {
+		return defaultValue, false
+	}
+
+	switch v := v.(type) {
+	case T:
+		return v, true
+	case string:
+		return T(v), true
+	default:
+		return defaultValue, false
+	}
+}

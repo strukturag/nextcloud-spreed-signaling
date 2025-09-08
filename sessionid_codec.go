@@ -66,8 +66,13 @@ func NewSessionIdCodec(hashKey []byte, blockKey []byte) *SessionIdCodec {
 	}
 }
 
-func (c *SessionIdCodec) EncodePrivate(sessionData *SessionIdData) (string, error) {
-	return c.cookie.Encode(privateSessionName, sessionData)
+func (c *SessionIdCodec) EncodePrivate(sessionData *SessionIdData) (PrivateSessionId, error) {
+	id, err := c.cookie.Encode(privateSessionName, sessionData)
+	if err != nil {
+		return "", err
+	}
+
+	return PrivateSessionId(id), nil
 }
 
 func reverseSessionId(s string) (string, error) {
@@ -83,7 +88,7 @@ func reverseSessionId(s string) (string, error) {
 	return base64.URLEncoding.EncodeToString(decoded), nil
 }
 
-func (c *SessionIdCodec) EncodePublic(sessionData *SessionIdData) (string, error) {
+func (c *SessionIdCodec) EncodePublic(sessionData *SessionIdData) (PublicSessionId, error) {
 	encoded, err := c.cookie.Encode(publicSessionName, sessionData)
 	if err != nil {
 		return "", err
@@ -94,26 +99,31 @@ func (c *SessionIdCodec) EncodePublic(sessionData *SessionIdData) (string, error
 	// (a timestamp) but the suffix the (random) hash.
 	// By reversing we move the hash to the front, making the comparison of
 	// session ids "random".
-	return reverseSessionId(encoded)
+	id, err := reverseSessionId(encoded)
+	if err != nil {
+		return "", err
+	}
+
+	return PublicSessionId(id), nil
 }
 
-func (c *SessionIdCodec) DecodePrivate(encodedData string) (*SessionIdData, error) {
+func (c *SessionIdCodec) DecodePrivate(encodedData PrivateSessionId) (*SessionIdData, error) {
 	var data SessionIdData
-	if err := c.cookie.Decode(privateSessionName, encodedData, &data); err != nil {
+	if err := c.cookie.Decode(privateSessionName, string(encodedData), &data); err != nil {
 		return nil, err
 	}
 
 	return &data, nil
 }
 
-func (c *SessionIdCodec) DecodePublic(encodedData string) (*SessionIdData, error) {
-	encodedData, err := reverseSessionId(encodedData)
+func (c *SessionIdCodec) DecodePublic(encodedData PublicSessionId) (*SessionIdData, error) {
+	reversed, err := reverseSessionId(string(encodedData))
 	if err != nil {
 		return nil, err
 	}
 
 	var data SessionIdData
-	if err := c.cookie.Decode(publicSessionName, encodedData, &data); err != nil {
+	if err := c.cookie.Decode(publicSessionName, reversed, &data); err != nil {
 		return nil, err
 	}
 

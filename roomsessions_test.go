@@ -32,18 +32,18 @@ import (
 )
 
 type DummySession struct {
-	publicId string
+	publicId PublicSessionId
 }
 
 func (s *DummySession) Context() context.Context {
 	return context.Background()
 }
 
-func (s *DummySession) PrivateId() string {
+func (s *DummySession) PrivateId() PrivateSessionId {
 	return ""
 }
 
-func (s *DummySession) PublicId() string {
+func (s *DummySession) PublicId() PublicSessionId {
 	return s.publicId
 }
 
@@ -105,7 +105,7 @@ func (s *DummySession) SendMessage(message *ServerMessage) bool {
 	return false
 }
 
-func checkSession(t *testing.T, sessions RoomSessions, sessionId string, roomSessionId string) Session {
+func checkSession(t *testing.T, sessions RoomSessions, sessionId PublicSessionId, roomSessionId RoomSessionId) Session {
 	session := &DummySession{
 		publicId: sessionId,
 	}

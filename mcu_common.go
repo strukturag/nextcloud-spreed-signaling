@@ -54,7 +54,7 @@ const (
 )
 
 type McuListener interface {
-	PublicId() string
+	PublicId() PublicSessionId
 
 	OnUpdateOffer(client McuClient, offer StringMap)
 
@@ -130,8 +130,8 @@ type Mcu interface {
 	GetStats() any
 	GetServerInfoSfu() *BackendServerInfoSfu
 
-	NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)
-	NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)
+	NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)
+	NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)
 }
 
 // PublisherStream contains the available properties when creating a
@@ -164,7 +164,7 @@ type PublisherStream struct {
 }
 
 type RemotePublisherController interface {
-	PublisherId() string
+	PublisherId() PublicSessionId
 
 	StartPublishing(ctx context.Context, publisher McuRemotePublisherProperties) error
 	StopPublishing(ctx context.Context, publisher McuRemotePublisherProperties) error
@@ -211,20 +211,20 @@ type McuClient interface {
 type McuPublisher interface {
 	McuClient
 
-	PublisherId() string
+	PublisherId() PublicSessionId
 
 	HasMedia(MediaType) bool
 	SetMedia(MediaType)
 
 	GetStreams(ctx context.Context) ([]PublisherStream, error)
-	PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error
-	UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error
+	PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error
+	UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error
 }
 
 type McuSubscriber interface {
 	McuClient
 
-	Publisher() string
+	Publisher() PublicSessionId
 }
 
 type McuRemotePublisherProperties interface {

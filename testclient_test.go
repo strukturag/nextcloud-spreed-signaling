@@ -68,7 +68,7 @@ func getWebsocketUrl(url string) string {
 	}
 }
 
-func getPubliceSessionIdData(h *Hub, publicId string) *SessionIdData {
+func getPubliceSessionIdData(h *Hub, publicId PublicSessionId) *SessionIdData {
 	decodedPublic := h.decodePublicSessionId(publicId)
 	if decodedPublic == nil {
 		panic("invalid public session id")
@@ -82,7 +82,7 @@ func checkMessageType(t *testing.T, message *ServerMessage, expectedType string)
 		return false
 	}
 
-	failed := !assert.Equal(expectedType, message.Type, "invalid message type")
+	failed := !assert.Equal(expectedType, message.Type, "invalid message type in %+v", message)
 
 	switch message.Type {
 	case "hello":
@@ -207,7 +207,7 @@ type TestClient struct {
 	messageChan   chan []byte
 	readErrorChan chan error
 
-	publicId string
+	publicId PublicSessionId
 }
 
 func NewTestClientContext(ctx context.Context, t *testing.T, server *httptest.Server, hub *Hub) *TestClient {
@@ -331,7 +331,7 @@ func (c *TestClient) WaitForClientRemoved(ctx context.Context) error {
 	return nil
 }
 
-func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId string) error {
+func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId PublicSessionId) error {
 	data := c.hub.decodePublicSessionId(sessionId)
 	if data == nil {
 		return fmt.Errorf("Invalid session id passed")
@@ -450,7 +450,7 @@ func (c *TestClient) SendHelloV2WithTimesAndFeatures(userid string, issuedAt tim
 	return c.SendHelloParams(c.server.URL, HelloVersionV2, "", features, params)
 }
 
-func (c *TestClient) SendHelloResume(resumeId string) error {
+func (c *TestClient) SendHelloResume(resumeId PrivateSessionId) error {
 	hello := &ClientMessage{
 		Id:   "1234",
 		Type: "hello",
@@ -776,10 +776,10 @@ func (c *TestClient) RunUntilHello(ctx context.Context) (*ServerMessage, bool) {
 }
 
 func (c *TestClient) JoinRoom(ctx context.Context, roomId string) (*ServerMessage, bool) {
-	return c.JoinRoomWithRoomSession(ctx, roomId, roomId+"-"+c.publicId)
+	return c.JoinRoomWithRoomSession(ctx, roomId, RoomSessionId(fmt.Sprintf("%s-%s", roomId, c.publicId)))
 }
 
-func (c *TestClient) JoinRoomWithRoomSession(ctx context.Context, roomId string, roomSessionId string) (message *ServerMessage, ok bool) {
+func (c *TestClient) JoinRoomWithRoomSession(ctx context.Context, roomId string, roomSessionId RoomSessionId) (message *ServerMessage, ok bool) {
 	msg := &ClientMessage{
 		Id:   "ABCD",
 		Type: "room",
@@ -822,7 +822,7 @@ func (c *TestClient) checkSingleMessageJoined(message *ServerMessage) bool {
 		c.assert.Len(message.Event.Join, 1, "invalid number of join event entries in %+v", message)
 }
 
-func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId string, userId string) bool {
+func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId PublicSessionId, userId string) bool {
 	if !c.checkSingleMessageJoined(message) {
 		return false
 	}
@@ -898,7 +898,7 @@ func (c *TestClient) checkMessageRoomLeave(message *ServerMessage, hello *HelloS
 	return c.checkMessageRoomLeaveSession(message, hello.SessionId)
 }
 
-func (c *TestClient) checkMessageRoomLeaveSession(message *ServerMessage, sessionId string) bool {
+func (c *TestClient) checkMessageRoomLeaveSession(message *ServerMessage, sessionId PublicSessionId) bool {
 	return checkMessageType(c.t, message, "event") &&
 		c.assert.Equal("room", message.Event.Target, "invalid target in %+v", message) &&
 		c.assert.Equal("leave", message.Event.Type, "invalid event type in %+v", message) &&

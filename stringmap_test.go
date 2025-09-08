@@ -54,3 +54,37 @@ func TestConvertStringMap(t *testing.T) {
 	})
 	assert.False(ok)
 }
+
+func TestGetStringMapString(t *testing.T) {
+	assert := assert.New(t)
+
+	type StringMapTestString string
+
+	var ok bool
+	m := StringMap{
+		"foo": "bar",
+		"bar": StringMapTestString("baz"),
+		"baz": 1234,
+	}
+	if v, ok := GetStringMapString[string](m, "foo"); assert.True(ok) {
+		assert.Equal("bar", v)
+	}
+	if v, ok := GetStringMapString[StringMapTestString](m, "foo"); assert.True(ok) {
+		assert.Equal(StringMapTestString("bar"), v)
+	}
+	v, ok := GetStringMapString[string](m, "bar")
+	assert.False(ok, "should not find object, got %+v", v)
+
+	if v, ok := GetStringMapString[StringMapTestString](m, "bar"); assert.True(ok) {
+		assert.Equal(StringMapTestString("baz"), v)
+	}
+
+	_, ok = GetStringMapString[string](m, "baz")
+	assert.False(ok)
+	_, ok = GetStringMapString[StringMapTestString](m, "baz")
+	assert.False(ok)
+	_, ok = GetStringMapString[string](m, "invalid")
+	assert.False(ok)
+	_, ok = GetStringMapString[StringMapTestString](m, "invalid")
+	assert.False(ok)
+}

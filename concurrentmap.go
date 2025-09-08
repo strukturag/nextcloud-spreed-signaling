@@ -25,40 +25,40 @@ import (
 	"sync"
 )
 
-type ConcurrentStringStringMap struct {
+type ConcurrentMap[K comparable, V any] struct {
 	mu sync.RWMutex
-	d  map[string]string
+	d  map[K]V
 }
 
-func (m *ConcurrentStringStringMap) Set(key, value string) {
+func (m *ConcurrentMap[K, V]) Set(key K, value V) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.d == nil {
-		m.d = make(map[string]string)
+		m.d = make(map[K]V)
 	}
 	m.d[key] = value
 }
 
-func (m *ConcurrentStringStringMap) Get(key string) (string, bool) {
+func (m *ConcurrentMap[K, V]) Get(key K) (V, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	s, found := m.d[key]
 	return s, found
 }
 
-func (m *ConcurrentStringStringMap) Del(key string) {
+func (m *ConcurrentMap[K, V]) Del(key K) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.d, key)
 }
 
-func (m *ConcurrentStringStringMap) Len() int {
+func (m *ConcurrentMap[K, V]) Len() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.d)
 }
 
-func (m *ConcurrentStringStringMap) Clear() {
+func (m *ConcurrentMap[K, V]) Clear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.d = nil

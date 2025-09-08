@@ -67,7 +67,7 @@ func TestVirtualSession(t *testing.T) {
 	// Ignore "join" events.
 	assert.NoError(client.DrainMessages(ctx))
 
-	internalSessionId := "session1"
+	internalSessionId := PublicSessionId("session1")
 	userId := "user1"
 	msgAdd := &ClientMessage{
 		Type: "internal",
@@ -101,7 +101,7 @@ func TestVirtualSession(t *testing.T) {
 	if updateMsg, ok := checkMessageParticipantsInCall(t, msg2); ok {
 		assert.Equal(roomId, updateMsg.RoomId)
 		if assert.Len(updateMsg.Users, 1) {
-			assert.Equal(sessionId, updateMsg.Users[0]["sessionId"])
+			assert.EqualValues(sessionId, updateMsg.Users[0]["sessionId"])
 			assert.Equal(true, updateMsg.Users[0]["virtual"])
 			assert.EqualValues((FlagInCall | FlagWithPhone), updateMsg.Users[0]["inCall"])
 		}
@@ -251,7 +251,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	// Ignore "join" events.
 	assert.NoError(client.DrainMessages(ctx))
 
-	internalSessionId := "session1"
+	internalSessionId := PublicSessionId("session1")
 	userId := "user1"
 	msgAdd := &ClientMessage{
 		Type: "internal",
@@ -289,7 +289,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	if updateMsg, ok := checkMessageParticipantsInCall(t, msg2); ok {
 		assert.Equal(roomId, updateMsg.RoomId)
 		if assert.Len(updateMsg.Users, 1) {
-			assert.Equal(sessionId, updateMsg.Users[0]["sessionId"])
+			assert.EqualValues(sessionId, updateMsg.Users[0]["sessionId"])
 			assert.Equal(true, updateMsg.Users[0]["virtual"])
 			assert.EqualValues((FlagInCall | FlagWithPhone), updateMsg.Users[0]["inCall"])
 		}
@@ -403,11 +403,11 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	}
 }
 
-func checkHasEntryWithInCall(t *testing.T, message *RoomEventServerMessage, sessionId string, entryType string, inCall int) bool {
+func checkHasEntryWithInCall(t *testing.T, message *RoomEventServerMessage, sessionId PublicSessionId, entryType string, inCall int) bool {
 	assert := assert.New(t)
 	found := false
 	for _, entry := range message.Users {
-		if sid, ok := GetStringMapEntry[string](entry, "sessionId"); ok && sid == sessionId {
+		if sid, ok := GetStringMapString[PublicSessionId](entry, "sessionId"); ok && sid == sessionId {
 			if value, found := GetStringMapEntry[bool](entry, entryType); !assert.True(found, "entry %s not found or invalid in %+v", entryType, entry) ||
 				!assert.True(value, "entry %s invalid in %+v", entryType, entry) {
 				return false
@@ -469,13 +469,13 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 		if assert.Len(additional, 1) && assert.Equal("event", additional[0].Type) {
 			assert.Equal("participants", additional[0].Event.Target)
 			assert.Equal("update", additional[0].Event.Type)
-			assert.Equal(helloInternal.Hello.SessionId, additional[0].Event.Update.Users[0]["sessionId"])
+			assert.EqualValues(helloInternal.Hello.SessionId, additional[0].Event.Update.Users[0]["sessionId"])
 			assert.EqualValues(0, additional[0].Event.Update.Users[0]["inCall"])
 		}
 	}
 	client.RunUntilJoined(ctx, helloInternal.Hello, hello.Hello)
 
-	internalSessionId := "session1"
+	internalSessionId := PublicSessionId("session1")
 	userId := "user1"
 	msgAdd := &ClientMessage{
 		Type: "internal",
@@ -603,7 +603,7 @@ func TestVirtualSessionCleanup(t *testing.T) {
 	// Ignore "join" events.
 	assert.NoError(client.DrainMessages(ctx))
 
-	internalSessionId := "session1"
+	internalSessionId := PublicSessionId("session1")
 	userId := "user1"
 	msgAdd := &ClientMessage{
 		Type: "internal",
@@ -637,7 +637,7 @@ func TestVirtualSessionCleanup(t *testing.T) {
 	if updateMsg, ok := checkMessageParticipantsInCall(t, msg2); ok {
 		assert.Equal(roomId, updateMsg.RoomId)
 		if assert.Len(updateMsg.Users, 1) {
-			assert.Equal(sessionId, updateMsg.Users[0]["sessionId"])
+			assert.EqualValues(sessionId, updateMsg.Users[0]["sessionId"])
 			assert.Equal(true, updateMsg.Users[0]["virtual"])
 			assert.EqualValues((FlagInCall | FlagWithPhone), updateMsg.Users[0]["inCall"])
 		}

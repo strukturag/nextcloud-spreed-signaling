@@ -124,8 +124,8 @@ type SignalingClient struct {
 	stopChan chan struct{}
 
 	lock             sync.Mutex
-	privateSessionId string
-	publicSessionId  string
+	privateSessionId signaling.PrivateSessionId
+	publicSessionId  signaling.PublicSessionId
 	userId           string
 }
 
@@ -208,7 +208,7 @@ func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
 	}
 }
 
-func (c *SignalingClient) privateToPublicSessionId(privateId string) string {
+func (c *SignalingClient) privateToPublicSessionId(privateId signaling.PrivateSessionId) signaling.PublicSessionId {
 	data, err := c.cookie.DecodePrivate(privateId)
 	if err != nil {
 		panic(fmt.Sprintf("could not decode private session id: %s", err))
@@ -230,7 +230,7 @@ func (c *SignalingClient) processHelloMessage(message *signaling.ServerMessage) 
 	c.readyWg.Done()
 }
 
-func (c *SignalingClient) PublicSessionId() string {
+func (c *SignalingClient) PublicSessionId() signaling.PublicSessionId {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	return c.publicSessionId
@@ -368,7 +368,7 @@ func (c *SignalingClient) writePump() {
 }
 
 func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
-	sessionIds := make(map[*SignalingClient]string)
+	sessionIds := make(map[*SignalingClient]signaling.PublicSessionId)
 	for _, c := range clients {
 		sessionIds[c] = c.PublicSessionId()
 	}

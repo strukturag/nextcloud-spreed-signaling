@@ -33,10 +33,10 @@ import (
 type mcuJanusSubscriber struct {
 	mcuJanusClient
 
-	publisher string
+	publisher PublicSessionId
 }
 
-func (p *mcuJanusSubscriber) Publisher() string {
+func (p *mcuJanusSubscriber) Publisher() PublicSessionId {
 	return p.publisher
 }
 
@@ -156,7 +156,7 @@ func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelecti
 		return
 	}
 
-	waiter := p.mcu.publisherConnected.NewWaiter(getStreamId(p.publisher, p.streamType))
+	waiter := p.mcu.publisherConnected.NewWaiter(string(getStreamId(p.publisher, p.streamType)))
 	defer p.mcu.publisherConnected.Release(waiter)
 
 	loggedNotPublishingYet := false

@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -53,8 +54,8 @@ func GetSubjectForUserId(userId string, backend *Backend) string {
 	return GetEncodedSubject("user", userId+"|"+backend.Id())
 }
 
-func GetSubjectForSessionId(sessionId string, backend *Backend) string {
-	return "session." + sessionId
+func GetSubjectForSessionId(sessionId PublicSessionId, backend *Backend) string {
+	return fmt.Sprintf("session.%s", sessionId)
 }
 
 type asyncSubscriberNats struct {
@@ -417,7 +418,7 @@ func (e *asyncEventsNats) UnregisterUserListener(roomId string, backend *Backend
 	}
 }
 
-func (e *asyncEventsNats) RegisterSessionListener(sessionId string, backend *Backend, listener AsyncSessionEventListener) error {
+func (e *asyncEventsNats) RegisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) error {
 	key := GetSubjectForSessionId(sessionId, backend)
 
 	e.mu.Lock()
@@ -435,7 +436,7 @@ func (e *asyncEventsNats) RegisterSessionListener(sessionId string, backend *Bac
 	return nil
 }
 
-func (e *asyncEventsNats) UnregisterSessionListener(sessionId string, backend *Backend, listener AsyncSessionEventListener) {
+func (e *asyncEventsNats) UnregisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) {
 	key := GetSubjectForSessionId(sessionId, backend)
 
 	e.mu.Lock()
@@ -471,7 +472,7 @@ func (e *asyncEventsNats) PublishUserMessage(userId string, backend *Backend, me
 	return e.publish(subject, message)
 }
 
-func (e *asyncEventsNats) PublishSessionMessage(sessionId string, backend *Backend, message *AsyncMessage) error {
+func (e *asyncEventsNats) PublishSessionMessage(sessionId PublicSessionId, backend *Backend, message *AsyncMessage) error {
 	subject := GetSubjectForSessionId(sessionId, backend)
 	return e.publish(subject, message)
 }

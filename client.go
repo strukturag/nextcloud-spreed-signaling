@@ -133,7 +133,7 @@ type Client struct {
 	handler   ClientHandler
 
 	session   atomic.Pointer[Session]
-	sessionId atomic.Pointer[string]
+	sessionId atomic.Pointer[PublicSessionId]
 
 	mu sync.Mutex
 
@@ -212,11 +212,11 @@ func (c *Client) SetSession(session Session) {
 	}
 }
 
-func (c *Client) SetSessionId(sessionId string) {
+func (c *Client) SetSessionId(sessionId PublicSessionId) {
 	c.sessionId.Store(&sessionId)
 }
 
-func (c *Client) GetSessionId() string {
+func (c *Client) GetSessionId() PublicSessionId {
 	sessionId := c.sessionId.Load()
 	if sessionId == nil {
 		session := c.GetSession()

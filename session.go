@@ -49,8 +49,8 @@ var (
 
 type Session interface {
 	Context() context.Context
-	PrivateId() string
-	PublicId() string
+	PrivateId() PrivateSessionId
+	PublicId() PublicSessionId
 	ClientType() string
 	Data() *SessionIdData
 

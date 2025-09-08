@@ -167,7 +167,7 @@ type Hub struct {
 
 	roomSessions    RoomSessions
 	roomPing        *RoomPing
-	virtualSessions map[string]uint64
+	virtualSessions map[PublicSessionId]uint64
 
 	decodeCaches []*LruCache
 
@@ -360,7 +360,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 
 		roomSessions:    roomSessions,
 		roomPing:        roomPing,
-		virtualSessions: make(map[string]uint64),
+		virtualSessions: make(map[PublicSessionId]uint64),
 
 		decodeCaches: decodeCaches,
 
@@ -602,6 +602,14 @@ func (h *Hub) getDecodeCache(cache_key string) *LruCache {
 	return h.decodeCaches[idx]
 }
 
+func (h *Hub) invalidatePublicSessionId(id PublicSessionId) {
+	h.invalidateSessionId(string(id), publicSessionName)
+}
+
+func (h *Hub) invalidatePrivateSessionId(id PrivateSessionId) {
+	h.invalidateSessionId(string(id), privateSessionName)
+}
+
 func (h *Hub) invalidateSessionId(id string, sessionType string) {
 	if len(id) == 0 {
 		return
@@ -610,6 +618,14 @@ func (h *Hub) invalidateSessionId(id string, sessionType string) {
 	cache_key := id + "|" + sessionType
 	cache := h.getDecodeCache(cache_key)
 	cache.Remove(cache_key)
+}
+
+func (h *Hub) setDecodedPublicSessionId(id PublicSessionId, data *SessionIdData) {
+	h.setDecodedSessionId(string(id), publicSessionName, data)
+}
+
+func (h *Hub) setDecodedPrivateSessionId(id PrivateSessionId, data *SessionIdData) {
+	h.setDecodedSessionId(string(id), privateSessionName, data)
 }
 
 func (h *Hub) setDecodedSessionId(id string, sessionType string, data *SessionIdData) {
@@ -622,12 +638,12 @@ func (h *Hub) setDecodedSessionId(id string, sessionType string, data *SessionId
 	cache.Set(cache_key, data)
 }
 
-func (h *Hub) decodePrivateSessionId(id string) *SessionIdData {
+func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
 	if len(id) == 0 {
 		return nil
 	}
 
-	cache_key := id + "|" + privateSessionName
+	cache_key := fmt.Sprintf("%s|%s", id, privateSessionName)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result.(*SessionIdData)
@@ -642,12 +658,12 @@ func (h *Hub) decodePrivateSessionId(id string) *SessionIdData {
 	return data
 }
 
-func (h *Hub) decodePublicSessionId(id string) *SessionIdData {
+func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
 	if len(id) == 0 {
 		return nil
 	}
 
-	cache_key := id + "|" + publicSessionName
+	cache_key := fmt.Sprintf("%s|%s", id, publicSessionName)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result.(*SessionIdData)
@@ -662,7 +678,7 @@ func (h *Hub) decodePublicSessionId(id string) *SessionIdData {
 	return data
 }
 
-func (h *Hub) GetSessionByPublicId(sessionId string) Session {
+func (h *Hub) GetSessionByPublicId(sessionId PublicSessionId) Session {
 	data := h.decodePublicSessionId(sessionId)
 	if data == nil {
 		return nil
@@ -678,7 +694,7 @@ func (h *Hub) GetSessionByPublicId(sessionId string) Session {
 	return session
 }
 
-func (h *Hub) GetSessionByResumeId(resumeId string) Session {
+func (h *Hub) GetSessionByResumeId(resumeId PrivateSessionId) Session {
 	data := h.decodePrivateSessionId(resumeId)
 	if data == nil {
 		return nil
@@ -694,7 +710,7 @@ func (h *Hub) GetSessionByResumeId(resumeId string) Session {
 	return session
 }
 
-func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId string) (string, error) {
+func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId RoomSessionId) (PublicSessionId, error) {
 	return h.roomSessions.GetSessionId(roomSessionId)
 }
 
@@ -778,8 +794,8 @@ func (h *Hub) performHousekeeping(now time.Time) {
 
 func (h *Hub) removeSession(session Session) (removed bool) {
 	session.LeaveRoom(true)
-	h.invalidateSessionId(session.PrivateId(), privateSessionName)
-	h.invalidateSessionId(session.PublicId(), publicSessionName)
+	h.invalidatePrivateSessionId(session.PrivateId())
+	h.invalidatePublicSessionId(session.PublicId())
 
 	h.mu.Lock()
 	if data := session.Data(); data != nil && data.Sid > 0 {
@@ -1013,8 +1029,8 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 	statsHubSessionsCurrent.WithLabelValues(backend.Id(), session.ClientType()).Inc()
 	statsHubSessionsTotal.WithLabelValues(backend.Id(), session.ClientType()).Inc()
 
-	h.setDecodedSessionId(privateSessionId, privateSessionName, sessionIdData)
-	h.setDecodedSessionId(publicSessionId, publicSessionName, sessionIdData)
+	h.setDecodedPrivateSessionId(privateSessionId, sessionIdData)
+	h.setDecodedPublicSessionId(publicSessionId, sessionIdData)
 	h.sendHelloResponse(session, message)
 }
 
@@ -1139,7 +1155,7 @@ type remoteClientInfo struct {
 	response *LookupResumeIdReply
 }
 
-func (h *Hub) tryProxyResume(c HandlerClient, resumeId string, message *ClientMessage) bool {
+func (h *Hub) tryProxyResume(c HandlerClient, resumeId PrivateSessionId, message *ClientMessage) bool {
 	client, ok := c.(*Client)
 	if !ok {
 		return false
@@ -1195,7 +1211,7 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId string, message *ClientMe
 		return false
 	}
 
-	rs, err := NewRemoteSession(h, client, info.client, info.response.SessionId)
+	rs, err := NewRemoteSession(h, client, info.client, PublicSessionId(info.response.SessionId))
 	if err != nil {
 		log.Printf("Could not create remote session %s on %s: %s", info.response.SessionId, info.client.Target(), err)
 		return false
@@ -1558,7 +1574,7 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage)
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId string, backend *Backend) {
+func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId RoomSessionId, backend *Backend) {
 	sessionId, err := h.roomSessions.LookupSessionId(ctx, roomSessionId, "room_session_reconnected")
 	if err == ErrNoSuchRoomSession {
 		return
@@ -1715,7 +1731,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		if roomSessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
 			log.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			roomSessionId = session.PublicId()
+			roomSessionId = RoomSessionId(session.PublicId())
 		}
 
 		// Prefix room session id to allow using the same signaling server for two Nextcloud instances during development.
@@ -1736,7 +1752,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		if roomSessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
 			log.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			roomSessionId = session.PublicId()
+			roomSessionId = RoomSessionId(session.PublicId())
 		}
 
 		if err := session.UpdateRoomSessionId(roomSessionId); err != nil {
@@ -1771,7 +1787,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		if sessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
 			log.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			sessionId = session.PublicId()
+			sessionId = RoomSessionId(session.PublicId())
 		}
 		request := NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
 		request.Room.UpdateFromSession(session)
@@ -1817,14 +1833,13 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 			continue
 		}
 
-		var sid string
+		var sid RoomSessionId
 		var uid string
 		// Use Nextcloud session id and user id
-		sid = strings.TrimPrefix(session.RoomSessionId(), FederatedRoomSessionIdPrefix)
-		uid = session.AuthUserId()
-		if sid == "" {
+		if sid = session.RoomSessionId().WithoutFederation(); sid == "" {
 			continue
 		}
+		uid = session.AuthUserId()
 
 		roomId := federation.RoomId()
 		entries, found := rooms[roomId]
@@ -1969,7 +1984,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 	var subject string
 	var clientData *MessageClientMessageData
 	var serverRecipient *MessageClientMessageRecipient
-	var recipientSessionId string
+	var recipientSessionId PublicSessionId
 	var room *Room
 	switch msg.Recipient.Type {
 	case RecipientTypeSession:
@@ -2049,7 +2064,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 				return
 			}
 
-			subject = "session." + msg.Recipient.SessionId
+			subject = GetSubjectForSessionId(msg.Recipient.SessionId, sess.Backend())
 			recipientSessionId = msg.Recipient.SessionId
 			if sess, ok := sess.(*ClientSession); ok {
 				recipient = sess
@@ -2059,7 +2074,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 			if sess.ClientType() == HelloClientTypeVirtual {
 				virtualSession := sess.(*VirtualSession)
 				clientSession := virtualSession.Session()
-				subject = "session." + clientSession.PublicId()
+				subject = GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
 				recipientSessionId = clientSession.PublicId()
 				recipient = clientSession
 				// The client should see his session id as recipient.
@@ -2069,7 +2084,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 				}
 			}
 		} else {
-			subject = "session." + msg.Recipient.SessionId
+			subject = GetSubjectForSessionId(msg.Recipient.SessionId, nil)
 			recipientSessionId = msg.Recipient.SessionId
 			serverRecipient = &msg.Recipient
 		}
@@ -2244,7 +2259,7 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 	var recipient *ClientSession
 	var subject string
 	var serverRecipient *MessageClientMessageRecipient
-	var recipientSessionId string
+	var recipientSessionId PublicSessionId
 	var room *Room
 	switch msg.Recipient.Type {
 	case RecipientTypeSession:
@@ -2255,7 +2270,7 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 				return
 			}
 
-			subject = "session." + msg.Recipient.SessionId
+			subject = GetSubjectForSessionId(msg.Recipient.SessionId, nil)
 			recipientSessionId = msg.Recipient.SessionId
 			h.mu.RLock()
 			sess, found := h.sessions[data.Sid]
@@ -2268,7 +2283,7 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 				if sess.ClientType() == HelloClientTypeVirtual {
 					virtualSession := sess.(*VirtualSession)
 					clientSession := virtualSession.Session()
-					subject = "session." + clientSession.PublicId()
+					subject = GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
 					recipientSessionId = clientSession.PublicId()
 					recipient = clientSession
 					// The client should see his session id as recipient.
@@ -2397,7 +2412,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		}
 
 		if options := msg.Options; options != nil && options.ActorId != "" && options.ActorType != "" {
-			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, publicSessionId)
+			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, RoomSessionId(publicSessionId))
 			request.Room.ActorId = options.ActorId
 			request.Room.ActorType = options.ActorType
 			request.Room.InCall = sess.GetInCall()
@@ -2613,7 +2628,7 @@ func sendMcuProcessingFailed(session Session, message *ClientMessage) {
 	session.SendMessage(response)
 }
 
-func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSession, senderRoom *Room, recipientSessionId string) bool {
+func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSession, senderRoom *Room, recipientSessionId PublicSessionId) bool {
 	clients := h.rpcClients.GetClients()
 	if len(clients) == 0 {
 		return false
@@ -2647,7 +2662,7 @@ func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSessi
 	return result.Load()
 }
 
-func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, recipientSessionId string) bool {
+func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, recipientSessionId PublicSessionId) bool {
 	if senderSession.ClientType() == HelloClientTypeInternal {
 		// Internal clients may subscribe all streams.
 		return true
@@ -2923,7 +2938,7 @@ func (h *Hub) GetServerInfoDialout() (result []BackendServerInfoDialout) {
 	}
 
 	slices.SortFunc(result, func(a, b BackendServerInfoDialout) int {
-		return strings.Compare(a.SessionId, b.SessionId)
+		return strings.Compare(string(a.SessionId), string(b.SessionId))
 	})
 	return
 }

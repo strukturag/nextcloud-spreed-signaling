@@ -38,12 +38,12 @@ const (
 type VirtualSession struct {
 	hub       *Hub
 	session   *ClientSession
-	privateId string
-	publicId  string
+	privateId PrivateSessionId
+	publicId  PublicSessionId
 	data      *SessionIdData
 	room      atomic.Pointer[Room]
 
-	sessionId string
+	sessionId PublicSessionId
 	userId    string
 	userData  json.RawMessage
 	inCall    Flags
@@ -53,11 +53,11 @@ type VirtualSession struct {
 	parseUserData func() (StringMap, error)
 }
 
-func GetVirtualSessionId(session Session, sessionId string) string {
+func GetVirtualSessionId(session Session, sessionId PublicSessionId) PublicSessionId {
 	return session.PublicId() + "|" + sessionId
 }
 
-func NewVirtualSession(session *ClientSession, privateId string, publicId string, data *SessionIdData, msg *AddSessionInternalClientMessage) (*VirtualSession, error) {
+func NewVirtualSession(session *ClientSession, privateId PrivateSessionId, publicId PublicSessionId, data *SessionIdData, msg *AddSessionInternalClientMessage) (*VirtualSession, error) {
 	result := &VirtualSession{
 		hub:       session.hub,
 		session:   session,
@@ -92,11 +92,11 @@ func (s *VirtualSession) Context() context.Context {
 	return s.session.Context()
 }
 
-func (s *VirtualSession) PrivateId() string {
+func (s *VirtualSession) PrivateId() PrivateSessionId {
 	return s.privateId
 }
 
-func (s *VirtualSession) PublicId() string {
+func (s *VirtualSession) PublicId() PublicSessionId {
 	return s.publicId
 }
 
@@ -151,7 +151,7 @@ func (s *VirtualSession) ParsedUserData() (StringMap, error) {
 func (s *VirtualSession) SetRoom(room *Room) {
 	s.room.Store(room)
 	if room != nil {
-		if err := s.hub.roomSessions.SetRoomSession(s, s.PublicId()); err != nil {
+		if err := s.hub.roomSessions.SetRoomSession(s, RoomSessionId(s.PublicId())); err != nil {
 			log.Printf("Error adding virtual room session %s: %s", s.PublicId(), err)
 		}
 	} else {
@@ -193,7 +193,7 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 	defer cancel()
 
 	if options := s.Options(); options != nil && options.ActorId != "" && options.ActorType != "" {
-		request := NewBackendClientRoomRequest(room.Id(), s.UserId(), s.PublicId())
+		request := NewBackendClientRoomRequest(room.Id(), s.UserId(), RoomSessionId(s.PublicId()))
 		request.Room.Action = "leave"
 		request.Room.ActorId = options.ActorId
 		request.Room.ActorType = options.ActorType
@@ -243,7 +243,7 @@ func (s *VirtualSession) Session() *ClientSession {
 	return s.session
 }
 
-func (s *VirtualSession) SessionId() string {
+func (s *VirtualSession) SessionId() PublicSessionId {
 	return s.sessionId
 }
 

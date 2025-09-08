@@ -516,10 +516,10 @@ func newMcuJanusForTesting(t *testing.T) (*mcuJanus, *TestJanusGateway) {
 }
 
 type TestMcuListener struct {
-	id string
+	id PublicSessionId
 }
 
-func (t *TestMcuListener) PublicId() string {
+func (t *TestMcuListener) PublicId() PublicSessionId {
 	return t.id
 }
 
@@ -548,10 +548,10 @@ func (t *TestMcuListener) SubscriberClosed(subscriber McuSubscriber) {
 }
 
 type TestMcuController struct {
-	id string
+	id PublicSessionId
 }
 
-func (c *TestMcuController) PublisherId() string {
+func (c *TestMcuController) PublisherId() PublicSessionId {
 	return c.id
 }
 
@@ -620,7 +620,7 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -736,7 +736,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -848,7 +848,7 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -926,7 +926,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1000,7 +1000,7 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1037,7 +1037,7 @@ func Test_JanusSubscriberPublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1104,7 +1104,7 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
