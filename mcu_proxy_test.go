@@ -217,6 +217,37 @@ func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxySer
 		return nil, fmt.Errorf("expected hello, got %+v", msg)
 	}
 
+	if msg.Hello.ResumeId != "" {
+		client := c.server.getClient(msg.Hello.ResumeId)
+		if client == nil {
+			response := &ProxyServerMessage{
+				Id:   msg.Id,
+				Type: "error",
+				Error: &Error{
+					Code: "no_such_session",
+				},
+			}
+			return response, nil
+		}
+
+		c.sessionId = msg.Hello.ResumeId
+		c.server.setClient(c.sessionId, c)
+		response := &ProxyServerMessage{
+			Id:   msg.Id,
+			Type: "hello",
+			Hello: &HelloProxyServerMessage{
+				Version:   "1.0",
+				SessionId: c.sessionId,
+				Server: &WelcomeServerMessage{
+					Version: "1.0",
+					Country: c.server.country,
+				},
+			},
+		}
+		c.processMessage = c.processRegularMessage
+		return response, nil
+	}
+
 	token, err := jwt.ParseWithClaims(msg.Hello.Token, &TokenClaims{}, func(token *jwt.Token) (any, error) {
 		claims, ok := token.Claims.(*TokenClaims)
 		if !assert.True(c.t, ok, "unsupported claims type: %+v", token.Claims) {
@@ -403,8 +434,10 @@ func (c *testProxyServerClient) close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.ws.Close()
-	c.ws = nil
+	if c.ws != nil {
+		c.ws.Close()
+		c.ws = nil
+	}
 }
 
 func (c *testProxyServerClient) handleSendMessageError(fmt string, msg *ProxyServerMessage, err error) {
@@ -443,6 +476,11 @@ func (c *testProxyServerClient) sendMessage(msg *ProxyServerMessage) {
 	if err := w.Close(); err != nil {
 		c.handleSendMessageError("error during close of sending %+v: %s", msg, err)
 	}
+
+	if msg.CloseAfterSend(nil) {
+		c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) // nolint
+		c.ws.Close()
+	}
 }
 
 func (c *testProxyServerClient) run() {
@@ -450,7 +488,7 @@ func (c *testProxyServerClient) run() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
-		c.server.removeClient(c)
+		c.server.expireSession(30*time.Second, c)
 		c.ws = nil
 	}()
 	c.processMessage = c.processHello
@@ -665,9 +703,20 @@ func (h *TestProxyServerHandler) sendLoad(c *testProxyServerClient) {
 	c.sendMessage(msg)
 }
 
+func (h *TestProxyServerHandler) expireSession(timeout time.Duration, client *testProxyServerClient) {
+	timer := time.AfterFunc(timeout, func() {
+		h.removeClient(client)
+	})
+
+	h.t.Cleanup(func() {
+		timer.Stop()
+	})
+}
+
 func (h *TestProxyServerHandler) removeClient(client *testProxyServerClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
 	delete(h.clients, client.sessionId)
 }
 
@@ -684,11 +733,33 @@ func (h *TestProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		sessionId: PublicSessionId(newRandomString(32)),
 	}
 
-	h.mu.Lock()
-	h.clients[client.sessionId] = client
-	h.mu.Unlock()
+	h.setClient(client.sessionId, client)
 
 	go client.run()
+}
+
+func (h *TestProxyServerHandler) getClient(sessionId PublicSessionId) *testProxyServerClient {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.clients[sessionId]
+}
+
+func (h *TestProxyServerHandler) setClient(sessionId PublicSessionId, client *testProxyServerClient) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if prev, found := h.clients[sessionId]; found {
+		prev.sendMessage(&ProxyServerMessage{
+			Type: "bye",
+			Bye: &ByeProxyServerMessage{
+				Reason: "session_resumed",
+			},
+		})
+		prev.close()
+	}
+
+	h.clients[sessionId] = client
 }
 
 func (h *TestProxyServerHandler) Wakeup() {
@@ -702,6 +773,24 @@ func (h *TestProxyServerHandler) WaitForWakeup(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (h *TestProxyServerHandler) GetSingleClient() *testProxyServerClient {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, c := range h.clients {
+		return c
+	}
+
+	return nil
+}
+
+func (h *TestProxyServerHandler) ClearClients() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	clear(h.clients)
 }
 
 func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler {
@@ -2356,4 +2445,120 @@ func Test_ProxySubscriberTimeout(t *testing.T) {
 
 	// The local side will remove the (unused) subscriber from the proxy.
 	require.NoError(server.WaitForWakeup(ctx), "unused subscriber not deleted")
+}
+
+func Test_ProxyReconnectAfter(t *testing.T) {
+	reasons := []string{
+		"session_resumed",
+		"session_expired",
+		"session_closed",
+		"unknown_reason",
+	}
+	for _, reason := range reasons {
+		t.Run(reason, func(t *testing.T) {
+			CatchLogForTest(t)
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			server := NewProxyServerForTest(t, "DE")
+			mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+				servers: []*TestProxyServerHandler{server},
+			}, 0)
+
+			connections := mcu.getSortedConnections(nil)
+			require.Len(connections, 1)
+			sessionId := connections[0].SessionId()
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			client := server.GetSingleClient()
+			require.NotNil(client)
+
+			client.sendMessage(&ProxyServerMessage{
+				Type: "bye",
+				Bye: &ByeProxyServerMessage{
+					Reason: reason,
+				},
+			})
+
+			// The "bye" will close the connection and reset the session id.
+			assert.NoError(mcu.WaitForDisconnected(ctx))
+
+			// The client will automatically reconnect.
+			time.Sleep(10 * time.Millisecond)
+			assert.NoError(mcu.WaitForConnections(ctx))
+
+			if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
+				assert.NotEqual(sessionId, connections[0].SessionId())
+			}
+		})
+	}
+}
+
+func Test_ProxyResume(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := NewProxyServerForTest(t, "DE")
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{server},
+	}, 0)
+
+	connections := mcu.getSortedConnections(nil)
+	require.Len(connections, 1)
+	sessionId := connections[0].SessionId()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := server.GetSingleClient()
+	require.NotNil(client)
+
+	// Force reconnect.
+	client.close()
+	assert.NoError(mcu.WaitForDisconnected(ctx))
+
+	// The client will automatically reconnect.
+	time.Sleep(10 * time.Millisecond)
+	assert.NoError(mcu.WaitForConnections(ctx))
+
+	if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
+		assert.Equal(sessionId, connections[0].SessionId())
+	}
+}
+
+func Test_ProxyResumeFail(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := NewProxyServerForTest(t, "DE")
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{server},
+	}, 0)
+
+	connections := mcu.getSortedConnections(nil)
+	require.Len(connections, 1)
+	sessionId := connections[0].SessionId()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := server.GetSingleClient()
+	require.NotNil(client)
+	server.ClearClients()
+
+	// Force reconnect.
+	client.close()
+	assert.NoError(mcu.WaitForDisconnected(ctx))
+
+	// The client will automatically reconnect.
+	time.Sleep(10 * time.Millisecond)
+	assert.NoError(mcu.WaitForConnections(ctx))
+
+	if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
+		assert.NotEqual(sessionId, connections[0].SessionId())
+	}
 }

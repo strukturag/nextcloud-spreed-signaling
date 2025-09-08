@@ -1108,16 +1108,14 @@ func (c *mcuProxyConnection) processBye(msg *ProxyServerMessage) {
 	switch bye.Reason {
 	case "session_resumed":
 		log.Printf("Session %s on %s was resumed by other client, resetting", c.SessionId(), c)
-		c.sessionId.Store(PublicSessionId(""))
 	case "session_expired":
 		log.Printf("Session %s expired on %s, resetting", c.SessionId(), c)
-		c.sessionId.Store(PublicSessionId(""))
 	case "session_closed":
 		log.Printf("Session %s was closed on %s, resetting", c.SessionId(), c)
-		c.sessionId.Store(PublicSessionId(""))
 	default:
 		log.Printf("Received bye with unsupported reason from %s %+v", c, bye)
 	}
+	c.sessionId.Store(PublicSessionId(""))
 }
 
 func (c *mcuProxyConnection) sendHello() error {
@@ -1616,6 +1614,20 @@ func (m *mcuProxy) hasConnections() bool {
 	return slices.ContainsFunc(m.connections, func(conn *mcuProxyConnection) bool {
 		return conn.IsConnected()
 	})
+}
+
+func (m *mcuProxy) WaitForDisconnected(ctx context.Context) error {
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+
+	for m.hasConnections() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	return nil
 }
 
 func (m *mcuProxy) WaitForConnections(ctx context.Context) error {
