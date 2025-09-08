@@ -230,18 +230,6 @@ func (p *mcuProxyPublisher) ProcessEvent(msg *EventProxyServerMessage) {
 	}
 }
 
-func (p *mcuProxyPublisher) GetStreams(ctx context.Context) ([]PublisherStream, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (p *mcuProxyPublisher) PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
-	return errors.New("remote publishing not supported for proxy publishers")
-}
-
-func (p *mcuProxyPublisher) UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
-	return errors.New("remote publishing not supported for proxy publishers")
-}
-
 type mcuProxySubscriber struct {
 	mcuProxyPubSubCommon
 

@@ -1174,7 +1174,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		publisher, ok := client.(signaling.McuPublisher)
+		publisher, ok := client.(signaling.McuRemoteAwarePublisher)
 		if !ok {
 			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
 			return
@@ -1226,7 +1226,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		publisher, ok := client.(signaling.McuPublisher)
+		publisher, ok := client.(signaling.McuRemoteAwarePublisher)
 		if !ok {
 			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
 			return
@@ -1258,7 +1258,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		publisher, ok := client.(signaling.McuPublisher)
+		publisher, ok := client.(signaling.McuPublisherWithStreams)
 		if !ok {
 			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
 			return

@@ -215,8 +215,17 @@ type McuPublisher interface {
 
 	HasMedia(MediaType) bool
 	SetMedia(MediaType)
+}
+
+type McuPublisherWithStreams interface {
+	McuPublisher
 
 	GetStreams(ctx context.Context) ([]PublisherStream, error)
+}
+
+type McuRemoteAwarePublisher interface {
+	McuPublisher
+
 	PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error
 	UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error
 }

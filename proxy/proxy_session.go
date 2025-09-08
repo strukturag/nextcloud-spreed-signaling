@@ -65,7 +65,7 @@ type ProxySession struct {
 	subscriberIds   map[signaling.McuSubscriber]string
 
 	remotePublishersLock sync.Mutex
-	remotePublishers     map[signaling.McuPublisher]map[string]*remotePublisherData
+	remotePublishers     map[signaling.McuRemoteAwarePublisher]map[string]*remotePublisherData
 }
 
 func NewProxySession(proxy *ProxyServer, sid uint64, id signaling.PublicSessionId) *ProxySession {
@@ -299,7 +299,9 @@ func (s *ProxySession) DeletePublisher(publisher signaling.McuPublisher) string 
 
 	delete(s.publishers, id)
 	delete(s.publisherIds, publisher)
-	delete(s.remotePublishers, publisher)
+	if rp, ok := publisher.(signaling.McuRemoteAwarePublisher); ok {
+		delete(s.remotePublishers, rp)
+	}
 	go s.proxy.PublisherDeleted(publisher)
 	return id
 }
@@ -347,7 +349,7 @@ func (s *ProxySession) clearRemotePublishers() {
 	s.remotePublishersLock.Lock()
 	defer s.remotePublishersLock.Unlock()
 
-	go func(remotePublishers map[signaling.McuPublisher]map[string]*remotePublisherData) {
+	go func(remotePublishers map[signaling.McuRemoteAwarePublisher]map[string]*remotePublisherData) {
 		for publisher, entries := range remotePublishers {
 			for _, data := range entries {
 				if err := publisher.UnpublishRemote(context.Background(), s.PublicId(), data.hostname, data.port, data.rtcpPort); err != nil {
@@ -382,7 +384,7 @@ func (s *ProxySession) NotifyDisconnected() {
 	s.clearRemotePublishers()
 }
 
-func (s *ProxySession) AddRemotePublisher(publisher signaling.McuPublisher, hostname string, port int, rtcpPort int) bool {
+func (s *ProxySession) AddRemotePublisher(publisher signaling.McuRemoteAwarePublisher, hostname string, port int, rtcpPort int) bool {
 	s.remotePublishersLock.Lock()
 	defer s.remotePublishersLock.Unlock()
 
@@ -390,7 +392,7 @@ func (s *ProxySession) AddRemotePublisher(publisher signaling.McuPublisher, host
 	if !found {
 		remote = make(map[string]*remotePublisherData)
 		if s.remotePublishers == nil {
-			s.remotePublishers = make(map[signaling.McuPublisher]map[string]*remotePublisherData)
+			s.remotePublishers = make(map[signaling.McuRemoteAwarePublisher]map[string]*remotePublisherData)
 		}
 		s.remotePublishers[publisher] = remote
 	}
@@ -410,7 +412,7 @@ func (s *ProxySession) AddRemotePublisher(publisher signaling.McuPublisher, host
 	return true
 }
 
-func (s *ProxySession) RemoveRemotePublisher(publisher signaling.McuPublisher, hostname string, port int, rtcpPort int) {
+func (s *ProxySession) RemoveRemotePublisher(publisher signaling.McuRemoteAwarePublisher, hostname string, port int, rtcpPort int) {
 	s.remotePublishersLock.Lock()
 	defer s.remotePublishersLock.Unlock()
 
@@ -430,6 +432,12 @@ func (s *ProxySession) RemoveRemotePublisher(publisher signaling.McuPublisher, h
 }
 
 func (s *ProxySession) OnPublisherDeleted(publisher signaling.McuPublisher) {
+	if publisher, ok := publisher.(signaling.McuRemoteAwarePublisher); ok {
+		s.OnRemoteAwarePublisherDeleted(publisher)
+	}
+}
+
+func (s *ProxySession) OnRemoteAwarePublisherDeleted(publisher signaling.McuRemoteAwarePublisher) {
 	s.remotePublishersLock.Lock()
 	defer s.remotePublishersLock.Unlock()
 
