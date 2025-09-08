@@ -39,7 +39,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling(in *jlexe
 		case "messageid":
 			out.MessageId = string(in.String())
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "data":
 			if in.IsNull() {
 				in.Skip()
@@ -137,7 +137,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 		case "type":
 			out.Type = string(in.String())
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "clienttype":
 			out.ClientType = string(in.String())
 		default:

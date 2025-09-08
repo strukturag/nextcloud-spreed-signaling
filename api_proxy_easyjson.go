@@ -965,7 +965,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling7(in *jlex
 		case "version":
 			out.Version = string(in.String())
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "server":
 			if in.IsNull() {
 				in.Skip()
@@ -1053,7 +1053,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling8(in *jlex
 		case "version":
 			out.Version = string(in.String())
 		case "resumeid":
-			out.ResumeId = string(in.String())
+			out.ResumeId = PublicSessionId(in.String())
 		case "features":
 			if in.IsNull() {
 				in.Skip()
@@ -1644,7 +1644,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling13(in *jle
 		case "streamType":
 			out.StreamType = StreamType(in.String())
 		case "publisherId":
-			out.PublisherId = string(in.String())
+			out.PublisherId = PublicSessionId(in.String())
 		case "clientId":
 			out.ClientId = string(in.String())
 		case "bitrate":
