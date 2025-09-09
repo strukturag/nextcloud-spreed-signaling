@@ -51,7 +51,7 @@ type ProxyTestClient struct {
 	messageChan   chan []byte
 	readErrorChan chan error
 
-	sessionId string
+	sessionId signaling.PublicSessionId
 }
 
 func NewProxyTestClient(ctx context.Context, t *testing.T, url string) *ProxyTestClient {

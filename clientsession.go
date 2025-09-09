@@ -29,7 +29,6 @@ import (
 	"maps"
 	"net/url"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -56,13 +55,13 @@ type ResponseHandlerFunc func(message *ClientMessage) bool
 type ClientSession struct {
 	hub       *Hub
 	events    AsyncEvents
-	privateId string
-	publicId  string
+	privateId PrivateSessionId
+	publicId  PublicSessionId
 	data      *SessionIdData
 	ctx       context.Context
 	closeFunc context.CancelFunc
 
-	clientType string
+	clientType ClientType
 	features   []string
 	userId     string
 	userData   json.RawMessage
@@ -85,12 +84,12 @@ type ClientSession struct {
 	federation   atomic.Pointer[FederationClient]
 
 	roomSessionIdLock sync.RWMutex
-	roomSessionId     string
+	roomSessionId     RoomSessionId
 
 	publisherWaiters ChannelWaiters
 
 	publishers  map[StreamType]McuPublisher
-	subscribers map[string]McuSubscriber
+	subscribers map[StreamId]McuSubscriber
 
 	pendingClientMessages        []*ServerMessage
 	hasPendingChat               bool
@@ -99,13 +98,13 @@ type ClientSession struct {
 	virtualSessions map[*VirtualSession]bool
 
 	seenJoinedLock   sync.Mutex
-	seenJoinedEvents map[string]bool
+	seenJoinedEvents map[PublicSessionId]bool
 
 	responseHandlersLock sync.Mutex
 	responseHandlers     map[string]ResponseHandlerFunc
 }
 
-func NewClientSession(hub *Hub, privateId string, publicId string, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
+func NewClientSession(hub *Hub, privateId PrivateSessionId, publicId PublicSessionId, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
 	ctx, closeFunc := context.WithCancel(context.Background())
 	s := &ClientSession{
 		hub:       hub,
@@ -145,15 +144,15 @@ func (s *ClientSession) Context() context.Context {
 	return s.ctx
 }
 
-func (s *ClientSession) PrivateId() string {
+func (s *ClientSession) PrivateId() PrivateSessionId {
 	return s.privateId
 }
 
-func (s *ClientSession) PublicId() string {
+func (s *ClientSession) PublicId() PublicSessionId {
 	return s.publicId
 }
 
-func (s *ClientSession) RoomSessionId() string {
+func (s *ClientSession) RoomSessionId() RoomSessionId {
 	s.roomSessionIdLock.RLock()
 	defer s.roomSessionIdLock.RUnlock()
 	return s.roomSessionId
@@ -163,7 +162,7 @@ func (s *ClientSession) Data() *SessionIdData {
 	return s.data
 }
 
-func (s *ClientSession) ClientType() string {
+func (s *ClientSession) ClientType() ClientType {
 	return s.clientType
 }
 
@@ -350,7 +349,7 @@ func (s *ClientSession) releaseMcuObjects() {
 		s.publishers = nil
 	}
 	if len(s.subscribers) > 0 {
-		go func(subscribers map[string]McuSubscriber) {
+		go func(subscribers map[StreamId]McuSubscriber) {
 			ctx := context.Background()
 			for _, subscriber := range subscribers {
 				subscriber.Close(ctx)
@@ -402,7 +401,7 @@ func (s *ClientSession) SubscribeEvents() error {
 	return s.events.RegisterSessionListener(s.publicId, s.backend, s)
 }
 
-func (s *ClientSession) UpdateRoomSessionId(roomSessionId string) error {
+func (s *ClientSession) UpdateRoomSessionId(roomSessionId RoomSessionId) error {
 	s.roomSessionIdLock.Lock()
 	defer s.roomSessionIdLock.Unlock()
 
@@ -436,7 +435,7 @@ func (s *ClientSession) UpdateRoomSessionId(roomSessionId string) error {
 	return nil
 }
 
-func (s *ClientSession) SubscribeRoomEvents(roomid string, roomSessionId string) error {
+func (s *ClientSession) SubscribeRoomEvents(roomid string, roomSessionId RoomSessionId) error {
 	s.roomSessionIdLock.Lock()
 	defer s.roomSessionIdLock.Unlock()
 
@@ -517,9 +516,9 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 
 	s.roomSessionIdLock.Lock()
 	defer s.roomSessionIdLock.Unlock()
-	if notify && room != nil && s.roomSessionId != "" && !strings.HasPrefix(s.roomSessionId, FederatedRoomSessionIdPrefix) {
+	if notify && room != nil && s.roomSessionId != "" && !s.roomSessionId.IsFederated() {
 		// Notify
-		go func(sid string) {
+		go func(sid RoomSessionId) {
 			ctx := context.Background()
 			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
 			request.Room.UpdateFromSession(s)
@@ -588,7 +587,7 @@ func (s *ClientSession) SetClient(client HandlerClient) HandlerClient {
 	return prev
 }
 
-func (s *ClientSession) sendOffer(client McuClient, sender string, streamType StreamType, offer StringMap) {
+func (s *ClientSession) sendOffer(client McuClient, sender PublicSessionId, streamType StreamType, offer StringMap) {
 	offer_message := &AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
@@ -616,7 +615,7 @@ func (s *ClientSession) sendOffer(client McuClient, sender string, streamType St
 	s.sendMessageUnlocked(response_message)
 }
 
-func (s *ClientSession) sendCandidate(client McuClient, sender string, streamType StreamType, candidate any) {
+func (s *ClientSession) sendCandidate(client McuClient, sender PublicSessionId, streamType StreamType, candidate any) {
 	candidate_message := &AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
@@ -954,7 +953,7 @@ func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType St
 	}
 }
 
-func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id string, streamType StreamType) (McuSubscriber, error) {
+func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id PublicSessionId, streamType StreamType) (McuSubscriber, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -971,7 +970,7 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id s
 			return nil, err
 		}
 		if s.subscribers == nil {
-			s.subscribers = make(map[string]McuSubscriber)
+			s.subscribers = make(map[StreamId]McuSubscriber)
 		}
 		if prev, found := s.subscribers[getStreamId(id, streamType)]; found {
 			// Another thread created the subscriber while we were waiting.
@@ -989,7 +988,7 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id s
 	return subscriber, nil
 }
 
-func (s *ClientSession) GetSubscriber(id string, streamType StreamType) McuSubscriber {
+func (s *ClientSession) GetSubscriber(id PublicSessionId, streamType StreamType) McuSubscriber {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1193,7 +1192,7 @@ func (s *ClientSession) filterDuplicateJoin(entries []*EventServerMessageSession
 		}
 
 		if s.seenJoinedEvents == nil {
-			s.seenJoinedEvents = make(map[string]bool)
+			s.seenJoinedEvents = make(map[PublicSessionId]bool)
 		}
 		s.seenJoinedEvents[e.SessionId] = true
 		result = append(result, e)
@@ -1208,12 +1207,12 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 		case "participants":
 			if message.Event.Type == "update" {
 				m := message.Event.Update
-				users := make(map[string]bool)
+				users := make(map[any]bool)
 				for _, entry := range m.Users {
-					users[entry["sessionId"].(string)] = true
+					users[entry["sessionId"]] = true
 				}
 				for _, entry := range m.Changed {
-					if users[entry["sessionId"].(string)] {
+					if users[entry["sessionId"]] {
 						continue
 					}
 					m.Users = append(m.Users, entry)

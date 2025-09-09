@@ -92,7 +92,7 @@ type FederationClient struct {
 	helloMu    sync.Mutex
 	helloMsgId string
 	helloAuth  *FederationAuthParams
-	resumeId   string
+	resumeId   PrivateSessionId
 	hello      atomic.Pointer[HelloServerMessage]
 
 	pendingMessages []*ClientMessage
@@ -602,7 +602,7 @@ func (c *FederationClient) joinRoom() error {
 	})
 }
 
-func (c *FederationClient) updateEventUsers(users []StringMap, localSessionId string, remoteSessionId string) {
+func (c *FederationClient) updateEventUsers(users []StringMap, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
 	localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
 	localCloudUrlLen := len(localCloudUrl)
 	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
@@ -625,10 +625,10 @@ func (c *FederationClient) updateEventUsers(users []StringMap, localSessionId st
 
 		if checkSessionId {
 			key := "sessionId"
-			sid, found := GetStringMapEntry[string](u, key)
+			sid, found := GetStringMapString[PublicSessionId](u, key)
 			if !found {
 				key := "sessionid"
-				sid, found = GetStringMapEntry[string](u, key)
+				sid, found = GetStringMapString[PublicSessionId](u, key)
 			}
 			if found && sid == remoteSessionId {
 				u[key] = localSessionId
@@ -638,13 +638,13 @@ func (c *FederationClient) updateEventUsers(users []StringMap, localSessionId st
 	}
 }
 
-func (c *FederationClient) updateSessionRecipient(recipient *MessageClientMessageRecipient, localSessionId string, remoteSessionId string) {
+func (c *FederationClient) updateSessionRecipient(recipient *MessageClientMessageRecipient, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
 	if recipient != nil && recipient.Type == RecipientTypeSession && remoteSessionId != "" && recipient.SessionId == remoteSessionId {
 		recipient.SessionId = localSessionId
 	}
 }
 
-func (c *FederationClient) updateSessionSender(sender *MessageServerMessageSender, localSessionId string, remoteSessionId string) {
+func (c *FederationClient) updateSessionSender(sender *MessageServerMessageSender, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
 	if sender != nil && sender.Type == RecipientTypeSession && remoteSessionId != "" && sender.SessionId == remoteSessionId {
 		sender.SessionId = localSessionId
 	}
@@ -652,7 +652,7 @@ func (c *FederationClient) updateSessionSender(sender *MessageServerMessageSende
 
 func (c *FederationClient) processMessage(msg *ServerMessage) {
 	localSessionId := c.session.PublicId()
-	var remoteSessionId string
+	var remoteSessionId PublicSessionId
 	if hello := c.hello.Load(); hello != nil {
 		remoteSessionId = hello.SessionId
 	}
@@ -670,7 +670,7 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 			var data StringMap
 			if err := json.Unmarshal(msg.Control.Data, &data); err == nil {
 				if action, found := data["action"]; found && action == "forceMute" {
-					if peerId, found := data["peerId"]; found && peerId == remoteSessionId {
+					if peerId, found := GetStringMapString[PublicSessionId](data, "peerId"); found && peerId == remoteSessionId {
 						data["peerId"] = localSessionId
 						if d, err := json.Marshal(data); err == nil {
 							msg.Control.Data = d

@@ -169,7 +169,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 				*out.InCall = int(in.Int())
 			}
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "roomid":
 			out.RoomId = string(in.String())
 		default:
@@ -835,7 +835,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling6(in *jlex
 		case "roomid":
 			out.RoomId = string(in.String())
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "flags":
 			out.Flags = uint32(in.Uint32())
 		default:
@@ -1878,7 +1878,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling14(in *jle
 		case "roomid":
 			out.RoomId = string(in.String())
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = RoomSessionId(in.String())
 		case "federation":
 			if in.IsNull() {
 				in.Skip()
@@ -1966,7 +1966,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling15(in *jle
 		case "userid":
 			out.UserId = string(in.String())
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "roomid":
 			out.RoomId = string(in.String())
 		default:
@@ -2052,7 +2052,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling16(in *jle
 		case "type":
 			out.Type = string(in.String())
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "userid":
 			out.UserId = string(in.String())
 		default:
@@ -2381,7 +2381,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling20(in *jle
 		case "type":
 			out.Type = string(in.String())
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "userid":
 			out.UserId = string(in.String())
 		default:
@@ -3331,9 +3331,9 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling29(in *jle
 		case "version":
 			out.Version = string(in.String())
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "resumeid":
-			out.ResumeId = string(in.String())
+			out.ResumeId = PrivateSessionId(in.String())
 		case "userid":
 			out.UserId = string(in.String())
 		case "server":
@@ -3431,7 +3431,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling30(in *jle
 		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			out.Type = ClientType(in.String())
 		case "params":
 			if data := in.Raw(); in.Ok() {
 				in.AddError((out.Params).UnmarshalJSON(data))
@@ -3521,7 +3521,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling31(in *jle
 		case "version":
 			out.Version = string(in.String())
 		case "resumeid":
-			out.ResumeId = string(in.String())
+			out.ResumeId = PrivateSessionId(in.String())
 		case "features":
 			if in.IsNull() {
 				in.Skip()
@@ -3970,7 +3970,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling35(in *jle
 		}
 		switch key {
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "userid":
 			out.UserId = string(in.String())
 		case "features":
@@ -4001,7 +4001,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling35(in *jle
 				in.AddError((out.User).UnmarshalJSON(data))
 			}
 		case "roomsessionid":
-			out.RoomSessionId = string(in.String())
+			out.RoomSessionId = RoomSessionId(in.String())
 		case "federated":
 			out.Federated = bool(in.Bool())
 		default:
@@ -4145,16 +4145,16 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				in.Delim('[')
 				if out.Leave == nil {
 					if !in.IsDelim(']') {
-						out.Leave = make([]string, 0, 4)
+						out.Leave = make([]PublicSessionId, 0, 4)
 					} else {
-						out.Leave = []string{}
+						out.Leave = []PublicSessionId{}
 					}
 				} else {
 					out.Leave = (out.Leave)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v37 string
-					v37 = string(in.String())
+					var v37 PublicSessionId
+					v37 = PublicSessionId(in.String())
 					out.Leave = append(out.Leave, v37)
 					in.WantComma()
 				}
@@ -4872,7 +4872,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling42(in *jle
 		}
 		switch key {
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "roomid":
 			out.RoomId = string(in.String())
 		default:
@@ -5334,9 +5334,9 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling47(in *jle
 		}
 		switch key {
 		case "to":
-			out.To = string(in.String())
+			out.To = PublicSessionId(in.String())
 		case "from":
-			out.From = string(in.String())
+			out.From = PublicSessionId(in.String())
 		case "type":
 			out.Type = string(in.String())
 		case "roomType":
@@ -5584,7 +5584,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling49(in *jle
 				(*out.Options).UnmarshalEasyJSON(in)
 			}
 		case "sessionid":
-			out.SessionId = string(in.String())
+			out.SessionId = PublicSessionId(in.String())
 		case "roomid":
 			out.RoomId = string(in.String())
 		default:

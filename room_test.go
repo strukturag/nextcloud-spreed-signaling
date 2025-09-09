@@ -296,7 +296,7 @@ func TestRoom_RoomJoinFeatures(t *testing.T) {
 
 	if message, ok := client.RunUntilMessage(ctx); ok {
 		if client.checkMessageJoinedSession(message, hello.Hello.SessionId, testDefaultUserId) {
-			assert.Equal(roomId+"-"+hello.Hello.SessionId, message.Event.Join[0].RoomSessionId)
+			assert.EqualValues(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId), message.Event.Join[0].RoomSessionId)
 			assert.Equal(features, message.Event.Join[0].Features)
 		}
 	}
@@ -329,7 +329,7 @@ func TestRoom_RoomSessionData(t *testing.T) {
 	expected := "userid-from-sessiondata"
 	if message, ok := client.RunUntilMessage(ctx); ok {
 		if client.checkMessageJoinedSession(message, hello.Hello.SessionId, expected) {
-			assert.Equal(roomId+"-"+hello.Hello.SessionId, message.Event.Join[0].RoomSessionId)
+			assert.EqualValues(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId), message.Event.Join[0].RoomSessionId)
 		}
 	}
 

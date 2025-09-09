@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -422,7 +423,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 
 	if strings.Contains(t.Name(), "Federation") {
 		// Check additional fields present for federated sessions.
-		if strings.Contains(request.Room.SessionId, "@federated") {
+		if strings.Contains(string(request.Room.SessionId), "@federated") {
 			assert.Equal(ActorTypeFederatedUsers, request.Room.ActorType)
 			assert.NotEmpty(request.Room.ActorId)
 		} else {
@@ -1269,7 +1270,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
 	var mu sync.Mutex
-	publicSessionIds := make([]string, 0)
+	var publicSessionIds []PublicSessionId
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Add(1)
@@ -1309,7 +1310,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 
 	larger := 0
 	smaller := 0
-	prevSid := ""
+	var prevSid PublicSessionId
 	for i, sid := range publicSessionIds {
 		if i > 0 {
 			if sid > prevSid {
@@ -1565,7 +1566,7 @@ func TestClientHelloResumePublicId(t *testing.T) {
 	defer client1.CloseWithBye()
 
 	// Can't resume a session with the id received from messages of a client.
-	require.NoError(client1.SendHelloResume(sender.SessionId))
+	require.NoError(client1.SendHelloResume(PrivateSessionId(sender.SessionId)))
 	client1.RunUntilError(ctx, "no_such_session") // nolint
 
 	// Expire old sessions
@@ -2553,7 +2554,7 @@ func TestJoinInvalidRoom(t *testing.T) {
 		Type: "room",
 		Room: &RoomClientMessage{
 			RoomId:    roomId,
-			SessionId: roomId + "-" + hello.Hello.SessionId,
+			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
 		},
 	}
 	require.NoError(client.WriteJSON(msg))
@@ -2592,7 +2593,7 @@ func TestJoinRoomTwice(t *testing.T) {
 		Type: "room",
 		Room: &RoomClientMessage{
 			RoomId:    roomId,
-			SessionId: roomId + "-" + client.publicId + "-2",
+			SessionId: RoomSessionId(fmt.Sprintf("%s-%s-2", roomId, client.publicId)),
 		},
 	}
 	require.NoError(client.WriteJSON(msg))
@@ -2861,7 +2862,7 @@ func TestJoinRoomSwitchClient(t *testing.T) {
 		Type: "room",
 		Room: &RoomClientMessage{
 			RoomId:    roomId,
-			SessionId: roomId + "-" + hello.Hello.SessionId,
+			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
 		},
 	}
 	require.NoError(client.WriteJSON(msg))
@@ -3287,7 +3288,7 @@ func RunTestClientTakeoverRoomSession(t *testing.T) {
 
 	// Join room by id.
 	roomId := "test-room-takeover-room-session"
-	roomSessionid := "room-session-id"
+	roomSessionid := RoomSessionId("room-session-id")
 	roomMsg := MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId, roomSessionid)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -3545,13 +3546,13 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 		Participants: &BackendRoomParticipantsRequest{
 			Changed: []StringMap{
 				{
-					"sessionId":   roomId + "-" + hello.Hello.SessionId,
+					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
 				},
 			},
 			Users: []StringMap{
 				{
-					"sessionId":   roomId + "-" + hello.Hello.SessionId,
+					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
 				},
 			},
@@ -3644,13 +3645,13 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 		Participants: &BackendRoomParticipantsRequest{
 			Changed: []StringMap{
 				{
-					"sessionId":   roomId + "-" + hello.Hello.SessionId,
+					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_CONTROL},
 				},
 			},
 			Users: []StringMap{
 				{
-					"sessionId":   roomId + "-" + hello.Hello.SessionId,
+					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_CONTROL},
 				},
 			},
@@ -4288,7 +4289,7 @@ func TestVirtualClientSessions(t *testing.T) {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 1) {
 						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
-						assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
 						assert.EqualValues(3, msg.Users[0]["inCall"], "%+v", msg)
 					}
 				}
@@ -4306,14 +4307,14 @@ func TestVirtualClientSessions(t *testing.T) {
 			if msg, ok := checkMessageParticipantsInCall(t, unexpected[0]); ok {
 				if assert.Len(msg.Users, 1) {
 					assert.Equal(true, msg.Users[0]["internal"])
-					assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"])
+					assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"])
 					assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"])
 				}
 			}
 
 			calledCtx, calledCancel := context.WithTimeout(ctx, time.Second)
 
-			virtualSessionId := "virtual-session-id"
+			virtualSessionId := PublicSessionId("virtual-session-id")
 			virtualUserId := "virtual-user-id"
 			generatedSessionId := GetVirtualSessionId(session2, virtualSessionId)
 
@@ -4354,11 +4355,11 @@ func TestVirtualClientSessions(t *testing.T) {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 2) {
 						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
-						assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"], "%+v", msg)
 
 						assert.Equal(true, msg.Users[1]["virtual"], "%+v", msg)
-						assert.Equal(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
+						assert.EqualValues(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[1]["inCall"], "%+v", msg)
 					}
 				}
@@ -4380,11 +4381,11 @@ func TestVirtualClientSessions(t *testing.T) {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 2) {
 						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
-						assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"], "%+v", msg)
 
 						assert.Equal(true, msg.Users[1]["virtual"], "%+v", msg)
-						assert.Equal(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
+						assert.EqualValues(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[1]["inCall"], "%+v", msg)
 					}
 				}
@@ -4530,7 +4531,7 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 1) {
 						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
-						assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
 						assert.EqualValues(3, msg.Users[0]["inCall"], "%+v", msg)
 					}
 				}
@@ -4548,14 +4549,14 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 			if msg, ok := checkMessageParticipantsInCall(t, unexpected[0]); ok {
 				if assert.Len(msg.Users, 1) {
 					assert.Equal(true, msg.Users[0]["internal"])
-					assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"])
+					assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"])
 					assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"])
 				}
 			}
 
 			calledCtx, calledCancel := context.WithTimeout(ctx, time.Second)
 
-			virtualSessionId := "virtual-session-id"
+			virtualSessionId := PublicSessionId("virtual-session-id")
 			virtualUserId := "virtual-user-id"
 			generatedSessionId := GetVirtualSessionId(session2, virtualSessionId)
 
@@ -4595,11 +4596,11 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 2) {
 						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
-						assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"], "%+v", msg)
 
 						assert.Equal(true, msg.Users[1]["virtual"], "%+v", msg)
-						assert.Equal(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
+						assert.EqualValues(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[1]["inCall"], "%+v", msg)
 					}
 				}
@@ -4621,11 +4622,11 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 2) {
 						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
-						assert.Equal(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"], "%+v", msg)
 
 						assert.Equal(true, msg.Users[1]["virtual"], "%+v", msg)
-						assert.Equal(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
+						assert.EqualValues(virtualSession.PublicId(), msg.Users[1]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[1]["inCall"], "%+v", msg)
 					}
 				}
@@ -4652,7 +4653,7 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 						},
 						{
 							// Request is coming from Nextcloud, so use its session id (which is our "room session id").
-							"sessionId":              roomId + "-" + hello1.Hello.SessionId,
+							"sessionId":              fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 							"participantPermissions": 254,
 							"participantType":        1,
 							"lastPing":               234567890,
@@ -4674,18 +4675,18 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 3) {
 						assert.Equal(true, msg.Users[0]["virtual"], "%+v", msg)
-						assert.Equal(virtualSession.PublicId(), msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(virtualSession.PublicId(), msg.Users[0]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[0]["inCall"], "%+v", msg)
 						assert.EqualValues(246, msg.Users[0]["participantPermissions"], "%+v", msg)
 						assert.EqualValues(4, msg.Users[0]["participantType"], "%+v", msg)
 
-						assert.Equal(hello1.Hello.SessionId, msg.Users[1]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello1.Hello.SessionId, msg.Users[1]["sessionId"], "%+v", msg)
 						assert.Nil(msg.Users[1]["inCall"], "%+v", msg)
 						assert.EqualValues(254, msg.Users[1]["participantPermissions"], "%+v", msg)
 						assert.EqualValues(1, msg.Users[1]["participantType"], "%+v", msg)
 
 						assert.Equal(true, msg.Users[2]["internal"], "%+v", msg)
-						assert.Equal(hello2.Hello.SessionId, msg.Users[2]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello2.Hello.SessionId, msg.Users[2]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[2]["inCall"], "%+v", msg)
 					}
 				}
@@ -4695,18 +4696,18 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 3) {
 						assert.Equal(true, msg.Users[0]["virtual"], "%+v", msg)
-						assert.Equal(virtualSession.PublicId(), msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(virtualSession.PublicId(), msg.Users[0]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[0]["inCall"], "%+v", msg)
 						assert.EqualValues(246, msg.Users[0]["participantPermissions"], "%+v", msg)
 						assert.EqualValues(4, msg.Users[0]["participantType"], "%+v", msg)
 
-						assert.Equal(hello1.Hello.SessionId, msg.Users[1]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello1.Hello.SessionId, msg.Users[1]["sessionId"], "%+v", msg)
 						assert.Nil(msg.Users[1]["inCall"], "%+v", msg)
 						assert.EqualValues(254, msg.Users[1]["participantPermissions"], "%+v", msg)
 						assert.EqualValues(1, msg.Users[1]["participantType"], "%+v", msg)
 
 						assert.Equal(true, msg.Users[2]["internal"], "%+v", msg)
-						assert.Equal(hello2.Hello.SessionId, msg.Users[2]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello2.Hello.SessionId, msg.Users[2]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[2]["inCall"], "%+v", msg)
 					}
 				}
@@ -4729,18 +4730,18 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 3) {
 						assert.Equal(true, msg.Users[0]["virtual"], "%+v", msg)
-						assert.Equal(virtualSession.PublicId(), msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(virtualSession.PublicId(), msg.Users[0]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[0]["inCall"], "%+v", msg)
 						assert.EqualValues(246, msg.Users[0]["participantPermissions"], "%+v", msg)
 						assert.EqualValues(4, msg.Users[0]["participantType"], "%+v", msg)
 
-						assert.Equal(hello1.Hello.SessionId, msg.Users[1]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello1.Hello.SessionId, msg.Users[1]["sessionId"], "%+v", msg)
 						assert.Nil(msg.Users[1]["inCall"], "%+v", msg)
 						assert.EqualValues(254, msg.Users[1]["participantPermissions"], "%+v", msg)
 						assert.EqualValues(1, msg.Users[1]["participantType"], "%+v", msg)
 
 						assert.Equal(true, msg.Users[2]["internal"], "%+v", msg)
-						assert.Equal(hello2.Hello.SessionId, msg.Users[2]["sessionId"], "%+v", msg)
+						assert.EqualValues(hello2.Hello.SessionId, msg.Users[2]["sessionId"], "%+v", msg)
 						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[2]["inCall"], "%+v", msg)
 					}
 				}
@@ -4784,12 +4785,12 @@ func DoTestSwitchToOne(t *testing.T, details StringMap) {
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
 
-			roomSessionId1 := "roomsession1"
+			roomSessionId1 := RoomSessionId("roomsession1")
 			roomId1 := "test-room"
 			roomMsg := MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId1)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
-			roomSessionId2 := "roomsession2"
+			roomSessionId2 := RoomSessionId("roomsession2")
 			roomMsg = MustSucceed3(t, client2.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId2)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
@@ -4799,12 +4800,12 @@ func DoTestSwitchToOne(t *testing.T, details StringMap) {
 			var sessions json.RawMessage
 			var err error
 			if details != nil {
-				sessions, err = json.Marshal(StringMap{
+				sessions, err = json.Marshal(map[RoomSessionId]any{
 					roomSessionId1: details,
 				})
 				require.NoError(err)
 			} else {
-				sessions, err = json.Marshal([]string{
+				sessions, err = json.Marshal([]RoomSessionId{
 					roomSessionId1,
 				})
 				require.NoError(err)
@@ -4881,12 +4882,12 @@ func DoTestSwitchToMultiple(t *testing.T, details1 StringMap, details2 StringMap
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
 
-			roomSessionId1 := "roomsession1"
+			roomSessionId1 := RoomSessionId("roomsession1")
 			roomId1 := "test-room"
 			roomMsg := MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId1)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
-			roomSessionId2 := "roomsession2"
+			roomSessionId2 := RoomSessionId("roomsession2")
 			roomMsg = MustSucceed3(t, client2.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId2)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
@@ -4896,13 +4897,13 @@ func DoTestSwitchToMultiple(t *testing.T, details1 StringMap, details2 StringMap
 			var sessions json.RawMessage
 			var err error
 			if details1 != nil || details2 != nil {
-				sessions, err = json.Marshal(StringMap{
+				sessions, err = json.Marshal(map[RoomSessionId]any{
 					roomSessionId1: details1,
 					roomSessionId2: details2,
 				})
 				require.NoError(err)
 			} else {
-				sessions, err = json.Marshal([]string{
+				sessions, err = json.Marshal([]RoomSessionId{
 					roomSessionId1,
 					roomSessionId2,
 				})

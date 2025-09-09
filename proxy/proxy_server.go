@@ -747,7 +747,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 		}
 
 		var session *ProxySession
-		if resumeId := message.Hello.ResumeId; resumeId != "" {
+		if resumeId := signaling.PublicSessionId(message.Hello.ResumeId); resumeId != "" {
 			if data, err := s.cookie.DecodePublic(resumeId); err == nil {
 				session = s.GetSession(data.Sid)
 			}
@@ -830,10 +830,10 @@ type proxyRemotePublisher struct {
 	proxy     *ProxyServer
 	remoteUrl string
 
-	publisherId string
+	publisherId signaling.PublicSessionId
 }
 
-func (p *proxyRemotePublisher) PublisherId() string {
+func (p *proxyRemotePublisher) PublisherId() signaling.PublicSessionId {
 	return p.publisherId
 }
 
@@ -847,7 +847,7 @@ func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher si
 		Type: "command",
 		Command: &signaling.CommandProxyClientMessage{
 			Type:     "publish-remote",
-			ClientId: p.publisherId,
+			ClientId: string(p.publisherId),
 			Hostname: p.proxy.remoteHostname,
 			Port:     publisher.Port(),
 			RtcpPort: publisher.RtcpPort(),
@@ -871,7 +871,7 @@ func (p *proxyRemotePublisher) StopPublishing(ctx context.Context, publisher sig
 		Type: "command",
 		Command: &signaling.CommandProxyClientMessage{
 			Type:     "unpublish-remote",
-			ClientId: p.publisherId,
+			ClientId: string(p.publisherId),
 			Hostname: p.proxy.remoteHostname,
 			Port:     publisher.Port(),
 			RtcpPort: publisher.RtcpPort(),
@@ -893,7 +893,7 @@ func (p *proxyRemotePublisher) GetStreams(ctx context.Context) ([]signaling.Publ
 		Type: "command",
 		Command: &signaling.CommandProxyClientMessage{
 			Type:     "get-publisher-streams",
-			ClientId: p.publisherId,
+			ClientId: string(p.publisherId),
 		},
 	})
 	if err != nil {
@@ -966,7 +966,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				MediaTypes: cmd.MediaTypes, // nolint
 			}
 		}
-		publisher, err := s.mcu.NewPublisher(ctx2, session, id, cmd.Sid, cmd.StreamType, *settings, &emptyInitiator{})
+		publisher, err := s.mcu.NewPublisher(ctx2, session, signaling.PublicSessionId(id), cmd.Sid, cmd.StreamType, *settings, &emptyInitiator{})
 		if err == context.DeadlineExceeded {
 			log.Printf("Timeout while creating %s publisher %s for %s", cmd.StreamType, id, session.PublicId())
 			session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingPublisher))
@@ -1034,7 +1034,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				return
 			}
 
-			if claims.Subject != publisherId {
+			if claims.Subject != string(publisherId) {
 				session.sendMessage(message.NewErrorServerMessage(TokenAuthFailed))
 				return
 			}
@@ -1174,7 +1174,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		publisher, ok := client.(signaling.McuPublisher)
+		publisher, ok := client.(signaling.McuRemoteAwarePublisher)
 		if !ok {
 			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
 			return
@@ -1226,7 +1226,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		publisher, ok := client.(signaling.McuPublisher)
+		publisher, ok := client.(signaling.McuRemoteAwarePublisher)
 		if !ok {
 			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
 			return
@@ -1258,7 +1258,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		publisher, ok := client.(signaling.McuPublisher)
+		publisher, ok := client.(signaling.McuPublisherWithStreams)
 		if !ok {
 			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
 			return
@@ -1664,7 +1664,7 @@ func (s *ProxyServer) PublisherDeleted(publisher signaling.McuPublisher) {
 	}
 }
 
-func (s *ProxyServer) RemotePublisherDeleted(publisherId string) {
+func (s *ProxyServer) RemotePublisherDeleted(publisherId signaling.PublicSessionId) {
 	s.sessionsLock.RLock()
 	defer s.sessionsLock.RUnlock()
 

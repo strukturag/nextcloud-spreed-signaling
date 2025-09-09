@@ -150,7 +150,7 @@ type TokenClaims struct {
 type HelloProxyClientMessage struct {
 	Version string `json:"version"`
 
-	ResumeId string `json:"resumeid"`
+	ResumeId PublicSessionId `json:"resumeid"`
 
 	Features []string `json:"features,omitempty"`
 
@@ -173,7 +173,7 @@ func (m *HelloProxyClientMessage) CheckValid() error {
 type HelloProxyServerMessage struct {
 	Version string `json:"version"`
 
-	SessionId string                `json:"sessionid"`
+	SessionId PublicSessionId       `json:"sessionid"`
 	Server    *WelcomeServerMessage `json:"server,omitempty"`
 }
 
@@ -206,10 +206,10 @@ type NewPublisherSettings struct {
 type CommandProxyClientMessage struct {
 	Type string `json:"type"`
 
-	Sid         string     `json:"sid,omitempty"`
-	StreamType  StreamType `json:"streamType,omitempty"`
-	PublisherId string     `json:"publisherId,omitempty"`
-	ClientId    string     `json:"clientId,omitempty"`
+	Sid         string          `json:"sid,omitempty"`
+	StreamType  StreamType      `json:"streamType,omitempty"`
+	PublisherId PublicSessionId `json:"publisherId,omitempty"`
+	ClientId    string          `json:"clientId,omitempty"`
 
 	// Deprecated: use PublisherSettings instead.
 	Bitrate int `json:"bitrate,omitempty"`

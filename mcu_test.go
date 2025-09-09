@@ -40,13 +40,13 @@ const (
 
 type TestMCU struct {
 	mu          sync.Mutex
-	publishers  map[string]*TestMCUPublisher
+	publishers  map[PublicSessionId]*TestMCUPublisher
 	subscribers map[string]*TestMCUSubscriber
 }
 
 func NewTestMCU() (*TestMCU, error) {
 	return &TestMCU{
-		publishers:  make(map[string]*TestMCUPublisher),
+		publishers:  make(map[PublicSessionId]*TestMCUPublisher),
 		subscribers: make(map[string]*TestMCUSubscriber),
 	}, nil
 }
@@ -75,7 +75,7 @@ func (m *TestMCU) GetServerInfoSfu() *BackendServerInfoSfu {
 	return nil
 }
 
-func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
+func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	var maxBitrate int
 	if streamType == StreamTypeScreen {
 		maxBitrate = TestMaxBitrateScreen
@@ -89,7 +89,7 @@ func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id str
 	}
 	pub := &TestMCUPublisher{
 		TestMCUClient: TestMCUClient{
-			id:         id,
+			id:         string(id),
 			sid:        sid,
 			streamType: streamType,
 		},
@@ -104,7 +104,7 @@ func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id str
 	return pub, nil
 }
 
-func (m *TestMCU) GetPublishers() map[string]*TestMCUPublisher {
+func (m *TestMCU) GetPublishers() map[PublicSessionId]*TestMCUPublisher {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -112,14 +112,14 @@ func (m *TestMCU) GetPublishers() map[string]*TestMCUPublisher {
 	return result
 }
 
-func (m *TestMCU) GetPublisher(id string) *TestMCUPublisher {
+func (m *TestMCU) GetPublisher(id PublicSessionId) *TestMCUPublisher {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return m.publishers[id]
 }
 
-func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
+func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -182,8 +182,8 @@ type TestMCUPublisher struct {
 	sdp string
 }
 
-func (p *TestMCUPublisher) PublisherId() string {
-	return p.id
+func (p *TestMCUPublisher) PublisherId() PublicSessionId {
+	return PublicSessionId(p.id)
 }
 
 func (p *TestMCUPublisher) HasMedia(mt MediaType) bool {
@@ -232,11 +232,11 @@ func (p *TestMCUPublisher) GetStreams(ctx context.Context) ([]PublisherStream, e
 	return nil, errors.New("not implemented")
 }
 
-func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("remote publishing not supported")
 }
 
-func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("remote publishing not supported")
 }
 
@@ -246,8 +246,8 @@ type TestMCUSubscriber struct {
 	publisher *TestMCUPublisher
 }
 
-func (s *TestMCUSubscriber) Publisher() string {
-	return s.publisher.id
+func (s *TestMCUSubscriber) Publisher() PublicSessionId {
+	return s.publisher.PublisherId()
 }
 
 func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {

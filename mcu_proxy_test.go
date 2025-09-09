@@ -190,7 +190,7 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 type proxyServerClientHandler func(msg *ProxyClientMessage) (*ProxyServerMessage, error)
 
 type testProxyServerPublisher struct {
-	id string
+	id PublicSessionId
 }
 
 type testProxyServerSubscriber struct {
@@ -209,12 +209,43 @@ type testProxyServerClient struct {
 	processMessage proxyServerClientHandler
 
 	mu        sync.Mutex
-	sessionId string
+	sessionId PublicSessionId
 }
 
 func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxyServerMessage, error) {
 	if msg.Type != "hello" {
 		return nil, fmt.Errorf("expected hello, got %+v", msg)
+	}
+
+	if msg.Hello.ResumeId != "" {
+		client := c.server.getClient(msg.Hello.ResumeId)
+		if client == nil {
+			response := &ProxyServerMessage{
+				Id:   msg.Id,
+				Type: "error",
+				Error: &Error{
+					Code: "no_such_session",
+				},
+			}
+			return response, nil
+		}
+
+		c.sessionId = msg.Hello.ResumeId
+		c.server.setClient(c.sessionId, c)
+		response := &ProxyServerMessage{
+			Id:   msg.Id,
+			Type: "hello",
+			Hello: &HelloProxyServerMessage{
+				Version:   "1.0",
+				SessionId: c.sessionId,
+				Server: &WelcomeServerMessage{
+					Version: "1.0",
+					Country: c.server.country,
+				},
+			},
+		}
+		c.processMessage = c.processRegularMessage
+		return response, nil
 	}
 
 	token, err := jwt.ParseWithClaims(msg.Hello.Token, &TokenClaims{}, func(token *jwt.Token) (any, error) {
@@ -296,7 +327,7 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 			Id:   msg.Id,
 			Type: "command",
 			Command: &CommandProxyServerMessage{
-				Id:      pub.id,
+				Id:      string(pub.id),
 				Bitrate: msg.Command.Bitrate,
 			},
 		}
@@ -306,14 +337,14 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 			defer c.server.Wakeup()
 		}
 
-		if pub, found := c.server.deletePublisher(msg.Command.ClientId); !found {
+		if pub, found := c.server.deletePublisher(PublicSessionId(msg.Command.ClientId)); !found {
 			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("publisher %s not found", msg.Command.ClientId))
 		} else {
 			response = &ProxyServerMessage{
 				Id:   msg.Id,
 				Type: "command",
 				Command: &CommandProxyServerMessage{
-					Id: pub.id,
+					Id: string(pub.id),
 				},
 			}
 			c.server.updateLoad(-1)
@@ -341,7 +372,7 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 				})
 				if assert.NoError(c.t, err) {
 					if claims, ok := token.Claims.(*TokenClaims); assert.True(c.t, token.Valid) && assert.True(c.t, ok) {
-						assert.Equal(c.t, msg.Command.PublisherId, claims.Subject)
+						assert.EqualValues(c.t, msg.Command.PublisherId, claims.Subject)
 					}
 				}
 
@@ -403,8 +434,10 @@ func (c *testProxyServerClient) close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.ws.Close()
-	c.ws = nil
+	if c.ws != nil {
+		c.ws.Close()
+		c.ws = nil
+	}
 }
 
 func (c *testProxyServerClient) handleSendMessageError(fmt string, msg *ProxyServerMessage, err error) {
@@ -443,6 +476,11 @@ func (c *testProxyServerClient) sendMessage(msg *ProxyServerMessage) {
 	if err := w.Close(); err != nil {
 		c.handleSendMessageError("error during close of sending %+v: %s", msg, err)
 	}
+
+	if msg.CloseAfterSend(nil) {
+		c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) // nolint
+		c.ws.Close()
+	}
 }
 
 func (c *testProxyServerClient) run() {
@@ -450,7 +488,7 @@ func (c *testProxyServerClient) run() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
-		c.server.removeClient(c)
+		c.server.expireSession(30*time.Second, c)
 		c.ws = nil
 	}()
 	c.processMessage = c.processHello
@@ -515,8 +553,8 @@ type TestProxyServerHandler struct {
 	load        atomic.Int64
 	incoming    atomic.Pointer[float64]
 	outgoing    atomic.Pointer[float64]
-	clients     map[string]*testProxyServerClient
-	publishers  map[string]*testProxyServerPublisher
+	clients     map[PublicSessionId]*testProxyServerClient
+	publishers  map[PublicSessionId]*testProxyServerPublisher
 	subscribers map[string]*testProxyServerSubscriber
 
 	wakeupChan chan struct{}
@@ -526,7 +564,7 @@ func (h *TestProxyServerHandler) createPublisher() *testProxyServerPublisher {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	pub := &testProxyServerPublisher{
-		id: newRandomString(32),
+		id: PublicSessionId(newRandomString(32)),
 	}
 
 	for {
@@ -534,20 +572,20 @@ func (h *TestProxyServerHandler) createPublisher() *testProxyServerPublisher {
 			break
 		}
 
-		pub.id = newRandomString(32)
+		pub.id = PublicSessionId(newRandomString(32))
 	}
 	h.publishers[pub.id] = pub
 	return pub
 }
 
-func (h *TestProxyServerHandler) getPublisher(id string) *testProxyServerPublisher {
+func (h *TestProxyServerHandler) getPublisher(id PublicSessionId) *testProxyServerPublisher {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	return h.publishers[id]
 }
 
-func (h *TestProxyServerHandler) deletePublisher(id string) (*testProxyServerPublisher, bool) {
+func (h *TestProxyServerHandler) deletePublisher(id PublicSessionId) (*testProxyServerPublisher, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -665,9 +703,20 @@ func (h *TestProxyServerHandler) sendLoad(c *testProxyServerClient) {
 	c.sendMessage(msg)
 }
 
+func (h *TestProxyServerHandler) expireSession(timeout time.Duration, client *testProxyServerClient) {
+	timer := time.AfterFunc(timeout, func() {
+		h.removeClient(client)
+	})
+
+	h.t.Cleanup(func() {
+		timer.Stop()
+	})
+}
+
 func (h *TestProxyServerHandler) removeClient(client *testProxyServerClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
 	delete(h.clients, client.sessionId)
 }
 
@@ -681,14 +730,36 @@ func (h *TestProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		t:         h.t,
 		server:    h,
 		ws:        ws,
-		sessionId: newRandomString(32),
+		sessionId: PublicSessionId(newRandomString(32)),
 	}
 
-	h.mu.Lock()
-	h.clients[client.sessionId] = client
-	h.mu.Unlock()
+	h.setClient(client.sessionId, client)
 
 	go client.run()
+}
+
+func (h *TestProxyServerHandler) getClient(sessionId PublicSessionId) *testProxyServerClient {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.clients[sessionId]
+}
+
+func (h *TestProxyServerHandler) setClient(sessionId PublicSessionId, client *testProxyServerClient) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if prev, found := h.clients[sessionId]; found {
+		prev.sendMessage(&ProxyServerMessage{
+			Type: "bye",
+			Bye: &ByeProxyServerMessage{
+				Reason: "session_resumed",
+			},
+		})
+		prev.close()
+	}
+
+	h.clients[sessionId] = client
 }
 
 func (h *TestProxyServerHandler) Wakeup() {
@@ -704,6 +775,24 @@ func (h *TestProxyServerHandler) WaitForWakeup(ctx context.Context) error {
 	}
 }
 
+func (h *TestProxyServerHandler) GetSingleClient() *testProxyServerClient {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, c := range h.clients {
+		return c
+	}
+
+	return nil
+}
+
+func (h *TestProxyServerHandler) ClearClients() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	clear(h.clients)
+}
+
 func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler {
 	t.Helper()
 
@@ -713,8 +802,8 @@ func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler
 		tokens:      make(map[string]*rsa.PublicKey),
 		upgrader:    &upgrader,
 		country:     country,
-		clients:     make(map[string]*testProxyServerClient),
-		publishers:  make(map[string]*testProxyServerPublisher),
+		clients:     make(map[PublicSessionId]*testProxyServerClient),
+		publishers:  make(map[PublicSessionId]*testProxyServerPublisher),
 		subscribers: make(map[string]*testProxyServerSubscriber),
 		wakeupChan:  make(chan struct{}),
 	}
@@ -1043,7 +1132,7 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1079,7 +1168,7 @@ func Test_ProxyPublisherCodecs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1106,7 +1195,7 @@ func Test_ProxyWaitForPublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1161,7 +1250,7 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pub1Id := "the-publisher-1"
+	pub1Id := PublicSessionId("the-publisher-1")
 	pub1Sid := "1234567890"
 	pub1Listener := &MockMcuListener{
 		publicId: pub1Id + "-public",
@@ -1200,7 +1289,7 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	pub2Id := "the-publisher-2"
+	pub2Id := PublicSessionId("the-publisher-2")
 	pub2id := "1234567890"
 	pub2Listener := &MockMcuListener{
 		publicId: pub2Id + "-public",
@@ -1231,7 +1320,7 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pub1Id := "the-publisher-1"
+	pub1Id := PublicSessionId("the-publisher-1")
 	pub1Sid := "1234567890"
 	pub1Listener := &MockMcuListener{
 		publicId: pub1Id + "-public",
@@ -1273,7 +1362,7 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	pub2Id := "the-publisher-2"
+	pub2Id := PublicSessionId("the-publisher-2")
 	pub2id := "1234567890"
 	pub2Listener := &MockMcuListener{
 		publicId: pub2Id + "-public",
@@ -1304,7 +1393,7 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pub1Id := "the-publisher-1"
+	pub1Id := PublicSessionId("the-publisher-1")
 	pub1Sid := "1234567890"
 	pub1Listener := &MockMcuListener{
 		publicId: pub1Id + "-public",
@@ -1323,7 +1412,7 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 	mcu.nextSort.Store(0)
 	time.Sleep(100 * time.Millisecond)
 
-	pub2Id := "the-publisher-2"
+	pub2Id := PublicSessionId("the-publisher-2")
 	pub2id := "1234567890"
 	pub2Listener := &MockMcuListener{
 		publicId: pub2Id + "-public",
@@ -1354,7 +1443,7 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubDEId := "the-publisher-de"
+	pubDEId := PublicSessionId("the-publisher-de")
 	pubDESid := "1234567890"
 	pubDEListener := &MockMcuListener{
 		publicId: pubDEId + "-public",
@@ -1371,7 +1460,7 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 
 	assert.Equal(t, serverDE.URL, pubDE.(*mcuProxyPublisher).conn.rawUrl)
 
-	pubUSId := "the-publisher-us"
+	pubUSId := PublicSessionId("the-publisher-us")
 	pubUSSid := "1234567890"
 	pubUSListener := &MockMcuListener{
 		publicId: pubUSId + "-public",
@@ -1402,7 +1491,7 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubDEId := "the-publisher-de"
+	pubDEId := PublicSessionId("the-publisher-de")
 	pubDESid := "1234567890"
 	pubDEListener := &MockMcuListener{
 		publicId: pubDEId + "-public",
@@ -1419,7 +1508,7 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 
 	assert.Equal(t, serverDE.URL, pubDE.(*mcuProxyPublisher).conn.rawUrl)
 
-	pubFRId := "the-publisher-fr"
+	pubFRId := PublicSessionId("the-publisher-fr")
 	pubFRSid := "1234567890"
 	pubFRListener := &MockMcuListener{
 		publicId: pubFRId + "-public",
@@ -1450,7 +1539,7 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1494,7 +1583,7 @@ func Test_ProxySubscriberContinent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1538,7 +1627,7 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1602,7 +1691,7 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1657,14 +1746,14 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 type mockGrpcServerHub struct {
 	proxy             atomic.Pointer[mcuProxy]
 	sessionsLock      sync.Mutex
-	sessionByPublicId map[string]Session
+	sessionByPublicId map[PublicSessionId]Session
 }
 
 func (h *mockGrpcServerHub) addSession(session *ClientSession) {
 	h.sessionsLock.Lock()
 	defer h.sessionsLock.Unlock()
 	if h.sessionByPublicId == nil {
-		h.sessionByPublicId = make(map[string]Session)
+		h.sessionByPublicId = make(map[PublicSessionId]Session)
 	}
 	h.sessionByPublicId[session.PublicId()] = session
 }
@@ -1675,17 +1764,17 @@ func (h *mockGrpcServerHub) removeSession(session *ClientSession) {
 	delete(h.sessionByPublicId, session.PublicId())
 }
 
-func (h *mockGrpcServerHub) GetSessionByResumeId(resumeId string) Session {
+func (h *mockGrpcServerHub) GetSessionByResumeId(resumeId PrivateSessionId) Session {
 	return nil
 }
 
-func (h *mockGrpcServerHub) GetSessionByPublicId(sessionId string) Session {
+func (h *mockGrpcServerHub) GetSessionByPublicId(sessionId PublicSessionId) Session {
 	h.sessionsLock.Lock()
 	defer h.sessionsLock.Unlock()
 	return h.sessionByPublicId[sessionId]
 }
 
-func (h *mockGrpcServerHub) GetSessionIdByRoomSessionId(roomSessionId string) (string, error) {
+func (h *mockGrpcServerHub) GetSessionIdByRoomSessionId(roomSessionId RoomSessionId) (PublicSessionId, error) {
 	return "", nil
 }
 
@@ -1746,7 +1835,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1842,7 +1931,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1933,7 +2022,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2027,7 +2116,7 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2139,7 +2228,7 @@ func Test_ProxyConnectToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2225,7 +2314,7 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2278,7 +2367,7 @@ func Test_ProxyPublisherTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2319,7 +2408,7 @@ func Test_ProxySubscriberTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "the-publisher"
+	pubId := PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2356,4 +2445,120 @@ func Test_ProxySubscriberTimeout(t *testing.T) {
 
 	// The local side will remove the (unused) subscriber from the proxy.
 	require.NoError(server.WaitForWakeup(ctx), "unused subscriber not deleted")
+}
+
+func Test_ProxyReconnectAfter(t *testing.T) {
+	reasons := []string{
+		"session_resumed",
+		"session_expired",
+		"session_closed",
+		"unknown_reason",
+	}
+	for _, reason := range reasons {
+		t.Run(reason, func(t *testing.T) {
+			CatchLogForTest(t)
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			server := NewProxyServerForTest(t, "DE")
+			mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+				servers: []*TestProxyServerHandler{server},
+			}, 0)
+
+			connections := mcu.getSortedConnections(nil)
+			require.Len(connections, 1)
+			sessionId := connections[0].SessionId()
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			client := server.GetSingleClient()
+			require.NotNil(client)
+
+			client.sendMessage(&ProxyServerMessage{
+				Type: "bye",
+				Bye: &ByeProxyServerMessage{
+					Reason: reason,
+				},
+			})
+
+			// The "bye" will close the connection and reset the session id.
+			assert.NoError(mcu.WaitForDisconnected(ctx))
+
+			// The client will automatically reconnect.
+			time.Sleep(10 * time.Millisecond)
+			assert.NoError(mcu.WaitForConnections(ctx))
+
+			if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
+				assert.NotEqual(sessionId, connections[0].SessionId())
+			}
+		})
+	}
+}
+
+func Test_ProxyResume(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := NewProxyServerForTest(t, "DE")
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{server},
+	}, 0)
+
+	connections := mcu.getSortedConnections(nil)
+	require.Len(connections, 1)
+	sessionId := connections[0].SessionId()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := server.GetSingleClient()
+	require.NotNil(client)
+
+	// Force reconnect.
+	client.close()
+	assert.NoError(mcu.WaitForDisconnected(ctx))
+
+	// The client will automatically reconnect.
+	time.Sleep(10 * time.Millisecond)
+	assert.NoError(mcu.WaitForConnections(ctx))
+
+	if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
+		assert.Equal(sessionId, connections[0].SessionId())
+	}
+}
+
+func Test_ProxyResumeFail(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := NewProxyServerForTest(t, "DE")
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{server},
+	}, 0)
+
+	connections := mcu.getSortedConnections(nil)
+	require.Len(connections, 1)
+	sessionId := connections[0].SessionId()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := server.GetSingleClient()
+	require.NotNil(client)
+	server.ClearClients()
+
+	// Force reconnect.
+	client.close()
+	assert.NoError(mcu.WaitForDisconnected(ctx))
+
+	// The client will automatically reconnect.
+	time.Sleep(10 * time.Millisecond)
+	assert.NoError(mcu.WaitForConnections(ctx))
+
+	if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
+		assert.NotEqual(sessionId, connections[0].SessionId())
+	}
 }

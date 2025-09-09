@@ -79,7 +79,7 @@ type RemoteConnection struct {
 
 	msgId      atomic.Int64
 	helloMsgId string
-	sessionId  string
+	sessionId  signaling.PublicSessionId
 
 	pendingMessages  []*signaling.ProxyClientMessage
 	messageCallbacks map[string]chan *signaling.ProxyServerMessage
@@ -481,7 +481,7 @@ func (c *RemoteConnection) processEvent(msg *signaling.ProxyServerMessage) {
 		// Ignore
 	case "publisher-closed":
 		log.Printf("Remote publisher %s was closed on %s", msg.Event.ClientId, c)
-		c.p.RemotePublisherDeleted(msg.Event.ClientId)
+		c.p.RemotePublisherDeleted(signaling.PublicSessionId(msg.Event.ClientId))
 	default:
 		log.Printf("Received unsupported event %+v from %s", msg, c)
 	}

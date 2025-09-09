@@ -30,8 +30,8 @@ import (
 )
 
 type BuiltinRoomSessions struct {
-	sessionIdToRoomSession map[string]string
-	roomSessionToSessionid map[string]string
+	sessionIdToRoomSession map[PublicSessionId]RoomSessionId
+	roomSessionToSessionid map[RoomSessionId]PublicSessionId
 	mu                     sync.RWMutex
 
 	clients *GrpcClients
@@ -39,14 +39,14 @@ type BuiltinRoomSessions struct {
 
 func NewBuiltinRoomSessions(clients *GrpcClients) (RoomSessions, error) {
 	return &BuiltinRoomSessions{
-		sessionIdToRoomSession: make(map[string]string),
-		roomSessionToSessionid: make(map[string]string),
+		sessionIdToRoomSession: make(map[PublicSessionId]RoomSessionId),
+		roomSessionToSessionid: make(map[RoomSessionId]PublicSessionId),
 
 		clients: clients,
 	}, nil
 }
 
-func (r *BuiltinRoomSessions) SetRoomSession(session Session, roomSessionId string) error {
+func (r *BuiltinRoomSessions) SetRoomSession(session Session, roomSessionId RoomSessionId) error {
 	if roomSessionId == "" {
 		r.DeleteRoomSession(session)
 		return nil
@@ -84,7 +84,7 @@ func (r *BuiltinRoomSessions) DeleteRoomSession(session Session) {
 	}
 }
 
-func (r *BuiltinRoomSessions) GetSessionId(roomSessionId string) (string, error) {
+func (r *BuiltinRoomSessions) GetSessionId(roomSessionId RoomSessionId) (PublicSessionId, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	sid, found := r.roomSessionToSessionid[roomSessionId]
@@ -95,7 +95,7 @@ func (r *BuiltinRoomSessions) GetSessionId(roomSessionId string) (string, error)
 	return sid, nil
 }
 
-func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId string, disconnectReason string) (string, error) {
+func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId RoomSessionId, disconnectReason string) (PublicSessionId, error) {
 	sid, err := r.GetSessionId(roomSessionId)
 	if err == nil {
 		return sid, nil
@@ -142,5 +142,5 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 		return "", ErrNoSuchRoomSession
 	}
 
-	return value.(string), nil
+	return value.(PublicSessionId), nil
 }

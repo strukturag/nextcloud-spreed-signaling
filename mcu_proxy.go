@@ -141,11 +141,11 @@ func (c *mcuProxyPubSubCommon) doProcessPayload(client McuClient, msg *PayloadPr
 type mcuProxyPublisher struct {
 	mcuProxyPubSubCommon
 
-	id       string
+	id       PublicSessionId
 	settings NewPublisherSettings
 }
 
-func newMcuProxyPublisher(id string, sid string, streamType StreamType, maxBitrate int, settings NewPublisherSettings, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
+func newMcuProxyPublisher(id PublicSessionId, sid string, streamType StreamType, maxBitrate int, settings NewPublisherSettings, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
 	return &mcuProxyPublisher{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			sid:        sid,
@@ -160,7 +160,7 @@ func newMcuProxyPublisher(id string, sid string, streamType StreamType, maxBitra
 	}
 }
 
-func (p *mcuProxyPublisher) PublisherId() string {
+func (p *mcuProxyPublisher) PublisherId() PublicSessionId {
 	return p.id
 }
 
@@ -230,26 +230,14 @@ func (p *mcuProxyPublisher) ProcessEvent(msg *EventProxyServerMessage) {
 	}
 }
 
-func (p *mcuProxyPublisher) GetStreams(ctx context.Context) ([]PublisherStream, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (p *mcuProxyPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
-	return errors.New("remote publishing not supported for proxy publishers")
-}
-
-func (p *mcuProxyPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
-	return errors.New("remote publishing not supported for proxy publishers")
-}
-
 type mcuProxySubscriber struct {
 	mcuProxyPubSubCommon
 
-	publisherId   string
+	publisherId   PublicSessionId
 	publisherConn *mcuProxyConnection
 }
 
-func newMcuProxySubscriber(publisherId string, sid string, streamType StreamType, maxBitrate int, proxyId string, conn *mcuProxyConnection, listener McuListener, publisherConn *mcuProxyConnection) *mcuProxySubscriber {
+func newMcuProxySubscriber(publisherId PublicSessionId, sid string, streamType StreamType, maxBitrate int, proxyId string, conn *mcuProxyConnection, listener McuListener, publisherConn *mcuProxyConnection) *mcuProxySubscriber {
 	return &mcuProxySubscriber{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			sid:        sid,
@@ -265,7 +253,7 @@ func newMcuProxySubscriber(publisherId string, sid string, streamType StreamType
 	}
 }
 
-func (s *mcuProxySubscriber) Publisher() string {
+func (s *mcuProxySubscriber) Publisher() PublicSessionId {
 	return s.publisherId
 }
 
@@ -384,7 +372,7 @@ type mcuProxyConnection struct {
 
 	publishersLock sync.RWMutex
 	publishers     map[string]*mcuProxyPublisher
-	publisherIds   map[string]string
+	publisherIds   map[StreamId]PublicSessionId
 
 	subscribersLock sync.RWMutex
 	subscribers     map[string]*mcuProxySubscriber
@@ -406,7 +394,7 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP, token str
 		closedDone:   NewCloser(),
 		callbacks:    make(map[string]mcuProxyCallback),
 		publishers:   make(map[string]*mcuProxyPublisher),
-		publisherIds: make(map[string]string),
+		publisherIds: make(map[StreamId]PublicSessionId),
 		subscribers:  make(map[string]*mcuProxySubscriber),
 	}
 	conn.reconnectInterval.Store(int64(initialReconnectInterval))
@@ -533,13 +521,13 @@ func (c *mcuProxyConnection) Features() []string {
 	return c.features.Load().([]string)
 }
 
-func (c *mcuProxyConnection) SessionId() string {
+func (c *mcuProxyConnection) SessionId() PublicSessionId {
 	sid := c.sessionId.Load()
 	if sid == nil {
 		return ""
 	}
 
-	return sid.(string)
+	return sid.(PublicSessionId)
 }
 
 func (c *mcuProxyConnection) IsConnected() bool {
@@ -974,7 +962,7 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 				c.clearPublishers()
 				c.clearSubscribers()
 				c.clearCallbacks()
-				c.sessionId.Store("")
+				c.sessionId.Store(PublicSessionId(""))
 				if err := c.sendHello(); err != nil {
 					log.Printf("Could not send hello request to %s: %s", c, err)
 					c.scheduleReconnect()
@@ -1120,16 +1108,14 @@ func (c *mcuProxyConnection) processBye(msg *ProxyServerMessage) {
 	switch bye.Reason {
 	case "session_resumed":
 		log.Printf("Session %s on %s was resumed by other client, resetting", c.SessionId(), c)
-		c.sessionId.Store("")
 	case "session_expired":
 		log.Printf("Session %s expired on %s, resetting", c.SessionId(), c)
-		c.sessionId.Store("")
 	case "session_closed":
 		log.Printf("Session %s was closed on %s, resetting", c.SessionId(), c)
-		c.sessionId.Store("")
 	default:
 		log.Printf("Received bye with unsupported reason from %s %+v", c, bye)
 	}
+	c.sessionId.Store(PublicSessionId(""))
 }
 
 func (c *mcuProxyConnection) sendHello() error {
@@ -1224,7 +1210,7 @@ func (c *mcuProxyConnection) performSyncRequest(ctx context.Context, msg *ProxyC
 	}
 }
 
-func (c *mcuProxyConnection) deferredDeletePublisher(id string, streamType StreamType, response *ProxyServerMessage) {
+func (c *mcuProxyConnection) deferredDeletePublisher(id PublicSessionId, streamType StreamType, response *ProxyServerMessage) {
 	if response.Type == "error" {
 		log.Printf("Publisher for %s was not created at %s: %s", id, c, response.Error)
 		return
@@ -1254,7 +1240,7 @@ func (c *mcuProxyConnection) deferredDeletePublisher(id string, streamType Strea
 	log.Printf("Deleted publisher %s at %s", proxyId, c)
 }
 
-func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings) (McuPublisher, error) {
+func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings) (McuPublisher, error) {
 	msg := &ProxyClientMessage{
 		Type: "command",
 		Command: &CommandProxyClientMessage{
@@ -1285,14 +1271,14 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 	publisher := newMcuProxyPublisher(id, sid, streamType, response.Command.Bitrate, settings, proxyId, c, listener)
 	c.publishersLock.Lock()
 	c.publishers[proxyId] = publisher
-	c.publisherIds[getStreamId(id, streamType)] = proxyId
+	c.publisherIds[getStreamId(id, streamType)] = PublicSessionId(proxyId)
 	c.publishersLock.Unlock()
 	statsPublishersCurrent.WithLabelValues(string(streamType)).Inc()
 	statsPublishersTotal.WithLabelValues(string(streamType)).Inc()
 	return publisher, nil
 }
 
-func (c *mcuProxyConnection) deferredDeleteSubscriber(publisherSessionId string, streamType StreamType, publisherConn *mcuProxyConnection, response *ProxyServerMessage) {
+func (c *mcuProxyConnection) deferredDeleteSubscriber(publisherSessionId PublicSessionId, streamType StreamType, publisherConn *mcuProxyConnection, response *ProxyServerMessage) {
 	if response.Type == "error" {
 		log.Printf("Subscriber for %s was not created at %s: %s", publisherSessionId, c, response.Error)
 		return
@@ -1335,7 +1321,7 @@ func (c *mcuProxyConnection) deferredDeleteSubscriber(publisherSessionId string,
 	}
 }
 
-func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuListener, publisherId string, publisherSessionId string, streamType StreamType) (McuSubscriber, error) {
+func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuListener, publisherId PublicSessionId, publisherSessionId PublicSessionId, streamType StreamType) (McuSubscriber, error) {
 	msg := &ProxyClientMessage{
 		Type: "command",
 		Command: &CommandProxyClientMessage{
@@ -1368,14 +1354,14 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 	return subscriber, nil
 }
 
-func (c *mcuProxyConnection) newRemoteSubscriber(ctx context.Context, listener McuListener, publisherId string, publisherSessionId string, streamType StreamType, publisherConn *mcuProxyConnection, remoteToken string) (McuSubscriber, error) {
+func (c *mcuProxyConnection) newRemoteSubscriber(ctx context.Context, listener McuListener, publisherId PublicSessionId, publisherSessionId PublicSessionId, streamType StreamType, publisherConn *mcuProxyConnection, remoteToken string) (McuSubscriber, error) {
 	if c == publisherConn {
 		return c.newSubscriber(ctx, listener, publisherId, publisherSessionId, streamType)
 	}
 
 	if remoteToken == "" {
 		var err error
-		if remoteToken, err = c.proxy.createToken(publisherId); err != nil {
+		if remoteToken, err = c.proxy.createToken(string(publisherId)); err != nil {
 			return nil, err
 		}
 	}
@@ -1465,7 +1451,7 @@ type mcuProxy struct {
 	settings McuSettings
 
 	mu         sync.RWMutex
-	publishers map[string]*mcuProxyConnection
+	publishers map[StreamId]*mcuProxyConnection
 
 	publisherWaiters ChannelWaiters
 
@@ -1514,7 +1500,7 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 		connectionsMap: make(map[string][]*mcuProxyConnection),
 		settings:       settings,
 
-		publishers: make(map[string]*mcuProxyConnection),
+		publishers: make(map[StreamId]*mcuProxyConnection),
 
 		rpcClients: rpcClients,
 	}
@@ -1628,6 +1614,20 @@ func (m *mcuProxy) hasConnections() bool {
 	return slices.ContainsFunc(m.connections, func(conn *mcuProxyConnection) bool {
 		return conn.IsConnected()
 	})
+}
+
+func (m *mcuProxy) WaitForDisconnected(ctx context.Context) error {
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+
+	for m.hasConnections() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	return nil
 }
 
 func (m *mcuProxy) WaitForConnections(ctx context.Context) error {
@@ -1957,7 +1957,7 @@ func (m *mcuProxy) removePublisher(publisher *mcuProxyPublisher) {
 	delete(m.publishers, getStreamId(publisher.id, publisher.StreamType()))
 }
 
-func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuPublisher {
+func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuPublisher {
 	var maxBitrate int
 	if streamType == StreamTypeScreen {
 		maxBitrate = int(m.settings.MaxScreenBitrate())
@@ -1996,7 +1996,7 @@ func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id
 	return nil
 }
 
-func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	connections := m.getSortedConnections(initiator)
 	publisher := m.createPublisher(ctx, listener, id, sid, streamType, settings, initiator, connections, func(c *mcuProxyConnection) bool {
 		bw := c.Bandwidth()
@@ -2047,14 +2047,14 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id st
 	return publisher, nil
 }
 
-func (m *mcuProxy) getPublisherConnection(publisher string, streamType StreamType) *mcuProxyConnection {
+func (m *mcuProxy) getPublisherConnection(publisher PublicSessionId, streamType StreamType) *mcuProxyConnection {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	return m.publishers[getStreamId(publisher, streamType)]
 }
 
-func (m *mcuProxy) waitForPublisherConnection(ctx context.Context, publisher string, streamType StreamType) *mcuProxyConnection {
+func (m *mcuProxy) waitForPublisherConnection(ctx context.Context, publisher PublicSessionId, streamType StreamType) *mcuProxyConnection {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -2086,13 +2086,13 @@ func (m *mcuProxy) waitForPublisherConnection(ctx context.Context, publisher str
 }
 
 type proxyPublisherInfo struct {
-	id    string
+	id    PublicSessionId
 	conn  *mcuProxyConnection
 	token string
 	err   error
 }
 
-func (m *mcuProxy) createSubscriber(ctx context.Context, listener McuListener, info *proxyPublisherInfo, publisher string, streamType StreamType, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuSubscriber {
+func (m *mcuProxy) createSubscriber(ctx context.Context, listener McuListener, info *proxyPublisherInfo, publisher PublicSessionId, streamType StreamType, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuSubscriber {
 	for _, conn := range connections {
 		if !isAllowed(conn) || conn.IsShutdownScheduled() || conn.IsTemporary() {
 			continue
@@ -2119,7 +2119,7 @@ func (m *mcuProxy) createSubscriber(ctx context.Context, listener McuListener, i
 	return nil
 }
 
-func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
+func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
 	var publisherInfo *proxyPublisherInfo
 	if conn := m.getPublisherConnection(publisher, streamType); conn != nil {
 		// Fast common path: publisher is available locally.

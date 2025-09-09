@@ -47,7 +47,7 @@ const (
 type mcuJanusPublisher struct {
 	mcuJanusClient
 
-	id        string
+	id        PublicSessionId
 	settings  NewPublisherSettings
 	stats     publisherStatsCounter
 	sdpFlags  Flags
@@ -56,7 +56,7 @@ type mcuJanusPublisher struct {
 	answerSdp atomic.Pointer[sdp.SessionDescription]
 }
 
-func (p *mcuJanusPublisher) PublisherId() string {
+func (p *mcuJanusPublisher) PublisherId() PublicSessionId {
 	return p.id
 }
 
@@ -89,7 +89,7 @@ func (p *mcuJanusPublisher) handleDetached(event *janus.DetachedMsg) {
 
 func (p *mcuJanusPublisher) handleConnected(event *janus.WebRTCUpMsg) {
 	log.Printf("Publisher %d received connected", p.handleId)
-	p.mcu.publisherConnected.Notify(getStreamId(p.id, p.streamType))
+	p.mcu.publisherConnected.Notify(string(getStreamId(p.id, p.streamType)))
 }
 
 func (p *mcuJanusPublisher) handleSlowLink(event *janus.SlowLinkMsg) {
@@ -392,11 +392,11 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 	return streams, nil
 }
 
-func getPublisherRemoteId(id string, remoteId string, hostname string, port int, rtcpPort int) string {
+func getPublisherRemoteId(id PublicSessionId, remoteId PublicSessionId, hostname string, port int, rtcpPort int) string {
 	return fmt.Sprintf("%s-%s@%s:%d:%d", id, remoteId, hostname, port, rtcpPort)
 }
 
-func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
 	msg := StringMap{
 		"request":      "publish_remotely",
 		"room":         p.roomId,
@@ -433,7 +433,7 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId string, 
 	return nil
 }
 
-func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
 	msg := StringMap{
 		"request":      "unpublish_remotely",
 		"room":         p.roomId,

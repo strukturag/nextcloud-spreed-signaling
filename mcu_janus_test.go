@@ -516,10 +516,10 @@ func newMcuJanusForTesting(t *testing.T) (*mcuJanus, *TestJanusGateway) {
 }
 
 type TestMcuListener struct {
-	id string
+	id PublicSessionId
 }
 
-func (t *TestMcuListener) PublicId() string {
+func (t *TestMcuListener) PublicId() PublicSessionId {
 	return t.id
 }
 
@@ -548,10 +548,10 @@ func (t *TestMcuListener) SubscriberClosed(subscriber McuSubscriber) {
 }
 
 type TestMcuController struct {
-	id string
+	id PublicSessionId
 }
 
-func (c *TestMcuController) PublisherId() string {
+func (c *TestMcuController) PublisherId() PublicSessionId {
 	return c.id
 }
 
@@ -620,7 +620,7 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -736,7 +736,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -848,7 +848,7 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -885,17 +885,19 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 	})
 	<-done
 
-	if streams, err := pub.GetStreams(ctx); assert.NoError(err) {
-		if assert.Len(streams, 1) {
-			stream := streams[0]
-			assert.Equal("audio", stream.Type)
-			assert.Equal("audio", stream.Mid)
-			assert.EqualValues(0, stream.Mindex)
-			assert.False(stream.Disabled)
-			assert.Equal("opus", stream.Codec)
-			assert.False(stream.Stereo)
-			assert.False(stream.Fec)
-			assert.False(stream.Dtx)
+	if sb, ok := pub.(*mcuJanusPublisher); assert.True(ok, "expected publisher with streams support, got %T", pub) {
+		if streams, err := sb.GetStreams(ctx); assert.NoError(err) {
+			if assert.Len(streams, 1) {
+				stream := streams[0]
+				assert.Equal("audio", stream.Type)
+				assert.Equal("audio", stream.Mid)
+				assert.EqualValues(0, stream.Mindex)
+				assert.False(stream.Disabled)
+				assert.Equal("opus", stream.Codec)
+				assert.False(stream.Stereo)
+				assert.False(stream.Fec)
+				assert.False(stream.Dtx)
+			}
 		}
 	}
 }
@@ -926,7 +928,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -966,25 +968,27 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 		<-done
 	}()
 
-	if streams, err := pub.GetStreams(ctx); assert.NoError(err) {
-		if assert.Len(streams, 2) {
-			stream := streams[0]
-			assert.Equal("audio", stream.Type)
-			assert.Equal("audio", stream.Mid)
-			assert.EqualValues(0, stream.Mindex)
-			assert.False(stream.Disabled)
-			assert.Equal("opus", stream.Codec)
-			assert.False(stream.Stereo)
-			assert.False(stream.Fec)
-			assert.False(stream.Dtx)
+	if sb, ok := pub.(*mcuJanusPublisher); assert.True(ok, "expected publisher with streams support, got %T", pub) {
+		if streams, err := sb.GetStreams(ctx); assert.NoError(err) {
+			if assert.Len(streams, 2) {
+				stream := streams[0]
+				assert.Equal("audio", stream.Type)
+				assert.Equal("audio", stream.Mid)
+				assert.EqualValues(0, stream.Mindex)
+				assert.False(stream.Disabled)
+				assert.Equal("opus", stream.Codec)
+				assert.False(stream.Stereo)
+				assert.False(stream.Fec)
+				assert.False(stream.Dtx)
 
-			stream = streams[1]
-			assert.Equal("video", stream.Type)
-			assert.Equal("video", stream.Mid)
-			assert.EqualValues(1, stream.Mindex)
-			assert.False(stream.Disabled)
-			assert.Equal("H264", stream.Codec)
-			assert.Equal("4d0028", stream.ProfileH264)
+				stream = streams[1]
+				assert.Equal("video", stream.Type)
+				assert.Equal("video", stream.Mid)
+				assert.EqualValues(1, stream.Mindex)
+				assert.False(stream.Disabled)
+				assert.Equal("H264", stream.Codec)
+				assert.Equal("4d0028", stream.ProfileH264)
+			}
 		}
 	}
 }
@@ -1000,7 +1004,7 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1037,7 +1041,7 @@ func Test_JanusSubscriberPublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1104,7 +1108,7 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := "publisher-id"
+	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}

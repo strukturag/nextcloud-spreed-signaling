@@ -380,25 +380,25 @@ func (m *TestMCU) GetServerInfoSfu() *signaling.BackendServerInfoSfu {
 	return nil
 }
 
-func (m *TestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id string, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *TestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *TestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher string, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
+func (m *TestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher signaling.PublicSessionId, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
 	return nil, errors.New("not implemented")
 }
 
 type TestMCUPublisher struct {
-	id         string
+	id         signaling.PublicSessionId
 	sid        string
 	streamType signaling.StreamType
 }
 
 func (p *TestMCUPublisher) Id() string {
-	return p.id
+	return string(p.id)
 }
 
-func (p *TestMCUPublisher) PublisherId() string {
+func (p *TestMCUPublisher) PublisherId() signaling.PublicSessionId {
 	return p.id
 }
 
@@ -432,11 +432,11 @@ func (p *TestMCUPublisher) GetStreams(ctx context.Context) ([]signaling.Publishe
 	return nil, errors.New("not implemented")
 }
 
-func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId signaling.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("not implemented")
 }
 
-func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId signaling.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("not implemented")
 }
 
@@ -464,7 +464,7 @@ func NewHangingTestMCU(t *testing.T) *HangingTestMCU {
 	}
 }
 
-func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id string, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	ctx2, cancel := context.WithTimeout(m.ctx, testTimeout*2)
 	defer cancel()
 
@@ -482,7 +482,7 @@ func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.Mc
 	}
 }
 
-func (m *HangingTestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher string, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
+func (m *HangingTestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher signaling.PublicSessionId, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
 	ctx2, cancel := context.WithTimeout(m.ctx, testTimeout*2)
 	defer cancel()
 
@@ -569,7 +569,7 @@ func NewCodecsTestMCU(t *testing.T) *CodecsTestMCU {
 	}
 }
 
-func (m *CodecsTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id string, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *CodecsTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	assert.Equal(m.t, "opus,g722", settings.AudioCodec)
 	assert.Equal(m.t, "vp9,vp8,av1", settings.VideoCodec)
 	return &TestMCUPublisher{
@@ -730,8 +730,8 @@ func (s *TestRemoteSubscriber) SendMessage(ctx context.Context, message *signali
 	callback(errors.New("not implemented"), nil)
 }
 
-func (s *TestRemoteSubscriber) Publisher() string {
-	return s.publisher.Id()
+func (s *TestRemoteSubscriber) Publisher() signaling.PublicSessionId {
+	return signaling.PublicSessionId(s.publisher.Id())
 }
 
 func (m *RemoteSubscriberTestMCU) NewRemoteSubscriber(ctx context.Context, listener signaling.McuListener, publisher signaling.McuRemotePublisher) (signaling.McuRemoteSubscriber, error) {
@@ -778,12 +778,12 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 	_, err := client.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := "the-publisher-id"
+	publisherId := signaling.PublicSessionId("the-publisher-id")
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
 			Issuer:   TokenIdForTest,
-			Subject:  publisherId,
+			Subject:  string(publisherId),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -869,12 +869,12 @@ func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
 	_, err := client.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := "the-publisher-id"
+	publisherId := signaling.PublicSessionId("the-publisher-id")
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
 			Issuer:   TokenIdForTest,
-			Subject:  publisherId,
+			Subject:  string(publisherId),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -937,11 +937,11 @@ type UnpublishRemoteTestPublisher struct {
 	t *testing.T
 
 	mu         sync.RWMutex
-	remoteId   string
+	remoteId   signaling.PublicSessionId
 	remoteData *remotePublisherData
 }
 
-func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id string, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	publisher := &UnpublishRemoteTestPublisher{
 		TestMCUPublisher: TestMCUPublisher{
 			id:         id,
@@ -955,7 +955,7 @@ func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener sign
 	return publisher, nil
 }
 
-func (p *UnpublishRemoteTestPublisher) getRemoteId() string {
+func (p *UnpublishRemoteTestPublisher) getRemoteId() signaling.PublicSessionId {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.remoteId
@@ -974,7 +974,7 @@ func (p *UnpublishRemoteTestPublisher) clearRemote() {
 	p.remoteData = nil
 }
 
-func (p *UnpublishRemoteTestPublisher) PublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+func (p *UnpublishRemoteTestPublisher) PublishRemote(ctx context.Context, remoteId signaling.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if assert.Empty(p.t, p.remoteId) {
@@ -988,7 +988,7 @@ func (p *UnpublishRemoteTestPublisher) PublishRemote(ctx context.Context, remote
 	return nil
 }
 
-func (p *UnpublishRemoteTestPublisher) UnpublishRemote(ctx context.Context, remoteId string, hostname string, port int, rtcpPort int) error {
+func (p *UnpublishRemoteTestPublisher) UnpublishRemote(ctx context.Context, remoteId signaling.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	assert.Equal(p.t, remoteId, p.remoteId)
@@ -1026,7 +1026,7 @@ func TestProxyUnpublishRemote(t *testing.T) {
 	_, err := client1.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := "the-publisher-id"
+	publisherId := signaling.PublicSessionId("the-publisher-id")
 	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
 		Id:   "2345",
 		Type: "command",
@@ -1143,7 +1143,7 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 	_, err := client1.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := "the-publisher-id"
+	publisherId := signaling.PublicSessionId("the-publisher-id")
 	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
 		Id:   "2345",
 		Type: "command",
@@ -1275,7 +1275,7 @@ func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
 	_, err := client1.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := "the-publisher-id"
+	publisherId := signaling.PublicSessionId("the-publisher-id")
 	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
 		Id:   "2345",
 		Type: "command",

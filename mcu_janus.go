@@ -57,8 +57,10 @@ var (
 	}
 )
 
-func getStreamId(publisherId string, streamType StreamType) string {
-	return fmt.Sprintf("%s|%s", publisherId, streamType)
+type StreamId string
+
+func getStreamId(publisherId PublicSessionId, streamType StreamType) StreamId {
+	return StreamId(fmt.Sprintf("%s|%s", publisherId, streamType))
 }
 
 func getPluginValue(data janus.PluginData, pluginName string, key string) any {
@@ -219,10 +221,10 @@ type mcuJanus struct {
 	clients   map[clientInterface]bool
 	clientId  atomic.Uint64
 
-	publishers         map[string]*mcuJanusPublisher
+	publishers         map[StreamId]*mcuJanusPublisher
 	publisherCreated   Notifier
 	publisherConnected Notifier
-	remotePublishers   map[string]*mcuJanusRemotePublisher
+	remotePublishers   map[StreamId]*mcuJanusRemotePublisher
 
 	reconnectTimer    *time.Timer
 	reconnectInterval time.Duration
@@ -247,8 +249,8 @@ func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mc
 		closeChan: make(chan struct{}, 1),
 		clients:   make(map[clientInterface]bool),
 
-		publishers:       make(map[string]*mcuJanusPublisher),
-		remotePublishers: make(map[string]*mcuJanusRemotePublisher),
+		publishers:       make(map[StreamId]*mcuJanusPublisher),
+		remotePublishers: make(map[StreamId]*mcuJanusRemotePublisher),
 
 		createJanusGateway: func(ctx context.Context, wsURL string, listener GatewayListener) (JanusGatewayInterface, error) {
 			return NewJanusGateway(ctx, wsURL, listener)
@@ -546,7 +548,7 @@ func (m *mcuJanus) sendKeepalive(ctx context.Context) {
 	}
 }
 
-func (m *mcuJanus) SubscriberConnected(id string, publisher string, streamType StreamType) {
+func (m *mcuJanus) SubscriberConnected(id string, publisher PublicSessionId, streamType StreamType) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -555,7 +557,7 @@ func (m *mcuJanus) SubscriberConnected(id string, publisher string, streamType S
 	}
 }
 
-func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamType StreamType) {
+func (m *mcuJanus) SubscriberDisconnected(id string, publisher PublicSessionId, streamType StreamType) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -564,7 +566,7 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher string, streamTyp
 	}
 }
 
-func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id string, streamType StreamType, settings NewPublisherSettings) (uint64, int, error) {
+func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id PublicSessionId, streamType StreamType, settings NewPublisherSettings) (uint64, int, error) {
 	create_msg := StringMap{
 		"request":     "create",
 		"description": getStreamId(id, streamType),
@@ -619,7 +621,7 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	return roomId, bitrate, nil
 }
 
-func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, streamType StreamType, settings NewPublisherSettings) (*JanusHandle, uint64, uint64, int, error) {
+func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id PublicSessionId, streamType StreamType, settings NewPublisherSettings) (*JanusHandle, uint64, uint64, int, error) {
 	session := m.session
 	if session == nil {
 		return nil, 0, 0, 0, ErrNotConnected
@@ -657,7 +659,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id string, st
 	return handle, response.Session, roomId, bitrate, nil
 }
 
-func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id string, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("unsupported stream type %s", streamType)
 	}
@@ -700,14 +702,14 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id st
 	go client.run(handle, client.closeChan)
 	m.mu.Lock()
 	m.publishers[getStreamId(id, streamType)] = client
-	m.publisherCreated.Notify(getStreamId(id, streamType))
+	m.publisherCreated.Notify(string(getStreamId(id, streamType)))
 	m.mu.Unlock()
 	statsPublishersCurrent.WithLabelValues(string(streamType)).Inc()
 	statsPublishersTotal.WithLabelValues(string(streamType)).Inc()
 	return client, nil
 }
 
-func (m *mcuJanus) getPublisher(ctx context.Context, publisher string, streamType StreamType) (*mcuJanusPublisher, error) {
+func (m *mcuJanus) getPublisher(ctx context.Context, publisher PublicSessionId, streamType StreamType) (*mcuJanusPublisher, error) {
 	// Do the direct check immediately as this should be the normal case.
 	key := getStreamId(publisher, streamType)
 	m.mu.Lock()
@@ -716,7 +718,7 @@ func (m *mcuJanus) getPublisher(ctx context.Context, publisher string, streamTyp
 		return result, nil
 	}
 
-	waiter := m.publisherCreated.NewWaiter(key)
+	waiter := m.publisherCreated.NewWaiter(string(key))
 	m.mu.Unlock()
 	defer m.publisherCreated.Release(waiter)
 
@@ -734,7 +736,7 @@ func (m *mcuJanus) getPublisher(ctx context.Context, publisher string, streamTyp
 	}
 }
 
-func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher string, streamType StreamType) (*JanusHandle, *mcuJanusPublisher, error) {
+func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher PublicSessionId, streamType StreamType) (*JanusHandle, *mcuJanusPublisher, error) {
 	var pub *mcuJanusPublisher
 	var err error
 	if pub, err = m.getPublisher(ctx, publisher, streamType); err != nil {
@@ -755,7 +757,7 @@ func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher st
 	return handle, pub, nil
 }
 
-func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publisher string, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
+func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("unsupported stream type %s", streamType)
 	}

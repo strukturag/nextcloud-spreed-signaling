@@ -70,10 +70,10 @@ func TestPublicPrivate(t *testing.T) {
 	require.NoError(err)
 	assert.NotEqual(private, public)
 
-	if data, err := codec.DecodePublic(private); !assert.Error(err) {
+	if data, err := codec.DecodePublic(PublicSessionId(private)); !assert.Error(err) {
 		assert.Fail("should have failed", "received %+v", data)
 	}
-	if data, err := codec.DecodePrivate(public); !assert.Error(err) {
+	if data, err := codec.DecodePrivate(PrivateSessionId(public)); !assert.Error(err) {
 		assert.Fail("should have failed", "received %+v", data)
 	}
 }

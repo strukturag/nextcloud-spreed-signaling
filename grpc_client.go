@@ -197,12 +197,12 @@ func (c *GrpcClient) GetServerId(ctx context.Context) (string, string, error) {
 	return response.GetServerId(), response.GetVersion(), nil
 }
 
-func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId string) (*LookupResumeIdReply, error) {
+func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId PrivateSessionId) (*LookupResumeIdReply, error) {
 	statsGrpcClientCalls.WithLabelValues("LookupResumeId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Lookup resume id %s on %s", resumeId, c.Target())
 	response, err := c.impl.LookupResumeId(ctx, &LookupResumeIdRequest{
-		ResumeId: resumeId,
+		ResumeId: string(resumeId),
 	}, grpc.WaitForReady(true))
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return nil, ErrNoSuchResumeId
@@ -217,12 +217,12 @@ func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId string) (*Look
 	return response, nil
 }
 
-func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId string, disconnectReason string) (string, error) {
+func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId RoomSessionId, disconnectReason string) (PublicSessionId, error) {
 	statsGrpcClientCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Lookup room session %s on %s", roomSessionId, c.Target())
 	response, err := c.impl.LookupSessionId(ctx, &LookupSessionIdRequest{
-		RoomSessionId:    roomSessionId,
+		RoomSessionId:    string(roomSessionId),
 		DisconnectReason: disconnectReason,
 	}, grpc.WaitForReady(true))
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
@@ -236,15 +236,15 @@ func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId string, 
 		return "", ErrNoSuchRoomSession
 	}
 
-	return sessionId, nil
+	return PublicSessionId(sessionId), nil
 }
 
-func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId string, room *Room, backendUrl string) (bool, error) {
+func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId PublicSessionId, room *Room, backendUrl string) (bool, error) {
 	statsGrpcClientCalls.WithLabelValues("IsSessionInCall").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Check if session %s is in call %s on %s", sessionId, room.Id(), c.Target())
 	response, err := c.impl.IsSessionInCall(ctx, &IsSessionInCallRequest{
-		SessionId:  sessionId,
+		SessionId:  string(sessionId),
 		RoomId:     room.Id(),
 		BackendUrl: backendUrl,
 	}, grpc.WaitForReady(true))
@@ -257,7 +257,7 @@ func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId string, room
 	return response.GetInCall(), nil
 }
 
-func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, backendUrls []string) (internal map[string]*InternalSessionData, virtual map[string]*VirtualSessionData, err error) {
+func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, backendUrls []string) (internal map[PublicSessionId]*InternalSessionData, virtual map[PublicSessionId]*VirtualSessionData, err error) {
 	statsGrpcClientCalls.WithLabelValues("GetInternalSessions").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Get internal sessions for %s on %s", roomId, c.Target())
@@ -277,27 +277,27 @@ func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, bac
 	}
 
 	if len(response.InternalSessions) > 0 {
-		internal = make(map[string]*InternalSessionData, len(response.InternalSessions))
+		internal = make(map[PublicSessionId]*InternalSessionData, len(response.InternalSessions))
 		for _, s := range response.InternalSessions {
-			internal[s.SessionId] = s
+			internal[PublicSessionId(s.SessionId)] = s
 		}
 	}
 	if len(response.VirtualSessions) > 0 {
-		virtual = make(map[string]*VirtualSessionData, len(response.VirtualSessions))
+		virtual = make(map[PublicSessionId]*VirtualSessionData, len(response.VirtualSessions))
 		for _, s := range response.VirtualSessions {
-			virtual[s.SessionId] = s
+			virtual[PublicSessionId(s.SessionId)] = s
 		}
 	}
 
 	return
 }
 
-func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, streamType StreamType) (string, string, net.IP, string, string, error) {
+func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId PublicSessionId, streamType StreamType) (PublicSessionId, string, net.IP, string, string, error) {
 	statsGrpcClientCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
 	log.Printf("Get %s publisher id %s on %s", streamType, sessionId, c.Target())
 	response, err := c.impl.GetPublisherId(ctx, &GetPublisherIdRequest{
-		SessionId:  sessionId,
+		SessionId:  string(sessionId),
 		StreamType: string(streamType),
 	}, grpc.WaitForReady(true))
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
@@ -306,7 +306,7 @@ func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId string, strea
 		return "", "", nil, "", "", err
 	}
 
-	return response.GetPublisherId(), response.GetProxyUrl(), net.ParseIP(response.GetIp()), response.GetConnectToken(), response.GetPublisherToken(), nil
+	return PublicSessionId(response.GetPublisherId()), response.GetProxyUrl(), net.ParseIP(response.GetIp()), response.GetConnectToken(), response.GetPublisherToken(), nil
 }
 
 func (c *GrpcClient) GetSessionCount(ctx context.Context, url string) (uint32, error) {
@@ -335,7 +335,7 @@ type ProxySessionReceiver interface {
 }
 
 type SessionProxy struct {
-	sessionId string
+	sessionId PublicSessionId
 	receiver  ProxySessionReceiver
 
 	sendMu sync.Mutex
@@ -381,10 +381,10 @@ func (p *SessionProxy) Close() error {
 	return p.client.CloseSend()
 }
 
-func (c *GrpcClient) ProxySession(ctx context.Context, sessionId string, receiver ProxySessionReceiver) (*SessionProxy, error) {
+func (c *GrpcClient) ProxySession(ctx context.Context, sessionId PublicSessionId, receiver ProxySessionReceiver) (*SessionProxy, error) {
 	statsGrpcClientCalls.WithLabelValues("ProxySession").Inc()
 	md := metadata.Pairs(
-		"sessionId", sessionId,
+		"sessionId", string(sessionId),
 		"remoteAddr", receiver.RemoteAddr(),
 		"country", receiver.Country(),
 		"userAgent", receiver.UserAgent(),
