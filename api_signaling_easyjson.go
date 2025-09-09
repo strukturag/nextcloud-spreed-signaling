@@ -3431,7 +3431,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling30(in *jle
 		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			out.Type = ClientType(in.String())
 		case "params":
 			if data := in.Raw(); in.Ok() {
 				in.AddError((out.Params).UnmarshalJSON(data))

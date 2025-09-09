@@ -139,7 +139,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 		case "sessionid":
 			out.SessionId = PublicSessionId(in.String())
 		case "clienttype":
-			out.ClientType = string(in.String())
+			out.ClientType = ClientType(in.String())
 		default:
 			in.SkipRecursive()
 		}
