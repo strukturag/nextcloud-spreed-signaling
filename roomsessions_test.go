@@ -47,7 +47,7 @@ func (s *DummySession) PublicId() PublicSessionId {
 	return s.publicId
 }
 
-func (s *DummySession) ClientType() string {
+func (s *DummySession) ClientType() ClientType {
 	return ""
 }
 

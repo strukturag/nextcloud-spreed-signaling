@@ -492,7 +492,7 @@ func (c *TestClient) SendHelloInternalWithFeatures(features []string) error {
 	return c.SendHelloParams("", HelloVersionV1, "internal", features, params)
 }
 
-func (c *TestClient) SendHelloParams(url string, version string, clientType string, features []string, params any) error {
+func (c *TestClient) SendHelloParams(url string, version string, clientType ClientType, features []string, params any) error {
 	data, err := json.Marshal(params)
 	require.NoError(c.t, err)
 

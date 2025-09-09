@@ -342,12 +342,14 @@ func (m *WelcomeServerMessage) HasFeature(feature string) bool {
 	return false
 }
 
-const (
-	HelloClientTypeClient     = "client"
-	HelloClientTypeInternal   = "internal"
-	HelloClientTypeFederation = "federation"
+type ClientType string
 
-	HelloClientTypeVirtual = "virtual"
+const (
+	HelloClientTypeClient     = ClientType("client")
+	HelloClientTypeInternal   = ClientType("internal")
+	HelloClientTypeFederation = ClientType("federation")
+
+	HelloClientTypeVirtual = ClientType("virtual")
 )
 
 func hasStandardPort(u *url.URL) bool {
@@ -441,7 +443,7 @@ func (c *FederationTokenClaims) GetUserData() json.RawMessage {
 type HelloClientMessageAuth struct {
 	// The client type that is connecting. Leave empty to use the default
 	// "HelloClientTypeClient"
-	Type string `json:"type,omitempty"`
+	Type ClientType `json:"type,omitempty"`
 
 	Params json.RawMessage `json:"params"`
 

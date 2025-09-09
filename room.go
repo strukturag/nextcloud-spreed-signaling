@@ -201,9 +201,9 @@ func (r *Room) Close() []Session {
 		result = append(result, s)
 	}
 	r.sessions = nil
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeClient})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeInternal})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeVirtual})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeClient)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeInternal)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeVirtual)})
 	r.mu.Unlock()
 	return result
 }
@@ -287,7 +287,7 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 	_, found := r.sessions[sid]
 	r.sessions[sid] = session
 	if !found {
-		r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": session.ClientType()}).Inc()
+		r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": string(session.ClientType())}).Inc()
 	}
 	var publishUsersChanged bool
 	switch session.ClientType() {
@@ -454,7 +454,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	}
 
 	sid := session.PublicId()
-	r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": session.ClientType()}).Dec()
+	r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": string(session.ClientType())}).Dec()
 	delete(r.sessions, sid)
 	if virtualSession, ok := session.(*VirtualSession); ok {
 		delete(r.virtualSessions, virtualSession)
@@ -482,9 +482,9 @@ func (r *Room) RemoveSession(session Session) bool {
 	}
 
 	r.hub.removeRoom(r)
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeClient})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeInternal})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": HelloClientTypeVirtual})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeClient)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeInternal)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeVirtual)})
 	r.unsubscribeBackend()
 	r.doClose()
 	r.mu.Unlock()

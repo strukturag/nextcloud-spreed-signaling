@@ -61,7 +61,7 @@ type ClientSession struct {
 	ctx       context.Context
 	closeFunc context.CancelFunc
 
-	clientType string
+	clientType ClientType
 	features   []string
 	userId     string
 	userData   json.RawMessage
@@ -162,7 +162,7 @@ func (s *ClientSession) Data() *SessionIdData {
 	return s.data
 }
 
-func (s *ClientSession) ClientType() string {
+func (s *ClientSession) ClientType() ClientType {
 	return s.clientType
 }
 

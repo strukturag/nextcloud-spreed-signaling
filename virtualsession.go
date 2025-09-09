@@ -100,7 +100,7 @@ func (s *VirtualSession) PublicId() PublicSessionId {
 	return s.publicId
 }
 
-func (s *VirtualSession) ClientType() string {
+func (s *VirtualSession) ClientType() ClientType {
 	return HelloClientTypeVirtual
 }
 

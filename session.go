@@ -51,7 +51,7 @@ type Session interface {
 	Context() context.Context
 	PrivateId() PrivateSessionId
 	PublicId() PublicSessionId
-	ClientType() string
+	ClientType() ClientType
 	Data() *SessionIdData
 
 	UserId() string

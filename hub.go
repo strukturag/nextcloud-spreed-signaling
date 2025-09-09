@@ -802,7 +802,7 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 		delete(h.clients, data.Sid)
 		if _, found := h.sessions[data.Sid]; found {
 			delete(h.sessions, data.Sid)
-			statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), session.ClientType()).Dec()
+			statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), string(session.ClientType())).Dec()
 			removed = true
 		}
 	}
@@ -1026,8 +1026,8 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 	if country := client.Country(); IsValidCountry(country) {
 		statsClientCountries.WithLabelValues(country).Inc()
 	}
-	statsHubSessionsCurrent.WithLabelValues(backend.Id(), session.ClientType()).Inc()
-	statsHubSessionsTotal.WithLabelValues(backend.Id(), session.ClientType()).Inc()
+	statsHubSessionsCurrent.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
+	statsHubSessionsTotal.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
 
 	h.setDecodedPrivateSessionId(privateSessionId, sessionIdData)
 	h.setDecodedPublicSessionId(publicSessionId, sessionIdData)
@@ -1299,7 +1299,7 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 
 		log.Printf("Resume session from %s in %s (%s) %s (private=%s)", client.RemoteAddr(), client.Country(), client.UserAgent(), session.PublicId(), session.PrivateId())
 
-		statsHubSessionsResumedTotal.WithLabelValues(clientSession.Backend().Id(), clientSession.ClientType()).Inc()
+		statsHubSessionsResumedTotal.WithLabelValues(clientSession.Backend().Id(), string(clientSession.ClientType())).Inc()
 		h.sendHelloResponse(clientSession, message)
 		clientSession.NotifySessionResumed(client)
 		return
@@ -2449,8 +2449,8 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		h.sessions[sessionIdData.Sid] = sess
 		h.virtualSessions[virtualSessionId] = sessionIdData.Sid
 		h.mu.Unlock()
-		statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), sess.ClientType()).Inc()
-		statsHubSessionsTotal.WithLabelValues(session.Backend().Id(), sess.ClientType()).Inc()
+		statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), string(sess.ClientType())).Inc()
+		statsHubSessionsTotal.WithLabelValues(session.Backend().Id(), string(sess.ClientType())).Inc()
 		log.Printf("Session %s added virtual session %s with initial flags %d", session.PublicId(), sess.PublicId(), sess.Flags())
 		session.AddVirtualSession(sess)
 		sess.SetRoom(room)
