@@ -25,6 +25,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -110,32 +111,27 @@ func TestNotifierResetWillNotify(t *testing.T) {
 }
 
 func TestNotifierDuplicate(t *testing.T) {
-	t.Parallel()
-	var notifier Notifier
-	var wgStart sync.WaitGroup
-	var wgEnd sync.WaitGroup
+	SynctestTest(t, func(t *testing.T) {
+		var notifier Notifier
+		var done sync.WaitGroup
 
-	for range 2 {
-		wgStart.Add(1)
-		wgEnd.Add(1)
+		for range 2 {
+			done.Add(1)
 
-		go func() {
-			defer wgEnd.Done()
-			waiter := notifier.NewWaiter("foo")
-			defer notifier.Release(waiter)
+			go func() {
+				defer done.Done()
+				waiter := notifier.NewWaiter("foo")
+				defer notifier.Release(waiter)
 
-			// Goroutine has created the waiter and is ready.
-			wgStart.Done()
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				assert.NoError(t, waiter.Wait(ctx))
+			}()
+		}
 
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			assert.NoError(t, waiter.Wait(ctx))
-		}()
-	}
+		synctest.Wait()
 
-	wgStart.Wait()
-
-	time.Sleep(100 * time.Millisecond)
-	notifier.Notify("foo")
-	wgEnd.Wait()
+		notifier.Notify("foo")
+		done.Wait()
+	})
 }

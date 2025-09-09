@@ -36,6 +36,8 @@ jobs:
           version: latest
           args: --timeout=2m0s
           skip-cache: true
+        env:
+          GOEXPERIMENT: synctest
 
   modernize:
     name: modernize
@@ -49,7 +51,7 @@ jobs:
 
       - name: moderize
         run: |
-          go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -test ./...
+          GOEXPERIMENT=synctest go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -test ./...
 
   dependencies:
     name: dependencies

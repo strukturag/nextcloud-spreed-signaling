@@ -37,25 +37,25 @@ func TestDeferredExecutor_MultiClose(t *testing.T) {
 }
 
 func TestDeferredExecutor_QueueSize(t *testing.T) {
-	t.Parallel()
-	e := NewDeferredExecutor(0)
-	defer e.waitForStop()
-	defer e.Close()
+	SynctestTest(t, func(t *testing.T) {
+		e := NewDeferredExecutor(0)
+		defer e.waitForStop()
+		defer e.Close()
 
-	delay := 100 * time.Millisecond
-	e.Execute(func() {
-		time.Sleep(delay)
-	})
+		delay := 100 * time.Millisecond
+		e.Execute(func() {
+			time.Sleep(delay)
+		})
 
-	// The queue will block until the first command finishes.
-	a := time.Now()
-	e.Execute(func() {
-		time.Sleep(time.Millisecond)
+		// The queue will block until the first command finishes.
+		a := time.Now()
+		e.Execute(func() {
+			time.Sleep(time.Millisecond)
+		})
+		b := time.Now()
+		delta := b.Sub(a)
+		assert.Equal(t, delay, delta)
 	})
-	b := time.Now()
-	delta := b.Sub(a)
-	// Allow one millisecond less delay to account for time variance on CI runners.
-	assert.GreaterOrEqual(t, delta+time.Millisecond, delay)
 }
 
 func TestDeferredExecutor_Order(t *testing.T) {
