@@ -79,7 +79,7 @@ func TestFlagsConcurrentAdd(t *testing.T) {
 			added.Add(1)
 		}
 	})
-	assert.EqualValues(t, 1, added.Load(), "expected only one successfull attempt")
+	assert.EqualValues(t, 1, added.Load(), "expected only one successful attempt")
 }
 
 func TestFlagsConcurrentRemove(t *testing.T) {
@@ -93,7 +93,7 @@ func TestFlagsConcurrentRemove(t *testing.T) {
 			removed.Add(1)
 		}
 	})
-	assert.EqualValues(t, 1, removed.Load(), "expected only one successfull attempt")
+	assert.EqualValues(t, 1, removed.Load(), "expected only one successful attempt")
 }
 
 func TestFlagsConcurrentSet(t *testing.T) {
@@ -106,5 +106,5 @@ func TestFlagsConcurrentSet(t *testing.T) {
 			set.Add(1)
 		}
 	})
-	assert.EqualValues(t, 1, set.Load(), "expected only one successfull attempt")
+	assert.EqualValues(t, 1, set.Load(), "expected only one successful attempt")
 }
