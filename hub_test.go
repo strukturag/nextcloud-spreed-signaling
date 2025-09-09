@@ -1368,7 +1368,9 @@ func TestClientHelloResumeThrottle(t *testing.T) {
 		t:   t,
 		now: time.Now(),
 	}
-	th := newMemoryThrottlerForTest(t)
+	throttler := newMemoryThrottlerForTest(t)
+	th, ok := throttler.(*memoryThrottler)
+	require.True(ok, "expected memoryThrottler, got %T", throttler)
 	th.getNow = timing.getNow
 	th.doDelay = timing.doDelay
 	hub.throttler = th

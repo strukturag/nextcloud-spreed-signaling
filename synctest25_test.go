@@ -1,6 +1,8 @@
+//go:build go1.25
+
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2022 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -22,41 +24,9 @@
 package signaling
 
 import (
-	"context"
-	"testing"
-	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"testing/synctest"
 )
 
-func TestBackoff_Exponential(t *testing.T) {
-	SynctestTest(t, func(t *testing.T) {
-		assert := assert.New(t)
-		minWait := 100 * time.Millisecond
-		backoff, err := NewExponentialBackoff(minWait, 500*time.Millisecond)
-		require.NoError(t, err)
-
-		waitTimes := []time.Duration{
-			minWait,
-			200 * time.Millisecond,
-			400 * time.Millisecond,
-			500 * time.Millisecond,
-			500 * time.Millisecond,
-		}
-
-		for _, wait := range waitTimes {
-			assert.Equal(wait, backoff.NextWait())
-			a := time.Now()
-			backoff.Wait(context.Background())
-			b := time.Now()
-			assert.Equal(b.Sub(a), wait)
-		}
-
-		backoff.Reset()
-		a := time.Now()
-		backoff.Wait(context.Background())
-		b := time.Now()
-		assert.Equal(b.Sub(a), minWait)
-	})
-}
+var (
+	SynctestTest = synctest.Test
+)
