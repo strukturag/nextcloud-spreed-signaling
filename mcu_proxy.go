@@ -350,6 +350,7 @@ type mcuProxyConnection struct {
 	closed     atomic.Bool
 	conn       *websocket.Conn
 
+	helloProcessed    atomic.Bool
 	connectedSince    time.Time
 	reconnectTimer    *time.Timer
 	reconnectInterval atomic.Int64
@@ -533,7 +534,7 @@ func (c *mcuProxyConnection) SessionId() PublicSessionId {
 func (c *mcuProxyConnection) IsConnected() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.conn != nil && c.SessionId() != ""
+	return c.conn != nil && c.helloProcessed.Load() && c.SessionId() != ""
 }
 
 func (c *mcuProxyConnection) IsTemporary() bool {
@@ -691,6 +692,8 @@ func (c *mcuProxyConnection) stop(ctx context.Context) {
 }
 
 func (c *mcuProxyConnection) close() {
+	c.helloProcessed.Store(false)
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -803,6 +806,7 @@ func (c *mcuProxyConnection) reconnect() {
 
 	log.Printf("Connected to %s", c)
 	c.closed.Store(false)
+	c.helloProcessed.Store(false)
 
 	c.mu.Lock()
 	c.connectedSince = time.Now()
@@ -1002,6 +1006,7 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 				statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Inc()
 			}
 
+			c.helloProcessed.Store(true)
 			c.connectedNotifier.Notify()
 		default:
 			log.Printf("Received unsupported hello response %+v from %s, reconnecting", msg, c)
