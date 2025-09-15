@@ -30,14 +30,13 @@ func easyjson5dc3c167DecodeGithubComStrukturagNextcloudSpreedSignaling(in *jlexe
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "address":
-			out.Address = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Address = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}

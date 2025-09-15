@@ -30,16 +30,19 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling(in *jlexe
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "messageid":
-			out.MessageId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.MessageId = string(in.String())
+			}
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "data":
 			if in.IsNull() {
 				in.Skip()
@@ -48,7 +51,11 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling(in *jlexe
 				if out.Data == nil {
 					out.Data = new(MessageClientMessageData)
 				}
-				(*out.Data).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Data).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -128,18 +135,25 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "clienttype":
-			out.ClientType = ClientType(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ClientType = ClientType(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -208,18 +222,21 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "sendtime":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.SendTime).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.SendTime).UnmarshalJSON(data))
+				}
 			}
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "message":
 			if in.IsNull() {
 				in.Skip()
@@ -228,7 +245,11 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				if out.Message == nil {
 					out.Message = new(ServerMessage)
 				}
-				(*out.Message).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Message).UnmarshalEasyJSON(in)
+				}
 			}
 		case "room":
 			if in.IsNull() {
@@ -238,7 +259,11 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				if out.Room == nil {
 					out.Room = new(BackendServerRoomRequest)
 				}
-				(*out.Room).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Room).UnmarshalEasyJSON(in)
+				}
 			}
 		case "permissions":
 			if in.IsNull() {
@@ -257,7 +282,11 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				}
 				for !in.IsDelim(']') {
 					var v1 Permission
-					v1 = Permission(in.String())
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						v1 = Permission(in.String())
+					}
 					out.Permissions = append(out.Permissions, v1)
 					in.WantComma()
 				}
@@ -271,7 +300,11 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				if out.AsyncRoom == nil {
 					out.AsyncRoom = new(AsyncRoomMessage)
 				}
-				(*out.AsyncRoom).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.AsyncRoom).UnmarshalEasyJSON(in)
+				}
 			}
 		case "sendoffer":
 			if in.IsNull() {
@@ -281,10 +314,18 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				if out.SendOffer == nil {
 					out.SendOffer = new(SendOfferMessage)
 				}
-				(*out.SendOffer).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.SendOffer).UnmarshalEasyJSON(in)
+				}
 			}
 		case "id":
-			out.Id = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Id = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}

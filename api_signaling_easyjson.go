@@ -32,14 +32,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling(in *jlexe
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "version":
-			out.Version = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Version = string(in.String())
+			}
 		case "features":
 			if in.IsNull() {
 				in.Skip()
@@ -57,14 +56,22 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling(in *jlexe
 				}
 				for !in.IsDelim(']') {
 					var v1 string
-					v1 = string(in.String())
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						v1 = string(in.String())
+					}
 					out.Features = append(out.Features, v1)
 					in.WantComma()
 				}
 				in.Delim(']')
 			}
 		case "country":
-			out.Country = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Country = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -142,11 +149,6 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "flags":
 			if in.IsNull() {
@@ -156,7 +158,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 				if out.Flags == nil {
 					out.Flags = new(uint32)
 				}
-				*out.Flags = uint32(in.Uint32())
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					*out.Flags = uint32(in.Uint32())
+				}
 			}
 		case "incall":
 			if in.IsNull() {
@@ -166,12 +172,24 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 				if out.InCall == nil {
 					out.InCall = new(int)
 				}
-				*out.InCall = int(in.Int())
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					*out.InCall = int(in.Int())
+				}
 			}
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -256,16 +274,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "key":
-			out.Key = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Key = string(in.String())
+			}
 		case "oldvalue":
 			if m, ok := out.OldValue.(easyjson.Unmarshaler); ok {
 				m.UnmarshalEasyJSON(in)
@@ -418,22 +439,33 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling3(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "key":
-			out.Key = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Key = string(in.String())
+			}
 		case "value":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Value).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Value).UnmarshalJSON(data))
+				}
 			}
 		case "ttl":
-			out.TTL = time.Duration(in.Int64())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.TTL = time.Duration(in.Int64())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -507,16 +539,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "id":
-			out.Id = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Id = string(in.String())
+			}
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "error":
 			if in.IsNull() {
 				in.Skip()
@@ -525,7 +560,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Error == nil {
 					out.Error = new(Error)
 				}
-				(*out.Error).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Error).UnmarshalEasyJSON(in)
+				}
 			}
 		case "welcome":
 			if in.IsNull() {
@@ -535,7 +574,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Welcome == nil {
 					out.Welcome = new(WelcomeServerMessage)
 				}
-				(*out.Welcome).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Welcome).UnmarshalEasyJSON(in)
+				}
 			}
 		case "hello":
 			if in.IsNull() {
@@ -545,7 +588,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Hello == nil {
 					out.Hello = new(HelloServerMessage)
 				}
-				(*out.Hello).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Hello).UnmarshalEasyJSON(in)
+				}
 			}
 		case "bye":
 			if in.IsNull() {
@@ -555,7 +602,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Bye == nil {
 					out.Bye = new(ByeServerMessage)
 				}
-				(*out.Bye).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Bye).UnmarshalEasyJSON(in)
+				}
 			}
 		case "room":
 			if in.IsNull() {
@@ -565,7 +616,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Room == nil {
 					out.Room = new(RoomServerMessage)
 				}
-				(*out.Room).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Room).UnmarshalEasyJSON(in)
+				}
 			}
 		case "message":
 			if in.IsNull() {
@@ -575,7 +630,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Message == nil {
 					out.Message = new(MessageServerMessage)
 				}
-				(*out.Message).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Message).UnmarshalEasyJSON(in)
+				}
 			}
 		case "control":
 			if in.IsNull() {
@@ -585,7 +644,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Control == nil {
 					out.Control = new(ControlServerMessage)
 				}
-				(*out.Control).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Control).UnmarshalEasyJSON(in)
+				}
 			}
 		case "event":
 			if in.IsNull() {
@@ -595,7 +658,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Event == nil {
 					out.Event = new(EventServerMessage)
 				}
-				(*out.Event).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Event).UnmarshalEasyJSON(in)
+				}
 			}
 		case "transient":
 			if in.IsNull() {
@@ -605,7 +672,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.TransientData == nil {
 					out.TransientData = new(TransientDataServerMessage)
 				}
-				(*out.TransientData).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.TransientData).UnmarshalEasyJSON(in)
+				}
 			}
 		case "internal":
 			if in.IsNull() {
@@ -615,7 +686,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Internal == nil {
 					out.Internal = new(InternalServerMessage)
 				}
-				(*out.Internal).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Internal).UnmarshalEasyJSON(in)
+				}
 			}
 		case "dialout":
 			if in.IsNull() {
@@ -625,7 +700,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				if out.Dialout == nil {
 					out.Dialout = new(DialoutInternalClientMessage)
 				}
-				(*out.Dialout).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Dialout).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -751,17 +830,20 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling5(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "properties":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Properties).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Properties).UnmarshalJSON(data))
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -826,18 +908,25 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling6(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "flags":
-			out.Flags = uint32(in.Uint32())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Flags = uint32(in.Uint32())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -906,20 +995,31 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling7(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "signaling":
-			out.SignalingUrl = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SignalingUrl = string(in.String())
+			}
 		case "url":
-			out.NextcloudUrl = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.NextcloudUrl = string(in.String())
+			}
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "token":
-			out.Token = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Token = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -993,21 +1093,28 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling8(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "properties":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Properties).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Properties).UnmarshalJSON(data))
+				}
 			}
 		case "incall":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.InCall).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.InCall).UnmarshalJSON(data))
+				}
 			}
 		case "changed":
 			if in.IsNull() {
@@ -1104,7 +1211,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling8(in *jlex
 				in.Delim(']')
 			}
 		case "all":
-			out.All = bool(in.Bool())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.All = bool(in.Bool())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -1250,11 +1361,6 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling9(in *jlex
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "comment":
 			if in.IsNull() {
@@ -1371,14 +1477,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling10(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "chat":
 			if in.IsNull() {
 				in.Skip()
@@ -1387,7 +1492,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling10(in *jle
 				if out.Chat == nil {
 					out.Chat = new(RoomEventMessageDataChat)
 				}
-				(*out.Chat).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Chat).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -1452,17 +1561,20 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling11(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "data":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Data).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Data).UnmarshalJSON(data))
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -1527,11 +1639,6 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling12(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "room":
 			if in.IsNull() {
@@ -1541,7 +1648,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling12(in *jle
 				if out.Room == nil {
 					out.Room = new(RoomServerMessage)
 				}
-				(*out.Room).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Room).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -1605,23 +1716,34 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling13(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "reason":
-			out.Reason = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Reason = string(in.String())
+			}
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "properties":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Properties).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Properties).UnmarshalJSON(data))
+				}
 			}
 		case "incall":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.InCall).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.InCall).UnmarshalJSON(data))
+				}
 			}
 		case "changed":
 			if in.IsNull() {
@@ -1718,7 +1840,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling13(in *jle
 				in.Delim(']')
 			}
 		case "all":
-			out.All = bool(in.Bool())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.All = bool(in.Bool())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -1869,16 +1995,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling14(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "sessionid":
-			out.SessionId = RoomSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = RoomSessionId(in.String())
+			}
 		case "federation":
 			if in.IsNull() {
 				in.Skip()
@@ -1887,7 +2016,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling14(in *jle
 				if out.Federation == nil {
 					out.Federation = new(RoomFederationMessage)
 				}
-				(*out.Federation).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Federation).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -1957,18 +2090,25 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling15(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "userid":
-			out.UserId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.UserId = string(in.String())
+			}
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -2043,18 +2183,25 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling16(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "userid":
-			out.UserId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.UserId = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -2123,14 +2270,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling17(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "refresh":
-			out.Refresh = bool(in.Bool())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Refresh = bool(in.Bool())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -2189,14 +2335,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling18(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "chat":
 			if in.IsNull() {
 				in.Skip()
@@ -2205,7 +2350,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling18(in *jle
 				if out.Chat == nil {
 					out.Chat = new(MessageServerMessageDataChat)
 				}
-				(*out.Chat).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Chat).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -2270,11 +2419,6 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling19(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "sender":
 			if in.IsNull() {
@@ -2284,7 +2428,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling19(in *jle
 				if out.Sender == nil {
 					out.Sender = new(MessageServerMessageSender)
 				}
-				(*out.Sender).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Sender).UnmarshalEasyJSON(in)
+				}
 			}
 		case "recipient":
 			if in.IsNull() {
@@ -2294,11 +2442,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling19(in *jle
 				if out.Recipient == nil {
 					out.Recipient = new(MessageClientMessageRecipient)
 				}
-				(*out.Recipient).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Recipient).UnmarshalEasyJSON(in)
+				}
 			}
 		case "data":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Data).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Data).UnmarshalJSON(data))
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -2372,18 +2528,25 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling20(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "userid":
-			out.UserId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.UserId = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -2452,18 +2615,25 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling21(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "sid":
-			out.Sid = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Sid = string(in.String())
+			}
 		case "roomType":
-			out.RoomType = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomType = string(in.String())
+			}
 		case "payload":
 			if in.IsNull() {
 				in.Skip()
@@ -2487,15 +2657,35 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling21(in *jle
 				in.Delim('}')
 			}
 		case "bitrate":
-			out.Bitrate = int(in.Int())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Bitrate = int(in.Int())
+			}
 		case "audiocodec":
-			out.AudioCodec = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.AudioCodec = string(in.String())
+			}
 		case "videocodec":
-			out.VideoCodec = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.VideoCodec = string(in.String())
+			}
 		case "vp9profile":
-			out.VP9Profile = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.VP9Profile = string(in.String())
+			}
 		case "h264profile":
-			out.H264Profile = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.H264Profile = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -2616,17 +2806,20 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling22(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "recipient":
-			(out.Recipient).UnmarshalEasyJSON(in)
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				(out.Recipient).UnmarshalEasyJSON(in)
+			}
 		case "data":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Data).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Data).UnmarshalJSON(data))
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -2691,14 +2884,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling23(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "dialout":
 			if in.IsNull() {
 				in.Skip()
@@ -2707,7 +2899,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling23(in *jle
 				if out.Dialout == nil {
 					out.Dialout = new(InternalServerDialoutRequest)
 				}
-				(*out.Dialout).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Dialout).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -2772,16 +2968,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling24(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "backend":
-			out.Backend = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Backend = string(in.String())
+			}
 		case "request":
 			if in.IsNull() {
 				in.Skip()
@@ -2790,7 +2989,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling24(in *jle
 				if out.Request == nil {
 					out.Request = new(BackendRoomDialoutRequest)
 				}
-				(*out.Request).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Request).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -2864,14 +3067,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling25(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "addsession":
 			if in.IsNull() {
 				in.Skip()
@@ -2880,7 +3082,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling25(in *jle
 				if out.AddSession == nil {
 					out.AddSession = new(AddSessionInternalClientMessage)
 				}
-				(*out.AddSession).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.AddSession).UnmarshalEasyJSON(in)
+				}
 			}
 		case "updatesession":
 			if in.IsNull() {
@@ -2890,7 +3096,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling25(in *jle
 				if out.UpdateSession == nil {
 					out.UpdateSession = new(UpdateSessionInternalClientMessage)
 				}
-				(*out.UpdateSession).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.UpdateSession).UnmarshalEasyJSON(in)
+				}
 			}
 		case "removesession":
 			if in.IsNull() {
@@ -2900,7 +3110,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling25(in *jle
 				if out.RemoveSession == nil {
 					out.RemoveSession = new(RemoveSessionInternalClientMessage)
 				}
-				(*out.RemoveSession).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.RemoveSession).UnmarshalEasyJSON(in)
+				}
 			}
 		case "incall":
 			if in.IsNull() {
@@ -2910,7 +3124,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling25(in *jle
 				if out.InCall == nil {
 					out.InCall = new(InCallInternalClientMessage)
 				}
-				(*out.InCall).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.InCall).UnmarshalEasyJSON(in)
+				}
 			}
 		case "dialout":
 			if in.IsNull() {
@@ -2920,7 +3138,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling25(in *jle
 				if out.Dialout == nil {
 					out.Dialout = new(DialoutInternalClientMessage)
 				}
-				(*out.Dialout).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Dialout).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -3005,14 +3227,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling26(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "incall":
-			out.InCall = int(in.Int())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.InCall = int(in.Int())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -3071,23 +3292,34 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling27(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "userdata":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.UserData).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.UserData).UnmarshalJSON(data))
+				}
 			}
 		case "iss":
-			out.Issuer = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Issuer = string(in.String())
+			}
 		case "sub":
-			out.Subject = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Subject = string(in.String())
+			}
 		case "aud":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Audience).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Audience).UnmarshalJSON(data))
+				}
 			}
 		case "exp":
 			if in.IsNull() {
@@ -3097,8 +3329,12 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling27(in *jle
 				if out.ExpiresAt == nil {
 					out.ExpiresAt = new(_v5.NumericDate)
 				}
-				if data := in.Raw(); in.Ok() {
-					in.AddError((*out.ExpiresAt).UnmarshalJSON(data))
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					if data := in.Raw(); in.Ok() {
+						in.AddError((*out.ExpiresAt).UnmarshalJSON(data))
+					}
 				}
 			}
 		case "nbf":
@@ -3109,8 +3345,12 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling27(in *jle
 				if out.NotBefore == nil {
 					out.NotBefore = new(_v5.NumericDate)
 				}
-				if data := in.Raw(); in.Ok() {
-					in.AddError((*out.NotBefore).UnmarshalJSON(data))
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					if data := in.Raw(); in.Ok() {
+						in.AddError((*out.NotBefore).UnmarshalJSON(data))
+					}
 				}
 			}
 		case "iat":
@@ -3121,12 +3361,20 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling27(in *jle
 				if out.IssuedAt == nil {
 					out.IssuedAt = new(_v5.NumericDate)
 				}
-				if data := in.Raw(); in.Ok() {
-					in.AddError((*out.IssuedAt).UnmarshalJSON(data))
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					if data := in.Raw(); in.Ok() {
+						in.AddError((*out.IssuedAt).UnmarshalJSON(data))
+					}
 				}
 			}
 		case "jti":
-			out.ID = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ID = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -3256,14 +3504,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling28(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "token":
-			out.Token = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Token = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -3322,20 +3569,31 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling29(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "version":
-			out.Version = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Version = string(in.String())
+			}
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "resumeid":
-			out.ResumeId = PrivateSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ResumeId = PrivateSessionId(in.String())
+			}
 		case "userid":
-			out.UserId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.UserId = string(in.String())
+			}
 		case "server":
 			if in.IsNull() {
 				in.Skip()
@@ -3344,7 +3602,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling29(in *jle
 				if out.Server == nil {
 					out.Server = new(WelcomeServerMessage)
 				}
-				(*out.Server).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Server).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -3424,20 +3686,27 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling30(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = ClientType(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = ClientType(in.String())
+			}
 		case "params":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Params).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Params).UnmarshalJSON(data))
+				}
 			}
 		case "url":
-			out.Url = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Url = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -3512,16 +3781,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling31(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "version":
-			out.Version = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Version = string(in.String())
+			}
 		case "resumeid":
-			out.ResumeId = PrivateSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ResumeId = PrivateSessionId(in.String())
+			}
 		case "features":
 			if in.IsNull() {
 				in.Skip()
@@ -3539,7 +3811,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling31(in *jle
 				}
 				for !in.IsDelim(']') {
 					var v30 string
-					v30 = string(in.String())
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						v30 = string(in.String())
+					}
 					out.Features = append(out.Features, v30)
 					in.WantComma()
 				}
@@ -3553,7 +3829,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling31(in *jle
 				if out.Auth == nil {
 					out.Auth = new(HelloClientMessageAuth)
 				}
-				(*out.Auth).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Auth).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -3637,23 +3917,34 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling32(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "userdata":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.UserData).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.UserData).UnmarshalJSON(data))
+				}
 			}
 		case "iss":
-			out.Issuer = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Issuer = string(in.String())
+			}
 		case "sub":
-			out.Subject = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Subject = string(in.String())
+			}
 		case "aud":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Audience).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Audience).UnmarshalJSON(data))
+				}
 			}
 		case "exp":
 			if in.IsNull() {
@@ -3663,8 +3954,12 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling32(in *jle
 				if out.ExpiresAt == nil {
 					out.ExpiresAt = new(_v5.NumericDate)
 				}
-				if data := in.Raw(); in.Ok() {
-					in.AddError((*out.ExpiresAt).UnmarshalJSON(data))
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					if data := in.Raw(); in.Ok() {
+						in.AddError((*out.ExpiresAt).UnmarshalJSON(data))
+					}
 				}
 			}
 		case "nbf":
@@ -3675,8 +3970,12 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling32(in *jle
 				if out.NotBefore == nil {
 					out.NotBefore = new(_v5.NumericDate)
 				}
-				if data := in.Raw(); in.Ok() {
-					in.AddError((*out.NotBefore).UnmarshalJSON(data))
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					if data := in.Raw(); in.Ok() {
+						in.AddError((*out.NotBefore).UnmarshalJSON(data))
+					}
 				}
 			}
 		case "iat":
@@ -3687,12 +3986,20 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling32(in *jle
 				if out.IssuedAt == nil {
 					out.IssuedAt = new(_v5.NumericDate)
 				}
-				if data := in.Raw(); in.Ok() {
-					in.AddError((*out.IssuedAt).UnmarshalJSON(data))
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					if data := in.Raw(); in.Ok() {
+						in.AddError((*out.IssuedAt).UnmarshalJSON(data))
+					}
 				}
 			}
 		case "jti":
-			out.ID = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ID = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -3822,14 +4129,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling33(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "token":
-			out.Token = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Token = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -3888,17 +4194,20 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling34(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "details":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Details).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Details).UnmarshalJSON(data))
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -3963,16 +4272,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling35(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "userid":
-			out.UserId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.UserId = string(in.String())
+			}
 		case "features":
 			if in.IsNull() {
 				in.Skip()
@@ -3990,20 +4302,36 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling35(in *jle
 				}
 				for !in.IsDelim(']') {
 					var v33 string
-					v33 = string(in.String())
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						v33 = string(in.String())
+					}
 					out.Features = append(out.Features, v33)
 					in.WantComma()
 				}
 				in.Delim(']')
 			}
 		case "user":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.User).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.User).UnmarshalJSON(data))
+				}
 			}
 		case "roomsessionid":
-			out.RoomSessionId = RoomSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomSessionId = RoomSessionId(in.String())
+			}
 		case "federated":
-			out.Federated = bool(in.Bool())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Federated = bool(in.Bool())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -4096,16 +4424,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "target":
-			out.Target = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Target = string(in.String())
+			}
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "join":
 			if in.IsNull() {
 				in.Skip()
@@ -4130,7 +4461,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 						if v36 == nil {
 							v36 = new(EventServerMessageSessionEntry)
 						}
-						(*v36).UnmarshalEasyJSON(in)
+						if in.IsNull() {
+							in.Skip()
+						} else {
+							(*v36).UnmarshalEasyJSON(in)
+						}
 					}
 					out.Join = append(out.Join, v36)
 					in.WantComma()
@@ -4154,7 +4489,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				}
 				for !in.IsDelim(']') {
 					var v37 PublicSessionId
-					v37 = PublicSessionId(in.String())
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						v37 = PublicSessionId(in.String())
+					}
 					out.Leave = append(out.Leave, v37)
 					in.WantComma()
 				}
@@ -4184,7 +4523,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 						if v38 == nil {
 							v38 = new(EventServerMessageSessionEntry)
 						}
-						(*v38).UnmarshalEasyJSON(in)
+						if in.IsNull() {
+							in.Skip()
+						} else {
+							(*v38).UnmarshalEasyJSON(in)
+						}
 					}
 					out.Change = append(out.Change, v38)
 					in.WantComma()
@@ -4199,7 +4542,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				if out.SwitchTo == nil {
 					out.SwitchTo = new(EventServerMessageSwitchTo)
 				}
-				(*out.SwitchTo).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.SwitchTo).UnmarshalEasyJSON(in)
+				}
 			}
 		case "resumed":
 			if in.IsNull() {
@@ -4209,7 +4556,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				if out.Resumed == nil {
 					out.Resumed = new(bool)
 				}
-				*out.Resumed = bool(in.Bool())
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					*out.Resumed = bool(in.Bool())
+				}
 			}
 		case "invite":
 			if in.IsNull() {
@@ -4219,7 +4570,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				if out.Invite == nil {
 					out.Invite = new(RoomEventServerMessage)
 				}
-				(*out.Invite).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Invite).UnmarshalEasyJSON(in)
+				}
 			}
 		case "disinvite":
 			if in.IsNull() {
@@ -4229,7 +4584,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				if out.Disinvite == nil {
 					out.Disinvite = new(RoomDisinviteEventServerMessage)
 				}
-				(*out.Disinvite).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Disinvite).UnmarshalEasyJSON(in)
+				}
 			}
 		case "update":
 			if in.IsNull() {
@@ -4239,7 +4598,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				if out.Update == nil {
 					out.Update = new(RoomEventServerMessage)
 				}
-				(*out.Update).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Update).UnmarshalEasyJSON(in)
+				}
 			}
 		case "flags":
 			if in.IsNull() {
@@ -4249,7 +4612,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				if out.Flags == nil {
 					out.Flags = new(RoomFlagsServerMessage)
 				}
-				(*out.Flags).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Flags).UnmarshalEasyJSON(in)
+				}
 			}
 		case "message":
 			if in.IsNull() {
@@ -4259,7 +4626,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				if out.Message == nil {
 					out.Message = new(RoomEventMessage)
 				}
-				(*out.Message).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Message).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -4409,19 +4780,26 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling37(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "code":
-			out.Code = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Code = string(in.String())
+			}
 		case "message":
-			out.Message = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Message = string(in.String())
+			}
 		case "details":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Details).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Details).UnmarshalJSON(data))
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -4491,22 +4869,37 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling38(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "callid":
-			out.CallId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.CallId = string(in.String())
+			}
 		case "status":
-			out.Status = DialoutStatus(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Status = DialoutStatus(in.String())
+			}
 		case "cause":
-			out.Cause = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Cause = string(in.String())
+			}
 		case "code":
-			out.Code = int(in.Int())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Code = int(in.Int())
+			}
 		case "message":
-			out.Message = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Message = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -4585,16 +4978,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling39(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		case "error":
 			if in.IsNull() {
 				in.Skip()
@@ -4603,7 +4999,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling39(in *jle
 				if out.Error == nil {
 					out.Error = new(Error)
 				}
-				(*out.Error).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Error).UnmarshalEasyJSON(in)
+				}
 			}
 		case "status":
 			if in.IsNull() {
@@ -4613,7 +5013,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling39(in *jle
 				if out.Status == nil {
 					out.Status = new(DialoutStatusInternalClientMessage)
 				}
-				(*out.Status).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Status).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -4688,11 +5092,6 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling40(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "sender":
 			if in.IsNull() {
@@ -4702,7 +5101,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling40(in *jle
 				if out.Sender == nil {
 					out.Sender = new(MessageServerMessageSender)
 				}
-				(*out.Sender).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Sender).UnmarshalEasyJSON(in)
+				}
 			}
 		case "recipient":
 			if in.IsNull() {
@@ -4712,11 +5115,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling40(in *jle
 				if out.Recipient == nil {
 					out.Recipient = new(MessageClientMessageRecipient)
 				}
-				(*out.Recipient).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Recipient).UnmarshalEasyJSON(in)
+				}
 			}
 		case "data":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Data).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Data).UnmarshalJSON(data))
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -4790,17 +5201,20 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling41(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "recipient":
-			(out.Recipient).UnmarshalEasyJSON(in)
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				(out.Recipient).UnmarshalEasyJSON(in)
+			}
 		case "data":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.Data).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.Data).UnmarshalJSON(data))
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -4865,16 +5279,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling42(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -4938,18 +5355,25 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling43(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "random":
-			out.Random = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Random = string(in.String())
+			}
 		case "token":
-			out.Token = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Token = string(in.String())
+			}
 		case "backend":
-			out.Backend = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Backend = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -5018,16 +5442,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling44(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "id":
-			out.Id = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Id = string(in.String())
+			}
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "hello":
 			if in.IsNull() {
 				in.Skip()
@@ -5036,7 +5463,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling44(in *jle
 				if out.Hello == nil {
 					out.Hello = new(HelloClientMessage)
 				}
-				(*out.Hello).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Hello).UnmarshalEasyJSON(in)
+				}
 			}
 		case "bye":
 			if in.IsNull() {
@@ -5046,7 +5477,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling44(in *jle
 				if out.Bye == nil {
 					out.Bye = new(ByeClientMessage)
 				}
-				(*out.Bye).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Bye).UnmarshalEasyJSON(in)
+				}
 			}
 		case "room":
 			if in.IsNull() {
@@ -5056,7 +5491,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling44(in *jle
 				if out.Room == nil {
 					out.Room = new(RoomClientMessage)
 				}
-				(*out.Room).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Room).UnmarshalEasyJSON(in)
+				}
 			}
 		case "message":
 			if in.IsNull() {
@@ -5066,7 +5505,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling44(in *jle
 				if out.Message == nil {
 					out.Message = new(MessageClientMessage)
 				}
-				(*out.Message).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Message).UnmarshalEasyJSON(in)
+				}
 			}
 		case "control":
 			if in.IsNull() {
@@ -5076,7 +5519,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling44(in *jle
 				if out.Control == nil {
 					out.Control = new(ControlClientMessage)
 				}
-				(*out.Control).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Control).UnmarshalEasyJSON(in)
+				}
 			}
 		case "internal":
 			if in.IsNull() {
@@ -5086,7 +5533,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling44(in *jle
 				if out.Internal == nil {
 					out.Internal = new(InternalClientMessage)
 				}
-				(*out.Internal).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Internal).UnmarshalEasyJSON(in)
+				}
 			}
 		case "transient":
 			if in.IsNull() {
@@ -5096,7 +5547,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling44(in *jle
 				if out.TransientData == nil {
 					out.TransientData = new(TransientDataClientMessage)
 				}
-				(*out.TransientData).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.TransientData).UnmarshalEasyJSON(in)
+				}
 			}
 		default:
 			in.SkipRecursive()
@@ -5202,14 +5657,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling45(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "reason":
-			out.Reason = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Reason = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -5268,11 +5722,6 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling46(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		default:
 			in.SkipRecursive()
@@ -5327,20 +5776,31 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling47(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "to":
-			out.To = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.To = PublicSessionId(in.String())
+			}
 		case "from":
-			out.From = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.From = PublicSessionId(in.String())
+			}
 		case "type":
-			out.Type = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Type = string(in.String())
+			}
 		case "roomType":
-			out.RoomType = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomType = string(in.String())
+			}
 		case "payload":
 			if in.IsNull() {
 				in.Skip()
@@ -5364,7 +5824,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling47(in *jle
 				in.Delim('}')
 			}
 		case "sid":
-			out.Sid = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Sid = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -5470,16 +5934,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling48(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "actorId":
-			out.ActorId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ActorId = string(in.String())
+			}
 		case "actorType":
-			out.ActorType = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ActorType = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -5549,20 +6016,27 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling49(in *jle
 	for !in.IsDelim('}') {
 		key := in.UnsafeFieldName(false)
 		in.WantColon()
-		if in.IsNull() {
-			in.Skip()
-			in.WantComma()
-			continue
-		}
 		switch key {
 		case "userid":
-			out.UserId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.UserId = string(in.String())
+			}
 		case "user":
-			if data := in.Raw(); in.Ok() {
-				in.AddError((out.User).UnmarshalJSON(data))
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				if data := in.Raw(); in.Ok() {
+					in.AddError((out.User).UnmarshalJSON(data))
+				}
 			}
 		case "flags":
-			out.Flags = uint32(in.Uint32())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Flags = uint32(in.Uint32())
+			}
 		case "incall":
 			if in.IsNull() {
 				in.Skip()
@@ -5571,7 +6045,11 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling49(in *jle
 				if out.InCall == nil {
 					out.InCall = new(int)
 				}
-				*out.InCall = int(in.Int())
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					*out.InCall = int(in.Int())
+				}
 			}
 		case "options":
 			if in.IsNull() {
@@ -5581,12 +6059,24 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling49(in *jle
 				if out.Options == nil {
 					out.Options = new(AddSessionOptions)
 				}
-				(*out.Options).UnmarshalEasyJSON(in)
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.Options).UnmarshalEasyJSON(in)
+				}
 			}
 		case "sessionid":
-			out.SessionId = PublicSessionId(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SessionId = PublicSessionId(in.String())
+			}
 		case "roomid":
-			out.RoomId = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RoomId = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
