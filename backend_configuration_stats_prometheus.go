@@ -32,7 +32,7 @@ var (
 		Name:      "session_limit",
 		Help:      "The session limit of a backend",
 	}, []string{"backend"})
-	statsBackendLimitExceededTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+	statsBackendLimitExceededTotal = prometheus.NewCounterVec(prometheus.CounterOpts{ // +checklocksignore: Global readonly variable.
 		Namespace: "signaling",
 		Subsystem: "backend",
 		Name:      "session_limit_exceeded_total",

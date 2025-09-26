@@ -79,9 +79,10 @@ type HttpClientPool struct {
 	mu sync.Mutex
 
 	transport *http.Transport
-	clients   map[string]*Pool
+	// +checklocks:mu
+	clients map[string]*Pool
 
-	maxConcurrentRequestsPerHost int
+	maxConcurrentRequestsPerHost int // +checklocksignore: Only written to from constructor.
 }
 
 func NewHttpClientPool(maxConcurrentRequestsPerHost int, skipVerify bool) (*HttpClientPool, error) {

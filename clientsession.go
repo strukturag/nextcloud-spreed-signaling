@@ -70,9 +70,11 @@ type ClientSession struct {
 
 	parseUserData func() (api.StringMap, error)
 
-	inCall              Flags
+	inCall Flags
+	// +checklocks:mu
 	supportsPermissions bool
-	permissions         map[Permission]bool
+	// +checklocks:mu
+	permissions map[Permission]bool
 
 	backend          *Backend
 	backendUrl       string
@@ -80,30 +82,40 @@ type ClientSession struct {
 
 	mu sync.Mutex
 
+	// +checklocks:mu
 	client       HandlerClient
 	room         atomic.Pointer[Room]
 	roomJoinTime atomic.Int64
 	federation   atomic.Pointer[FederationClient]
 
 	roomSessionIdLock sync.RWMutex
-	roomSessionId     RoomSessionId
+	// +checklocks:roomSessionIdLock
+	roomSessionId RoomSessionId
 
-	publisherWaiters ChannelWaiters
+	publisherWaiters ChannelWaiters // +checklocksignore
 
-	publishers  map[StreamType]McuPublisher
+	// +checklocks:mu
+	publishers map[StreamType]McuPublisher
+	// +checklocks:mu
 	subscribers map[StreamId]McuSubscriber
 
-	pendingClientMessages        []*ServerMessage
-	hasPendingChat               bool
+	// +checklocks:mu
+	pendingClientMessages []*ServerMessage
+	// +checklocks:mu
+	hasPendingChat bool
+	// +checklocks:mu
 	hasPendingParticipantsUpdate bool
 
+	// +checklocks:mu
 	virtualSessions map[*VirtualSession]bool
 
-	seenJoinedLock   sync.Mutex
+	seenJoinedLock sync.Mutex
+	// +checklocks:seenJoinedLock
 	seenJoinedEvents map[PublicSessionId]bool
 
 	responseHandlersLock sync.Mutex
-	responseHandlers     map[string]ResponseHandlerFunc
+	// +checklocks:responseHandlersLock
+	responseHandlers map[string]ResponseHandlerFunc
 }
 
 func NewClientSession(hub *Hub, privateId PrivateSessionId, publicId PublicSessionId, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
@@ -197,6 +209,19 @@ func (s *ClientSession) HasPermission(permission Permission) bool {
 	return s.hasPermissionLocked(permission)
 }
 
+func (s *ClientSession) GetPermissions() []Permission {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result := make([]Permission, len(s.permissions))
+	for p, ok := range s.permissions {
+		if ok {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
 // HasAnyPermission checks if the session has one of the passed permissions.
 func (s *ClientSession) HasAnyPermission(permission ...Permission) bool {
 	if len(permission) == 0 {
@@ -209,16 +234,16 @@ func (s *ClientSession) HasAnyPermission(permission ...Permission) bool {
 	return s.hasAnyPermissionLocked(permission...)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) hasAnyPermissionLocked(permission ...Permission) bool {
 	if len(permission) == 0 {
 		return false
 	}
 
-	return slices.ContainsFunc(permission, func(p Permission) bool {
-		return s.hasPermissionLocked(p)
-	})
+	return slices.ContainsFunc(permission, s.hasPermissionLocked)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) hasPermissionLocked(permission Permission) bool {
 	if !s.supportsPermissions {
 		// Old-style session that doesn't receive permissions from Nextcloud.
@@ -340,6 +365,7 @@ func (s *ClientSession) getRoomJoinTime() time.Time {
 	return time.Unix(0, t)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) releaseMcuObjects() {
 	if len(s.publishers) > 0 {
 		go func(publishers map[StreamType]McuPublisher) {
@@ -489,6 +515,7 @@ func (s *ClientSession) LeaveRoomWithMessage(notify bool, message *ClientMessage
 	return s.doLeaveRoom(notify)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) doLeaveRoom(notify bool) *Room {
 	room := s.GetRoom()
 	if room == nil {
@@ -543,6 +570,7 @@ func (s *ClientSession) ClearClient(client HandlerClient) {
 	s.clearClientLocked(client)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) clearClientLocked(client HandlerClient) {
 	if s.client == nil {
 		return
@@ -563,6 +591,7 @@ func (s *ClientSession) GetClient() HandlerClient {
 	return s.getClientUnlocked()
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) getClientUnlocked() HandlerClient {
 	return s.client
 }
@@ -589,6 +618,7 @@ func (s *ClientSession) SetClient(client HandlerClient) HandlerClient {
 	return prev
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) sendOffer(client McuClient, sender PublicSessionId, streamType StreamType, offer api.StringMap) {
 	offer_message := &AnswerOfferMessage{
 		To:       s.PublicId(),
@@ -617,6 +647,7 @@ func (s *ClientSession) sendOffer(client McuClient, sender PublicSessionId, stre
 	s.sendMessageUnlocked(response_message)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) sendCandidate(client McuClient, sender PublicSessionId, streamType StreamType, candidate any) {
 	candidate_message := &AnswerOfferMessage{
 		To:       s.PublicId(),
@@ -647,6 +678,7 @@ func (s *ClientSession) sendCandidate(client McuClient, sender PublicSessionId, 
 	s.sendMessageUnlocked(response_message)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) sendMessageUnlocked(message *ServerMessage) bool {
 	if c := s.getClientUnlocked(); c != nil {
 		if c.SendMessage(message) {
@@ -768,6 +800,7 @@ func (e *PermissionError) Error() string {
 	return fmt.Sprintf("permission \"%s\" not found", e.permission)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) isSdpAllowedToSendLocked(sdp *sdp.SessionDescription) (MediaType, error) {
 	if sdp == nil {
 		// Should have already been checked when data was validated.
@@ -832,6 +865,7 @@ func (s *ClientSession) CheckOfferType(streamType StreamType, data *MessageClien
 	return s.checkOfferTypeLocked(streamType, data)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) checkOfferTypeLocked(streamType StreamType, data *MessageClientMessageData) (MediaType, error) {
 	if streamType == StreamTypeScreen {
 		if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
@@ -893,6 +927,8 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		if err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		if s.publishers == nil {
 			s.publishers = make(map[StreamType]McuPublisher)
 		}
@@ -915,6 +951,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 	return publisher, nil
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) getPublisherLocked(streamType StreamType) McuPublisher {
 	return s.publishers[streamType]
 }
@@ -1120,6 +1157,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 	s.SendMessage(serverMessage)
 }
 
+// +checklocks:s.mu
 func (s *ClientSession) storePendingMessage(message *ServerMessage) {
 	if message.IsChatRefresh() {
 		if s.hasPendingChat {

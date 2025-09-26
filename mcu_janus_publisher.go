@@ -67,38 +67,38 @@ func (p *mcuJanusPublisher) handleEvent(event *janus.EventMsg) {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Publisher %d: associated room has been destroyed, closing", p.handleId)
+			log.Printf("Publisher %d: associated room has been destroyed, closing", p.handleId.Load())
 			go p.Close(ctx)
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom publisher event in %d: %+v", p.handleId, event)
+			log.Printf("Unsupported videoroom publisher event in %d: %+v", p.handleId.Load(), event)
 		}
 	} else {
-		log.Printf("Unsupported publisher event in %d: %+v", p.handleId, event)
+		log.Printf("Unsupported publisher event in %d: %+v", p.handleId.Load(), event)
 	}
 }
 
 func (p *mcuJanusPublisher) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Publisher %d received hangup (%s), closing", p.handleId, event.Reason)
+	log.Printf("Publisher %d received hangup (%s), closing", p.handleId.Load(), event.Reason)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusPublisher) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Publisher %d received detached, closing", p.handleId)
+	log.Printf("Publisher %d received detached, closing", p.handleId.Load())
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusPublisher) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Publisher %d received connected", p.handleId)
+	log.Printf("Publisher %d received connected", p.handleId.Load())
 	p.mcu.publisherConnected.Notify(string(getStreamId(p.id, p.streamType)))
 }
 
 func (p *mcuJanusPublisher) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Publisher %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
+		log.Printf("Publisher %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	} else {
-		log.Printf("Publisher %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
+		log.Printf("Publisher %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	}
 }
 
@@ -129,18 +129,22 @@ func (p *mcuJanusPublisher) NotifyReconnected() {
 		return
 	}
 
-	p.handle = handle
-	p.handleId = handle.Id
+	if prev := p.handle.Swap(handle); prev != nil {
+		if _, err := prev.Detach(context.Background()); err != nil {
+			log.Printf("Error detaching old publisher handle %d: %s", prev.Id, err)
+		}
+	}
+	p.handleId.Store(handle.Id)
 	p.session = session
 	p.roomId = roomId
 
-	log.Printf("Publisher %s reconnected on handle %d", p.id, p.handleId)
+	log.Printf("Publisher %s reconnected on handle %d", p.id, p.handleId.Load())
 }
 
 func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	notify := false
 	p.mu.Lock()
-	if handle := p.handle; handle != nil && p.roomId != 0 {
+	if handle := p.handle.Load(); handle != nil && p.roomId != 0 {
 		destroy_msg := api.StringMap{
 			"request": "destroy",
 			"room":    p.roomId,
@@ -399,6 +403,11 @@ func getPublisherRemoteId(id PublicSessionId, remoteId PublicSessionId, hostname
 }
 
 func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
+	handle := p.handle.Load()
+	if handle == nil {
+		return ErrNotConnected
+	}
+
 	msg := api.StringMap{
 		"request":      "publish_remotely",
 		"room":         p.roomId,
@@ -408,7 +417,7 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId PublicSe
 		"port":         port,
 		"rtcp_port":    rtcpPort,
 	}
-	response, err := p.handle.Request(ctx, msg)
+	response, err := handle.Request(ctx, msg)
 	if err != nil {
 		return err
 	}
@@ -436,13 +445,18 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId PublicSe
 }
 
 func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
+	handle := p.handle.Load()
+	if handle == nil {
+		return ErrNotConnected
+	}
+
 	msg := api.StringMap{
 		"request":      "unpublish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],
 		"remote_id":    getPublisherRemoteId(p.id, remoteId, hostname, port, rtcpPort),
 	}
-	response, err := p.handle.Request(ctx, msg)
+	response, err := handle.Request(ctx, msg)
 	if err != nil {
 		return err
 	}

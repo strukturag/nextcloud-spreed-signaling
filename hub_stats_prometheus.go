@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	statsHubRoomsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	statsHubRoomsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{ // +checklocksignore: Global readonly variable.
 		Namespace: "signaling",
 		Subsystem: "hub",
 		Name:      "rooms",

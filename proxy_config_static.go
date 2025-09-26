@@ -43,9 +43,11 @@ type proxyConfigStatic struct {
 	mu    sync.Mutex
 	proxy McuProxy
 
-	dnsMonitor   *DnsMonitor
+	dnsMonitor *DnsMonitor
+	// +checklocks:mu
 	dnsDiscovery bool
 
+	// +checklocks:mu
 	connectionsMap map[string]*ipList
 }
 
@@ -107,7 +109,7 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 		}
 
 		if dnsDiscovery {
-			p.connectionsMap[u] = &ipList{
+			p.connectionsMap[u] = &ipList{ // +checklocksignore: Not supported for iter loops yet, see https://github.com/google/gvisor/issues/12176
 				hostname: parsed.Host,
 			}
 			continue
@@ -124,7 +126,7 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 			}
 		}
 
-		p.connectionsMap[u] = &ipList{
+		p.connectionsMap[u] = &ipList{ // +checklocksignore: Not supported for iter loops yet, see https://github.com/google/gvisor/issues/12176
 			hostname: parsed.Host,
 		}
 	}

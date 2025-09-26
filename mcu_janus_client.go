@@ -27,6 +27,7 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/notedit/janus-go"
 
@@ -45,8 +46,8 @@ type mcuJanusClient struct {
 	streamType StreamType
 	maxBitrate int
 
-	handle    *JanusHandle
-	handleId  uint64
+	handle    atomic.Pointer[JanusHandle]
+	handleId  atomic.Uint64
 	closeChan chan struct{}
 	deferred  chan func()
 
@@ -81,8 +82,7 @@ func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClient
 }
 
 func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
-	if handle := c.handle; handle != nil {
-		c.handle = nil
+	if handle := c.handle.Swap(nil); handle != nil {
 		close(c.closeChan)
 		if _, err := handle.Detach(ctx); err != nil {
 			if e, ok := err.(*janus.ErrorMsg); !ok || e.Err.Code != JANUS_ERROR_HANDLE_NOT_FOUND {
@@ -127,7 +127,7 @@ loop:
 }
 
 func (c *mcuJanusClient) sendOffer(ctx context.Context, offer api.StringMap, callback func(error, api.StringMap)) {
-	handle := c.handle
+	handle := c.handle.Load()
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
@@ -149,7 +149,7 @@ func (c *mcuJanusClient) sendOffer(ctx context.Context, offer api.StringMap, cal
 }
 
 func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer api.StringMap, callback func(error, api.StringMap)) {
-	handle := c.handle
+	handle := c.handle.Load()
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
@@ -169,7 +169,7 @@ func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer api.StringMap, c
 }
 
 func (c *mcuJanusClient) sendCandidate(ctx context.Context, candidate any, callback func(error, api.StringMap)) {
-	handle := c.handle
+	handle := c.handle.Load()
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
@@ -191,7 +191,7 @@ func (c *mcuJanusClient) handleTrickle(event *TrickleMsg) {
 }
 
 func (c *mcuJanusClient) selectStream(ctx context.Context, stream *streamSelection, callback func(error, api.StringMap)) {
-	handle := c.handle
+	handle := c.handle.Load()
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return

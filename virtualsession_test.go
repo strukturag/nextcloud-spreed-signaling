@@ -45,7 +45,7 @@ func TestVirtualSession(t *testing.T) {
 	backend := &Backend{
 		id: "compat",
 	}
-	room, err := hub.createRoom(roomId, emptyProperties, backend)
+	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
 
@@ -229,7 +229,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	backend := &Backend{
 		id: "compat",
 	}
-	room, err := hub.createRoom(roomId, emptyProperties, backend)
+	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
 
@@ -439,7 +439,7 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 	backend := &Backend{
 		id: "compat",
 	}
-	room, err := hub.createRoom(roomId, emptyProperties, backend)
+	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
 
@@ -581,7 +581,7 @@ func TestVirtualSessionCleanup(t *testing.T) {
 	backend := &Backend{
 		id: "compat",
 	}
-	room, err := hub.createRoom(roomId, emptyProperties, backend)
+	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
 

@@ -573,7 +573,9 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 		assert.Equal(secret3, string(backends[0].secret))
 	}
 
+	storage.mu.RLock()
 	_, found := storage.backends["domain1.invalid"]
+	storage.mu.RUnlock()
 	assert.False(found, "Should have removed host information")
 }
 
@@ -806,6 +808,8 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 	<-ch
 
 	checkStatsValue(t, statsBackendsCurrent, 0)
+	storage.mu.RLock()
 	_, found := storage.backends["domain1.invalid"]
+	storage.mu.RUnlock()
 	assert.False(found, "Should have removed host information")
 }

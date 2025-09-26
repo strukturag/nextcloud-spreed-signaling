@@ -38,6 +38,7 @@ import (
 type mockDnsLookup struct {
 	sync.RWMutex
 
+	// +checklocks:RWMutex
 	ips map[string][]net.IP
 }
 
@@ -118,14 +119,16 @@ func (r *dnsMonitorReceiverRecord) String() string {
 }
 
 var (
-	expectNone = &dnsMonitorReceiverRecord{}
+	expectNone = &dnsMonitorReceiverRecord{} // +checklocksignore: Global readonly variable.
 )
 
 type dnsMonitorReceiver struct {
 	sync.Mutex
 
-	t        *testing.T
+	t *testing.T
+	// +checklocks:Mutex
 	expected *dnsMonitorReceiverRecord
+	// +checklocks:Mutex
 	received *dnsMonitorReceiverRecord
 }
 
@@ -328,13 +331,15 @@ func TestDnsMonitorNoLookupIfEmpty(t *testing.T) {
 
 type deadlockMonitorReceiver struct {
 	t       *testing.T
-	monitor *DnsMonitor
+	monitor *DnsMonitor // +checklocksignore: Only written to from constructor.
 
 	mu sync.RWMutex
 	wg sync.WaitGroup
 
-	entry     *DnsMonitorEntry
-	started   chan struct{}
+	// +checklocks:mu
+	entry   *DnsMonitorEntry
+	started chan struct{}
+	// +checklocks:mu
 	triggered bool
 	closed    atomic.Bool
 }

@@ -202,7 +202,8 @@ type TestClient struct {
 	hub     *Hub
 	server  *httptest.Server
 
-	mu        sync.Mutex
+	mu sync.Mutex
+	// +checklocks:mu
 	conn      *websocket.Conn
 	localAddr net.Addr
 

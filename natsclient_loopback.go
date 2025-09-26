@@ -32,10 +32,13 @@ import (
 )
 
 type LoopbackNatsClient struct {
-	mu            sync.Mutex
+	mu sync.Mutex
+	// +checklocks:mu
 	subscriptions map[string]map[*loopbackNatsSubscription]bool
 
-	wakeup   sync.Cond
+	// +checklocks:mu
+	wakeup sync.Cond
+	// +checklocks:mu
 	incoming list.List
 }
 
@@ -65,6 +68,7 @@ func (c *LoopbackNatsClient) processMessages() {
 	}
 }
 
+// +checklocks:c.mu
 func (c *LoopbackNatsClient) processMessage(msg *nats.Msg) {
 	subs, found := c.subscriptions[msg.Subject]
 	if !found {

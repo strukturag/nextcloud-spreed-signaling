@@ -113,7 +113,7 @@ type MessagePayload struct {
 }
 
 type SignalingClient struct {
-	readyWg *sync.WaitGroup
+	readyWg *sync.WaitGroup // +checklocksignore: Only written to from constructor.
 	cookie  *signaling.SessionIdCodec
 
 	conn *websocket.Conn
@@ -123,10 +123,13 @@ type SignalingClient struct {
 
 	stopChan chan struct{}
 
-	lock             sync.Mutex
+	lock sync.Mutex
+	// +checklocks:lock
 	privateSessionId signaling.PrivateSessionId
-	publicSessionId  signaling.PublicSessionId
-	userId           string
+	// +checklocks:lock
+	publicSessionId signaling.PublicSessionId
+	// +checklocks:lock
+	userId string
 }
 
 func NewSignalingClient(cookie *signaling.SessionIdCodec, url string, stats *Stats, readyWg *sync.WaitGroup, doneWg *sync.WaitGroup) (*SignalingClient, error) {

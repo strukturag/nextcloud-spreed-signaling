@@ -94,7 +94,8 @@ type memoryThrottler struct {
 	getNow  func() time.Time
 	doDelay func(context.Context, time.Duration)
 
-	mu      sync.RWMutex
+	mu sync.RWMutex
+	// +checklocks:mu
 	clients map[string]map[string][]throttleEntry
 
 	closer *Closer

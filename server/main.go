@@ -94,7 +94,8 @@ func createTLSListener(addr string, certFile, keyFile string) (net.Listener, err
 }
 
 type Listeners struct {
-	mu        sync.Mutex
+	mu sync.Mutex
+	// +checklocks:mu
 	listeners []net.Listener
 }
 

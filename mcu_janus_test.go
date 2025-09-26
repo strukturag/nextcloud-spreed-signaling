@@ -58,19 +58,27 @@ type TestJanusGateway struct {
 
 	sid atomic.Uint64
 	tid atomic.Uint64
-	hid atomic.Uint64
-	rid atomic.Uint64
+	hid atomic.Uint64 // +checklocksignore: Atomic
+	rid atomic.Uint64 // +checklocksignore: Atomic
 	mu  sync.Mutex
 
-	sessions     map[uint64]*JanusSession
+	// +checklocks:mu
+	sessions map[uint64]*JanusSession
+	// +checklocks:mu
 	transactions map[uint64]*transaction
-	handles      map[uint64]*TestJanusHandle
-	rooms        map[uint64]*TestJanusRoom
-	handlers     map[string]TestJanusHandler
+	// +checklocks:mu
+	handles map[uint64]*TestJanusHandle
+	// +checklocks:mu
+	rooms map[uint64]*TestJanusRoom
+	// +checklocks:mu
+	handlers map[string]TestJanusHandler
 
-	attachCount atomic.Int32
-	joinCount   atomic.Int32
+	// +checklocks:mu
+	attachCount int
+	// +checklocks:mu
+	joinCount int
 
+	// +checklocks:mu
 	handleRooms map[*TestJanusHandle]*TestJanusRoom
 }
 
@@ -142,6 +150,7 @@ func (g *TestJanusGateway) Close() error {
 	return nil
 }
 
+// +checklocks:g.mu
 func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJanusHandle, body api.StringMap, jsep api.StringMap) any {
 	request := body["request"].(string)
 	switch request {
@@ -165,15 +174,18 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 		error_code := JANUS_OK
 		if body["ptype"] == "subscriber" {
 			if strings.Contains(g.t.Name(), "NoSuchRoom") {
-				if g.joinCount.Add(1) == 1 {
+				g.joinCount++
+				if g.joinCount == 1 {
 					error_code = JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM
 				}
 			} else if strings.Contains(g.t.Name(), "AlreadyJoined") {
-				if g.joinCount.Add(1) == 1 {
+				g.joinCount++
+				if g.joinCount == 1 {
 					error_code = JANUS_VIDEOROOM_ERROR_ALREADY_JOINED
 				}
 			} else if strings.Contains(g.t.Name(), "SubscriberTimeout") {
-				if g.joinCount.Add(1) == 1 {
+				g.joinCount++
+				if g.joinCount == 1 {
 					error_code = JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED
 				}
 			}
@@ -354,7 +366,8 @@ func (g *TestJanusGateway) processRequest(msg api.StringMap) any {
 	switch method {
 	case "attach":
 		if strings.Contains(g.t.Name(), "AlreadyJoinedAttachError") {
-			if g.attachCount.Add(1) == 4 {
+			g.attachCount++
+			if g.attachCount == 4 {
 				return &janus.ErrorMsg{
 					Err: janus.ErrorData{
 						Code:   JANUS_ERROR_UNKNOWN,

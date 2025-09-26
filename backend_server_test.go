@@ -628,7 +628,7 @@ func RunTestBackendServer_RoomUpdate(t *testing.T) {
 	emptyProperties := json.RawMessage("{}")
 	backend := hub.backend.GetBackend(u)
 	require.NotNil(backend, "Did not find backend")
-	room, err := hub.createRoom(roomId, emptyProperties, backend)
+	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err, "Could not create room")
 	defer room.Close()
 
@@ -696,7 +696,7 @@ func RunTestBackendServer_RoomDelete(t *testing.T) {
 	emptyProperties := json.RawMessage("{}")
 	backend := hub.backend.GetBackend(u)
 	require.NotNil(backend, "Did not find backend")
-	_, err = hub.createRoom(roomId, emptyProperties, backend)
+	_, err = hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 
 	userid := "test-userid"
