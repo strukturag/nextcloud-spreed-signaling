@@ -66,9 +66,9 @@ type RemoteConnection struct {
 	p   *ProxyServer
 	url *url.URL
 	// +checklocks:mu
-	conn   *websocket.Conn
-	closer *signaling.Closer
-	closed atomic.Bool
+	conn      *websocket.Conn
+	closeCtx  context.Context
+	closeFunc context.CancelFunc // +checklocksignore: Only written to from constructor.
 
 	tokenId   string
 	tokenKey  *rsa.PrivateKey
@@ -84,6 +84,8 @@ type RemoteConnection struct {
 	helloMsgId string
 	// +checklocks:mu
 	sessionId signaling.PublicSessionId
+	// +checklocks:mu
+	helloReceived bool
 
 	// +checklocks:mu
 	pendingMessages []*signaling.ProxyClientMessage
@@ -97,10 +99,13 @@ func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenK
 		return nil, err
 	}
 
+	closeCtx, closeFunc := context.WithCancel(context.Background())
+
 	result := &RemoteConnection{
-		p:      p,
-		url:    u,
-		closer: signaling.NewCloser(),
+		p:         p,
+		url:       u,
+		closeCtx:  closeCtx,
+		closeFunc: closeFunc,
 
 		tokenId:   tokenId,
 		tokenKey:  tokenKey,
@@ -119,6 +124,12 @@ func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenK
 
 func (c *RemoteConnection) String() string {
 	return c.url.String()
+}
+
+func (c *RemoteConnection) SessionId() signaling.PublicSessionId {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sessionId
 }
 
 func (c *RemoteConnection) reconnect() {
@@ -148,7 +159,6 @@ func (c *RemoteConnection) reconnect() {
 	}
 
 	log.Printf("Connected to %s", c)
-	c.closed.Store(false)
 
 	c.mu.Lock()
 	c.connectedSince = time.Now()
@@ -169,7 +179,7 @@ func (c *RemoteConnection) sendReconnectHello() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if err := c.sendHello(context.Background()); err != nil {
+	if err := c.sendHello(c.closeCtx); err != nil {
 		log.Printf("Error sending hello request to proxy at %s: %s", c, err)
 		return false
 	}
@@ -186,10 +196,10 @@ func (c *RemoteConnection) scheduleReconnect() {
 
 // +checklocks:c.mu
 func (c *RemoteConnection) scheduleReconnectLocked() {
-	if err := c.sendClose(); err != nil && err != ErrNotConnected {
+	if err := c.sendCloseLocked(); err != nil && err != ErrNotConnected {
 		log.Printf("Could not send close message to %s: %s", c, err)
 	}
-	c.close()
+	c.closeLocked()
 
 	interval := c.reconnectInterval.Load()
 	// Prevent all servers from reconnecting at the same time in case of an
@@ -225,13 +235,6 @@ func (c *RemoteConnection) sendHello(ctx context.Context) error {
 	return c.sendMessageLocked(ctx, msg)
 }
 
-func (c *RemoteConnection) sendClose() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return c.sendCloseLocked()
-}
-
 // +checklocks:c.mu
 func (c *RemoteConnection) sendCloseLocked() error {
 	if c.conn == nil {
@@ -246,10 +249,17 @@ func (c *RemoteConnection) close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.closeLocked()
+}
+
+// +checklocks:c.mu
+func (c *RemoteConnection) closeLocked() {
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
 	}
+	c.connectedSince = time.Time{}
+	c.helloReceived = false
 }
 
 func (c *RemoteConnection) Close() error {
@@ -260,15 +270,17 @@ func (c *RemoteConnection) Close() error {
 		return nil
 	}
 
-	if !c.closed.CompareAndSwap(false, true) {
+	if c.closeCtx.Err() != nil {
 		// Already closed
 		return nil
 	}
 
-	c.closer.Close()
+	c.closeFunc()
 	err1 := c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{})
 	err2 := c.conn.Close()
 	c.conn = nil
+	c.connectedSince = time.Time{}
+	c.helloReceived = false
 	if err1 != nil {
 		return err1
 	}
@@ -296,7 +308,7 @@ func (c *RemoteConnection) SendMessage(msg *signaling.ProxyClientMessage) error 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.sendMessageLocked(context.Background(), msg)
+	return c.sendMessageLocked(c.closeCtx, msg)
 }
 
 // +checklocks:c.mu
@@ -338,7 +350,7 @@ func (c *RemoteConnection) sendMessageLocked(ctx context.Context, msg *signaling
 
 func (c *RemoteConnection) readPump(conn *websocket.Conn) {
 	defer func() {
-		if !c.closed.Load() {
+		if c.closeCtx.Err() == nil {
 			c.scheduleReconnect()
 		}
 	}()
@@ -353,7 +365,7 @@ func (c *RemoteConnection) readPump(conn *websocket.Conn) {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				if !errors.Is(err, net.ErrClosed) || !c.closed.Load() {
+				if !errors.Is(err, net.ErrClosed) || c.closeCtx.Err() == nil {
 					log.Printf("Error reading from %s: %v", c, err)
 				}
 			}
@@ -415,7 +427,7 @@ func (c *RemoteConnection) writePump() {
 			c.reconnect()
 		case <-ticker.C:
 			c.sendPing()
-		case <-c.closer.C:
+		case <-c.closeCtx.Done():
 			return
 		}
 	}
@@ -431,7 +443,7 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 		if msg.Error.Code == "no_such_session" {
 			log.Printf("Session %s could not be resumed on %s, registering new", c.sessionId, c)
 			c.sessionId = ""
-			if err := c.sendHello(context.Background()); err != nil {
+			if err := c.sendHello(c.closeCtx); err != nil {
 				log.Printf("Could not send hello request to %s: %s", c, err)
 				c.scheduleReconnectLocked()
 			}
@@ -443,6 +455,7 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 	case "hello":
 		resumed := c.sessionId == msg.Hello.SessionId
 		c.sessionId = msg.Hello.SessionId
+		c.helloReceived = true
 		country := ""
 		if msg.Hello.Server != nil {
 			if country = msg.Hello.Server.Country; country != "" && !signaling.IsValidCountry(country) {
@@ -465,7 +478,7 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 				continue
 			}
 
-			if err := c.sendMessageLocked(context.Background(), m); err != nil {
+			if err := c.sendMessageLocked(c.closeCtx, m); err != nil {
 				log.Printf("Could not send pending message %+v to %s: %s", m, c, err)
 			}
 		}
@@ -565,4 +578,16 @@ func (c *RemoteConnection) RequestMessage(ctx context.Context, msg *signaling.Pr
 		}
 		return response, nil
 	}
+}
+
+func (c *RemoteConnection) SendBye() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn == nil {
+		return nil
+	}
+
+	return c.sendMessageLocked(c.closeCtx, &signaling.ProxyClientMessage{
+		Type: "bye",
+	})
 }
