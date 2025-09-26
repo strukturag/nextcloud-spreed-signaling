@@ -26,6 +26,8 @@ import (
 	"encoding/json"
 	"net/url"
 	"sync"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type Permission string
@@ -56,7 +58,7 @@ type Session interface {
 
 	UserId() string
 	UserData() json.RawMessage
-	ParsedUserData() (StringMap, error)
+	ParsedUserData() (api.StringMap, error)
 
 	Backend() *Backend
 	BackendUrl() string
@@ -74,13 +76,13 @@ type Session interface {
 	SendMessage(message *ServerMessage) bool
 }
 
-func parseUserData(data json.RawMessage) func() (StringMap, error) {
-	return sync.OnceValues(func() (StringMap, error) {
+func parseUserData(data json.RawMessage) func() (api.StringMap, error) {
+	return sync.OnceValues(func() (api.StringMap, error) {
 		if len(data) == 0 {
 			return nil, nil
 		}
 
-		var m StringMap
+		var m api.StringMap
 		if err := json.Unmarshal(data, &m); err != nil {
 			return nil, err
 		}

@@ -46,6 +46,8 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -421,14 +423,14 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentMap[RoomSessionId, PublicSessionId], users []StringMap) []StringMap {
+func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentMap[RoomSessionId, PublicSessionId], users []api.StringMap) []api.StringMap {
 	if len(users) == 0 {
 		return users
 	}
 
 	var wg sync.WaitGroup
 	for _, user := range users {
-		roomSessionId, found := GetStringMapString[RoomSessionId](user, "sessionId")
+		roomSessionId, found := api.GetStringMapString[RoomSessionId](user, "sessionId")
 		if !found {
 			log.Printf("User %+v has invalid room session id, ignoring", user)
 			delete(user, "sessionId")
@@ -442,7 +444,7 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 		}
 
 		wg.Add(1)
-		go func(roomSessionId RoomSessionId, u StringMap) {
+		go func(roomSessionId RoomSessionId, u api.StringMap) {
 			defer wg.Done()
 			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
 				log.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
@@ -457,7 +459,7 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 	}
 	wg.Wait()
 
-	result := make([]StringMap, 0, len(users))
+	result := make([]api.StringMap, 0, len(users))
 	for _, user := range users {
 		if _, found := user["sessionId"]; found {
 			result = append(result, user)
@@ -512,7 +514,7 @@ loop:
 			continue
 		}
 
-		sessionId, found := GetStringMapString[PublicSessionId](user, "sessionId")
+		sessionId, found := api.GetStringMapString[PublicSessionId](user, "sessionId")
 		if !found {
 			log.Printf("User entry has no session id: %+v", user)
 			continue

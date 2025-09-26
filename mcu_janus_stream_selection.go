@@ -24,6 +24,8 @@ package signaling
 import (
 	"database/sql"
 	"fmt"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type streamSelection struct {
@@ -37,7 +39,7 @@ func (s *streamSelection) HasValues() bool {
 	return s.substream.Valid || s.temporal.Valid || s.audio.Valid || s.video.Valid
 }
 
-func (s *streamSelection) AddToMessage(message StringMap) {
+func (s *streamSelection) AddToMessage(message api.StringMap) {
 	if s.substream.Valid {
 		message["substream"] = s.substream.Int16
 	}
@@ -52,7 +54,7 @@ func (s *streamSelection) AddToMessage(message StringMap) {
 	}
 }
 
-func parseStreamSelection(payload StringMap) (*streamSelection, error) {
+func parseStreamSelection(payload api.StringMap) (*streamSelection, error) {
 	var stream streamSelection
 	if value, found := payload["substream"]; found {
 		switch value := value.(type) {

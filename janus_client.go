@@ -42,6 +42,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/notedit/janus-go"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -204,8 +206,8 @@ func newTransaction() *transaction {
 	return t
 }
 
-func newRequest(method string) (StringMap, *transaction) {
-	req := make(StringMap, 8)
+func newRequest(method string) (api.StringMap, *transaction) {
+	req := make(api.StringMap, 8)
 	req["janus"] = method
 	return req, newTransaction()
 }
@@ -225,7 +227,7 @@ type JanusGatewayInterface interface {
 	Create(context.Context) (*JanusSession, error)
 	Close() error
 
-	send(StringMap, *transaction) (uint64, error)
+	send(api.StringMap, *transaction) (uint64, error)
 	removeTransaction(uint64)
 
 	removeSession(*JanusSession)
@@ -338,7 +340,7 @@ func (gateway *JanusGateway) removeTransaction(id uint64) {
 	}
 }
 
-func (gateway *JanusGateway) send(msg StringMap, t *transaction) (uint64, error) {
+func (gateway *JanusGateway) send(msg api.StringMap, t *transaction) (uint64, error) {
 	id := gateway.nextTransaction.Add(1)
 	msg["transaction"] = strconv.FormatUint(id, 10)
 	data, err := json.Marshal(msg)
@@ -599,7 +601,7 @@ type JanusSession struct {
 	gateway JanusGatewayInterface
 }
 
-func (session *JanusSession) send(msg StringMap, t *transaction) (uint64, error) {
+func (session *JanusSession) send(msg api.StringMap, t *transaction) (uint64, error) {
 	msg["session_id"] = session.Id
 	return session.gateway.send(msg, t)
 }
@@ -711,7 +713,7 @@ type JanusHandle struct {
 	session *JanusSession
 }
 
-func (handle *JanusHandle) send(msg StringMap, t *transaction) (uint64, error) {
+func (handle *JanusHandle) send(msg api.StringMap, t *transaction) (uint64, error) {
 	msg["handle_id"] = handle.Id
 	return handle.session.send(msg, t)
 }

@@ -35,6 +35,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pion/ice/v4"
 	"github.com/pion/sdp/v3"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -724,10 +726,10 @@ type MessageClientMessage struct {
 }
 
 type MessageClientMessageData struct {
-	Type     string    `json:"type"`
-	Sid      string    `json:"sid"`
-	RoomType string    `json:"roomType"`
-	Payload  StringMap `json:"payload"`
+	Type     string        `json:"type"`
+	Sid      string        `json:"sid"`
+	RoomType string        `json:"roomType"`
+	Payload  api.StringMap `json:"payload"`
 
 	// Only supported if Type == "offer"
 	Bitrate     int    `json:"bitrate,omitempty"`
@@ -752,7 +754,7 @@ func (m *MessageClientMessageData) String() string {
 func parseSDP(s string) (*sdp.SessionDescription, error) {
 	var sdp sdp.SessionDescription
 	if err := sdp.UnmarshalString(s); err != nil {
-		return nil, NewErrorDetail("invalid_sdp", "Error parsing SDP from payload.", StringMap{
+		return nil, NewErrorDetail("invalid_sdp", "Error parsing SDP from payload.", api.StringMap{
 			"error": err.Error(),
 		})
 	}
@@ -764,7 +766,7 @@ func parseSDP(s string) (*sdp.SessionDescription, error) {
 			}
 
 			if _, err := ice.UnmarshalCandidate(a.Value); err != nil {
-				return nil, NewErrorDetail("invalid_sdp", "Error parsing candidate from media description.", StringMap{
+				return nil, NewErrorDetail("invalid_sdp", "Error parsing candidate from media description.", api.StringMap{
 					"media": m.MediaName.Media,
 					"idx":   idx,
 					"error": err.Error(),
@@ -786,7 +788,7 @@ func (m *MessageClientMessageData) CheckValid() error {
 	}
 	switch m.Type {
 	case "offer", "answer":
-		sdpText, ok := GetStringMapEntry[string](m.Payload, "sdp")
+		sdpText, ok := api.GetStringMapEntry[string](m.Payload, "sdp")
 		if !ok {
 			return ErrInvalidSdp
 		}
@@ -807,11 +809,11 @@ func (m *MessageClientMessageData) CheckValid() error {
 		if !found {
 			return ErrNoCandidate
 		}
-		candItem, ok := ConvertStringMap(candValue)
+		candItem, ok := api.ConvertStringMap(candValue)
 		if !ok {
 			return ErrInvalidCandidate
 		}
-		candText, ok := GetStringMapEntry[string](candItem, "candidate")
+		candText, ok := api.GetStringMapEntry[string](candItem, "candidate")
 		if !ok {
 			return ErrInvalidCandidate
 		}
@@ -821,7 +823,7 @@ func (m *MessageClientMessageData) CheckValid() error {
 		} else {
 			cand, err := ice.UnmarshalCandidate(candText)
 			if err != nil {
-				return NewErrorDetail("invalid_candidate", "Error parsing candidate from payload.", StringMap{
+				return NewErrorDetail("invalid_candidate", "Error parsing candidate from payload.", api.StringMap{
 					"error": err.Error(),
 				})
 			}
@@ -1131,8 +1133,8 @@ type RoomEventServerMessage struct {
 	Properties json.RawMessage `json:"properties,omitempty"`
 	// TODO(jojo): Change "InCall" to "int" when #914 has landed in NC Talk.
 	InCall  json.RawMessage `json:"incall,omitempty"`
-	Changed []StringMap     `json:"changed,omitempty"`
-	Users   []StringMap     `json:"users,omitempty"`
+	Changed []api.StringMap `json:"changed,omitempty"`
+	Users   []api.StringMap `json:"users,omitempty"`
 
 	All bool `json:"all,omitempty"`
 }
@@ -1167,7 +1169,7 @@ type RoomFlagsServerMessage struct {
 	Flags     uint32          `json:"flags"`
 }
 
-type ChatComment StringMap
+type ChatComment api.StringMap
 
 type RoomEventMessageDataChat struct {
 	Comment *ChatComment `json:"comment,omitempty"`
@@ -1240,7 +1242,7 @@ type AnswerOfferMessage struct {
 	From     PublicSessionId `json:"from"`
 	Type     string          `json:"type"`
 	RoomType string          `json:"roomType"`
-	Payload  StringMap       `json:"payload"`
+	Payload  api.StringMap   `json:"payload"`
 	Sid      string          `json:"sid,omitempty"`
 }
 
@@ -1272,8 +1274,8 @@ func (m *TransientDataClientMessage) CheckValid() error {
 type TransientDataServerMessage struct {
 	Type string `json:"type"`
 
-	Key      string    `json:"key,omitempty"`
-	OldValue any       `json:"oldvalue,omitempty"`
-	Value    any       `json:"value,omitempty"`
-	Data     StringMap `json:"data,omitempty"`
+	Key      string        `json:"key,omitempty"`
+	OldValue any           `json:"oldvalue,omitempty"`
+	Value    any           `json:"value,omitempty"`
+	Data     api.StringMap `json:"data,omitempty"`
 }

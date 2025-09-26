@@ -35,6 +35,8 @@ import (
 	"github.com/notedit/janus-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type TestJanusHandle struct {
@@ -49,7 +51,7 @@ type TestJanusRoom struct {
 	publisher atomic.Pointer[TestJanusHandle]
 }
 
-type TestJanusHandler func(room *TestJanusRoom, body StringMap, jsep StringMap) (any, *janus.ErrorMsg)
+type TestJanusHandler func(room *TestJanusRoom, body api.StringMap, jsep api.StringMap) (any, *janus.ErrorMsg)
 
 type TestJanusGateway struct {
 	t *testing.T
@@ -140,7 +142,7 @@ func (g *TestJanusGateway) Close() error {
 	return nil
 }
 
-func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJanusHandle, body StringMap, jsep StringMap) any {
+func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJanusHandle, body api.StringMap, jsep api.StringMap) any {
 	request := body["request"].(string)
 	switch request {
 	case "create":
@@ -152,7 +154,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 		return &janus.SuccessMsg{
 			PluginData: janus.PluginData{
 				Plugin: pluginVideoRoom,
-				Data: StringMap{
+				Data: api.StringMap{
 					"room": room.id,
 				},
 			},
@@ -180,7 +182,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 			return &janus.EventMsg{
 				Plugindata: janus.PluginData{
 					Plugin: pluginVideoRoom,
-					Data: StringMap{
+					Data: api.StringMap{
 						"error_code": error_code,
 					},
 				},
@@ -191,7 +193,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 			return &janus.EventMsg{
 				Plugindata: janus.PluginData{
 					Plugin: pluginVideoRoom,
-					Data: StringMap{
+					Data: api.StringMap{
 						"error_code": JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM,
 					},
 				},
@@ -215,7 +217,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 				Handle:  handle.id,
 				Plugindata: janus.PluginData{
 					Plugin: pluginVideoRoom,
-					Data: StringMap{
+					Data: api.StringMap{
 						"room": room.id,
 					},
 				},
@@ -226,7 +228,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 				return &janus.EventMsg{
 					Plugindata: janus.PluginData{
 						Plugin: pluginVideoRoom,
-						Data: StringMap{
+						Data: api.StringMap{
 							"error_code": JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED,
 						},
 					},
@@ -235,7 +237,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 
 			sdp := publisher.sdp.Load()
 			return &janus.EventMsg{
-				Jsep: StringMap{
+				Jsep: api.StringMap{
 					"type": "offer",
 					"sdp":  sdp.(string),
 				},
@@ -264,7 +266,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 		return &janus.SuccessMsg{
 			PluginData: janus.PluginData{
 				Plugin: pluginVideoRoom,
-				Data:   StringMap{},
+				Data:   api.StringMap{},
 			},
 		}
 	default:
@@ -330,7 +332,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 	return nil
 }
 
-func (g *TestJanusGateway) processRequest(msg StringMap) any {
+func (g *TestJanusGateway) processRequest(msg api.StringMap) any {
 	method, found := msg["janus"]
 	if !found {
 		return nil
@@ -407,10 +409,10 @@ func (g *TestJanusGateway) processRequest(msg StringMap) any {
 		var result any
 		switch method {
 		case "message":
-			body, ok := ConvertStringMap(msg["body"])
+			body, ok := api.ConvertStringMap(msg["body"])
 			assert.True(g.t, ok, "not a string map: %+v", msg["body"])
 			if jsepOb, found := msg["jsep"]; found {
-				if jsep, ok := ConvertStringMap(jsepOb); assert.True(g.t, ok, "not a string map: %+v", jsepOb) {
+				if jsep, ok := api.ConvertStringMap(jsepOb); assert.True(g.t, ok, "not a string map: %+v", jsepOb) {
 					result = g.processMessage(session, handle, body, jsep)
 				}
 			} else {
@@ -451,7 +453,7 @@ func (g *TestJanusGateway) processRequest(msg StringMap) any {
 	return nil
 }
 
-func (g *TestJanusGateway) send(msg StringMap, t *transaction) (uint64, error) {
+func (g *TestJanusGateway) send(msg api.StringMap, t *transaction) (uint64, error) {
 	tid := g.tid.Add(1)
 
 	data, err := json.Marshal(msg)
@@ -523,7 +525,7 @@ func (t *TestMcuListener) PublicId() PublicSessionId {
 	return t.id
 }
 
-func (t *TestMcuListener) OnUpdateOffer(client McuClient, offer StringMap) {
+func (t *TestMcuListener) OnUpdateOffer(client McuClient, offer api.StringMap) {
 
 }
 
@@ -593,7 +595,7 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"configure": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			if assert.NotNil(jsep) {
 				// The SDP received by Janus will be filtered from blocked candidates.
@@ -606,12 +608,12 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 			}
 
 			return &janus.EventMsg{
-				Jsep: StringMap{
+				Jsep: api.StringMap{
 					"sdp": MockSdpAnswerAudioOnly,
 				},
 			}, nil
 		},
-		"trickle": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"trickle": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			return &janus.AckMsg{}, nil
 		},
@@ -637,7 +639,7 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 	// Send offer containing candidates that will be blocked / filtered.
 	data := &MessageClientMessageData{
 		Type: "offer",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioOnly,
 		},
 	}
@@ -645,7 +647,7 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		if assert.NoError(err) {
@@ -661,15 +663,15 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 
 	data = &MessageClientMessageData{
 		Type: "candidate",
-		Payload: StringMap{
-			"candidate": StringMap{
+		Payload: api.StringMap{
+			"candidate": api.StringMap{
 				"candidate": "candidate:1 1 UDP 1685987071 192.168.0.1 49203 typ srflx raddr 198.51.100.7 rport 51556",
 			},
 		},
 	}
 	require.NoError(data.CheckValid())
 	wg.Add(1)
-	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		assert.ErrorContains(err, "filtered")
@@ -679,15 +681,15 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 
 	data = &MessageClientMessageData{
 		Type: "candidate",
-		Payload: StringMap{
-			"candidate": StringMap{
+		Payload: api.StringMap{
+			"candidate": api.StringMap{
 				"candidate": "candidate:0 1 UDP 2122194687 198.51.100.7 51556 typ host",
 			},
 		},
 	}
 	require.NoError(data.CheckValid())
 	wg.Add(1)
-	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		assert.NoError(err)
@@ -704,7 +706,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"start": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"start": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			if assert.NotNil(jsep) {
 				// The SDP received by Janus will be filtered from blocked candidates.
@@ -719,7 +721,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 			return &janus.EventMsg{
 				Plugindata: janus.PluginData{
 					Plugin: pluginVideoRoom,
-					Data: StringMap{
+					Data: api.StringMap{
 						"room":      room.id,
 						"started":   true,
 						"videoroom": "event",
@@ -727,7 +729,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 				},
 			}, nil
 		},
-		"trickle": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"trickle": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			return &janus.AckMsg{}, nil
 		},
@@ -764,7 +766,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	// Send answer containing candidates that will be blocked / filtered.
 	data := &MessageClientMessageData{
 		Type: "answer",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpAnswerAudioOnly,
 		},
 	}
@@ -772,7 +774,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		if assert.NoError(err) {
@@ -783,15 +785,15 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 
 	data = &MessageClientMessageData{
 		Type: "candidate",
-		Payload: StringMap{
-			"candidate": StringMap{
+		Payload: api.StringMap{
+			"candidate": api.StringMap{
 				"candidate": "candidate:1 1 UDP 1685987071 192.168.0.1 49203 typ srflx raddr 198.51.100.7 rport 51556",
 			},
 		},
 	}
 	require.NoError(data.CheckValid())
 	wg.Add(1)
-	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		assert.ErrorContains(err, "filtered")
@@ -801,15 +803,15 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 
 	data = &MessageClientMessageData{
 		Type: "candidate",
-		Payload: StringMap{
-			"candidate": StringMap{
+		Payload: api.StringMap{
+			"candidate": api.StringMap{
 				"candidate": "candidate:0 1 UDP 2122194687 198.51.100.7 51556 typ host",
 			},
 		},
 	}
 	require.NoError(data.CheckValid())
 	wg.Add(1)
-	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		assert.NoError(err)
@@ -826,7 +828,7 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"configure": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			if assert.NotNil(jsep) {
 				if sdpValue, found := jsep["sdp"]; assert.True(found) {
@@ -838,7 +840,7 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 			}
 
 			return &janus.EventMsg{
-				Jsep: StringMap{
+				Jsep: api.StringMap{
 					"sdp": MockSdpAnswerAudioOnly,
 				},
 			}, nil
@@ -864,14 +866,14 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 
 	data := &MessageClientMessageData{
 		Type: "offer",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioOnly,
 		},
 	}
 	require.NoError(data.CheckValid())
 
 	done := make(chan struct{})
-	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer close(done)
 
 		if assert.NoError(err) {
@@ -910,7 +912,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"configure": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			if assert.NotNil(jsep) {
 				_, found := jsep["sdp"]
@@ -918,7 +920,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 			}
 
 			return &janus.EventMsg{
-				Jsep: StringMap{
+				Jsep: api.StringMap{
 					"sdp": MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
@@ -944,7 +946,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 
 	data := &MessageClientMessageData{
 		Type: "offer",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}
@@ -953,7 +955,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	// Defer sending of offer / answer so "GetStreams" will wait.
 	go func() {
 		done := make(chan struct{})
-		pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+		pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 			defer close(done)
 
 			if assert.NoError(err) {
@@ -1089,7 +1091,7 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"configure": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			if assert.NotNil(jsep) {
 				if sdp, found := jsep["sdp"]; assert.True(found) {
@@ -1098,7 +1100,7 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 			}
 
 			return &janus.EventMsg{
-				Jsep: StringMap{
+				Jsep: api.StringMap{
 					"sdp": MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
@@ -1136,14 +1138,14 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	go func() {
 		data := &MessageClientMessageData{
 			Type: "offer",
-			Payload: StringMap{
+			Payload: api.StringMap{
 				"sdp": MockSdpOfferAudioAndVideo,
 			},
 		}
 		require.NoError(data.CheckValid())
 
 		done := make(chan struct{})
-		pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+		pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 			defer close(done)
 
 			if assert.NoError(err) {
@@ -1164,7 +1166,7 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	require.NoError(data.CheckValid())
 
 	done := make(chan struct{})
-	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m StringMap) {
+	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer close(done)
 
 		if assert.NoError(err) {
@@ -1192,11 +1194,11 @@ func Test_JanusRemotePublisher(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"add_remote_publisher": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"add_remote_publisher": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			assert.Nil(jsep)
 			if streams := body["streams"].([]any); assert.Len(streams, 1) {
-				if stream, ok := ConvertStringMap(streams[0]); assert.True(ok, "not a string map: %+v", streams[0]) {
+				if stream, ok := api.ConvertStringMap(streams[0]); assert.True(ok, "not a string map: %+v", streams[0]) {
 					assert.Equal("0", stream["mid"])
 					assert.EqualValues(0, stream["mindex"])
 					assert.Equal("audio", stream["type"])
@@ -1207,7 +1209,7 @@ func Test_JanusRemotePublisher(t *testing.T) {
 			return &janus.SuccessMsg{
 				PluginData: janus.PluginData{
 					Plugin: pluginVideoRoom,
-					Data: StringMap{
+					Data: api.StringMap{
 						"id":        12345,
 						"port":      10000,
 						"rtcp_port": 10001,
@@ -1215,14 +1217,14 @@ func Test_JanusRemotePublisher(t *testing.T) {
 				},
 			}, nil
 		},
-		"remove_remote_publisher": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"remove_remote_publisher": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			assert.Nil(jsep)
 			removed.Add(1)
 			return &janus.SuccessMsg{
 				PluginData: janus.PluginData{
 					Plugin: pluginVideoRoom,
-					Data:   StringMap{},
+					Data:   api.StringMap{},
 				},
 			}, nil
 		},
@@ -1280,10 +1282,10 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"configure": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			return &janus.EventMsg{
-				Jsep: StringMap{
+				Jsep: api.StringMap{
 					"type": "answer",
 					"sdp":  MockSdpAnswerAudioAndVideo,
 				},
@@ -1316,7 +1318,7 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 	// Simulate request from the backend that sessions joined the call.
-	users1 := []StringMap{
+	users1 := []api.StringMap{
 		{
 			"sessionId": hello1.Hello.SessionId,
 			"inCall":    1,
@@ -1338,7 +1340,7 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 	}, MessageClientMessageData{
 		Type:     "offer",
 		RoomType: "video",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -1380,10 +1382,10 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"configure": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			return &janus.EventMsg{
-				Jsep: StringMap{
+				Jsep: api.StringMap{
 					"type": "answer",
 					"sdp":  MockSdpAnswerAudioAndVideo,
 				},
@@ -1416,7 +1418,7 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 	// Simulate request from the backend that sessions joined the call.
-	users1 := []StringMap{
+	users1 := []api.StringMap{
 		{
 			"sessionId": hello1.Hello.SessionId,
 			"inCall":    1,
@@ -1438,7 +1440,7 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	}, MessageClientMessageData{
 		Type:     "offer",
 		RoomType: "video",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -1490,10 +1492,10 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{
-		"configure": func(room *TestJanusRoom, body, jsep StringMap) (any, *janus.ErrorMsg) {
+		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
 			return &janus.EventMsg{
-				Jsep: StringMap{
+				Jsep: api.StringMap{
 					"type": "answer",
 					"sdp":  MockSdpAnswerAudioAndVideo,
 				},
@@ -1526,7 +1528,7 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 	// Simulate request from the backend that sessions joined the call.
-	users1 := []StringMap{
+	users1 := []api.StringMap{
 		{
 			"sessionId": hello1.Hello.SessionId,
 			"inCall":    1,
@@ -1548,7 +1550,7 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 	}, MessageClientMessageData{
 		Type:     "offer",
 		RoomType: "video",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))

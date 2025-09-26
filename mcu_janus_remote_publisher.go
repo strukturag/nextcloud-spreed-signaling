@@ -27,6 +27,8 @@ import (
 	"sync/atomic"
 
 	"github.com/notedit/janus-go"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type mcuJanusRemotePublisher struct {
@@ -124,7 +126,7 @@ func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
 
 	p.mu.Lock()
 	if handle := p.handle; handle != nil {
-		response, err := p.handle.Request(ctx, StringMap{
+		response, err := p.handle.Request(ctx, api.StringMap{
 			"request": "remove_remote_publisher",
 			"room":    p.roomId,
 			"id":      streamTypeUserIds[p.streamType],
@@ -135,7 +137,7 @@ func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
 			log.Printf("Removed remote publisher: %+v", response)
 		}
 		if p.roomId != 0 {
-			destroy_msg := StringMap{
+			destroy_msg := api.StringMap{
 				"request": "destroy",
 				"room":    p.roomId,
 			}

@@ -27,6 +27,8 @@ import (
 	"log"
 	"net/url"
 	"sync/atomic"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -50,7 +52,7 @@ type VirtualSession struct {
 	flags     Flags
 	options   *AddSessionOptions
 
-	parseUserData func() (StringMap, error)
+	parseUserData func() (api.StringMap, error)
 }
 
 func GetVirtualSessionId(session Session, sessionId PublicSessionId) PublicSessionId {
@@ -144,7 +146,7 @@ func (s *VirtualSession) UserData() json.RawMessage {
 	return s.userData
 }
 
-func (s *VirtualSession) ParsedUserData() (StringMap, error) {
+func (s *VirtualSession) ParsedUserData() (api.StringMap, error) {
 	return s.parseUserData()
 }
 
@@ -290,7 +292,7 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 				message.Message.Event.Disinvite != nil &&
 				message.Message.Event.Disinvite.RoomId == room.Id() {
 				log.Printf("Virtual session %s was disinvited from room %s, hanging up", s.PublicId(), room.Id())
-				payload := StringMap{
+				payload := api.StringMap{
 					"type": "hangup",
 					"hangup": map[string]string{
 						"reason": "disinvited",

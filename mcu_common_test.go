@@ -23,6 +23,8 @@ package signaling
 
 import (
 	"testing"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 func TestCommonMcuStats(t *testing.T) {
@@ -37,7 +39,7 @@ func (m *MockMcuListener) PublicId() PublicSessionId {
 	return m.publicId
 }
 
-func (m *MockMcuListener) OnUpdateOffer(client McuClient, offer StringMap) {
+func (m *MockMcuListener) OnUpdateOffer(client McuClient, offer api.StringMap) {
 
 }
 

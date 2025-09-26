@@ -28,6 +28,8 @@ import (
 	"strconv"
 
 	"github.com/notedit/janus-go"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type mcuJanusSubscriber struct {
@@ -55,7 +57,7 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 			}
 
 			for _, stream := range streams {
-				if stream, ok := ConvertStringMap(stream); ok {
+				if stream, ok := api.ConvertStringMap(stream); ok {
 					if (stream["type"] == "audio" || stream["type"] == "video") && stream["active"] != false {
 						return
 					}
@@ -149,7 +151,7 @@ func (p *mcuJanusSubscriber) Close(ctx context.Context) {
 	p.mcuJanusClient.Close(ctx)
 }
 
-func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelection, callback func(error, StringMap)) {
+func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelection, callback func(error, api.StringMap)) {
 	handle := p.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
@@ -161,13 +163,13 @@ func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelecti
 
 	loggedNotPublishingYet := false
 retry:
-	join_msg := StringMap{
+	join_msg := api.StringMap{
 		"request": "join",
 		"ptype":   "subscriber",
 		"room":    p.roomId,
 	}
 	if p.mcu.isMultistream() {
-		join_msg["streams"] = []StringMap{
+		join_msg["streams"] = []api.StringMap{
 			{
 				"feed": streamTypeUserIds[p.streamType],
 			},
@@ -255,14 +257,14 @@ retry:
 	callback(nil, join_response.Jsep)
 }
 
-func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection, callback func(error, StringMap)) {
+func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection, callback func(error, api.StringMap)) {
 	handle := p.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
 	}
 
-	configure_msg := StringMap{
+	configure_msg := api.StringMap{
 		"request": "configure",
 		"update":  true,
 	}
@@ -278,7 +280,7 @@ func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection
 	callback(nil, configure_response.Jsep)
 }
 
-func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
+func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {

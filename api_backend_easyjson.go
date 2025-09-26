@@ -7,6 +7,7 @@ import (
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
+	api "github.com/strukturag/nextcloud-spreed-signaling/api"
 	time "time"
 )
 
@@ -2644,21 +2645,21 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling19(in *jle
 				in.Delim('[')
 				if out.Changed == nil {
 					if !in.IsDelim(']') {
-						out.Changed = make([]StringMap, 0, 8)
+						out.Changed = make([]api.StringMap, 0, 8)
 					} else {
-						out.Changed = []StringMap{}
+						out.Changed = []api.StringMap{}
 					}
 				} else {
 					out.Changed = (out.Changed)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v36 StringMap
+					var v36 api.StringMap
 					if in.IsNull() {
 						in.Skip()
 					} else {
 						in.Delim('{')
 						if !in.IsDelim('}') {
-							v36 = make(StringMap)
+							v36 = make(api.StringMap)
 						} else {
 							v36 = nil
 						}
@@ -2691,21 +2692,21 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling19(in *jle
 				in.Delim('[')
 				if out.Users == nil {
 					if !in.IsDelim(']') {
-						out.Users = make([]StringMap, 0, 8)
+						out.Users = make([]api.StringMap, 0, 8)
 					} else {
-						out.Users = []StringMap{}
+						out.Users = []api.StringMap{}
 					}
 				} else {
 					out.Users = (out.Users)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v38 StringMap
+					var v38 api.StringMap
 					if in.IsNull() {
 						in.Skip()
 					} else {
 						in.Delim('{')
 						if !in.IsDelim('}') {
-							v38 = make(StringMap)
+							v38 = make(api.StringMap)
 						} else {
 							v38 = nil
 						}
@@ -3112,21 +3113,21 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling22(in *jle
 				in.Delim('[')
 				if out.Changed == nil {
 					if !in.IsDelim(']') {
-						out.Changed = make([]StringMap, 0, 8)
+						out.Changed = make([]api.StringMap, 0, 8)
 					} else {
-						out.Changed = []StringMap{}
+						out.Changed = []api.StringMap{}
 					}
 				} else {
 					out.Changed = (out.Changed)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v52 StringMap
+					var v52 api.StringMap
 					if in.IsNull() {
 						in.Skip()
 					} else {
 						in.Delim('{')
 						if !in.IsDelim('}') {
-							v52 = make(StringMap)
+							v52 = make(api.StringMap)
 						} else {
 							v52 = nil
 						}
@@ -3159,21 +3160,21 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling22(in *jle
 				in.Delim('[')
 				if out.Users == nil {
 					if !in.IsDelim(']') {
-						out.Users = make([]StringMap, 0, 8)
+						out.Users = make([]api.StringMap, 0, 8)
 					} else {
-						out.Users = []StringMap{}
+						out.Users = []api.StringMap{}
 					}
 				} else {
 					out.Users = (out.Users)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v54 StringMap
+					var v54 api.StringMap
 					if in.IsNull() {
 						in.Skip()
 					} else {
 						in.Delim('{')
 						if !in.IsDelim('}') {
-							v54 = make(StringMap)
+							v54 = make(api.StringMap)
 						} else {
 							v54 = nil
 						}

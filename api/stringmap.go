@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package api
 
 // StringMap maps string keys to arbitrary values.
 type StringMap map[string]any
@@ -29,15 +29,14 @@ func ConvertStringMap(ob any) (StringMap, bool) {
 		return nil, true
 	}
 
-	if m, ok := ob.(map[string]any); ok {
-		return StringMap(m), true
+	switch ob := ob.(type) {
+	case map[string]any:
+		return StringMap(ob), true
+	case StringMap:
+		return ob, true
+	default:
+		return nil, false
 	}
-
-	if m, ok := ob.(StringMap); ok {
-		return m, true
-	}
-
-	return nil, false
 }
 
 // GetStringMapEntry returns an entry from a string map in a given type.

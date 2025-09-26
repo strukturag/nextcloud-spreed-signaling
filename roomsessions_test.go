@@ -29,6 +29,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type DummySession struct {
@@ -63,7 +65,7 @@ func (s *DummySession) UserData() json.RawMessage {
 	return nil
 }
 
-func (s *DummySession) ParsedUserData() (StringMap, error) {
+func (s *DummySession) ParsedUserData() (api.StringMap, error) {
 	return nil, nil
 }
 

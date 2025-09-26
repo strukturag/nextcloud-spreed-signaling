@@ -31,6 +31,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 func Test_FederationInvalidToken(t *testing.T) {
@@ -107,7 +109,7 @@ func Test_Federation(t *testing.T) {
 	require.NotNil(room)
 
 	now := time.Now()
-	userdata := StringMap{
+	userdata := api.StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -307,7 +309,7 @@ func Test_Federation(t *testing.T) {
 	}
 
 	// Special handling for the "forceMute" control event.
-	forceMute := StringMap{
+	forceMute := api.StringMap{
 		"action": "forceMute",
 		"peerId": remoteSessionId,
 	}
@@ -315,7 +317,7 @@ func Test_Federation(t *testing.T) {
 		Type:      "session",
 		SessionId: remoteSessionId,
 	}, forceMute)) {
-		var payload StringMap
+		var payload api.StringMap
 		if checkReceiveClientControl(ctx, t, client2, "session", hello1.Hello, &payload) {
 			// The sessionId in "peerId" will be replaced with the local one.
 			forceMute["peerId"] = string(hello2.Hello.SessionId)
@@ -347,7 +349,7 @@ func Test_Federation(t *testing.T) {
 	}
 
 	// Simulate request from the backend that a federated user joined the call.
-	users := []StringMap{
+	users := []api.StringMap{
 		{
 			"sessionId": remoteSessionId,
 			"inCall":    1,
@@ -373,7 +375,7 @@ func Test_Federation(t *testing.T) {
 	}
 
 	// Simulate request from the backend that a local user joined the call.
-	users = []StringMap{
+	users = []api.StringMap{
 		{
 			"sessionId": hello1.Hello.SessionId,
 			"inCall":    1,
@@ -425,7 +427,7 @@ func Test_Federation(t *testing.T) {
 
 	hello4 := MustSucceed1(t, client4.RunUntilHello, ctx)
 
-	userdata = StringMap{
+	userdata = api.StringMap{
 		"displayname": "Federated user 2",
 		"actorType":   "federated_users",
 		"actorId":     "the-other-federated-user-id",
@@ -517,7 +519,7 @@ func Test_FederationJoinRoomTwice(t *testing.T) {
 	client1.RunUntilJoined(ctx, hello1.Hello)
 
 	now := time.Now()
-	userdata := StringMap{
+	userdata := api.StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -624,7 +626,7 @@ func Test_FederationChangeRoom(t *testing.T) {
 	client1.RunUntilJoined(ctx, hello1.Hello)
 
 	now := time.Now()
-	userdata := StringMap{
+	userdata := api.StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -747,7 +749,7 @@ func Test_FederationMedia(t *testing.T) {
 	client1.RunUntilJoined(ctx, hello1.Hello)
 
 	now := time.Now()
-	userdata := StringMap{
+	userdata := api.StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -798,7 +800,7 @@ func Test_FederationMedia(t *testing.T) {
 		Type:     "offer",
 		Sid:      "12345",
 		RoomType: "screen",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -840,7 +842,7 @@ func Test_FederationResume(t *testing.T) {
 	client1.RunUntilJoined(ctx, hello1.Hello)
 
 	now := time.Now()
-	userdata := StringMap{
+	userdata := api.StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",
@@ -961,7 +963,7 @@ func Test_FederationResumeNewSession(t *testing.T) {
 	client1.RunUntilJoined(ctx, hello1.Hello)
 
 	now := time.Now()
-	userdata := StringMap{
+	userdata := api.StringMap{
 		"displayname": "Federated user",
 		"actorType":   "federated_users",
 		"actorId":     "the-federated-user-id",

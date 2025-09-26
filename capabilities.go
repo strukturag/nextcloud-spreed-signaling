@@ -33,6 +33,8 @@ import (
 	"time"
 
 	"github.com/pquerna/cachecontrol/cacheobject"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -64,7 +66,7 @@ type capabilitiesEntry struct {
 	nextUpdate     time.Time
 	etag           string
 	mustRevalidate bool
-	capabilities   StringMap
+	capabilities   api.StringMap
 }
 
 func newCapabilitiesEntry(c *Capabilities) *capabilitiesEntry {
@@ -211,7 +213,7 @@ func (e *capabilitiesEntry) update(ctx context.Context, u *url.URL, now time.Tim
 		return false, nil
 	}
 
-	var capa StringMap
+	var capa api.StringMap
 	if err := json.Unmarshal(capaObj, &capa); err != nil {
 		log.Printf("Unsupported capabilities received for app spreed from %s: %+v", url, capaResponse)
 		e.capabilities = nil
@@ -223,7 +225,7 @@ func (e *capabilitiesEntry) update(ctx context.Context, u *url.URL, now time.Tim
 	return true, nil
 }
 
-func (e *capabilitiesEntry) GetCapabilities() StringMap {
+func (e *capabilitiesEntry) GetCapabilities() api.StringMap {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -322,7 +324,7 @@ func (c *Capabilities) getKeyForUrl(u *url.URL) string {
 	return key
 }
 
-func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (StringMap, bool, error) {
+func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (api.StringMap, bool, error) {
 	key := c.getKeyForUrl(u)
 	entry, valid := c.getCapabilities(key)
 	if valid {
@@ -363,7 +365,7 @@ func (c *Capabilities) HasCapabilityFeature(ctx context.Context, u *url.URL, fea
 	return false
 }
 
-func (c *Capabilities) getConfigGroup(ctx context.Context, u *url.URL, group string) (StringMap, bool, bool) {
+func (c *Capabilities) getConfigGroup(ctx context.Context, u *url.URL, group string) (api.StringMap, bool, bool) {
 	caps, cached, err := c.loadCapabilities(ctx, u)
 	if err != nil {
 		log.Printf("Could not get capabilities for %s: %s", u, err)
@@ -375,7 +377,7 @@ func (c *Capabilities) getConfigGroup(ctx context.Context, u *url.URL, group str
 		return nil, cached, false
 	}
 
-	config, ok := ConvertStringMap(configInterface)
+	config, ok := api.ConvertStringMap(configInterface)
 	if !ok {
 		log.Printf("Invalid config mapping received from %s: %+v", u, configInterface)
 		return nil, cached, false
@@ -386,7 +388,7 @@ func (c *Capabilities) getConfigGroup(ctx context.Context, u *url.URL, group str
 		return nil, cached, false
 	}
 
-	groupConfig, ok := ConvertStringMap(groupInterface)
+	groupConfig, ok := api.ConvertStringMap(groupInterface)
 	if !ok {
 		log.Printf("Invalid group mapping \"%s\" received from %s: %+v", group, u, groupInterface)
 		return nil, cached, false

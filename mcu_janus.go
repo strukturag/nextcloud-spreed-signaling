@@ -34,6 +34,8 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/notedit/janus-go"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -567,7 +569,7 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher PublicSessionId, 
 }
 
 func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id PublicSessionId, streamType StreamType, settings NewPublisherSettings) (uint64, int, error) {
-	create_msg := StringMap{
+	create_msg := api.StringMap{
 		"request":     "create",
 		"description": getStreamId(id, streamType),
 		// We publish every stream in its own Janus room.
@@ -641,7 +643,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id PublicSess
 		return nil, 0, 0, 0, err
 	}
 
-	msg := StringMap{
+	msg := api.StringMap{
 		"request": "join",
 		"ptype":   "publisher",
 		"room":    roomId,
@@ -833,7 +835,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 		return nil, err
 	}
 
-	response, err := handle.Request(ctx, StringMap{
+	response, err := handle.Request(ctx, api.StringMap{
 		"request": "add_remote_publisher",
 		"room":    roomId,
 		"id":      streamTypeUserIds[streamType],

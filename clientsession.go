@@ -34,6 +34,8 @@ import (
 	"time"
 
 	"github.com/pion/sdp/v3"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 var (
@@ -66,7 +68,7 @@ type ClientSession struct {
 	userId     string
 	userData   json.RawMessage
 
-	parseUserData func() (StringMap, error)
+	parseUserData func() (api.StringMap, error)
 
 	inCall              Flags
 	supportsPermissions bool
@@ -288,7 +290,7 @@ func (s *ClientSession) UserData() json.RawMessage {
 	return s.userData
 }
 
-func (s *ClientSession) ParsedUserData() (StringMap, error) {
+func (s *ClientSession) ParsedUserData() (api.StringMap, error) {
 	return s.parseUserData()
 }
 
@@ -523,7 +525,7 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
 			request.Room.UpdateFromSession(s)
 			request.Room.Action = "leave"
-			var response StringMap
+			var response api.StringMap
 			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
 				log.Printf("Could not notify about room session %s left room %s: %s", sid, room.Id(), err)
 			} else {
@@ -587,7 +589,7 @@ func (s *ClientSession) SetClient(client HandlerClient) HandlerClient {
 	return prev
 }
 
-func (s *ClientSession) sendOffer(client McuClient, sender PublicSessionId, streamType StreamType, offer StringMap) {
+func (s *ClientSession) sendOffer(client McuClient, sender PublicSessionId, streamType StreamType, offer api.StringMap) {
 	offer_message := &AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
@@ -621,7 +623,7 @@ func (s *ClientSession) sendCandidate(client McuClient, sender PublicSessionId, 
 		From:     sender,
 		Type:     "candidate",
 		RoomType: string(streamType),
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"candidate": candidate,
 		},
 		Sid: client.Sid(),
@@ -686,7 +688,7 @@ func (s *ClientSession) SendMessages(messages []*ServerMessage) bool {
 	return true
 }
 
-func (s *ClientSession) OnUpdateOffer(client McuClient, offer StringMap) {
+func (s *ClientSession) OnUpdateOffer(client McuClient, offer api.StringMap) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1081,7 +1083,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 				return
 			}
 
-			mc.SendMessage(s.Context(), nil, message.SendOffer.Data, func(err error, response StringMap) {
+			mc.SendMessage(s.Context(), nil, message.SendOffer.Data, func(err error, response api.StringMap) {
 				if err != nil {
 					log.Printf("Could not send MCU message %+v for session %s to %s: %s", message.SendOffer.Data, message.SendOffer.SessionId, s.PublicId(), err)
 					if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
@@ -1144,7 +1146,7 @@ func filterDisplayNames(events []*EventServerMessageSessionEntry) []*EventServer
 			continue
 		}
 
-		var userdata StringMap
+		var userdata api.StringMap
 		if err := json.Unmarshal(event.User, &userdata); err != nil {
 			result = append(result, event)
 			continue
