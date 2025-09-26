@@ -31,6 +31,8 @@ import (
 	"sync/atomic"
 
 	"github.com/dlintw/goconf"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -194,7 +196,7 @@ func (p *TestMCUPublisher) SetMedia(mt MediaType) {
 	p.settings.MediaTypes = mt
 }
 
-func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
+func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 	go func() {
 		if p.isClosed() {
 			callback(fmt.Errorf("Already closed"), nil)
@@ -208,13 +210,13 @@ func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClie
 				p.sdp = sdp
 				switch sdp {
 				case MockSdpOfferAudioOnly:
-					callback(nil, StringMap{
+					callback(nil, api.StringMap{
 						"type": "answer",
 						"sdp":  MockSdpAnswerAudioOnly,
 					})
 					return
 				case MockSdpOfferAudioAndVideo:
-					callback(nil, StringMap{
+					callback(nil, api.StringMap{
 						"type": "answer",
 						"sdp":  MockSdpAnswerAudioAndVideo,
 					})
@@ -250,7 +252,7 @@ func (s *TestMCUSubscriber) Publisher() PublicSessionId {
 	return s.publisher.PublisherId()
 }
 
-func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
+func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 	go func() {
 		if s.isClosed() {
 			callback(fmt.Errorf("Already closed"), nil)
@@ -267,7 +269,7 @@ func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageCli
 				return
 			}
 
-			callback(nil, StringMap{
+			callback(nil, api.StringMap{
 				"type": "offer",
 				"sdp":  sdp,
 			})

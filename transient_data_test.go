@@ -29,6 +29,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 func (t *TransientData) SetTTLChannel(ch chan<- struct{}) {
@@ -247,7 +249,7 @@ func Test_TransientMessages(t *testing.T) {
 		require.LessOrEqual(len(ignored), 1, "Received too many messages: %+v", ignored)
 	}
 
-	checkMessageTransientInitial(t, msg, StringMap{
+	checkMessageTransientInitial(t, msg, api.StringMap{
 		"abc": data,
 	})
 

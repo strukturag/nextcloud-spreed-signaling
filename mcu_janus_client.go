@@ -29,6 +29,8 @@ import (
 	"sync"
 
 	"github.com/notedit/janus-go"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type mcuJanusClient struct {
@@ -75,7 +77,7 @@ func (c *mcuJanusClient) MaxBitrate() int {
 func (c *mcuJanusClient) Close(ctx context.Context) {
 }
 
-func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
+func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 }
 
 func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
@@ -124,14 +126,14 @@ loop:
 	}
 }
 
-func (c *mcuJanusClient) sendOffer(ctx context.Context, offer StringMap, callback func(error, StringMap)) {
+func (c *mcuJanusClient) sendOffer(ctx context.Context, offer api.StringMap, callback func(error, api.StringMap)) {
 	handle := c.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
 	}
 
-	configure_msg := StringMap{
+	configure_msg := api.StringMap{
 		"request": "configure",
 		"audio":   true,
 		"video":   true,
@@ -146,14 +148,14 @@ func (c *mcuJanusClient) sendOffer(ctx context.Context, offer StringMap, callbac
 	callback(nil, answer_msg.Jsep)
 }
 
-func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer StringMap, callback func(error, StringMap)) {
+func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer api.StringMap, callback func(error, api.StringMap)) {
 	handle := c.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
 	}
 
-	start_msg := StringMap{
+	start_msg := api.StringMap{
 		"request": "start",
 		"room":    c.roomId,
 	}
@@ -166,7 +168,7 @@ func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer StringMap, callb
 	callback(nil, nil)
 }
 
-func (c *mcuJanusClient) sendCandidate(ctx context.Context, candidate any, callback func(error, StringMap)) {
+func (c *mcuJanusClient) sendCandidate(ctx context.Context, candidate any, callback func(error, api.StringMap)) {
 	handle := c.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
@@ -188,7 +190,7 @@ func (c *mcuJanusClient) handleTrickle(event *TrickleMsg) {
 	}
 }
 
-func (c *mcuJanusClient) selectStream(ctx context.Context, stream *streamSelection, callback func(error, StringMap)) {
+func (c *mcuJanusClient) selectStream(ctx context.Context, stream *streamSelection, callback func(error, api.StringMap)) {
 	handle := c.handle
 	if handle == nil {
 		callback(ErrNotConnected, nil)
@@ -200,7 +202,7 @@ func (c *mcuJanusClient) selectStream(ctx context.Context, stream *streamSelecti
 		return
 	}
 
-	configure_msg := StringMap{
+	configure_msg := api.StringMap{
 		"request": "configure",
 	}
 	if stream != nil {

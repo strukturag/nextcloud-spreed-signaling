@@ -40,6 +40,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*CapabilitiesResponse, http.ResponseWriter) error) (*url.URL, *Capabilities) {
@@ -66,14 +68,14 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 		if strings.Contains(t.Name(), "V3Api") {
 			features = append(features, "signaling-v3")
 		}
-		signaling := StringMap{
+		signaling := api.StringMap{
 			"foo": "bar",
 			"baz": 42,
 		}
-		config := StringMap{
+		config := api.StringMap{
 			"signaling": signaling,
 		}
-		spreedCapa, _ := json.Marshal(StringMap{
+		spreedCapa, _ := json.Marshal(api.StringMap{
 			"features": features,
 			"config":   config,
 		})

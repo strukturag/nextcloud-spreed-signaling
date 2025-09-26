@@ -36,7 +36,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	easyjson "github.com/mailru/easyjson"
+	"github.com/mailru/easyjson"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -602,14 +604,14 @@ func (c *FederationClient) joinRoom() error {
 	})
 }
 
-func (c *FederationClient) updateEventUsers(users []StringMap, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
+func (c *FederationClient) updateEventUsers(users []api.StringMap, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
 	localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
 	localCloudUrlLen := len(localCloudUrl)
 	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
 	checkSessionId := true
 	for _, u := range users {
-		if actorType, found := GetStringMapEntry[string](u, "actorType"); found {
-			if actorId, found := GetStringMapEntry[string](u, "actorId"); found {
+		if actorType, found := api.GetStringMapEntry[string](u, "actorType"); found {
+			if actorId, found := api.GetStringMapEntry[string](u, "actorId"); found {
 				switch actorType {
 				case ActorTypeFederatedUsers:
 					if strings.HasSuffix(actorId, localCloudUrl) {
@@ -625,10 +627,10 @@ func (c *FederationClient) updateEventUsers(users []StringMap, localSessionId Pu
 
 		if checkSessionId {
 			key := "sessionId"
-			sid, found := GetStringMapString[PublicSessionId](u, key)
+			sid, found := api.GetStringMapString[PublicSessionId](u, key)
 			if !found {
 				key := "sessionid"
-				sid, found = GetStringMapString[PublicSessionId](u, key)
+				sid, found = api.GetStringMapString[PublicSessionId](u, key)
 			}
 			if found && sid == remoteSessionId {
 				u[key] = localSessionId
@@ -667,10 +669,10 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 		c.updateSessionSender(msg.Control.Sender, localSessionId, remoteSessionId)
 		// Special handling for "forceMute" event.
 		if len(msg.Control.Data) > 0 && msg.Control.Data[0] == '{' {
-			var data StringMap
+			var data api.StringMap
 			if err := json.Unmarshal(msg.Control.Data, &data); err == nil {
 				if action, found := data["action"]; found && action == "forceMute" {
-					if peerId, found := GetStringMapString[PublicSessionId](data, "peerId"); found && peerId == remoteSessionId {
+					if peerId, found := api.GetStringMapString[PublicSessionId](data, "peerId"); found && peerId == remoteSessionId {
 						data["peerId"] = localSessionId
 						if d, err := json.Marshal(data); err == nil {
 							msg.Control.Data = d

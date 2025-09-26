@@ -45,6 +45,8 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -101,7 +103,7 @@ func (c *mcuProxyPubSubCommon) MaxBitrate() int {
 	return c.maxBitrate
 }
 
-func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClientMessage, callback func(error, StringMap)) {
+func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClientMessage, callback func(error, api.StringMap)) {
 	c.conn.performAsyncRequest(ctx, msg, func(err error, response *ProxyServerMessage) {
 		if err != nil {
 			callback(err, nil)
@@ -124,7 +126,7 @@ func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClie
 func (c *mcuProxyPubSubCommon) doProcessPayload(client McuClient, msg *PayloadProxyServerMessage) {
 	switch msg.Type {
 	case "offer":
-		offer, ok := ConvertStringMap(msg.Payload["offer"])
+		offer, ok := api.ConvertStringMap(msg.Payload["offer"])
 		if !ok {
 			log.Printf("Unsupported payload from %s: %+v", c.conn, msg)
 			return
@@ -201,7 +203,7 @@ func (p *mcuProxyPublisher) Close(ctx context.Context) {
 	log.Printf("Deleted publisher %s at %s", p.proxyId, p.conn)
 }
 
-func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
+func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 	msg := &ProxyClientMessage{
 		Type: "payload",
 		Payload: &PayloadProxyClientMessage{
@@ -301,7 +303,7 @@ func (s *mcuProxySubscriber) Close(ctx context.Context) {
 	}
 }
 
-func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
+func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 	msg := &ProxyClientMessage{
 		Type: "payload",
 		Payload: &PayloadProxyClientMessage{

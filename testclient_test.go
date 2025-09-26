@@ -41,6 +41,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 var (
@@ -396,7 +398,7 @@ func (c *TestClient) SendHelloV2WithFeatures(userid string, features []string) e
 	return c.SendHelloV2WithTimesAndFeatures(userid, now, now.Add(time.Minute), features)
 }
 
-func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time.Time, expiresAt time.Time, userdata StringMap) (string, error) {
+func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time.Time, expiresAt time.Time, userdata api.StringMap) (string, error) {
 	data, err := json.Marshal(userdata)
 	if err != nil {
 		return "", err
@@ -429,7 +431,7 @@ func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time
 }
 
 func (c *TestClient) CreateHelloV2Token(userid string, issuedAt time.Time, expiresAt time.Time) (string, error) {
-	userdata := StringMap{
+	userdata := api.StringMap{
 		"displayname": "Displayname " + userid,
 	}
 
@@ -1013,24 +1015,24 @@ func (c *TestClient) RunUntilOffer(ctx context.Context, offer string) bool {
 		return false
 	}
 
-	var data StringMap
+	var data api.StringMap
 	if err := json.Unmarshal(message.Message.Data, &data); !c.assert.NoError(err) {
 		return false
 	}
 
-	if dt, ok := GetStringMapEntry[string](data, "type"); !c.assert.True(ok, "no/invalid type in %+v", data) ||
+	if dt, ok := api.GetStringMapEntry[string](data, "type"); !c.assert.True(ok, "no/invalid type in %+v", data) ||
 		!c.assert.Equal("offer", dt, "invalid data type in %+v", data) {
 		return false
 	}
 
-	if payload, ok := ConvertStringMap(data["payload"]); !c.assert.True(ok, "not a string map, got %+v", data["payload"]) {
+	if payload, ok := api.ConvertStringMap(data["payload"]); !c.assert.True(ok, "not a string map, got %+v", data["payload"]) {
 		return false
 	} else {
-		if pt, ok := GetStringMapEntry[string](payload, "type"); !c.assert.True(ok, "no/invalid type in payload %+v", payload) ||
+		if pt, ok := api.GetStringMapEntry[string](payload, "type"); !c.assert.True(ok, "no/invalid type in payload %+v", payload) ||
 			!c.assert.Equal("offer", pt, "invalid payload type in %+v", payload) {
 			return false
 		}
-		if sdp, ok := GetStringMapEntry[string](payload, "sdp"); !c.assert.True(ok, "no/invalid sdp in payload %+v", payload) ||
+		if sdp, ok := api.GetStringMapEntry[string](payload, "sdp"); !c.assert.True(ok, "no/invalid sdp in payload %+v", payload) ||
 			!c.assert.Equal(offer, sdp, "invalid payload offer") {
 			return false
 		}
@@ -1058,24 +1060,24 @@ func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string
 		}
 	}
 
-	var data StringMap
+	var data api.StringMap
 	if err := json.Unmarshal(message.Message.Data, &data); !c.assert.NoError(err) {
 		return false
 	}
 
-	if dt, ok := GetStringMapEntry[string](data, "type"); !c.assert.True(ok, "no/invalid type in %+v", data) ||
+	if dt, ok := api.GetStringMapEntry[string](data, "type"); !c.assert.True(ok, "no/invalid type in %+v", data) ||
 		!c.assert.Equal("answer", dt, "invalid data type in %+v", data) {
 		return false
 	}
 
-	if payload, ok := ConvertStringMap(data["payload"]); !c.assert.True(ok, "not a string map, got %+v", data["payload"]) {
+	if payload, ok := api.ConvertStringMap(data["payload"]); !c.assert.True(ok, "not a string map, got %+v", data["payload"]) {
 		return false
 	} else {
-		if pt, ok := GetStringMapEntry[string](payload, "type"); !c.assert.True(ok, "no/invalid type in payload %+v", payload) ||
+		if pt, ok := api.GetStringMapEntry[string](payload, "type"); !c.assert.True(ok, "no/invalid type in payload %+v", payload) ||
 			!c.assert.Equal("answer", pt, "invalid payload type in %+v", payload) {
 			return false
 		}
-		if sdp, ok := GetStringMapEntry[string](payload, "sdp"); !c.assert.True(ok, "no/invalid sdp in payload %+v", payload) ||
+		if sdp, ok := api.GetStringMapEntry[string](payload, "sdp"); !c.assert.True(ok, "no/invalid sdp in payload %+v", payload) ||
 			!c.assert.Equal(answer, sdp, "invalid payload answer") {
 			return false
 		}
@@ -1101,7 +1103,7 @@ func checkMessageTransientRemove(t *testing.T, message *ServerMessage, key strin
 		assert.EqualValues(oldValue, message.TransientData.OldValue, "invalid old value in %+v", message)
 }
 
-func checkMessageTransientInitial(t *testing.T, message *ServerMessage, data StringMap) bool {
+func checkMessageTransientInitial(t *testing.T, message *ServerMessage, data api.StringMap) bool {
 	assert := assert.New(t)
 	return checkMessageType(t, message, "transient") &&
 		assert.Equal("initial", message.TransientData.Type, "invalid message type in %+v", message) &&

@@ -28,6 +28,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 func TestBandwidth_Client(t *testing.T) {
@@ -67,7 +69,7 @@ func TestBandwidth_Client(t *testing.T) {
 		Sid:      "54321",
 		RoomType: "video",
 		Bitrate:  bitrate,
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -139,7 +141,7 @@ func TestBandwidth_Backend(t *testing.T) {
 				Sid:      "54321",
 				RoomType: string(streamType),
 				Bitrate:  bitrate,
-				Payload: StringMap{
+				Payload: api.StringMap{
 					"sdp": MockSdpOfferAudioAndVideo,
 				},
 			}))

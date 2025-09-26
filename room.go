@@ -35,6 +35,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -81,7 +83,7 @@ type Room struct {
 	statsRoomSessionsCurrent *prometheus.GaugeVec
 
 	// Users currently in the room
-	users []StringMap
+	users []api.StringMap
 
 	// Timestamps of last backend requests for the different types.
 	lastRoomRequests map[string]int64
@@ -459,9 +461,9 @@ func (r *Room) RemoveSession(session Session) bool {
 	if virtualSession, ok := session.(*VirtualSession); ok {
 		delete(r.virtualSessions, virtualSession)
 		// Handle case where virtual session was also sent by Nextcloud.
-		users := make([]StringMap, 0, len(r.users))
+		users := make([]api.StringMap, 0, len(r.users))
 		for _, u := range r.users {
-			if value, found := GetStringMapString[PublicSessionId](u, "sessionId"); !found || value != sid {
+			if value, found := api.GetStringMapString[PublicSessionId](u, "sessionId"); !found || value != sid {
 				users = append(users, u)
 			}
 		}
@@ -628,7 +630,7 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[PublicSession
 	return
 }
 
-func (r *Room) addInternalSessions(users []StringMap) []StringMap {
+func (r *Room) addInternalSessions(users []api.StringMap) []api.StringMap {
 	now := time.Now().Unix()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -645,7 +647,7 @@ func (r *Room) addInternalSessions(users []StringMap) []StringMap {
 
 	skipSession := make(map[PublicSessionId]bool)
 	for _, user := range users {
-		sessionid, found := GetStringMapString[PublicSessionId](user, "sessionId")
+		sessionid, found := api.GetStringMapString[PublicSessionId](user, "sessionId")
 		if !found || sessionid == "" {
 			continue
 		}
@@ -670,7 +672,7 @@ func (r *Room) addInternalSessions(users []StringMap) []StringMap {
 		}
 	}
 	for session := range r.internalSessions {
-		u := StringMap{
+		u := api.StringMap{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
@@ -682,7 +684,7 @@ func (r *Room) addInternalSessions(users []StringMap) []StringMap {
 		users = append(users, u)
 	}
 	for _, session := range clusteredInternalSessions {
-		u := StringMap{
+		u := api.StringMap{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.GetSessionId(),
 			"lastPing":  now,
@@ -699,7 +701,7 @@ func (r *Room) addInternalSessions(users []StringMap) []StringMap {
 			continue
 		}
 		skipSession[sid] = true
-		users = append(users, StringMap{
+		users = append(users, api.StringMap{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
@@ -711,7 +713,7 @@ func (r *Room) addInternalSessions(users []StringMap) []StringMap {
 			continue
 		}
 
-		users = append(users, StringMap{
+		users = append(users, api.StringMap{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
@@ -721,7 +723,7 @@ func (r *Room) addInternalSessions(users []StringMap) []StringMap {
 	return users
 }
 
-func (r *Room) filterPermissions(users []StringMap) []StringMap {
+func (r *Room) filterPermissions(users []api.StringMap) []api.StringMap {
 	for _, user := range users {
 		delete(user, "permissions")
 	}
@@ -748,7 +750,7 @@ func IsInCall(value any) (bool, bool) {
 	}
 }
 
-func (r *Room) PublishUsersInCallChanged(changed []StringMap, users []StringMap) {
+func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.StringMap) {
 	r.users = users
 	for _, user := range changed {
 		inCallInterface, found := user["inCall"]
@@ -760,9 +762,9 @@ func (r *Room) PublishUsersInCallChanged(changed []StringMap, users []StringMap)
 			continue
 		}
 
-		sessionId, found := GetStringMapString[PublicSessionId](user, "sessionId")
+		sessionId, found := api.GetStringMapString[PublicSessionId](user, "sessionId")
 		if !found {
-			sessionId, found = GetStringMapString[PublicSessionId](user, "sessionid")
+			sessionId, found = api.GetStringMapString[PublicSessionId](user, "sessionid")
 			if !found {
 				continue
 			}
@@ -898,7 +900,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	}
 }
 
-func (r *Room) PublishUsersChanged(changed []StringMap, users []StringMap) {
+func (r *Room) PublishUsersChanged(changed []api.StringMap, users []api.StringMap) {
 	changed = r.filterPermissions(changed)
 	users = r.filterPermissions(users)
 
@@ -919,7 +921,7 @@ func (r *Room) PublishUsersChanged(changed []StringMap, users []StringMap) {
 	}
 }
 
-func (r *Room) getParticipantsUpdateMessage(users []StringMap) *ServerMessage {
+func (r *Room) getParticipantsUpdateMessage(users []api.StringMap) *ServerMessage {
 	users = r.filterPermissions(users)
 
 	message := &ServerMessage{

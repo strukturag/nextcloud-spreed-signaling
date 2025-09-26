@@ -30,6 +30,7 @@ import (
 	"time"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -158,7 +159,7 @@ func (s *ProxySession) SetClient(client *ProxyClient) *ProxyClient {
 	return prev
 }
 
-func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer signaling.StringMap) {
+func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer api.StringMap) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
 		log.Printf("Received offer %+v from unknown %s client %s (%+v)", offer, client.StreamType(), client.Id(), client)
@@ -170,7 +171,7 @@ func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer signaling
 		Payload: &signaling.PayloadProxyServerMessage{
 			Type:     "offer",
 			ClientId: id,
-			Payload: signaling.StringMap{
+			Payload: api.StringMap{
 				"offer": offer,
 			},
 		},
@@ -190,7 +191,7 @@ func (s *ProxySession) OnIceCandidate(client signaling.McuClient, candidate any)
 		Payload: &signaling.PayloadProxyServerMessage{
 			Type:     "candidate",
 			ClientId: id,
-			Payload: signaling.StringMap{
+			Payload: api.StringMap{
 				"candidate": candidate,
 			},
 		},

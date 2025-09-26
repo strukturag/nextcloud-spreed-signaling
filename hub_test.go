@@ -51,6 +51,8 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -699,11 +701,11 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if strings.Contains(t.Name(), "Federation") {
 			features = append(features, "federation-v2")
 		}
-		signaling := StringMap{
+		signaling := api.StringMap{
 			"foo": "bar",
 			"baz": 42,
 		}
-		config := StringMap{
+		config := api.StringMap{
 			"signaling": signaling,
 		}
 		if strings.Contains(t.Name(), "MultiRoom") {
@@ -735,7 +737,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 				signaling[ConfigKeyHelloV2TokenKey] = string(public)
 			}
 		}
-		spreedCapa, _ := json.Marshal(StringMap{
+		spreedCapa, _ := json.Marshal(api.StringMap{
 			"features": features,
 			"config":   config,
 		})
@@ -1716,7 +1718,7 @@ func TestClientHelloResumeProxy(t *testing.T) {
 			room2 := hub2.getRoom(roomId)
 			require.Nil(room2, "Should not have gotten room %s", roomId)
 
-			users := []StringMap{
+			users := []api.StringMap{
 				{
 					"sessionId": "the-session-id",
 					"inCall":    1,
@@ -1928,7 +1930,7 @@ func TestClientMessageToSessionId(t *testing.T) {
 				SessionId: hello2.Hello.SessionId,
 			}
 
-			data1 := StringMap{
+			data1 := api.StringMap{
 				"type":    "test",
 				"message": "from-1-to-2",
 			}
@@ -1940,7 +1942,7 @@ func TestClientMessageToSessionId(t *testing.T) {
 			if checkReceiveClientMessage(ctx, t, client1, "session", hello2.Hello, &payload1) {
 				assert.Equal(data2, payload1)
 			}
-			var payload2 StringMap
+			var payload2 api.StringMap
 			if checkReceiveClientMessage(ctx, t, client2, "session", hello1.Hello, &payload2) {
 				assert.Equal(data1, payload2)
 			}
@@ -2344,7 +2346,7 @@ func TestClientMessageToCall(t *testing.T) {
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 			// Simulate request from the backend that somebody joined the call.
-			users := []StringMap{
+			users := []api.StringMap{
 				{
 					"sessionId": hello1.Hello.SessionId,
 					"inCall":    1,
@@ -2377,7 +2379,7 @@ func TestClientMessageToCall(t *testing.T) {
 			client2.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 
 			// Simulate request from the backend that somebody joined the call.
-			users = []StringMap{
+			users = []api.StringMap{
 				{
 					"sessionId": hello1.Hello.SessionId,
 					"inCall":    1,
@@ -2449,7 +2451,7 @@ func TestClientControlToCall(t *testing.T) {
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 			// Simulate request from the backend that somebody joined the call.
-			users := []StringMap{
+			users := []api.StringMap{
 				{
 					"sessionId": hello1.Hello.SessionId,
 					"inCall":    1,
@@ -2482,7 +2484,7 @@ func TestClientControlToCall(t *testing.T) {
 			client2.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 
 			// Simulate request from the backend that somebody joined the call.
-			users = []StringMap{
+			users = []api.StringMap{
 				{
 					"sessionId": hello1.Hello.SessionId,
 					"inCall":    1,
@@ -3146,7 +3148,7 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 
 	// The two chat messages should get combined into one when receiving pending messages.
 	chat_refresh := "{\"type\":\"chat\",\"chat\":{\"refresh\":true}}"
-	var data1 StringMap
+	var data1 api.StringMap
 	require.NoError(json.Unmarshal([]byte(chat_refresh), &data1))
 	client1.SendMessage(recipient2, data1) // nolint
 	client1.SendMessage(recipient2, data1) // nolint
@@ -3163,7 +3165,7 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 		assert.Equal(hello2.Hello.ResumeId, hello3.Hello.ResumeId, "%+v", hello3.Hello)
 	}
 
-	var payload StringMap
+	var payload api.StringMap
 	if checkReceiveClientMessage(ctx, t, client2, "session", hello1.Hello, &payload) {
 		assert.Equal(data1, payload)
 	}
@@ -3202,7 +3204,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 	// Simulate request from the backend that somebody joined the call.
-	users := []StringMap{
+	users := []api.StringMap{
 		{
 			"sessionId": "the-session-id",
 			"inCall":    1,
@@ -3227,7 +3229,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	}
 
 	chat_refresh := "{\"type\":\"chat\",\"chat\":{\"refresh\":true}}"
-	var data1 StringMap
+	var data1 api.StringMap
 	require.NoError(json.Unmarshal([]byte(chat_refresh), &data1))
 	client1.SendMessage(recipient2, data1) // nolint
 
@@ -3244,7 +3246,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	// TODO(jojo): Check contents of message and try with multiple users.
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
-	var payload StringMap
+	var payload api.StringMap
 	if checkReceiveClientMessage(ctx, t, client2, "session", hello1.Hello, &payload) {
 		assert.Equal(data1, payload)
 	}
@@ -3404,7 +3406,7 @@ func TestClientSendOfferPermissions(t *testing.T) {
 		Type:     "offer",
 		Sid:      "12345",
 		RoomType: "screen",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -3470,7 +3472,7 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -3486,7 +3488,7 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioOnly,
 		},
 	}))
@@ -3533,7 +3535,7 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -3544,13 +3546,13 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	msg := &BackendServerRoomRequest{
 		Type: "participants",
 		Participants: &BackendRoomParticipantsRequest{
-			Changed: []StringMap{
+			Changed: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
 				},
 			},
-			Users: []StringMap{
+			Users: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
@@ -3632,7 +3634,7 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioAndVideo,
 		},
 	}))
@@ -3643,13 +3645,13 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	msg := &BackendServerRoomRequest{
 		Type: "participants",
 		Participants: &BackendRoomParticipantsRequest{
-			Changed: []StringMap{
+			Changed: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_CONTROL},
 				},
 			},
-			Users: []StringMap{
+			Users: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_CONTROL},
@@ -3741,7 +3743,7 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 				Type:     "offer",
 				Sid:      "54321",
 				RoomType: "screen",
-				Payload: StringMap{
+				Payload: api.StringMap{
 					"sdp": MockSdpOfferAudioAndVideo,
 				},
 			}))
@@ -3782,7 +3784,7 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			require.True(checkMessageError(t, msg, "not_allowed"))
 
 			// Simulate request from the backend that somebody joined the call.
-			users1 := []StringMap{
+			users1 := []api.StringMap{
 				{
 					"sessionId": hello2.Hello.SessionId,
 					"inCall":    1,
@@ -3808,7 +3810,7 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			require.True(checkMessageError(t, msg, "not_allowed"))
 
 			// Simulate request from the backend that somebody joined the call.
-			users2 := []StringMap{
+			users2 := []api.StringMap{
 				{
 					"sessionId": hello1.Hello.SessionId,
 					"inCall":    1,
@@ -3839,7 +3841,7 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 				Type:     "answer",
 				Sid:      "12345",
 				RoomType: "screen",
-				Payload: StringMap{
+				Payload: api.StringMap{
 					"sdp": MockSdpAnswerAudioAndVideo,
 				},
 			}))
@@ -4150,7 +4152,7 @@ func TestClientSendOffer(t *testing.T) {
 				Type:     "offer",
 				Sid:      "12345",
 				RoomType: "video",
-				Payload: StringMap{
+				Payload: api.StringMap{
 					"sdp": MockSdpOfferAudioAndVideo,
 				},
 			}))
@@ -4212,7 +4214,7 @@ func TestClientUnshareScreen(t *testing.T) {
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "screen",
-		Payload: StringMap{
+		Payload: api.StringMap{
 			"sdp": MockSdpOfferAudioOnly,
 		},
 	}))
@@ -4644,7 +4646,7 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				Type: "incall",
 				InCall: &BackendRoomInCallRequest{
 					InCall: []byte("0"),
-					Users: []StringMap{
+					Users: []api.StringMap{
 						{
 							"sessionId":              virtualSession.PublicId(),
 							"participantPermissions": 246,
@@ -4758,7 +4760,7 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 	}
 }
 
-func DoTestSwitchToOne(t *testing.T, details StringMap) {
+func DoTestSwitchToOne(t *testing.T, details api.StringMap) {
 	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
@@ -4846,7 +4848,7 @@ func DoTestSwitchToOne(t *testing.T, details StringMap) {
 }
 
 func TestSwitchToOneMap(t *testing.T) {
-	DoTestSwitchToOne(t, StringMap{
+	DoTestSwitchToOne(t, api.StringMap{
 		"foo": "bar",
 	})
 }
@@ -4855,7 +4857,7 @@ func TestSwitchToOneList(t *testing.T) {
 	DoTestSwitchToOne(t, nil)
 }
 
-func DoTestSwitchToMultiple(t *testing.T, details1 StringMap, details2 StringMap) {
+func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.StringMap) {
 	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
@@ -4945,9 +4947,9 @@ func DoTestSwitchToMultiple(t *testing.T, details1 StringMap, details2 StringMap
 }
 
 func TestSwitchToMultipleMap(t *testing.T) {
-	DoTestSwitchToMultiple(t, StringMap{
+	DoTestSwitchToMultiple(t, api.StringMap{
 		"foo": "bar",
-	}, StringMap{
+	}, api.StringMap{
 		"bar": "baz",
 	})
 }
@@ -4957,7 +4959,7 @@ func TestSwitchToMultipleList(t *testing.T) {
 }
 
 func TestSwitchToMultipleMixed(t *testing.T) {
-	DoTestSwitchToMultiple(t, StringMap{
+	DoTestSwitchToMultiple(t, api.StringMap{
 		"foo": "bar",
 	}, nil)
 }
@@ -5079,7 +5081,7 @@ func TestDialoutStatus(t *testing.T) {
 
 	key := "callstatus_" + callId
 	if msg, ok := client.RunUntilMessage(ctx); ok {
-		checkMessageTransientSet(t, msg, key, StringMap{
+		checkMessageTransientSet(t, msg, key, api.StringMap{
 			"callid": callId,
 			"status": "accepted",
 		}, nil)
@@ -5095,10 +5097,10 @@ func TestDialoutStatus(t *testing.T) {
 	}))
 
 	if msg, ok := client.RunUntilMessage(ctx); ok {
-		checkMessageTransientSet(t, msg, key, StringMap{
+		checkMessageTransientSet(t, msg, key, api.StringMap{
 			"callid": callId,
 			"status": "ringing",
-		}, StringMap{
+		}, api.StringMap{
 			"callid": callId,
 			"status": "accepted",
 		})
@@ -5122,11 +5124,11 @@ func TestDialoutStatus(t *testing.T) {
 	}))
 
 	if msg, ok := client.RunUntilMessage(ctx); ok {
-		checkMessageTransientSet(t, msg, key, StringMap{
+		checkMessageTransientSet(t, msg, key, api.StringMap{
 			"callid": callId,
 			"status": "cleared",
 			"cause":  clearedCause,
-		}, StringMap{
+		}, api.StringMap{
 			"callid": callId,
 			"status": "ringing",
 		})
@@ -5136,7 +5138,7 @@ func TestDialoutStatus(t *testing.T) {
 	defer cancel()
 
 	if msg, ok := client.RunUntilMessage(ctx2); ok {
-		checkMessageTransientRemove(t, msg, key, StringMap{
+		checkMessageTransientRemove(t, msg, key, api.StringMap{
 			"callid": callId,
 			"status": "cleared",
 			"cause":  clearedCause,

@@ -8,6 +8,7 @@ import (
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
+	api "github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 // suppress unused package warning
@@ -662,7 +663,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling4(in *jlex
 				in.Skip()
 			} else {
 				in.Delim('{')
-				out.Payload = make(StringMap)
+				out.Payload = make(api.StringMap)
 				for !in.IsDelim('}') {
 					key := string(in.String())
 					in.WantColon()
@@ -794,7 +795,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling5(in *jlex
 			} else {
 				in.Delim('{')
 				if !in.IsDelim('}') {
-					out.Payload = make(StringMap)
+					out.Payload = make(api.StringMap)
 				} else {
 					out.Payload = nil
 				}

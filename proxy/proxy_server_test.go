@@ -43,7 +43,9 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -417,7 +419,7 @@ func (p *TestMCUPublisher) MaxBitrate() int {
 func (p *TestMCUPublisher) Close(ctx context.Context) {
 }
 
-func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, signaling.StringMap)) {
+func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, api.StringMap)) {
 	callback(errors.New("not implemented"), nil)
 }
 
@@ -670,7 +672,7 @@ func (p *TestRemotePublisher) Close(ctx context.Context) {
 	}
 }
 
-func (p *TestRemotePublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, signaling.StringMap)) {
+func (p *TestRemotePublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, api.StringMap)) {
 	callback(errors.New("not implemented"), nil)
 }
 
@@ -726,7 +728,7 @@ func (s *TestRemoteSubscriber) Close(ctx context.Context) {
 	s.closeFunc()
 }
 
-func (s *TestRemoteSubscriber) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, signaling.StringMap)) {
+func (s *TestRemoteSubscriber) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, api.StringMap)) {
 	callback(errors.New("not implemented"), nil)
 }
 

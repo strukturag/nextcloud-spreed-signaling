@@ -26,6 +26,8 @@ import (
 	"reflect"
 	"sync"
 	"time"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type TransientListener interface {
@@ -34,7 +36,7 @@ type TransientListener interface {
 
 type TransientData struct {
 	mu        sync.Mutex
-	data      StringMap
+	data      api.StringMap
 	listeners map[TransientListener]bool
 	timers    map[string]*time.Timer
 	ttlCh     chan<- struct{}
@@ -147,7 +149,7 @@ func (t *TransientData) removeAfterTTL(key string, value any, ttl time.Duration)
 
 func (t *TransientData) doSet(key string, value any, prev any, ttl time.Duration) {
 	if t.data == nil {
-		t.data = make(StringMap)
+		t.data = make(api.StringMap)
 	}
 	t.data[key] = value
 	t.notifySet(key, prev, value)
@@ -252,11 +254,11 @@ func (t *TransientData) compareAndRemove(key string, old any) bool {
 }
 
 // GetData returns a copy of the internal data.
-func (t *TransientData) GetData() StringMap {
+func (t *TransientData) GetData() api.StringMap {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	result := make(StringMap)
+	result := make(api.StringMap)
 	maps.Copy(result, t.data)
 	return result
 }

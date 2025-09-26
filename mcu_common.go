@@ -29,6 +29,8 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -56,7 +58,7 @@ const (
 type McuListener interface {
 	PublicId() PublicSessionId
 
-	OnUpdateOffer(client McuClient, offer StringMap)
+	OnUpdateOffer(client McuClient, offer api.StringMap)
 
 	OnIceCandidate(client McuClient, candidate any)
 	OnIceCompleted(client McuClient)
@@ -205,7 +207,7 @@ type McuClient interface {
 
 	Close(ctx context.Context)
 
-	SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap))
+	SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap))
 }
 
 type McuPublisher interface {

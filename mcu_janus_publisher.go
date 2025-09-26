@@ -32,6 +32,8 @@ import (
 
 	"github.com/notedit/janus-go"
 	"github.com/pion/sdp/v3"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -139,7 +141,7 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	notify := false
 	p.mu.Lock()
 	if handle := p.handle; handle != nil && p.roomId != 0 {
-		destroy_msg := StringMap{
+		destroy_msg := api.StringMap{
 			"request": "destroy",
 			"room":    p.roomId,
 		}
@@ -167,7 +169,7 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	p.mcuJanusClient.Close(ctx)
 }
 
-func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, StringMap)) {
+func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {
@@ -201,13 +203,13 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
-			p.sendOffer(msgctx, jsep_msg, func(err error, jsep StringMap) {
+			p.sendOffer(msgctx, jsep_msg, func(err error, jsep api.StringMap) {
 				if err != nil {
 					callback(err, jsep)
 					return
 				}
 
-				sdpString, found := GetStringMapEntry[string](jsep, "sdp")
+				sdpString, found := api.GetStringMapEntry[string](jsep, "sdp")
 				if !found {
 					log.Printf("No/invalid sdp found in answer %+v", jsep)
 				} else if answerSdp, err := parseSDP(sdpString); err != nil {
@@ -397,7 +399,7 @@ func getPublisherRemoteId(id PublicSessionId, remoteId PublicSessionId, hostname
 }
 
 func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
-	msg := StringMap{
+	msg := api.StringMap{
 		"request":      "publish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],
@@ -434,7 +436,7 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId PublicSe
 }
 
 func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
-	msg := StringMap{
+	msg := api.StringMap{
 		"request":      "unpublish_remotely",
 		"room":         p.roomId,
 		"publisher_id": streamTypeUserIds[p.streamType],

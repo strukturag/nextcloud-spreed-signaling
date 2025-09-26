@@ -27,6 +27,8 @@ import (
 	"net/url"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type ProxyClientMessage struct {
@@ -277,9 +279,9 @@ type CommandProxyServerMessage struct {
 type PayloadProxyClientMessage struct {
 	Type string `json:"type"`
 
-	ClientId string    `json:"clientId"`
-	Sid      string    `json:"sid,omitempty"`
-	Payload  StringMap `json:"payload,omitempty"`
+	ClientId string        `json:"clientId"`
+	Sid      string        `json:"sid,omitempty"`
+	Payload  api.StringMap `json:"payload,omitempty"`
 }
 
 func (m *PayloadProxyClientMessage) CheckValid() error {
@@ -308,8 +310,8 @@ func (m *PayloadProxyClientMessage) CheckValid() error {
 type PayloadProxyServerMessage struct {
 	Type string `json:"type"`
 
-	ClientId string    `json:"clientId"`
-	Payload  StringMap `json:"payload"`
+	ClientId string        `json:"clientId"`
+	Payload  api.StringMap `json:"payload"`
 }
 
 // Type "event"

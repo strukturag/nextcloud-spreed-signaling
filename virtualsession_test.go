@@ -29,6 +29,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 func TestVirtualSession(t *testing.T) {
@@ -407,13 +409,13 @@ func checkHasEntryWithInCall(t *testing.T, message *RoomEventServerMessage, sess
 	assert := assert.New(t)
 	found := false
 	for _, entry := range message.Users {
-		if sid, ok := GetStringMapString[PublicSessionId](entry, "sessionId"); ok && sid == sessionId {
-			if value, found := GetStringMapEntry[bool](entry, entryType); !assert.True(found, "entry %s not found or invalid in %+v", entryType, entry) ||
+		if sid, ok := api.GetStringMapString[PublicSessionId](entry, "sessionId"); ok && sid == sessionId {
+			if value, found := api.GetStringMapEntry[bool](entry, entryType); !assert.True(found, "entry %s not found or invalid in %+v", entryType, entry) ||
 				!assert.True(value, "entry %s invalid in %+v", entryType, entry) {
 				return false
 			}
 
-			if value, found := GetStringMapEntry[float64](entry, "inCall"); !assert.True(found, "inCall not found or invalid in %+v", entry) ||
+			if value, found := api.GetStringMapEntry[float64](entry, "inCall"); !assert.True(found, "inCall not found or invalid in %+v", entry) ||
 				!assert.EqualValues(value, inCall, "invalid inCall") {
 				return false
 			}
