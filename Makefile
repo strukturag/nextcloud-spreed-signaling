@@ -13,7 +13,6 @@ VENDORDIR := "$(CURDIR)/vendor"
 VERSION := $(shell "$(CURDIR)/scripts/get-version.sh")
 TARVERSION := $(shell "$(CURDIR)/scripts/get-version.sh" --tar)
 PACKAGENAME := github.com/strukturag/nextcloud-spreed-signaling
-ALL_PACKAGES := $(PACKAGENAME) $(PACKAGENAME)/client $(PACKAGENAME)/proxy $(PACKAGENAME)/server
 GRPC_PROTO_FILES := $(basename $(wildcard grpc_*.proto))
 PROTOBUF_VERSION := $(shell grep google.golang.org/protobuf go.mod | xargs | cut -d ' ' -f 2)
 PROTO_FILES := $(filter-out $(GRPC_PROTO_FILES),$(basename $(wildcard *.proto)))
@@ -104,18 +103,18 @@ fmt: hook | $(PROTO_GO_FILES)
 	$(GOFMT) -s -w *.go client proxy server
 
 vet:
-	GOEXPERIMENT=synctest $(GO) vet $(ALL_PACKAGES)
+	GOEXPERIMENT=synctest $(GO) vet ./...
 
 test: vet
-	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) $(TESTARGS) $(ALL_PACKAGES)
+	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) $(TESTARGS) ./...
 
 cover: vet
 	rm -f cover.out && \
-	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES)
+	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out ./...
 
 coverhtml: vet
 	rm -f cover.out && \
-	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out $(ALL_PACKAGES) && \
+	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out ./... && \
 	sed -i "/_easyjson/d" cover.out && \
 	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -html=cover.out -o coverage.html
