@@ -58,13 +58,14 @@ const (
 )
 
 var (
-	ErrNotConnected = errors.New("not connected")
+	ErrNotConnected = errors.New("not connected") // +checklocksignore: Global readonly variable.
 )
 
 type RemoteConnection struct {
-	mu     sync.Mutex
-	p      *ProxyServer
-	url    *url.URL
+	mu  sync.Mutex
+	p   *ProxyServer
+	url *url.URL
+	// +checklocks:mu
 	conn   *websocket.Conn
 	closer *signaling.Closer
 	closed atomic.Bool
@@ -73,15 +74,20 @@ type RemoteConnection struct {
 	tokenKey  *rsa.PrivateKey
 	tlsConfig *tls.Config
 
+	// +checklocks:mu
 	connectedSince    time.Time
 	reconnectTimer    *time.Timer
 	reconnectInterval atomic.Int64
 
-	msgId      atomic.Int64
+	msgId atomic.Int64
+	// +checklocks:mu
 	helloMsgId string
-	sessionId  signaling.PublicSessionId
+	// +checklocks:mu
+	sessionId signaling.PublicSessionId
 
-	pendingMessages  []*signaling.ProxyClientMessage
+	// +checklocks:mu
+	pendingMessages []*signaling.ProxyClientMessage
+	// +checklocks:mu
 	messageCallbacks map[string]chan *signaling.ProxyServerMessage
 }
 
@@ -151,20 +157,35 @@ func (c *RemoteConnection) reconnect() {
 
 	c.reconnectInterval.Store(int64(initialReconnectInterval))
 
-	if err := c.sendHello(); err != nil {
-		log.Printf("Error sending hello request to proxy at %s: %s", c, err)
+	if !c.sendReconnectHello() || !c.sendPing() {
 		c.scheduleReconnect()
-		return
-	}
-
-	if !c.sendPing() {
 		return
 	}
 
 	go c.readPump(conn)
 }
 
+func (c *RemoteConnection) sendReconnectHello() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if err := c.sendHello(context.Background()); err != nil {
+		log.Printf("Error sending hello request to proxy at %s: %s", c, err)
+		return false
+	}
+
+	return true
+}
+
 func (c *RemoteConnection) scheduleReconnect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.scheduleReconnectLocked()
+}
+
+// +checklocks:c.mu
+func (c *RemoteConnection) scheduleReconnectLocked() {
 	if err := c.sendClose(); err != nil && err != ErrNotConnected {
 		log.Printf("Could not send close message to %s: %s", c, err)
 	}
@@ -180,7 +201,8 @@ func (c *RemoteConnection) scheduleReconnect() {
 	c.reconnectInterval.Store(interval)
 }
 
-func (c *RemoteConnection) sendHello() error {
+// +checklocks:c.mu
+func (c *RemoteConnection) sendHello(ctx context.Context) error {
 	c.helloMsgId = strconv.FormatInt(c.msgId.Add(1), 10)
 	msg := &signaling.ProxyClientMessage{
 		Id:   c.helloMsgId,
@@ -200,7 +222,7 @@ func (c *RemoteConnection) sendHello() error {
 		msg.Hello.Token = tokenString
 	}
 
-	return c.SendMessage(msg)
+	return c.sendMessageLocked(ctx, msg)
 }
 
 func (c *RemoteConnection) sendClose() error {
@@ -210,6 +232,7 @@ func (c *RemoteConnection) sendClose() error {
 	return c.sendCloseLocked()
 }
 
+// +checklocks:c.mu
 func (c *RemoteConnection) sendCloseLocked() error {
 	if c.conn == nil {
 		return ErrNotConnected
@@ -276,6 +299,7 @@ func (c *RemoteConnection) SendMessage(msg *signaling.ProxyClientMessage) error 
 	return c.sendMessageLocked(context.Background(), msg)
 }
 
+// +checklocks:c.mu
 func (c *RemoteConnection) deferMessage(ctx context.Context, msg *signaling.ProxyClientMessage) {
 	c.pendingMessages = append(c.pendingMessages, msg)
 	if ctx.Done() != nil {
@@ -294,6 +318,7 @@ func (c *RemoteConnection) deferMessage(ctx context.Context, msg *signaling.Prox
 	}
 }
 
+// +checklocks:c.mu
 func (c *RemoteConnection) sendMessageLocked(ctx context.Context, msg *signaling.ProxyClientMessage) error {
 	if c.conn == nil {
 		// Defer until connected.
@@ -397,21 +422,24 @@ func (c *RemoteConnection) writePump() {
 }
 
 func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.helloMsgId = ""
 	switch msg.Type {
 	case "error":
 		if msg.Error.Code == "no_such_session" {
 			log.Printf("Session %s could not be resumed on %s, registering new", c.sessionId, c)
 			c.sessionId = ""
-			if err := c.sendHello(); err != nil {
+			if err := c.sendHello(context.Background()); err != nil {
 				log.Printf("Could not send hello request to %s: %s", c, err)
-				c.scheduleReconnect()
+				c.scheduleReconnectLocked()
 			}
 			return
 		}
 
 		log.Printf("Hello connection to %s failed with %+v, reconnecting", c, msg.Error)
-		c.scheduleReconnect()
+		c.scheduleReconnectLocked()
 	case "hello":
 		resumed := c.sessionId == msg.Hello.SessionId
 		c.sessionId = msg.Hello.SessionId
@@ -443,21 +471,32 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 		}
 	default:
 		log.Printf("Received unsupported hello response %+v from %s, reconnecting", msg, c)
-		c.scheduleReconnect()
+		c.scheduleReconnectLocked()
 	}
 }
 
-func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
-	if msg.Id != "" {
-		c.mu.Lock()
-		ch, found := c.messageCallbacks[msg.Id]
-		if found {
-			delete(c.messageCallbacks, msg.Id)
-			c.mu.Unlock()
-			ch <- msg
-			return
-		}
+func (c *RemoteConnection) handleCallback(msg *signaling.ProxyServerMessage) bool {
+	if msg.Id == "" {
+		return false
+	}
+
+	c.mu.Lock()
+	ch, found := c.messageCallbacks[msg.Id]
+	if !found {
 		c.mu.Unlock()
+		return false
+	}
+
+	delete(c.messageCallbacks, msg.Id)
+	c.mu.Unlock()
+
+	ch <- msg
+	return true
+}
+
+func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
+	if c.handleCallback(msg) {
+		return
 	}
 
 	switch msg.Type {
@@ -467,7 +506,9 @@ func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
 		log.Printf("Connection to %s was closed: %s", c, msg.Bye.Reason)
 		if msg.Bye.Reason == "session_expired" {
 			// Don't try to resume expired session.
+			c.mu.Lock()
 			c.sessionId = ""
+			c.mu.Unlock()
 		}
 		c.scheduleReconnect()
 	default:
@@ -487,21 +528,31 @@ func (c *RemoteConnection) processEvent(msg *signaling.ProxyServerMessage) {
 	}
 }
 
-func (c *RemoteConnection) RequestMessage(ctx context.Context, msg *signaling.ProxyClientMessage) (*signaling.ProxyServerMessage, error) {
+func (c *RemoteConnection) sendMessageWithCallbackLocked(ctx context.Context, msg *signaling.ProxyClientMessage) (string, <-chan *signaling.ProxyServerMessage, error) {
 	msg.Id = strconv.FormatInt(c.msgId.Add(1), 10)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
 	if err := c.sendMessageLocked(ctx, msg); err != nil {
-		return nil, err
+		msg.Id = ""
+		return "", nil, err
 	}
+
 	ch := make(chan *signaling.ProxyServerMessage, 1)
 	c.messageCallbacks[msg.Id] = ch
-	c.mu.Unlock()
+	return msg.Id, ch, nil
+}
+
+func (c *RemoteConnection) RequestMessage(ctx context.Context, msg *signaling.ProxyClientMessage) (*signaling.ProxyServerMessage, error) {
+	id, ch, err := c.sendMessageWithCallbackLocked(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+
 	defer func() {
 		c.mu.Lock()
-		delete(c.messageCallbacks, msg.Id)
+		defer c.mu.Unlock()
+		delete(c.messageCallbacks, id)
 	}()
 
 	select {

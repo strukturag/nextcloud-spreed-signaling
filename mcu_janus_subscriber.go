@@ -47,7 +47,7 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Subscriber %d: associated room has been destroyed, closing", p.handleId)
+			log.Printf("Subscriber %d: associated room has been destroyed, closing", p.handleId.Load())
 			go p.Close(ctx)
 		case "updated":
 			streams, ok := getPluginValue(event.Plugindata, pluginVideoRoom, "streams").([]any)
@@ -64,7 +64,7 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 				}
 			}
 
-			log.Printf("Subscriber %d: received updated event with no active media streams, closing", p.handleId)
+			log.Printf("Subscriber %d: received updated event with no active media streams, closing", p.handleId.Load())
 			go p.Close(ctx)
 		case "event":
 			// Handle renegotiations, but ignore other events like selected
@@ -76,33 +76,33 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom event %s for subscriber %d: %+v", videoroom, p.handleId, event)
+			log.Printf("Unsupported videoroom event %s for subscriber %d: %+v", videoroom, p.handleId.Load(), event)
 		}
 	} else {
-		log.Printf("Unsupported event for subscriber %d: %+v", p.handleId, event)
+		log.Printf("Unsupported event for subscriber %d: %+v", p.handleId.Load(), event)
 	}
 }
 
 func (p *mcuJanusSubscriber) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Subscriber %d received hangup (%s), closing", p.handleId, event.Reason)
+	log.Printf("Subscriber %d received hangup (%s), closing", p.handleId.Load(), event.Reason)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusSubscriber) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Subscriber %d received detached, closing", p.handleId)
+	log.Printf("Subscriber %d received detached, closing", p.handleId.Load())
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusSubscriber) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Subscriber %d received connected", p.handleId)
+	log.Printf("Subscriber %d received connected", p.handleId.Load())
 	p.mcu.SubscriberConnected(p.Id(), p.publisher, p.streamType)
 }
 
 func (p *mcuJanusSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
+		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	} else {
-		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
+		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	}
 }
 
@@ -121,12 +121,16 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 		return
 	}
 
-	p.handle = handle
-	p.handleId = handle.Id
+	if prev := p.handle.Swap(handle); prev != nil {
+		if _, err := prev.Detach(context.Background()); err != nil {
+			log.Printf("Error detaching old subscriber handle %d: %s", prev.Id, err)
+		}
+	}
+	p.handleId.Store(handle.Id)
 	p.roomId = pub.roomId
 	p.sid = strconv.FormatUint(handle.Id, 10)
 	p.listener.SubscriberSidUpdated(p)
-	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId)
+	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId.Load())
 }
 
 func (p *mcuJanusSubscriber) closeClient(ctx context.Context) bool {
@@ -152,7 +156,7 @@ func (p *mcuJanusSubscriber) Close(ctx context.Context) {
 }
 
 func (p *mcuJanusSubscriber) joinRoom(ctx context.Context, stream *streamSelection, callback func(error, api.StringMap)) {
-	handle := p.handle
+	handle := p.handle.Load()
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return
@@ -210,15 +214,19 @@ retry:
 				return
 			}
 
-			p.handle = handle
-			p.handleId = handle.Id
+			if prev := p.handle.Swap(handle); prev != nil {
+				if _, err := prev.Detach(context.Background()); err != nil {
+					log.Printf("Error detaching old subscriber handle %d: %s", prev.Id, err)
+				}
+			}
+			p.handleId.Store(handle.Id)
 			p.roomId = pub.roomId
 			p.sid = strconv.FormatUint(handle.Id, 10)
 			p.listener.SubscriberSidUpdated(p)
 			p.closeChan = make(chan struct{}, 1)
 			statsSubscribersCurrent.WithLabelValues(string(p.streamType)).Inc()
-			go p.run(p.handle, p.closeChan)
-			log.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId)
+			go p.run(handle, p.closeChan)
+			log.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId.Load())
 			goto retry
 		case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
 			fallthrough
@@ -258,7 +266,7 @@ retry:
 }
 
 func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection, callback func(error, api.StringMap)) {
-	handle := p.handle
+	handle := p.handle.Load()
 	if handle == nil {
 		callback(ErrNotConnected, nil)
 		return

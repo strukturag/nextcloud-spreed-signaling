@@ -44,7 +44,7 @@ var (
 	// DefaultPermissionOverrides contains permission overrides for users where
 	// no permissions have been set by the server. If a permission is not set in
 	// this map, it's assumed the user has that permission.
-	DefaultPermissionOverrides = map[Permission]bool{
+	DefaultPermissionOverrides = map[Permission]bool{ // +checklocksignore: Global readonly variable.
 		PERMISSION_HIDE_DISPLAYNAMES: false,
 	}
 )

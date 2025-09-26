@@ -133,20 +133,25 @@ type ProxyServer struct {
 
 	sid          atomic.Uint64
 	cookie       *signaling.SessionIdCodec
-	sessions     map[uint64]*ProxySession
 	sessionsLock sync.RWMutex
+	// +checklocks:sessionsLock
+	sessions map[uint64]*ProxySession
 
-	clients     map[string]signaling.McuClient
-	clientIds   map[string]string
 	clientsLock sync.RWMutex
+	// +checklocks:clientsLock
+	clients map[string]signaling.McuClient
+	// +checklocks:clientsLock
+	clientIds map[string]string
 
 	tokenId               string
 	tokenKey              *rsa.PrivateKey
-	remoteTlsConfig       *tls.Config
+	remoteTlsConfig       *tls.Config // +checklocksignore: Only written to from constructor.
 	remoteHostname        string
-	remoteConnections     map[string]*RemoteConnection
 	remoteConnectionsLock sync.Mutex
-	remotePublishers      map[string]map[*proxyRemotePublisher]bool
+	// +checklocks:remoteConnectionsLock
+	remoteConnections map[string]*RemoteConnection
+	// +checklocks:remoteConnectionsLock
+	remotePublishers map[string]map[*proxyRemotePublisher]bool
 }
 
 func IsPublicIP(IP net.IP) bool {
@@ -1503,6 +1508,7 @@ func (s *ProxyServer) DeleteSession(id uint64) {
 	s.deleteSessionLocked(id)
 }
 
+// +checklocks:s.sessionsLock
 func (s *ProxyServer) deleteSessionLocked(id uint64) {
 	if session, found := s.sessions[id]; found {
 		delete(s.sessions, id)

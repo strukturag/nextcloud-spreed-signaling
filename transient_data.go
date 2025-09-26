@@ -35,11 +35,15 @@ type TransientListener interface {
 }
 
 type TransientData struct {
-	mu        sync.Mutex
-	data      api.StringMap
+	mu sync.Mutex
+	// +checklocks:mu
+	data api.StringMap
+	// +checklocks:mu
 	listeners map[TransientListener]bool
-	timers    map[string]*time.Timer
-	ttlCh     chan<- struct{}
+	// +checklocks:mu
+	timers map[string]*time.Timer
+	// +checklocks:mu
+	ttlCh chan<- struct{}
 }
 
 // NewTransientData creates a new transient data container.
@@ -47,6 +51,7 @@ func NewTransientData() *TransientData {
 	return &TransientData{}
 }
 
+// +checklocks:t.mu
 func (t *TransientData) sendMessageToListener(listener TransientListener, message *ServerMessage) {
 	t.mu.Unlock()
 	defer t.mu.Lock()
@@ -54,6 +59,7 @@ func (t *TransientData) sendMessageToListener(listener TransientListener, messag
 	listener.SendMessage(message)
 }
 
+// +checklocks:t.mu
 func (t *TransientData) notifySet(key string, prev, value any) {
 	msg := &ServerMessage{
 		Type: "transient",
@@ -69,6 +75,7 @@ func (t *TransientData) notifySet(key string, prev, value any) {
 	}
 }
 
+// +checklocks:t.mu
 func (t *TransientData) notifyDeleted(key string, prev any) {
 	msg := &ServerMessage{
 		Type: "transient",
@@ -112,6 +119,7 @@ func (t *TransientData) RemoveListener(listener TransientListener) {
 	delete(t.listeners, listener)
 }
 
+// +checklocks:t.mu
 func (t *TransientData) updateTTL(key string, value any, ttl time.Duration) {
 	if ttl <= 0 {
 		delete(t.timers, key)
@@ -120,6 +128,7 @@ func (t *TransientData) updateTTL(key string, value any, ttl time.Duration) {
 	}
 }
 
+// +checklocks:t.mu
 func (t *TransientData) removeAfterTTL(key string, value any, ttl time.Duration) {
 	if ttl <= 0 {
 		return
@@ -147,6 +156,7 @@ func (t *TransientData) removeAfterTTL(key string, value any, ttl time.Duration)
 	t.timers[key] = timer
 }
 
+// +checklocks:t.mu
 func (t *TransientData) doSet(key string, value any, prev any, ttl time.Duration) {
 	if t.data == nil {
 		t.data = make(api.StringMap)
@@ -210,6 +220,7 @@ func (t *TransientData) CompareAndSetTTL(key string, old, value any, ttl time.Du
 	return true
 }
 
+// +checklocks:t.mu
 func (t *TransientData) doRemove(key string, prev any) {
 	delete(t.data, key)
 	if old, found := t.timers[key]; found {
@@ -243,6 +254,7 @@ func (t *TransientData) CompareAndRemove(key string, old any) bool {
 	return t.compareAndRemove(key, old)
 }
 
+// +checklocks:t.mu
 func (t *TransientData) compareAndRemove(key string, old any) bool {
 	prev, found := t.data[key]
 	if !found || !reflect.DeepEqual(prev, old) {

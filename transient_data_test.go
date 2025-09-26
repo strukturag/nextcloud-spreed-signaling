@@ -92,6 +92,7 @@ type MockTransientListener struct {
 	sending chan struct{}
 	done    chan struct{}
 
+	// +checklocks:mu
 	data *TransientData
 }
 

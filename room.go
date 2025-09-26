@@ -69,17 +69,23 @@ type Room struct {
 	events  AsyncEvents
 	backend *Backend
 
+	// +checklocks:mu
 	properties json.RawMessage
 
-	closer   *Closer
-	mu       *sync.RWMutex
+	closer *Closer
+	mu     *sync.RWMutex
+	// +checklocks:mu
 	sessions map[PublicSessionId]Session
-
+	// +checklocks:mu
 	internalSessions map[*ClientSession]bool
-	virtualSessions  map[*VirtualSession]bool
-	inCallSessions   map[Session]bool
-	roomSessionData  map[PublicSessionId]*RoomSessionData
+	// +checklocks:mu
+	virtualSessions map[*VirtualSession]bool
+	// +checklocks:mu
+	inCallSessions map[Session]bool
+	// +checklocks:mu
+	roomSessionData map[PublicSessionId]*RoomSessionData
 
+	// +checklocks:mu
 	statsRoomSessionsCurrent *prometheus.GaugeVec
 
 	// Users currently in the room
@@ -590,6 +596,7 @@ func (r *Room) PublishSessionLeft(session Session) {
 	}
 }
 
+// +checklocksread:r.mu
 func (r *Room) getClusteredInternalSessionsRLocked() (internal map[PublicSessionId]*InternalSessionData, virtual map[PublicSessionId]*VirtualSessionData) {
 	if r.hub.rpcClients == nil {
 		return nil, nil
