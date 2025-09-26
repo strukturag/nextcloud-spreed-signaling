@@ -3,6 +3,9 @@ linters:
   enable:
     - revive
   settings:
+    govet:
+      disable:
+        - stdversion
     revive:
       severity: warning
       rules:
