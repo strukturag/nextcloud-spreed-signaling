@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"testing"
 	"time"
@@ -227,6 +228,162 @@ func TestFeatureChatRelay(t *testing.T) {
 
 			if msg, ok := client.RunUntilRoomMessage(ctx); ok {
 				assert.Equal(roomId, msg.RoomId)
+				var data api.StringMap
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+						if feature {
+							assert.EqualValues(chatComment, chat["comment"])
+							_, found := chat["refresh"]
+							assert.False(found, "refresh should not be included")
+						} else {
+							assert.Equal(true, chat["refresh"])
+							_, found := chat["comment"]
+							assert.False(found, "the comment should not be included")
+						}
+					}
+				}
+			}
+		}
+	}
+
+	t.Run("without-chat-relay", testFunc(false))
+	t.Run("with-chat-relay", testFunc(true))
+}
+
+func TestFeatureChatRelayFederation(t *testing.T) {
+	CatchLogForTest(t)
+
+	var testFunc = func(feature bool) func(t *testing.T) {
+		return func(t *testing.T) {
+			CatchLogForTest(t)
+			require := require.New(t)
+			assert := assert.New(t)
+
+			hub1, hub2, server1, server2 := CreateClusteredHubsForTest(t)
+
+			localFeatures := []string{
+				ClientFeatureChatRelay,
+			}
+			var federatedFeatures []string
+			if feature {
+				federatedFeatures = append(federatedFeatures, ClientFeatureChatRelay)
+			}
+
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			require.NoError(client1.SendHelloClientWithFeatures(testDefaultUserId+"1", localFeatures))
+
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			require.NoError(client2.SendHelloClientWithFeatures(testDefaultUserId+"2", federatedFeatures))
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello1 := MustSucceed1(t, client1.RunUntilHello, ctx)
+			hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
+
+			roomId := "test-room"
+			federatedRoomId := roomId + "@federated"
+			room1 := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			require.Equal(roomId, room1.Room.RoomId)
+
+			client1.RunUntilJoined(ctx, hello1.Hello)
+
+			now := time.Now()
+			userdata := api.StringMap{
+				"displayname": "Federated user",
+				"actorType":   "federated_users",
+				"actorId":     "the-federated-user-id",
+			}
+			token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
+			require.NoError(err)
+
+			msg := &ClientMessage{
+				Id:   "join-room-fed",
+				Type: "room",
+				Room: &RoomClientMessage{
+					RoomId:    federatedRoomId,
+					SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+					Federation: &RoomFederationMessage{
+						SignalingUrl: server1.URL,
+						NextcloudUrl: server1.URL,
+						RoomId:       roomId,
+						Token:        token,
+					},
+				},
+			}
+			require.NoError(client2.WriteJSON(msg))
+
+			if message, ok := client2.RunUntilMessage(ctx); ok {
+				assert.Equal(msg.Id, message.Id)
+				require.Equal("room", message.Type)
+				require.Equal(federatedRoomId, message.Room.RoomId)
+			}
+
+			// The client1 will see the remote session id for client2.
+			var remoteSessionId PublicSessionId
+			if message, ok := client1.RunUntilMessage(ctx); ok {
+				client1.checkSingleMessageJoined(message)
+				evt := message.Event.Join[0]
+				remoteSessionId = evt.SessionId
+				assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
+				assert.Equal(hello2.Hello.UserId, evt.UserId)
+				assert.True(evt.Federated)
+			}
+
+			// The client2 will see its own session id, not the one from the remote server.
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			room := hub1.getRoom(roomId)
+			require.NotNil(room)
+
+			chatComment := api.StringMap{
+				"foo": "bar",
+				"baz": true,
+				"lala": map[string]any{
+					"one": "eins",
+				},
+			}
+			message := api.StringMap{
+				"type": "chat",
+				"chat": api.StringMap{
+					"refresh": true,
+					"comment": chatComment,
+				},
+			}
+			data, err := json.Marshal(message)
+			require.NoError(err)
+
+			// Simulate request from the backend.
+			room.ProcessBackendRoomRequest(&AsyncMessage{
+				Type: "room",
+				Room: &BackendServerRoomRequest{
+					Type: "message",
+					Message: &BackendRoomMessageRequest{
+						Data: data,
+					},
+				},
+			})
+
+			// The first client will receive the message for the local room (always including the actual message).
+			if msg, ok := client1.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(roomId, msg.RoomId)
+				var data api.StringMap
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+						assert.EqualValues(chatComment, chat["comment"])
+						_, found := chat["refresh"]
+						assert.False(found, "refresh should not be included")
+					}
+				}
+			}
+
+			// The second client will receive the message from the federated room (either as refresh or with the message).
+			if msg, ok := client2.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(federatedRoomId, msg.RoomId)
 				var data api.StringMap
 				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
 					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
