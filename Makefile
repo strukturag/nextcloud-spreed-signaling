@@ -85,6 +85,9 @@ $(GOPATHBIN)/protoc-gen-go: go.mod go.sum
 $(GOPATHBIN)/protoc-gen-go-grpc: go.mod go.sum
 	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc
 
+$(GOPATHBIN)/checklocks: go.mod go.sum
+	$(GO) install gvisor.dev/gvisor/tools/checklocks/cmd/checklocks@go
+
 continentmap.go:
 	$(CURDIR)/scripts/get_continent_map.py $@
 
@@ -107,6 +110,9 @@ vet:
 
 test: vet
 	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) $(TESTARGS) ./...
+
+checklocks: $(GOPATHBIN)/checklocks
+	GOEXPERIMENT=synctest go vet -vettool=$(GOPATHBIN)/checklocks ./...
 
 cover: vet
 	rm -f cover.out && \

@@ -350,10 +350,11 @@ type mcuProxyConnection struct {
 	closer     *Closer
 	closedDone *Closer
 	closed     atomic.Bool
-	conn       *websocket.Conn
+	// +checklocks:mu
+	conn *websocket.Conn
 
 	helloProcessed    atomic.Bool
-	connectedSince    time.Time
+	connectedSince    atomic.Int64
 	reconnectTimer    *time.Timer
 	reconnectInterval atomic.Int64
 	shutdownScheduled atomic.Bool
@@ -370,15 +371,20 @@ type mcuProxyConnection struct {
 	version    atomic.Value
 	features   atomic.Value
 
-	callbacks         map[string]mcuProxyCallback
+	// +checklocks:mu
+	callbacks map[string]mcuProxyCallback
+	// +checklocks:mu
 	deferredCallbacks map[string]mcuProxyCallback
 
 	publishersLock sync.RWMutex
-	publishers     map[string]*mcuProxyPublisher
-	publisherIds   map[StreamId]PublicSessionId
+	// +checklocks:publishersLock
+	publishers map[string]*mcuProxyPublisher
+	// +checklocks:publishersLock
+	publisherIds map[StreamId]PublicSessionId
 
 	subscribersLock sync.RWMutex
-	subscribers     map[string]*mcuProxySubscriber
+	// +checklocks:subscribersLock
+	subscribers map[string]*mcuProxySubscriber
 }
 
 func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP, token string) (*mcuProxyConnection, error) {
@@ -485,7 +491,10 @@ func (c *mcuProxyConnection) GetStats() *mcuProxyConnectionStats {
 	c.mu.Lock()
 	if c.conn != nil {
 		result.Connected = true
-		result.Uptime = &c.connectedSince
+		if since := c.connectedSince.Load(); since != 0 {
+			t := time.UnixMicro(since)
+			result.Uptime = &t
+		}
 		load := c.Load()
 		result.Load = &load
 		shutdown := c.IsShutdownScheduled()
@@ -704,6 +713,7 @@ func (c *mcuProxyConnection) close() {
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
+		c.connectedSince.Store(0)
 		if c.trackClose.CompareAndSwap(true, false) {
 			statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Dec()
 		}
@@ -809,9 +819,9 @@ func (c *mcuProxyConnection) reconnect() {
 	log.Printf("Connected to %s", c)
 	c.closed.Store(false)
 	c.helloProcessed.Store(false)
+	c.connectedSince.Store(time.Now().UnixMicro())
 
 	c.mu.Lock()
-	c.connectedSince = time.Now()
 	c.conn = conn
 	c.mu.Unlock()
 
@@ -1156,6 +1166,7 @@ func (c *mcuProxyConnection) sendMessage(msg *ProxyClientMessage) error {
 	return c.sendMessageLocked(msg)
 }
 
+// +checklocks:c.mu
 func (c *mcuProxyConnection) sendMessageLocked(msg *ProxyClientMessage) error {
 	if proxyDebugMessages {
 		log.Printf("Send message to %s: %+v", c, msg)
@@ -1448,16 +1459,19 @@ type mcuProxy struct {
 	tokenKey *rsa.PrivateKey
 	config   ProxyConfig
 
-	dialer         *websocket.Dialer
-	connections    []*mcuProxyConnection
+	dialer        *websocket.Dialer
+	connectionsMu sync.RWMutex
+	// +checklocks:connectionsMu
+	connections []*mcuProxyConnection
+	// +checklocks:connectionsMu
 	connectionsMap map[string][]*mcuProxyConnection
-	connectionsMu  sync.RWMutex
 	connRequests   atomic.Int64
 	nextSort       atomic.Int64
 
 	settings McuSettings
 
-	mu         sync.RWMutex
+	mu sync.RWMutex
+	// +checklocks:mu
 	publishers map[StreamId]*mcuProxyConnection
 
 	publisherWaiters ChannelWaiters
@@ -1612,6 +1626,13 @@ func (m *mcuProxy) createToken(subject string) (string, error) {
 	}
 
 	return tokenString, nil
+}
+
+func (m *mcuProxy) getConnections() []*mcuProxyConnection {
+	m.connectionsMu.RLock()
+	defer m.connectionsMu.RUnlock()
+
+	return m.connections
 }
 
 func (m *mcuProxy) hasConnections() bool {
@@ -1834,7 +1855,10 @@ func (m *mcuProxy) GetServerInfoSfu() *BackendServerInfoSfu {
 		if c.IsConnected() {
 			proxy.Connected = true
 			proxy.Shutdown = makePtr(c.IsShutdownScheduled())
-			proxy.Uptime = &c.connectedSince
+			if since := c.connectedSince.Load(); since != 0 {
+				t := time.UnixMicro(since)
+				proxy.Uptime = &t
+			}
 			proxy.Version = c.Version()
 			proxy.Features = c.Features()
 			proxy.Country = c.Country()

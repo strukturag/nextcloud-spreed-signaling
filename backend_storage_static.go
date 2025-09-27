@@ -150,6 +150,7 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 func (s *backendStorageStatic) Close() {
 }
 
+// +checklocks:s.mu
 func (s *backendStorageStatic) RemoveBackendsForHost(host string, seen map[string]seenState) {
 	if oldBackends := s.backends[host]; len(oldBackends) > 0 {
 		deleted := 0
@@ -184,6 +185,7 @@ const (
 	seenDeleted
 )
 
+// +checklocks:s.mu
 func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen map[string]seenState) {
 	for existingIndex, existingBackend := range s.backends[host] {
 		found := false

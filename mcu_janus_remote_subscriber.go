@@ -41,7 +41,7 @@ func (p *mcuJanusRemoteSubscriber) handleEvent(event *janus.EventMsg) {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Remote subscriber %d: associated room has been destroyed, closing", p.handleId)
+			log.Printf("Remote subscriber %d: associated room has been destroyed, closing", p.handleId.Load())
 			go p.Close(ctx)
 		case "event":
 			// Handle renegotiations, but ignore other events like selected
@@ -53,33 +53,33 @@ func (p *mcuJanusRemoteSubscriber) handleEvent(event *janus.EventMsg) {
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom event %s for remote subscriber %d: %+v", videoroom, p.handleId, event)
+			log.Printf("Unsupported videoroom event %s for remote subscriber %d: %+v", videoroom, p.handleId.Load(), event)
 		}
 	} else {
-		log.Printf("Unsupported event for remote subscriber %d: %+v", p.handleId, event)
+		log.Printf("Unsupported event for remote subscriber %d: %+v", p.handleId.Load(), event)
 	}
 }
 
 func (p *mcuJanusRemoteSubscriber) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Remote subscriber %d received hangup (%s), closing", p.handleId, event.Reason)
+	log.Printf("Remote subscriber %d received hangup (%s), closing", p.handleId.Load(), event.Reason)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusRemoteSubscriber) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Remote subscriber %d received detached, closing", p.handleId)
+	log.Printf("Remote subscriber %d received detached, closing", p.handleId.Load())
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusRemoteSubscriber) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Remote subscriber %d received connected", p.handleId)
+	log.Printf("Remote subscriber %d received connected", p.handleId.Load())
 	p.mcu.SubscriberConnected(p.Id(), p.publisher, p.streamType)
 }
 
 func (p *mcuJanusRemoteSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Remote subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId, event.Lost)
+		log.Printf("Remote subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	} else {
-		log.Printf("Remote subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId, event.Lost)
+		log.Printf("Remote subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	}
 }
 
@@ -98,12 +98,16 @@ func (p *mcuJanusRemoteSubscriber) NotifyReconnected() {
 		return
 	}
 
-	p.handle = handle
-	p.handleId = handle.Id
+	if prev := p.handle.Swap(handle); prev != nil {
+		if _, err := prev.Detach(context.Background()); err != nil {
+			log.Printf("Error detaching old remote subscriber handle %d: %s", prev.Id, err)
+		}
+	}
+	p.handleId.Store(handle.Id)
 	p.roomId = pub.roomId
 	p.sid = strconv.FormatUint(handle.Id, 10)
 	p.listener.SubscriberSidUpdated(p)
-	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId)
+	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId.Load())
 }
 
 func (p *mcuJanusRemoteSubscriber) Close(ctx context.Context) {

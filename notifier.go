@@ -39,7 +39,9 @@ func (w *Waiter) Wait(ctx context.Context) error {
 type Notifier struct {
 	sync.Mutex
 
-	waiters   map[string]*Waiter
+	// +checklocks:Mutex
+	waiters map[string]*Waiter
+	// +checklocks:Mutex
 	waiterMap map[string]map[*Waiter]bool
 }
 

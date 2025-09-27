@@ -41,8 +41,10 @@ const (
 )
 
 type TestMCU struct {
-	mu          sync.Mutex
-	publishers  map[PublicSessionId]*TestMCUPublisher
+	mu sync.Mutex
+	// +checklocks:mu
+	publishers map[PublicSessionId]*TestMCUPublisher
+	// +checklocks:mu
 	subscribers map[string]*TestMCUSubscriber
 }
 

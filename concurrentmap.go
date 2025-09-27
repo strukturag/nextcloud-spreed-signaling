@@ -27,7 +27,8 @@ import (
 
 type ConcurrentMap[K comparable, V any] struct {
 	mu sync.RWMutex
-	d  map[K]V
+	// +checklocks:mu
+	d map[K]V // +checklocksignore: Not supported yet, see https://github.com/google/gvisor/issues/11671
 }
 
 func (m *ConcurrentMap[K, V]) Set(key K, value V) {

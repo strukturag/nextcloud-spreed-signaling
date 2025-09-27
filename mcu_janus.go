@@ -220,13 +220,16 @@ type mcuJanus struct {
 	closeChan chan struct{}
 
 	muClients sync.Mutex
-	clients   map[clientInterface]bool
-	clientId  atomic.Uint64
+	// +checklocks:muClients
+	clients  map[clientInterface]bool
+	clientId atomic.Uint64
 
+	// +checklocks:mu
 	publishers         map[StreamId]*mcuJanusPublisher
 	publisherCreated   Notifier
 	publisherConnected Notifier
-	remotePublishers   map[StreamId]*mcuJanusRemotePublisher
+	// +checklocks:mu
+	remotePublishers map[StreamId]*mcuJanusRemotePublisher
 
 	reconnectTimer    *time.Timer
 	reconnectInterval time.Duration
@@ -683,8 +686,6 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id Pu
 			streamType: streamType,
 			maxBitrate: maxBitrate,
 
-			handle:    handle,
-			handleId:  handle.Id,
 			closeChan: make(chan struct{}, 1),
 			deferred:  make(chan func(), 64),
 		},
@@ -692,6 +693,8 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id Pu
 		id:       id,
 		settings: settings,
 	}
+	client.handle.Store(handle)
+	client.handleId.Store(handle.Id)
 	client.mcuJanusClient.handleEvent = client.handleEvent
 	client.mcuJanusClient.handleHangup = client.handleHangup
 	client.mcuJanusClient.handleDetached = client.handleDetached
@@ -700,7 +703,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id Pu
 	client.mcuJanusClient.handleMedia = client.handleMedia
 
 	m.registerClient(client)
-	log.Printf("Publisher %s is using handle %d", client.id, client.handleId)
+	log.Printf("Publisher %s is using handle %d", client.id, handle.Id)
 	go client.run(handle, client.closeChan)
 	m.mu.Lock()
 	m.publishers[getStreamId(id, streamType)] = client
@@ -780,13 +783,13 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 			streamType: streamType,
 			maxBitrate: pub.MaxBitrate(),
 
-			handle:    handle,
-			handleId:  handle.Id,
 			closeChan: make(chan struct{}, 1),
 			deferred:  make(chan func(), 64),
 		},
 		publisher: publisher,
 	}
+	client.handle.Store(handle)
+	client.handleId.Store(handle.Id)
 	client.mcuJanusClient.handleEvent = client.handleEvent
 	client.mcuJanusClient.handleHangup = client.handleHangup
 	client.mcuJanusClient.handleDetached = client.handleDetached
@@ -864,8 +867,6 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 				streamType: streamType,
 				maxBitrate: maxBitrate,
 
-				handle:    handle,
-				handleId:  handle.Id,
 				closeChan: make(chan struct{}, 1),
 				deferred:  make(chan func(), 64),
 			},
@@ -880,6 +881,8 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 		port:     int(port),
 		rtcpPort: int(rtcp_port),
 	}
+	pub.handle.Store(handle)
+	pub.handleId.Store(handle.Id)
 	pub.mcuJanusClient.handleEvent = pub.handleEvent
 	pub.mcuJanusClient.handleHangup = pub.handleHangup
 	pub.mcuJanusClient.handleDetached = pub.handleDetached
@@ -945,8 +948,6 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 				streamType: publisher.StreamType(),
 				maxBitrate: pub.MaxBitrate(),
 
-				handle:    handle,
-				handleId:  handle.Id,
 				closeChan: make(chan struct{}, 1),
 				deferred:  make(chan func(), 64),
 			},
@@ -955,6 +956,8 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 	}
 	client.remote.Store(pub)
 	pub.addRef()
+	client.handle.Store(handle)
+	client.handleId.Store(handle.Id)
 	client.mcuJanusClient.handleEvent = client.handleEvent
 	client.mcuJanusClient.handleHangup = client.handleHangup
 	client.mcuJanusClient.handleDetached = client.handleDetached

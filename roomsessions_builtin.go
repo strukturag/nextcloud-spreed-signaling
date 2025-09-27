@@ -30,9 +30,11 @@ import (
 )
 
 type BuiltinRoomSessions struct {
+	mu sync.RWMutex
+	// +checklocks:mu
 	sessionIdToRoomSession map[PublicSessionId]RoomSessionId
+	// +checklocks:mu
 	roomSessionToSessionid map[RoomSessionId]PublicSessionId
-	mu                     sync.RWMutex
 
 	clients *GrpcClients
 }

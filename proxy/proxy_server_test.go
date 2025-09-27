@@ -89,7 +89,7 @@ func WaitForProxyServer(ctx context.Context, t *testing.T, proxy *ProxyServer) {
 		case <-ctx.Done():
 			proxy.clientsLock.Lock()
 			proxy.remoteConnectionsLock.Lock()
-			assert.Fail(t, "Error waiting for proxy to terminate", "clients %+v / sessions %+v / remoteConnections %+v: %+v", proxy.clients, proxy.sessions, proxy.remoteConnections, ctx.Err())
+			assert.Fail(t, "Error waiting for proxy to terminate", "clients %+v / sessions %+v / remoteConnections %+v: %+v", clients, sessions, remoteConnections, ctx.Err())
 			proxy.remoteConnectionsLock.Unlock()
 			proxy.clientsLock.Unlock()
 			return
@@ -936,10 +936,12 @@ func NewUnpublishRemoteTestMCU(t *testing.T) *UnpublishRemoteTestMCU {
 type UnpublishRemoteTestPublisher struct {
 	TestMCUPublisher
 
-	t *testing.T
+	t *testing.T // +checklocksignore: Only written to from constructor.
 
-	mu         sync.RWMutex
-	remoteId   signaling.PublicSessionId
+	mu sync.RWMutex
+	// +checklocks:mu
+	remoteId signaling.PublicSessionId
+	// +checklocks:mu
 	remoteData *remotePublisherData
 }
 

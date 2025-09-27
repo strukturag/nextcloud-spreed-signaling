@@ -72,6 +72,7 @@ func NewAsyncEvents(url string) (AsyncEvents, error) {
 type asyncBackendRoomSubscriber struct {
 	mu sync.Mutex
 
+	// +checklocks:mu
 	listeners map[AsyncBackendRoomEventListener]bool
 }
 
@@ -107,6 +108,7 @@ func (s *asyncBackendRoomSubscriber) removeListener(listener AsyncBackendRoomEve
 type asyncRoomSubscriber struct {
 	mu sync.Mutex
 
+	// +checklocks:mu
 	listeners map[AsyncRoomEventListener]bool
 }
 
@@ -142,6 +144,7 @@ func (s *asyncRoomSubscriber) removeListener(listener AsyncRoomEventListener) bo
 type asyncUserSubscriber struct {
 	mu sync.Mutex
 
+	// +checklocks:mu
 	listeners map[AsyncUserEventListener]bool
 }
 
@@ -177,6 +180,7 @@ func (s *asyncUserSubscriber) removeListener(listener AsyncUserEventListener) bo
 type asyncSessionSubscriber struct {
 	mu sync.Mutex
 
+	// +checklocks:mu
 	listeners map[AsyncSessionEventListener]bool
 }
 

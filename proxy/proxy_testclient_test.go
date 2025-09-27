@@ -43,10 +43,11 @@ var (
 
 type ProxyTestClient struct {
 	t       *testing.T
-	assert  *assert.Assertions
+	assert  *assert.Assertions // +checklocksignore: Only written to from constructor.
 	require *require.Assertions
 
-	mu            sync.Mutex
+	mu sync.Mutex
+	// +checklocks:mu
 	conn          *websocket.Conn
 	messageChan   chan []byte
 	readErrorChan chan error

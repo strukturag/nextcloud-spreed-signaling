@@ -55,7 +55,8 @@ type Backend struct {
 
 	sessionLimit uint64
 	sessionsLock sync.Mutex
-	sessions     map[PublicSessionId]bool
+	// +checklocks:sessionsLock
+	sessions map[PublicSessionId]bool
 
 	counted bool
 }
@@ -169,7 +170,8 @@ type BackendStorage interface {
 }
 
 type backendStorageCommon struct {
-	mu       sync.RWMutex
+	mu sync.RWMutex
+	// +checklocks:mu
 	backends map[string][]*Backend
 }
 
