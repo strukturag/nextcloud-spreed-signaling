@@ -5,9 +5,28 @@ coverage:
         threshold: 2%
 
 comment:
-  layout: "header, diff, flags, files"
+  layout: "header, diff, flags, components, files"
   after_n_builds: 2
 
 ignore:
   - "*_easyjson.go"
   - "*.pb.go"
+
+component_management:
+  individual_components:
+    - component_id: module_api
+      name: api
+      paths:
+        - api/**
+    - component_id: module_client
+      name: client
+      paths:
+        - client/**
+    - component_id: module_proxy
+      name: proxy
+      paths:
+        - proxy/**
+    - component_id: module_server
+      name: server
+      paths:
+        - server/**
