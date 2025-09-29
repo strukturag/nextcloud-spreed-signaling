@@ -1852,7 +1852,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 
 		e, found := entries[u]
 		if !found {
-			p := session.ParsedBackendUrl()
+			p := session.ParsedBackendOcsUrl()
 			if p == nil {
 				// Should not happen, invalid URLs should get rejected earlier.
 				continue
