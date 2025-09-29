@@ -23,10 +23,13 @@ package signaling
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -67,15 +70,40 @@ func isErrorAddressAlreadyInUse(err error) bool {
 	return false
 }
 
-func NewEtcdForTest(t *testing.T) *embed.Etcd {
+func NewEtcdForTestWithTls(t *testing.T, withTLS bool) (*embed.Etcd, string, string) {
+	t.Helper()
+
 	require := require.New(t)
 	cfg := embed.NewConfig()
 	cfg.Dir = t.TempDir()
 	os.Chmod(cfg.Dir, 0700) // nolint
 	cfg.LogLevel = "warn"
+	cfg.Name = "signalingtest"
 
 	u, err := url.Parse(etcdListenUrl)
 	require.NoError(err)
+
+	var keyfile string
+	var certfile string
+	if withTLS {
+		u.Scheme = "https"
+
+		tmpdir := t.TempDir()
+		key, err := rsa.GenerateKey(rand.Reader, 1024)
+		require.NoError(err)
+		keyfile = path.Join(tmpdir, "etcd.key")
+		require.NoError(WritePrivateKey(key, keyfile))
+		cfg.ClientTLSInfo.KeyFile = keyfile
+		cfg.PeerTLSInfo.KeyFile = keyfile
+
+		cert := GenerateSelfSignedCertificateForTesting(t, 1024, "etcd", key)
+		certfile = path.Join(tmpdir, "etcd.pem")
+		require.NoError(os.WriteFile(certfile, cert, 0755))
+		cfg.ClientTLSInfo.CertFile = certfile
+		cfg.ClientTLSInfo.TrustedCAFile = certfile
+		cfg.PeerTLSInfo.CertFile = certfile
+		cfg.PeerTLSInfo.TrustedCAFile = certfile
+	}
 
 	// Find a free port to bind the server to.
 	var etcd *embed.Etcd
@@ -90,7 +118,7 @@ func NewEtcdForTest(t *testing.T) *embed.Etcd {
 		peerListener.Host = net.JoinHostPort("localhost", strconv.Itoa(port+2))
 		cfg.ListenPeerUrls = []url.URL{*peerListener}
 		cfg.AdvertisePeerUrls = []url.URL{*peerListener}
-		cfg.InitialCluster = "default=" + peerListener.String()
+		cfg.InitialCluster = "signalingtest=" + peerListener.String()
 		cfg.ZapLoggerBuilder = embed.NewZapLoggerBuilder(zaptest.NewLogger(t, zaptest.Level(zap.WarnLevel)))
 		etcd, err = embed.StartEtcd(cfg)
 		if isErrorAddressAlreadyInUse(err) {
@@ -109,6 +137,13 @@ func NewEtcdForTest(t *testing.T) *embed.Etcd {
 	// Wait for server to be ready.
 	<-etcd.Server.ReadyNotify()
 
+	return etcd, keyfile, certfile
+}
+
+func NewEtcdForTest(t *testing.T) *embed.Etcd {
+	t.Helper()
+
+	etcd, _, _ := NewEtcdForTestWithTls(t, false)
 	return etcd
 }
 
@@ -118,6 +153,24 @@ func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 	config.AddOption("etcd", "loglevel", "error")
+
+	client, err := NewEtcdClient(config, "")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, client.Close())
+	})
+	return etcd, client
+}
+
+func NewEtcdClientWithTLSForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
+	etcd, keyfile, certfile := NewEtcdForTestWithTls(t, true)
+
+	config := goconf.NewConfigFile()
+	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
+	config.AddOption("etcd", "loglevel", "error")
+	config.AddOption("etcd", "clientkey", keyfile)
+	config.AddOption("etcd", "clientcert", certfile)
+	config.AddOption("etcd", "cacert", certfile)
 
 	client, err := NewEtcdClient(config, "")
 	require.NoError(t, err)
@@ -145,7 +198,33 @@ func Test_EtcdClient_Get(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
 	assert := assert.New(t)
+	require := require.New(t)
 	etcd, client := NewEtcdClientForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	if info := client.GetServerInfoEtcd(); assert.NotNil(info) {
+		assert.NotEmpty(info.Active)
+		assert.Equal([]string{
+			etcd.Config().ListenClientUrls[0].String(),
+		}, info.Endpoints)
+		if connected := info.Connected; assert.NotNil(connected) {
+			assert.False(*connected)
+		}
+	}
+
+	require.NoError(client.WaitForConnection(ctx))
+
+	if info := client.GetServerInfoEtcd(); assert.NotNil(info) {
+		assert.NotEmpty(info.Active)
+		assert.Equal([]string{
+			etcd.Config().ListenClientUrls[0].String(),
+		}, info.Endpoints)
+		if connected := info.Connected; assert.NotNil(connected) {
+			assert.True(*connected)
+		}
+	}
 
 	if response, err := client.Get(context.Background(), "foo"); assert.NoError(err) {
 		assert.EqualValues(0, response.Count)
@@ -154,6 +233,52 @@ func Test_EtcdClient_Get(t *testing.T) {
 	SetEtcdValue(etcd, "foo", []byte("bar"))
 
 	if response, err := client.Get(context.Background(), "foo"); assert.NoError(err) {
+		if assert.EqualValues(1, response.Count) {
+			assert.Equal("foo", string(response.Kvs[0].Key))
+			assert.Equal("bar", string(response.Kvs[0].Value))
+		}
+	}
+}
+
+func Test_EtcdClientTLS_Get(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	assert := assert.New(t)
+	require := require.New(t)
+	etcd, client := NewEtcdClientWithTLSForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	if info := client.GetServerInfoEtcd(); assert.NotNil(info) {
+		assert.NotEmpty(info.Active)
+		assert.Equal([]string{
+			etcd.Config().ListenClientUrls[0].String(),
+		}, info.Endpoints)
+		if connected := info.Connected; assert.NotNil(connected) {
+			assert.False(*connected)
+		}
+	}
+
+	require.NoError(client.WaitForConnection(ctx))
+
+	if info := client.GetServerInfoEtcd(); assert.NotNil(info) {
+		assert.NotEmpty(info.Active)
+		assert.Equal([]string{
+			etcd.Config().ListenClientUrls[0].String(),
+		}, info.Endpoints)
+		if connected := info.Connected; assert.NotNil(connected) {
+			assert.True(*connected)
+		}
+	}
+
+	if response, err := client.Get(ctx, "foo"); assert.NoError(err) {
+		assert.EqualValues(0, response.Count)
+	}
+
+	SetEtcdValue(etcd, "foo", []byte("bar"))
+
+	if response, err := client.Get(ctx, "foo"); assert.NoError(err) {
 		if assert.EqualValues(1, response.Count) {
 			assert.Equal("foo", string(response.Kvs[0].Key))
 			assert.Equal("bar", string(response.Kvs[0].Value))
