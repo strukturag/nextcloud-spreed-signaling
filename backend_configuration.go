@@ -30,6 +30,7 @@ import (
 	"sync"
 
 	"github.com/dlintw/goconf"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -260,10 +261,7 @@ func (b *BackendConfiguration) GetCompatBackend() *Backend {
 }
 
 func (b *BackendConfiguration) GetBackend(u *url.URL) *Backend {
-	if strings.Contains(u.Host, ":") && hasStandardPort(u) {
-		u.Host = u.Hostname()
-	}
-
+	u, _ = internal.CanonicalizeUrl(u)
 	return b.storage.GetBackend(u)
 }
 

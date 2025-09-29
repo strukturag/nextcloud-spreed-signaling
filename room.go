@@ -30,13 +30,13 @@ import (
 	"maps"
 	"net/url"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -1037,11 +1037,11 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 			continue
 		}
 
-		if strings.Contains(parsed.Host, ":") && hasStandardPort(parsed) {
-			parsed.Host = parsed.Hostname()
+		var changed bool
+		if parsed, changed = internal.CanonicalizeUrl(parsed); changed {
+			u = parsed.String()
 		}
 
-		u = parsed.String()
 		parsedBackendUrl := parsed
 
 		var sid RoomSessionId

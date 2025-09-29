@@ -39,6 +39,7 @@ import (
 	"github.com/mailru/easyjson"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -539,7 +540,7 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 				Event: &EventServerMessage{
 					Target:  "room",
 					Type:    "federation_resumed",
-					Resumed: makePtr(false),
+					Resumed: internal.MakePtr(false),
 				},
 			})
 			// Setting the federation client will reset any information on previously
@@ -556,7 +557,7 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 			Event: &EventServerMessage{
 				Target:  "room",
 				Type:    "federation_resumed",
-				Resumed: makePtr(true),
+				Resumed: internal.MakePtr(true),
 			},
 		})
 

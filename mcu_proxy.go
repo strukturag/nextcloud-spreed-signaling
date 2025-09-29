@@ -47,6 +47,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -1833,12 +1834,12 @@ func (m *mcuProxy) GetServerInfoSfu() *BackendServerInfoSfu {
 		}
 		if c.IsConnected() {
 			proxy.Connected = true
-			proxy.Shutdown = makePtr(c.IsShutdownScheduled())
+			proxy.Shutdown = internal.MakePtr(c.IsShutdownScheduled())
 			proxy.Uptime = &c.connectedSince
 			proxy.Version = c.Version()
 			proxy.Features = c.Features()
 			proxy.Country = c.Country()
-			proxy.Load = makePtr(c.Load())
+			proxy.Load = internal.MakePtr(c.Load())
 			proxy.Bandwidth = c.Bandwidth()
 		}
 		sfu.Proxies = append(sfu.Proxies, proxy)
