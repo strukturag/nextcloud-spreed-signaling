@@ -70,6 +70,7 @@ func GenerateSelfSignedCertificateForTesting(t *testing.T, bits int, organizatio
 			x509.ExtKeyUsageServerAuth,
 		},
 		BasicConstraintsValid: true,
+		DNSNames:              []string{"localhost"},
 		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
 	}
 
