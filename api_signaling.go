@@ -37,6 +37,7 @@ import (
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -354,17 +355,6 @@ const (
 	HelloClientTypeVirtual = ClientType("virtual")
 )
 
-func hasStandardPort(u *url.URL) bool {
-	switch u.Scheme {
-	case "http":
-		return u.Port() == "80"
-	case "https":
-		return u.Port() == "443"
-	default:
-		return false
-	}
-}
-
 type ClientTypeInternalAuthParams struct {
 	Random string `json:"random"`
 	Token  string `json:"token"`
@@ -384,8 +374,8 @@ func (p *ClientTypeInternalAuthParams) CheckValid() error {
 	if u, err := url.Parse(p.Backend); err != nil {
 		return err
 	} else {
-		if strings.Contains(u.Host, ":") && hasStandardPort(u) {
-			u.Host = u.Hostname()
+		var changed bool
+		if u, changed = internal.CanonicalizeUrl(u); changed {
 			p.Backend = u.String()
 		}
 
@@ -499,8 +489,8 @@ func (m *HelloClientMessage) CheckValid() error {
 			if u, err := url.ParseRequestURI(m.Auth.Url); err != nil {
 				return err
 			} else {
-				if strings.Contains(u.Host, ":") && hasStandardPort(u) {
-					u.Host = u.Hostname()
+				var changed bool
+				if u, changed = internal.CanonicalizeUrl(u); changed {
 					m.Auth.Url = u.String()
 				}
 

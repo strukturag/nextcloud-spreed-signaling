@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/dlintw/goconf"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 type backendStorageStatic struct {
@@ -335,8 +336,8 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecr
 				continue
 			}
 
-			if strings.Contains(parsed.Host, ":") && hasStandardPort(parsed) {
-				parsed.Host = parsed.Hostname()
+			var changed bool
+			if parsed, changed = internal.CanonicalizeUrl(parsed); changed {
 				u = parsed.String()
 			}
 

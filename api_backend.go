@@ -33,10 +33,10 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -475,13 +475,11 @@ func (p *BackendInformationEtcd) CheckValid() (err error) {
 				return fmt.Errorf("invalid url %s: %w", u, err)
 			}
 
-			if strings.Contains(parsedUrl.Host, ":") && hasStandardPort(parsedUrl) {
-				parsedUrl.Host = parsedUrl.Hostname()
+			var changed bool
+			if parsedUrl, changed = internal.CanonicalizeUrl(parsedUrl); changed {
 				u = parsedUrl.String()
-				p.Urls[outIdx] = u
-			} else {
-				p.Urls[outIdx] = u
 			}
+			p.Urls[outIdx] = u
 			if seen[u] {
 				continue
 			}
@@ -498,8 +496,8 @@ func (p *BackendInformationEtcd) CheckValid() (err error) {
 		if err != nil {
 			return fmt.Errorf("invalid url: %w", err)
 		}
-		if strings.Contains(parsedUrl.Host, ":") && hasStandardPort(parsedUrl) {
-			parsedUrl.Host = parsedUrl.Hostname()
+		var changed bool
+		if parsedUrl, changed = internal.CanonicalizeUrl(parsedUrl); changed {
 			p.Url = parsedUrl.String()
 		}
 

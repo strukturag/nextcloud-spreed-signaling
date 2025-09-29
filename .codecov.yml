@@ -22,6 +22,10 @@ component_management:
       name: client
       paths:
         - client/**
+    - component_id: module_internal
+      name: internal
+      paths:
+        - internal/**
     - component_id: module_proxy
       name: proxy
       paths:
