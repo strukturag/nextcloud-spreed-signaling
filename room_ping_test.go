@@ -51,7 +51,7 @@ func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
 	p, err := NewRoomPing(backend, backend.capabilities)
 	require.NoError(err)
 
-	u, err := url.Parse(server.URL)
+	u, err := url.Parse(server.URL + "/" + PathToOcsSignalingBackend)
 	require.NoError(err)
 
 	return u, p

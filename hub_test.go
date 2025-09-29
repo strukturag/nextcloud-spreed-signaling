@@ -670,6 +670,8 @@ func registerBackendHandler(t *testing.T, router *mux.Router) {
 
 func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 	handleFunc := validateBackendChecksum(t, func(w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+		assert.Regexp(t, "/ocs/v2\\.php/apps/spreed/api/v[\\d]/signaling/backend$", r.URL.Path, "invalid url for backend request %+v", request)
+
 		switch request.Type {
 		case "auth":
 			return processAuthRequest(t, w, r, request)
