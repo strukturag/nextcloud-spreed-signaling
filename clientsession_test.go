@@ -339,11 +339,57 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			room := hub1.getRoom(roomId)
 			require.NotNil(room)
 
-			chatComment := api.StringMap{
-				"foo": "bar",
-				"baz": true,
-				"lala": map[string]any{
-					"one": "eins",
+			chatComment := map[string]any{
+				"actorId":           hello1.Hello.UserId,
+				"actorType":         "users",
+				"lastEditActorId":   hello1.Hello.UserId,
+				"lastEditActorType": "users",
+				"parent": map[string]any{
+					"actorId":           hello1.Hello.UserId,
+					"actorType":         "users",
+					"lastEditActorId":   hello1.Hello.UserId,
+					"lastEditActorType": "users",
+				},
+				"messageParameters": map[string]map[string]any{
+					"mention-local-user": {
+						"type": "user",
+						"id":   hello1.Hello.UserId,
+						"name": "User 1",
+					},
+					"mention-remote-user": {
+						"type":       "user",
+						"id":         hello2.Hello.UserId,
+						"name":       "User 2",
+						"mention-id": "federated_user/" + hello2.Hello.UserId + "@" + getCloudUrl(server2.URL),
+						"server":     server2.URL,
+					},
+				},
+			}
+			federatedChatComment := map[string]any{
+				"actorId":           hello1.Hello.UserId + "@" + getCloudUrl(server1.URL),
+				"actorType":         "federated_users",
+				"lastEditActorId":   hello1.Hello.UserId + "@" + getCloudUrl(server1.URL),
+				"lastEditActorType": "federated_users",
+				"parent": map[string]any{
+					"actorId":           hello1.Hello.UserId + "@" + getCloudUrl(server1.URL),
+					"actorType":         "federated_users",
+					"lastEditActorId":   hello1.Hello.UserId + "@" + getCloudUrl(server1.URL),
+					"lastEditActorType": "federated_users",
+				},
+				"messageParameters": map[string]map[string]any{
+					"mention-local-user": {
+						"type":       "user",
+						"id":         hello1.Hello.UserId,
+						"mention-id": hello1.Hello.UserId,
+						"name":       "User 1",
+						"server":     server1.URL,
+					},
+					"mention-remote-user": {
+						"type":       "user",
+						"id":         hello2.Hello.UserId,
+						"name":       "User 2",
+						"mention-id": "federated_user/" + hello2.Hello.UserId + "@" + getCloudUrl(server2.URL),
+					},
 				},
 			}
 			message := api.StringMap{
@@ -374,7 +420,7 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
 					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
 					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
-						assert.EqualValues(chatComment, chat["comment"])
+						AssertEqualSerialized(t, chatComment, chat["comment"])
 						_, found := chat["refresh"]
 						assert.False(found, "refresh should not be included")
 					}
@@ -389,7 +435,7 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
 					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
 						if feature {
-							assert.EqualValues(chatComment, chat["comment"])
+							AssertEqualSerialized(t, federatedChatComment, chat["comment"])
 							_, found := chat["refresh"]
 							assert.False(found, "refresh should not be included")
 						} else {

@@ -59,17 +59,21 @@ func isClosedError(err error) bool {
 		strings.Contains(err.Error(), net.ErrClosed.Error())
 }
 
-func getCloudUrl(s string) string {
-	var found bool
-	if s, found = strings.CutPrefix(s, "https://"); !found {
-		s = strings.TrimPrefix(s, "http://")
-	}
+func getCloudUrlWithoutPath(s string) string {
 	if pos := strings.Index(s, "/ocs/v"); pos != -1 {
 		s = s[:pos]
 	} else {
 		s = strings.TrimSuffix(s, "/")
 	}
 	return s
+}
+
+func getCloudUrl(s string) string {
+	var found bool
+	if s, found = strings.CutPrefix(s, "https://"); !found {
+		s = strings.TrimPrefix(s, "http://")
+	}
+	return getCloudUrlWithoutPath(s)
 }
 
 type FederationClient struct {
@@ -604,26 +608,73 @@ func (c *FederationClient) joinRoom() error {
 	})
 }
 
-func (c *FederationClient) updateEventUsers(users []api.StringMap, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
-	localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
-	localCloudUrlLen := len(localCloudUrl)
-	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
-	checkSessionId := true
-	for _, u := range users {
-		if actorType, found := api.GetStringMapEntry[string](u, "actorType"); found {
-			if actorId, found := api.GetStringMapEntry[string](u, "actorId"); found {
-				switch actorType {
-				case ActorTypeFederatedUsers:
-					if strings.HasSuffix(actorId, localCloudUrl) {
-						u["actorId"] = actorId[:len(actorId)-localCloudUrlLen]
-						u["actorType"] = ActorTypeUsers
-					}
-				case ActorTypeUsers:
-					u["actorId"] = actorId + remoteCloudUrl
-					u["actorType"] = ActorTypeFederatedUsers
+func (c *FederationClient) updateActor(u api.StringMap, actorIdKey, actorTypeKey string, localCloudUrl string, remoteCloudUrl string) (changed bool) {
+	if actorType, found := api.GetStringMapEntry[string](u, actorTypeKey); found {
+		if actorId, found := api.GetStringMapEntry[string](u, actorIdKey); found {
+			switch actorType {
+			case ActorTypeFederatedUsers:
+				if strings.HasSuffix(actorId, localCloudUrl) {
+					u[actorIdKey] = actorId[:len(actorId)-len(localCloudUrl)]
+					u[actorTypeKey] = ActorTypeUsers
+					changed = true
+				}
+			case ActorTypeUsers:
+				u[actorIdKey] = actorId + remoteCloudUrl
+				u[actorTypeKey] = ActorTypeFederatedUsers
+				changed = true
+			}
+		}
+	}
+	return
+}
+
+func (c *FederationClient) updateComment(comment api.StringMap, localCloudUrl string, remoteCloudUrl string) bool {
+	changed := c.updateActor(comment, "actorId", "actorType", localCloudUrl, remoteCloudUrl)
+	if c.updateActor(comment, "lastEditActorId", "lastEditActorType", localCloudUrl, remoteCloudUrl) {
+		changed = true
+	}
+
+	if params, found := api.GetStringMapEntry[map[string]any](comment, "messageParameters"); found {
+		localUrl := getCloudUrlWithoutPath(c.session.BackendUrl())
+		remoteUrl := getCloudUrlWithoutPath(c.federation.Load().NextcloudUrl)
+		for key, paramOb := range params {
+			if !strings.HasPrefix(key, "mention-") {
+				// Only need to process mentions.
+				continue
+			}
+
+			param, ok := api.ConvertStringMap(paramOb)
+			if !ok {
+				continue
+			}
+
+			if ptype, found := api.GetStringMapString[string](param, "type"); found && ptype == "user" {
+				if server, found := api.GetStringMapString[string](param, "server"); found && server == localUrl {
+					delete(param, "server")
+					params[key] = param
+					changed = true
+					continue
+				}
+
+				if _, found := api.GetStringMapString[string](param, "mention-id"); !found {
+					param["mention-id"] = param["id"]
+					param["server"] = remoteUrl
+					params[key] = param
+					changed = true
+					continue
 				}
 			}
 		}
+	}
+	return changed
+}
+
+func (c *FederationClient) updateEventUsers(users []api.StringMap, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
+	localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
+	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
+	checkSessionId := true
+	for _, u := range users {
+		c.updateActor(u, "actorId", "actorType", localCloudUrl, remoteCloudUrl)
 
 		if checkSessionId {
 			key := "sessionId"
@@ -731,6 +782,32 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 			case "message":
 				if c.changeRoomId.Load() && msg.Event.Message.RoomId == remoteRoomId {
 					msg.Event.Message.RoomId = roomId
+				}
+				if msg.Event.Type == "message" && msg.Event.Message != nil {
+					if data, err := msg.Event.Message.GetData(); err == nil {
+						if data.Type == "chat" && data.Chat != nil && len(data.Chat.Comment) > 0 {
+							var comment api.StringMap
+							if err := json.Unmarshal(data.Chat.Comment, &comment); err == nil {
+								localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
+								remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
+								changed := c.updateComment(comment, localCloudUrl, remoteCloudUrl)
+								if parent, found := comment.GetStringMap("parent"); found {
+									if c.updateComment(parent, localCloudUrl, remoteCloudUrl) {
+										comment["parent"] = parent
+										changed = true
+									}
+								}
+								if changed {
+									if encoded, err := json.Marshal(comment); err == nil {
+										data.Chat.Comment = encoded
+										if encoded, err = json.Marshal(data); err == nil {
+											msg.Event.Message.Data = encoded
+										}
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		case "roomlist":
