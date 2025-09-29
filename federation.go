@@ -648,20 +648,30 @@ func (c *FederationClient) updateComment(comment api.StringMap, localCloudUrl st
 				continue
 			}
 
-			if ptype, found := api.GetStringMapString[string](param, "type"); found && ptype == "user" {
-				if server, found := api.GetStringMapString[string](param, "server"); found && server == localUrl {
-					delete(param, "server")
-					params[key] = param
-					changed = true
-					continue
-				}
+			if ptype, found := api.GetStringMapString[string](param, "type"); found {
+				switch ptype {
+				case "user":
+					if server, found := api.GetStringMapString[string](param, "server"); found && server == localUrl {
+						delete(param, "server")
+						params[key] = param
+						changed = true
+						continue
+					}
 
-				if _, found := api.GetStringMapString[string](param, "mention-id"); !found {
-					param["mention-id"] = param["id"]
-					param["server"] = remoteUrl
-					params[key] = param
-					changed = true
-					continue
+					if _, found := api.GetStringMapString[string](param, "mention-id"); !found {
+						param["mention-id"] = param["id"]
+						param["server"] = remoteUrl
+						params[key] = param
+						changed = true
+						continue
+					}
+				case "call":
+					roomId := c.RoomId()
+					remoteRoomId := c.RemoteRoomId()
+					// TODO: Should we also rewrite the room avatar url in "icon-url"?
+					if c.changeRoomId.Load() && param["id"] == remoteRoomId {
+						param["id"] = roomId
+					}
 				}
 			}
 		}

@@ -363,6 +363,10 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 						"mention-id": "federated_user/" + hello2.Hello.UserId + "@" + getCloudUrl(server2.URL),
 						"server":     server2.URL,
 					},
+					"mention-call": {
+						"type": "call",
+						"id":   roomId,
+					},
 				},
 			}
 			federatedChatComment := map[string]any{
@@ -389,6 +393,10 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 						"id":         hello2.Hello.UserId,
 						"name":       "User 2",
 						"mention-id": "federated_user/" + hello2.Hello.UserId + "@" + getCloudUrl(server2.URL),
+					},
+					"mention-call": {
+						"type": "call",
+						"id":   federatedRoomId,
 					},
 				},
 			}
