@@ -957,14 +957,8 @@ func (r *Room) NotifySessionChanged(session Session, flags SessionChangeFlag) {
 
 	if flags&SessionChangeInCall != 0 {
 		joinLeave := 0
-		if clientSession, ok := session.(*ClientSession); ok {
-			if clientSession.GetInCall()&FlagInCall != 0 {
-				joinLeave = 1
-			} else {
-				joinLeave = 2
-			}
-		} else if virtual, ok := session.(*VirtualSession); ok {
-			if virtual.GetInCall()&FlagInCall != 0 {
+		if session, ok := session.(SessionWithInCall); ok {
+			if session.GetInCall()&FlagInCall != 0 {
 				joinLeave = 1
 			} else {
 				joinLeave = 2

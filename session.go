@@ -76,6 +76,10 @@ type Session interface {
 	SendMessage(message *ServerMessage) bool
 }
 
+type SessionWithInCall interface {
+	GetInCall() int
+}
+
 func parseUserData(data json.RawMessage) func() (api.StringMap, error) {
 	return sync.OnceValues(func() (api.StringMap, error) {
 		if len(data) == 0 {
