@@ -36,6 +36,7 @@ import (
 	"github.com/notedit/janus-go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -461,10 +462,10 @@ func (m *mcuJanus) GetServerInfoSfu() *BackendServerInfoSfu {
 			janus.Name = info.Name
 			janus.Version = info.VersionString
 			janus.Author = info.Author
-			janus.DataChannels = makePtr(info.DataChannels)
-			janus.FullTrickle = makePtr(info.FullTrickle)
+			janus.DataChannels = internal.MakePtr(info.DataChannels)
+			janus.FullTrickle = internal.MakePtr(info.FullTrickle)
 			janus.LocalIP = info.LocalIP
-			janus.IPv6 = makePtr(info.IPv6)
+			janus.IPv6 = internal.MakePtr(info.IPv6)
 
 			if plugin, found := info.Plugins[pluginVideoRoom]; found {
 				janus.VideoRoom = &BackendServerInfoVideoRoom{

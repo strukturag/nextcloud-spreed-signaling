@@ -61,10 +61,6 @@ var (
 	ErrCandidateFiltered = errors.New("candidate was filtered")
 )
 
-func makePtr[T any](v T) *T {
-	return &v
-}
-
 type PrivateSessionId string
 
 type PublicSessionId string

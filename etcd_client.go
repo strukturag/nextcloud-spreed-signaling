@@ -38,6 +38,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/connectivity"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 type EtcdClientListener interface {
@@ -82,7 +84,7 @@ func (c *EtcdClient) GetServerInfoEtcd() *BackendServerInfoEtcd {
 	conn := client.ActiveConnection()
 	if conn != nil {
 		result.Active = conn.Target()
-		result.Connected = makePtr(conn.GetState() == connectivity.Ready)
+		result.Connected = internal.MakePtr(conn.GetState() == connectivity.Ready)
 	}
 
 	return result
