@@ -49,7 +49,7 @@ type tokensEtcd struct {
 	client *signaling.EtcdClient
 
 	tokenFormats atomic.Value
-	tokenCache   *signaling.LruCache
+	tokenCache   *signaling.LruCache[*tokenCacheEntry]
 }
 
 func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
@@ -64,7 +64,7 @@ func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
 
 	result := &tokensEtcd{
 		client:     client,
-		tokenCache: signaling.NewLruCache(tokenCacheSize),
+		tokenCache: signaling.NewLruCache[*tokenCacheEntry](tokenCacheSize),
 	}
 	if err := result.load(config, false); err != nil {
 		return nil, err
@@ -98,7 +98,7 @@ func (t *tokensEtcd) getByKey(id string, key string) (*ProxyToken, error) {
 	}
 
 	keyValue := resp.Kvs[len(resp.Kvs)-1].Value
-	cached, _ := t.tokenCache.Get(key).(*tokenCacheEntry)
+	cached := t.tokenCache.Get(key)
 	if cached == nil || !bytes.Equal(cached.keyValue, keyValue) {
 		// Parsed public keys are cached to avoid the parse overhead.
 		publicKey, err := jwt.ParseRSAPublicKeyFromPEM(keyValue)

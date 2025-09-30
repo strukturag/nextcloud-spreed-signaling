@@ -30,7 +30,7 @@ import (
 
 func TestLruUnbound(t *testing.T) {
 	assert := assert.New(t)
-	lru := NewLruCache(0)
+	lru := NewLruCache[int](0)
 	count := 10
 	for i := range count {
 		key := fmt.Sprintf("%d", i)
@@ -39,9 +39,8 @@ func TestLruUnbound(t *testing.T) {
 	assert.Equal(count, lru.Len())
 	for i := range count {
 		key := fmt.Sprintf("%d", i)
-		if value := lru.Get(key); assert.NotNil(value, "No value found for %s", key) {
-			assert.EqualValues(i, value)
-		}
+		value := lru.Get(key)
+		assert.EqualValues(i, value, "Failed for %s", key)
 	}
 	// The first key ("0") is now the oldest.
 	lru.RemoveOldest()
@@ -49,12 +48,7 @@ func TestLruUnbound(t *testing.T) {
 	for i := range count {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
-		if i == 0 {
-			assert.Nil(value, "The value for key %s should have been removed", key)
-			continue
-		} else if assert.NotNil(value, "No value found for %s", key) {
-			assert.EqualValues(i, value)
-		}
+		assert.EqualValues(i, value, "Failed for %s", key)
 	}
 
 	// NOTE: Key "0" no longer exists below, so make sure to not set it again.
@@ -68,9 +62,8 @@ func TestLruUnbound(t *testing.T) {
 	// NOTE: The same ordering as the Set calls above.
 	for i := count - 1; i >= 1; i-- {
 		key := fmt.Sprintf("%d", i)
-		if value := lru.Get(key); assert.NotNil(value, "No value found for %s", key) {
-			assert.EqualValues(i, value)
-		}
+		value := lru.Get(key)
+		assert.EqualValues(i, value, "Failed for %s", key)
 	}
 
 	// The last key ("9") is now the oldest.
@@ -80,10 +73,9 @@ func TestLruUnbound(t *testing.T) {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 {
-			assert.Nil(value, "The value for key %s should have been removed", key)
-			continue
-		} else if assert.NotNil(value, "No value found for %s", key) {
-			assert.EqualValues(i, value)
+			assert.EqualValues(0, value, "The value for key %s should have been removed", key)
+		} else {
+			assert.EqualValues(i, value, "Failed for %s", key)
 		}
 	}
 
@@ -95,10 +87,9 @@ func TestLruUnbound(t *testing.T) {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 || i == count/2 {
-			assert.Nil(value, "The value for key %s should have been removed", key)
-			continue
-		} else if assert.NotNil(value, "No value found for %s", key) {
-			assert.EqualValues(i, value)
+			assert.EqualValues(0, value, "The value for key %s should have been removed", key)
+		} else {
+			assert.EqualValues(i, value, "Failed for %s", key)
 		}
 	}
 }
@@ -106,7 +97,7 @@ func TestLruUnbound(t *testing.T) {
 func TestLruBound(t *testing.T) {
 	assert := assert.New(t)
 	size := 2
-	lru := NewLruCache(size)
+	lru := NewLruCache[int](size)
 	count := 10
 	for i := range count {
 		key := fmt.Sprintf("%d", i)
@@ -118,10 +109,9 @@ func TestLruBound(t *testing.T) {
 		key := fmt.Sprintf("%d", i)
 		value := lru.Get(key)
 		if i < count-size {
-			assert.Nil(value, "The value for key %s should have been removed", key)
-			continue
-		} else if assert.NotNil(value, "No value found for %s", key) {
-			assert.EqualValues(i, value)
+			assert.EqualValues(0, value, "The value for key %s should have been removed", key)
+		} else {
+			assert.EqualValues(i, value, "Failed for %s", key)
 		}
 	}
 }
