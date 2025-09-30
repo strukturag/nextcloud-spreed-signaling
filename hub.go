@@ -171,7 +171,7 @@ type Hub struct {
 	roomPing        *RoomPing
 	virtualSessions map[PublicSessionId]uint64
 
-	decodeCaches []*LruCache
+	decodeCaches []*LruCache[*SessionIdData]
 
 	mcu                   Mcu
 	mcuTimeout            time.Duration
@@ -285,9 +285,9 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		log.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 	}
 
-	decodeCaches := make([]*LruCache, 0, numDecodeCaches)
+	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, NewLruCache(decodeCacheSize))
+		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
 	}
 
 	roomSessions, err := NewBuiltinRoomSessions(rpcClients)
@@ -597,7 +597,7 @@ func (h *Hub) Reload(config *goconf.ConfigFile) {
 	h.rpcClients.Reload(config)
 }
 
-func (h *Hub) getDecodeCache(cache_key string) *LruCache {
+func (h *Hub) getDecodeCache(cache_key string) *LruCache[*SessionIdData] {
 	hash := fnv.New32a()
 	hash.Write([]byte(cache_key)) // nolint
 	idx := hash.Sum32() % uint32(len(h.decodeCaches))
@@ -648,7 +648,7 @@ func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
 	cache_key := fmt.Sprintf("%s|%s", id, privateSessionName)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
-		return result.(*SessionIdData)
+		return result
 	}
 
 	data, err := h.cookie.DecodePrivate(id)
@@ -668,7 +668,7 @@ func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
 	cache_key := fmt.Sprintf("%s|%s", id, publicSessionName)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
-		return result.(*SessionIdData)
+		return result
 	}
 
 	data, err := h.cookie.DecodePublic(id)

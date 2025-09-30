@@ -26,36 +26,36 @@ import (
 	"sync"
 )
 
-type cacheEntry struct {
+type cacheEntry[T any] struct {
 	key   string
-	value any
+	value T
 }
 
-type LruCache struct {
+type LruCache[T any] struct {
 	size    int
 	mu      sync.Mutex
 	entries *list.List
 	data    map[string]*list.Element
 }
 
-func NewLruCache(size int) *LruCache {
-	return &LruCache{
+func NewLruCache[T any](size int) *LruCache[T] {
+	return &LruCache[T]{
 		size:    size,
 		entries: list.New(),
 		data:    make(map[string]*list.Element),
 	}
 }
 
-func (c *LruCache) Set(key string, value any) {
+func (c *LruCache[T]) Set(key string, value T) {
 	c.mu.Lock()
 	if v, found := c.data[key]; found {
 		c.entries.MoveToFront(v)
-		v.Value.(*cacheEntry).value = value
+		v.Value.(*cacheEntry[T]).value = value
 		c.mu.Unlock()
 		return
 	}
 
-	v := c.entries.PushFront(&cacheEntry{
+	v := c.entries.PushFront(&cacheEntry[T]{
 		key:   key,
 		value: value,
 	})
@@ -66,20 +66,21 @@ func (c *LruCache) Set(key string, value any) {
 	c.mu.Unlock()
 }
 
-func (c *LruCache) Get(key string) any {
+func (c *LruCache[T]) Get(key string) T {
 	c.mu.Lock()
 	if v, found := c.data[key]; found {
 		c.entries.MoveToFront(v)
-		value := v.Value.(*cacheEntry).value
+		value := v.Value.(*cacheEntry[T]).value
 		c.mu.Unlock()
 		return value
 	}
 
 	c.mu.Unlock()
-	return nil
+	var defaultValue T
+	return defaultValue
 }
 
-func (c *LruCache) Remove(key string) {
+func (c *LruCache[T]) Remove(key string) {
 	c.mu.Lock()
 	if v, found := c.data[key]; found {
 		c.removeElement(v)
@@ -87,26 +88,26 @@ func (c *LruCache) Remove(key string) {
 	c.mu.Unlock()
 }
 
-func (c *LruCache) removeOldestLocked() {
+func (c *LruCache[T]) removeOldestLocked() {
 	v := c.entries.Back()
 	if v != nil {
 		c.removeElement(v)
 	}
 }
 
-func (c *LruCache) RemoveOldest() {
+func (c *LruCache[T]) RemoveOldest() {
 	c.mu.Lock()
 	c.removeOldestLocked()
 	c.mu.Unlock()
 }
 
-func (c *LruCache) removeElement(e *list.Element) {
+func (c *LruCache[T]) removeElement(e *list.Element) {
 	c.entries.Remove(e)
-	entry := e.Value.(*cacheEntry)
+	entry := e.Value.(*cacheEntry[T])
 	delete(c.data, entry.key)
 }
 
-func (c *LruCache) Len() int {
+func (c *LruCache[T]) Len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.entries.Len()
