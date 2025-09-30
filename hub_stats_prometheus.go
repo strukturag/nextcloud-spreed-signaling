@@ -61,6 +61,7 @@ var (
 		statsHubRoomsCurrent,
 		statsHubSessionsCurrent,
 		statsHubSessionsTotal,
+		statsHubSessionsResumedTotal,
 		statsHubSessionResumeFailed,
 	}
 )
