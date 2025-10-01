@@ -94,11 +94,19 @@ systemctl start signaling.service
 
 ### Running with Docker
 
-Official docker containers for the signaling server and -proxy are available on
+Official docker images for the signaling server and -proxy are available on
 Docker Hub at https://hub.docker.com/r/strukturag/nextcloud-spreed-signaling
 
-See the `README.md` in the `docker` subfolder for details.
+See the `README.md` in the `docker` subfolder for details on how to use and
+configure them.
 
+To build the images locally, run the following commands (replace the parameter
+after `-t` with the name the image should be tagged as):
+
+```bash
+docker build -f docker/server/Dockerfile -t nextcloud-spreed-signaling .
+docker build -f docker/proxy/Dockerfile -t nextcloud-spreed-signaling-proxy .
+```
 
 #### Docker Compose
 
