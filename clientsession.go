@@ -1268,18 +1268,44 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 					delete(s.seenJoinedEvents, e)
 				}
 			case "message":
-				if message.Event.Message == nil || len(message.Event.Message.Data) == 0 || !s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+				if message.Event.Message == nil || len(message.Event.Message.Data) == 0 {
 					return message
 				}
 
-				var data RoomEventMessageData
-				if err := json.Unmarshal(message.Event.Message.Data, &data); err != nil {
+				data, err := message.Event.Message.GetData()
+				if data == nil || err != nil {
 					return message
 				}
 
-				if data.Type == "chat" && data.Chat != nil && data.Chat.Comment != nil {
-					if displayName, found := (*data.Chat.Comment)["actorDisplayName"]; found && displayName != "" {
-						(*data.Chat.Comment)["actorDisplayName"] = ""
+				if data.Type == "chat" && data.Chat != nil {
+					update := false
+					if data.Chat.Refresh && len(data.Chat.Comment) > 0 {
+						// New-style chat event, check what the client supports.
+						if s.HasFeature(ClientFeatureChatRelay) {
+							data.Chat.Refresh = false
+						} else {
+							data.Chat.Comment = nil
+						}
+						update = true
+					}
+
+					if len(data.Chat.Comment) > 0 && s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+						var comment ChatComment
+						if err := json.Unmarshal(data.Chat.Comment, &comment); err != nil {
+							return message
+						}
+
+						if displayName, found := comment["actorDisplayName"]; found && displayName != "" {
+							comment["actorDisplayName"] = ""
+							var err error
+							if data.Chat.Comment, err = json.Marshal(comment); err != nil {
+								return message
+							}
+							update = true
+						}
+					}
+
+					if update {
 						if encoded, err := json.Marshal(data); err == nil {
 							// Create unique copy of message for only this client.
 							message = &ServerMessage{

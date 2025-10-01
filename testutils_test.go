@@ -24,6 +24,7 @@ package signaling
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/signal"
@@ -32,6 +33,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -131,4 +133,20 @@ func MustSucceed3[T any, A1 any, A2 any, A3 any](t *testing.T, f func(a1 A1, a2 
 		t.FailNow()
 	}
 	return result
+}
+
+func AssertEqualSerialized(t *testing.T, expected any, actual any, msgAndArgs ...any) bool {
+	t.Helper()
+
+	e, err := json.MarshalIndent(expected, "", "  ")
+	if !assert.NoError(t, err) {
+		return false
+	}
+
+	a, err := json.MarshalIndent(actual, "", "  ")
+	if !assert.NoError(t, err) {
+		return false
+	}
+
+	return assert.Equal(t, string(a), string(e), msgAndArgs...)
 }

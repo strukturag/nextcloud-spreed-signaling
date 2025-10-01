@@ -24,6 +24,15 @@ package api
 // StringMap maps string keys to arbitrary values.
 type StringMap map[string]any
 
+func (m StringMap) GetStringMap(key string) (StringMap, bool) {
+	v, found := m[key]
+	if !found {
+		return nil, false
+	}
+
+	return ConvertStringMap(v)
+}
+
 func ConvertStringMap(ob any) (StringMap, bool) {
 	if ob == nil {
 		return nil, true
