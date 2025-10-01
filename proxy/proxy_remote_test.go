@@ -29,6 +29,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 func (c *RemoteConnection) WaitForConnection(ctx context.Context) error {
@@ -173,4 +175,38 @@ func Test_ProxyRemoteConnectionReconnectExpiredSession(t *testing.T) {
 	assert.NoError(conn.WaitForDisconnect(ctx))
 	assert.NoError(conn.WaitForConnection(ctx))
 	assert.NotEqual(sessionId, conn.SessionId())
+}
+
+func Test_ProxyRemoteConnectionCreatePublisher(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	server, key, httpserver := newProxyServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	conn, err := NewRemoteConnection(server, httpserver.URL, TokenIdForTest, key, nil)
+	require.NoError(err)
+	t.Cleanup(func() {
+		assert.NoError(conn.SendBye())
+		assert.NoError(conn.Close())
+	})
+
+	publisherId := "the-publisher"
+	hostname := "the-hostname"
+	port := 1234
+	rtcpPort := 2345
+
+	_, err = conn.RequestMessage(ctx, &signaling.ProxyClientMessage{
+		Type: "command",
+		Command: &signaling.CommandProxyClientMessage{
+			Type:     "publish-remote",
+			ClientId: publisherId,
+			Hostname: hostname,
+			Port:     port,
+			RtcpPort: rtcpPort,
+		},
+	})
+	assert.ErrorContains(err, UnknownClient.Error())
 }

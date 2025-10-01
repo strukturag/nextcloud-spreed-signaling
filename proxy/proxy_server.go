@@ -923,6 +923,13 @@ func (s *ProxyServer) addRemotePublisher(publisher *proxyRemotePublisher) {
 	log.Printf("Add remote publisher to %s", publisher.remoteUrl)
 }
 
+func (s *ProxyServer) hasRemotePublishers() bool {
+	s.remoteConnectionsLock.Lock()
+	defer s.remoteConnectionsLock.Unlock()
+
+	return len(s.remotePublishers) > 0
+}
+
 func (s *ProxyServer) removeRemotePublisher(publisher *proxyRemotePublisher) {
 	s.remoteConnectionsLock.Lock()
 	defer s.remoteConnectionsLock.Unlock()
