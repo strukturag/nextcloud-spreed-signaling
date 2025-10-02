@@ -32,10 +32,12 @@ type cacheEntry[T any] struct {
 }
 
 type LruCache[T any] struct {
-	size    int
-	mu      sync.Mutex
+	size int // +checklocksignore: Only written to from constructor.
+	mu   sync.Mutex
+	// +checklocks:mu
 	entries *list.List
-	data    map[string]*list.Element
+	// +checklocks:mu
+	data map[string]*list.Element
 }
 
 func NewLruCache[T any](size int) *LruCache[T] {
@@ -88,6 +90,7 @@ func (c *LruCache[T]) Remove(key string) {
 	c.mu.Unlock()
 }
 
+// +checklocks:c.mu
 func (c *LruCache[T]) removeOldestLocked() {
 	v := c.entries.Back()
 	if v != nil {
@@ -101,6 +104,7 @@ func (c *LruCache[T]) RemoveOldest() {
 	c.mu.Unlock()
 }
 
+// +checklocks:c.mu
 func (c *LruCache[T]) removeElement(e *list.Element) {
 	c.entries.Remove(e)
 	entry := e.Value.(*cacheEntry[T])

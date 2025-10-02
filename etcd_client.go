@@ -55,8 +55,9 @@ type EtcdClientWatcher interface {
 type EtcdClient struct {
 	compatSection string
 
-	mu        sync.Mutex
-	client    atomic.Value
+	mu     sync.Mutex
+	client atomic.Value
+	// +checklocks:mu
 	listeners map[EtcdClientListener]bool
 }
 

@@ -98,6 +98,7 @@ type FederationClient struct {
 	resumeId   PrivateSessionId
 	hello      atomic.Pointer[HelloServerMessage]
 
+	// +checklocks:helloMu
 	pendingMessages []*ClientMessage
 
 	closeOnLeave atomic.Bool

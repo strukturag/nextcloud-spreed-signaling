@@ -204,7 +204,8 @@ type testProxyServerSubscriber struct {
 type testProxyServerClient struct {
 	t *testing.T
 
-	server         *TestProxyServerHandler
+	server *TestProxyServerHandler
+	// +checklocks:mu
 	ws             *websocket.Conn
 	processMessage proxyServerClientHandler
 
@@ -549,12 +550,15 @@ type TestProxyServerHandler struct {
 	upgrader *websocket.Upgrader
 	country  string
 
-	mu          sync.Mutex
-	load        atomic.Int64
-	incoming    atomic.Pointer[float64]
-	outgoing    atomic.Pointer[float64]
-	clients     map[PublicSessionId]*testProxyServerClient
-	publishers  map[PublicSessionId]*testProxyServerPublisher
+	mu       sync.Mutex
+	load     atomic.Int64
+	incoming atomic.Pointer[float64]
+	outgoing atomic.Pointer[float64]
+	// +checklocks:mu
+	clients map[PublicSessionId]*testProxyServerClient
+	// +checklocks:mu
+	publishers map[PublicSessionId]*testProxyServerPublisher
+	// +checklocks:mu
 	subscribers map[string]*testProxyServerSubscriber
 
 	wakeupChan chan struct{}
@@ -1039,8 +1043,8 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 		},
 	}, 0)
 
-	if assert.NotNil(mcu.connections[0].ip) {
-		assert.True(ip1.Equal(mcu.connections[0].ip), "ip addresses differ: expected %s, got %s", ip1.String(), mcu.connections[0].ip.String())
+	if connections := mcu.getConnections(); assert.Len(connections, 1) && assert.NotNil(connections[0].ip) {
+		assert.True(ip1.Equal(connections[0].ip), "ip addresses differ: expected %s, got %s", ip1.String(), connections[0].ip.String())
 	}
 
 	dnsMonitor := mcu.config.(*proxyConfigStatic).dnsMonitor
@@ -1744,8 +1748,9 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 }
 
 type mockGrpcServerHub struct {
-	proxy             atomic.Pointer[mcuProxy]
-	sessionsLock      sync.Mutex
+	proxy        atomic.Pointer[mcuProxy]
+	sessionsLock sync.Mutex
+	// +checklocks:sessionsLock
 	sessionByPublicId map[PublicSessionId]Session
 }
 

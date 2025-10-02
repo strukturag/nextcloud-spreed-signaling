@@ -238,15 +238,18 @@ type JanusGateway struct {
 	listener GatewayListener
 
 	// Sessions is a map of the currently active sessions to the gateway.
+	// +checklocks:Mutex
 	Sessions map[uint64]*JanusSession
 
 	// Access to the Sessions map should be synchronized with the Gateway.Lock()
 	// and Gateway.Unlock() methods provided by the embedded sync.Mutex.
 	sync.Mutex
 
+	// +checklocks:writeMu
 	conn            *websocket.Conn
 	nextTransaction atomic.Uint64
-	transactions    map[uint64]*transaction
+	// +checklocks:Mutex
+	transactions map[uint64]*transaction
 
 	closer *Closer
 
@@ -592,6 +595,7 @@ type JanusSession struct {
 	Id uint64
 
 	// Handles is a map of plugin handles within this session
+	// +checklocks:Mutex
 	Handles map[uint64]*JanusHandle
 
 	// Access to the Handles map should be synchronized with the Session.Lock()

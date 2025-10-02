@@ -130,7 +130,8 @@ type Client struct {
 	logRTT  bool
 
 	handlerMu sync.RWMutex
-	handler   ClientHandler
+	// +checklocks:handlerMu
+	handler ClientHandler
 
 	session   atomic.Pointer[Session]
 	sessionId atomic.Pointer[PublicSessionId]

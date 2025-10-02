@@ -231,10 +231,14 @@ type asyncEventsNats struct {
 	mu     sync.Mutex
 	client NatsClient
 
+	// +checklocks:mu
 	backendRoomSubscriptions map[string]*asyncBackendRoomSubscriberNats
-	roomSubscriptions        map[string]*asyncRoomSubscriberNats
-	userSubscriptions        map[string]*asyncUserSubscriberNats
-	sessionSubscriptions     map[string]*asyncSessionSubscriberNats
+	// +checklocks:mu
+	roomSubscriptions map[string]*asyncRoomSubscriberNats
+	// +checklocks:mu
+	userSubscriptions map[string]*asyncUserSubscriberNats
+	// +checklocks:mu
+	sessionSubscriptions map[string]*asyncSessionSubscriberNats
 }
 
 func NewAsyncEventsNats(client NatsClient) (AsyncEvents, error) {

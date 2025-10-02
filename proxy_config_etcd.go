@@ -35,12 +35,14 @@ import (
 
 type proxyConfigEtcd struct {
 	mu    sync.Mutex
-	proxy McuProxy
+	proxy McuProxy // +checklocksignore: Only written to from constructor.
 
 	client    *EtcdClient
 	keyPrefix string
-	keyInfos  map[string]*ProxyInformationEtcd
-	urlToKey  map[string]string
+	// +checklocks:mu
+	keyInfos map[string]*ProxyInformationEtcd
+	// +checklocks:mu
+	urlToKey map[string]string
 
 	closeCtx  context.Context
 	closeFunc context.CancelFunc
@@ -211,6 +213,7 @@ func (p *proxyConfigEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prevVal
 	p.removeEtcdProxyLocked(key)
 }
 
+// +checklocks:p.mu
 func (p *proxyConfigEtcd) removeEtcdProxyLocked(key string) {
 	info, found := p.keyInfos[key]
 	if !found {

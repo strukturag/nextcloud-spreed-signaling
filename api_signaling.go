@@ -52,7 +52,7 @@ const (
 )
 
 var (
-	ErrNoSdp      = NewError("no_sdp", "Payload does not contain a SDP.")
+	ErrNoSdp      = NewError("no_sdp", "Payload does not contain a SDP.") // +checklocksignore: Global readonly variable.
 	ErrInvalidSdp = NewError("invalid_sdp", "Payload does not contain a valid SDP.")
 
 	ErrNoCandidate      = NewError("no_candidate", "Payload does not contain a candidate.")
