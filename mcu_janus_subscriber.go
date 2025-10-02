@@ -71,7 +71,10 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 			// substream / temporal layer.
 			if getPluginStringValue(event.Plugindata, pluginVideoRoom, "configured") == "ok" &&
 				event.Jsep != nil && event.Jsep["type"] == "offer" && event.Jsep["sdp"] != nil {
+				log.Printf("Subscriber %d: received updated offer", p.handleId.Load())
 				p.listener.OnUpdateOffer(p, event.Jsep)
+			} else {
+				log.Printf("Subscriber %d: received unsupported event %+v", p.handleId.Load(), event)
 			}
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.

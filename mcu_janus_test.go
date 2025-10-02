@@ -287,6 +287,39 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 				})
 			}
 
+			if strings.Contains(g.t.Name(), "SubscriberRoomDestroyed") {
+				// Simulate event that subscriber room has been destroyed.
+				g.simulateEvent(20*time.Millisecond, session, handle, &janus.EventMsg{
+					Session: session.Id,
+					Handle:  handle.id,
+					Plugindata: janus.PluginData{
+						Plugin: pluginVideoRoom,
+						Data: api.StringMap{
+							"videoroom": "destroyed",
+						},
+					},
+				})
+			}
+
+			if strings.Contains(g.t.Name(), "SubscriberUpdateOffer") {
+				// Simulate event that subscriber receives new offer.
+				g.simulateEvent(20*time.Millisecond, session, handle, &janus.EventMsg{
+					Session: session.Id,
+					Handle:  handle.id,
+					Plugindata: janus.PluginData{
+						Plugin: pluginVideoRoom,
+						Data: api.StringMap{
+							"videoroom":  "event",
+							"configured": "ok",
+						},
+					},
+					Jsep: map[string]any{
+						"type": "offer",
+						"sdp":  MockSdpOfferAudioOnly,
+					},
+				})
+			}
+
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
 					"type": "offer",
@@ -1733,4 +1766,208 @@ func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
 	}
 
 	assert.Nil(handle, "subscriber should have been closed")
+}
+
+func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
+	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
+	t.Cleanup(func() {
+		if !t.Failed() {
+			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+		}
+	})
+
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			return &janus.EventMsg{
+				Jsep: api.StringMap{
+					"type": "answer",
+					"sdp":  MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	hub, _, _, server := CreateHubForTest(t)
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	// Give message processing some time.
+	time.Sleep(10 * time.Millisecond)
+
+	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+	// Simulate request from the backend that sessions joined the call.
+	users1 := []api.StringMap{
+		{
+			"sessionId": hello1.Hello.SessionId,
+			"inCall":    1,
+		},
+		{
+			"sessionId": hello2.Hello.SessionId,
+			"inCall":    1,
+		},
+	}
+	room := hub.getRoom(roomId)
+	require.NotNil(room, "Could not find room %s", roomId)
+	room.PublishUsersInCallChanged(users1, users1)
+	checkReceiveClientEvent(ctx, t, client1, "update", nil)
+	checkReceiveClientEvent(ctx, t, client2, "update", nil)
+
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}))
+
+	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+
+	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}))
+
+	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+
+	sess2 := hub.GetSessionByPublicId(hello2.Hello.SessionId)
+	require.NotNil(sess2)
+	session2 := sess2.(*ClientSession)
+
+	sub := session2.GetSubscriber(hello1.Hello.SessionId, StreamTypeVideo)
+	require.NotNil(sub)
+
+	subscriber := sub.(*mcuJanusSubscriber)
+	handle := subscriber.handle.Load()
+	require.NotNil(handle)
+
+	for ctx.Err() == nil {
+		if handle = subscriber.handle.Load(); handle == nil {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	assert.Nil(handle, "subscriber should have been closed")
+}
+
+func Test_JanusSubscriberUpdateOffer(t *testing.T) {
+	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
+	t.Cleanup(func() {
+		if !t.Failed() {
+			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
+		}
+	})
+
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.registerHandlers(map[string]TestJanusHandler{
+		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.id)
+			return &janus.EventMsg{
+				Jsep: api.StringMap{
+					"type": "answer",
+					"sdp":  MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	hub, _, _, server := CreateHubForTest(t)
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	// Give message processing some time.
+	time.Sleep(10 * time.Millisecond)
+
+	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+	// Simulate request from the backend that sessions joined the call.
+	users1 := []api.StringMap{
+		{
+			"sessionId": hello1.Hello.SessionId,
+			"inCall":    1,
+		},
+		{
+			"sessionId": hello2.Hello.SessionId,
+			"inCall":    1,
+		},
+	}
+	room := hub.getRoom(roomId)
+	require.NotNil(room, "Could not find room %s", roomId)
+	room.PublishUsersInCallChanged(users1, users1)
+	checkReceiveClientEvent(ctx, t, client1, "update", nil)
+	checkReceiveClientEvent(ctx, t, client2, "update", nil)
+
+	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}))
+
+	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+
+	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}))
+
+	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+
+	// Test MCU will trigger an updated offer.
+	client2.RunUntilOffer(ctx, MockSdpOfferAudioOnly)
 }
