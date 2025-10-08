@@ -28,7 +28,9 @@ import (
 type publisherStatsCounter struct {
 	mu sync.Mutex
 
+	// +checklocks:mu
 	streamTypes map[StreamType]bool
+	// +checklocks:mu
 	subscribers map[string]bool
 }
 

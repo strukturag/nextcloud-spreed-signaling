@@ -70,6 +70,7 @@ type RoomPing struct {
 	backend      *BackendClient
 	capabilities *Capabilities
 
+	// +checklocks:mu
 	entries map[string]*pingEntries
 }
 

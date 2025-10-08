@@ -162,13 +162,17 @@ type Hub struct {
 	mu sync.RWMutex
 	ru sync.RWMutex
 
-	sid      atomic.Uint64
-	clients  map[uint64]HandlerClient
+	sid atomic.Uint64
+	// +checklocks:mu
+	clients map[uint64]HandlerClient
+	// +checklocks:mu
 	sessions map[uint64]Session
-	rooms    map[string]*Room
+	// +checklocks:ru
+	rooms map[string]*Room
 
-	roomSessions    RoomSessions
-	roomPing        *RoomPing
+	roomSessions RoomSessions
+	roomPing     *RoomPing
+	// +checklocks:mu
 	virtualSessions map[PublicSessionId]uint64
 
 	decodeCaches []*LruCache[*SessionIdData]
@@ -179,12 +183,18 @@ type Hub struct {
 
 	allowSubscribeAnyStream bool
 
-	expiredSessions    map[Session]time.Time
-	anonymousSessions  map[*ClientSession]time.Time
+	// +checklocks:mu
+	expiredSessions map[Session]time.Time
+	// +checklocks:mu
+	anonymousSessions map[*ClientSession]time.Time
+	// +checklocks:mu
 	expectHelloClients map[HandlerClient]time.Time
-	dialoutSessions    map[*ClientSession]bool
-	remoteSessions     map[*RemoteSession]bool
-	federatedSessions  map[*ClientSession]bool
+	// +checklocks:mu
+	dialoutSessions map[*ClientSession]bool
+	// +checklocks:mu
+	remoteSessions map[*RemoteSession]bool
+	// +checklocks:mu
+	federatedSessions map[*ClientSession]bool
 
 	backendTimeout time.Duration
 	backend        *BackendClient
@@ -748,6 +758,7 @@ func (h *Hub) CreateProxyToken(publisherId string) (string, error) {
 	return proxy.createToken(publisherId)
 }
 
+// +checklocks:h.mu
 func (h *Hub) checkExpiredSessions(now time.Time) {
 	for session, expires := range h.expiredSessions {
 		if now.After(expires) {
@@ -761,6 +772,7 @@ func (h *Hub) checkExpiredSessions(now time.Time) {
 	}
 }
 
+// +checklocks:h.mu
 func (h *Hub) checkAnonymousSessions(now time.Time) {
 	for session, timeout := range h.anonymousSessions {
 		if now.After(timeout) {
@@ -775,6 +787,7 @@ func (h *Hub) checkAnonymousSessions(now time.Time) {
 	}
 }
 
+// +checklocks:h.mu
 func (h *Hub) checkInitialHello(now time.Time) {
 	for client, timeout := range h.expectHelloClients {
 		if now.After(timeout) {
@@ -788,10 +801,11 @@ func (h *Hub) checkInitialHello(now time.Time) {
 
 func (h *Hub) performHousekeeping(now time.Time) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	h.checkExpiredSessions(now)
 	h.checkAnonymousSessions(now)
 	h.checkInitialHello(now)
-	h.mu.Unlock()
 }
 
 func (h *Hub) removeSession(session Session) (removed bool) {
@@ -820,6 +834,7 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 	return
 }
 
+// +checklocksread:h.mu
 func (h *Hub) hasSessionsLocked(withInternal bool) bool {
 	if withInternal {
 		return len(h.sessions) > 0
@@ -841,6 +856,7 @@ func (h *Hub) startWaitAnonymousSessionRoom(session *ClientSession) {
 	h.startWaitAnonymousSessionRoomLocked(session)
 }
 
+// +checklocks:h.mu
 func (h *Hub) startWaitAnonymousSessionRoomLocked(session *ClientSession) {
 	if session.ClientType() == HelloClientTypeInternal {
 		// Internal clients don't need to join a room.
@@ -1629,7 +1645,7 @@ func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Roo
 	} else {
 		response.Room = &RoomServerMessage{
 			RoomId:     room.id,
-			Properties: room.properties,
+			Properties: room.Properties(),
 		}
 	}
 	return session.SendMessage(response)
@@ -1764,7 +1780,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 			NewErrorDetail("already_joined", "Already joined this room.", &RoomErrorDetails{
 				Room: &RoomServerMessage{
 					RoomId:     room.id,
-					Properties: room.properties,
+					Properties: room.Properties(),
 				},
 			}),
 		))
@@ -1907,7 +1923,15 @@ func (h *Hub) removeRoom(room *Room) {
 	h.roomPing.DeleteRoom(room.Id())
 }
 
-func (h *Hub) createRoom(id string, properties json.RawMessage, backend *Backend) (*Room, error) {
+func (h *Hub) CreateRoom(id string, properties json.RawMessage, backend *Backend) (*Room, error) {
+	h.ru.Lock()
+	defer h.ru.Unlock()
+
+	return h.createRoomLocked(id, properties, backend)
+}
+
+// +checklocks:h.ru
+func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *Backend) (*Room, error) {
 	// Note the write lock must be held.
 	room, err := NewRoom(id, properties, h, h.events, backend)
 	if err != nil {
@@ -1947,7 +1971,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	r, found := h.rooms[internalRoomId]
 	if !found {
 		var err error
-		if r, err = h.createRoom(roomId, room.Room.Properties, session.Backend()); err != nil {
+		if r, err = h.createRoomLocked(roomId, room.Room.Properties, session.Backend()); err != nil {
 			h.ru.Unlock()
 			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			// The session (implicitly) left the room due to an error.

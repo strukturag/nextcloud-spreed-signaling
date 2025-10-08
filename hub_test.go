@@ -466,6 +466,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 var (
 	sessionRequestHander struct {
 		sync.Mutex
+		// +checklocks:Mutex
 		handlers map[*testing.T]func(*BackendClientSessionRequest)
 	}
 )
@@ -2843,8 +2844,8 @@ func TestInitialRoomPermissions(t *testing.T) {
 	session := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
 	require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
-	assert.True(session.HasPermission(PERMISSION_MAY_PUBLISH_AUDIO), "Session %s should have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_AUDIO, session.permissions)
-	assert.False(session.HasPermission(PERMISSION_MAY_PUBLISH_VIDEO), "Session %s should not have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_VIDEO, session.permissions)
+	assert.True(session.HasPermission(PERMISSION_MAY_PUBLISH_AUDIO), "Session %s should have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_AUDIO, session.GetPermissions())
+	assert.False(session.HasPermission(PERMISSION_MAY_PUBLISH_VIDEO), "Session %s should not have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_VIDEO, session.GetPermissions())
 }
 
 func TestJoinRoomSwitchClient(t *testing.T) {

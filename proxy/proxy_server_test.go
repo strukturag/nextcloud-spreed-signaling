@@ -89,7 +89,7 @@ func WaitForProxyServer(ctx context.Context, t *testing.T, proxy *ProxyServer) {
 		case <-ctx.Done():
 			proxy.clientsLock.Lock()
 			proxy.remoteConnectionsLock.Lock()
-			assert.Fail(t, "Error waiting for proxy to terminate", "clients %+v / sessions %+v / remoteConnections %+v: %+v", proxy.clients, proxy.sessions, proxy.remoteConnections, ctx.Err())
+			assert.Fail(t, "Error waiting for proxy to terminate", "clients %+v / sessions %+v / remoteConnections %+v: %+v", clients, sessions, remoteConnections, ctx.Err())
 			proxy.remoteConnectionsLock.Unlock()
 			proxy.clientsLock.Unlock()
 			return
@@ -626,6 +626,121 @@ func TestProxyCodecs(t *testing.T) {
 	}
 }
 
+type StreamTestMCU struct {
+	TestMCU
+
+	streams []signaling.PublisherStream
+}
+
+type StreamsTestPublisher struct {
+	TestMCUPublisher
+
+	streams []signaling.PublisherStream
+}
+
+func (m *StreamTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+	return &StreamsTestPublisher{
+		TestMCUPublisher: TestMCUPublisher{
+			id:         id,
+			sid:        sid,
+			streamType: streamType,
+		},
+
+		streams: m.streams,
+	}, nil
+}
+
+func (p *StreamsTestPublisher) GetStreams(ctx context.Context) ([]signaling.PublisherStream, error) {
+	return p.streams, nil
+}
+
+func NewStreamTestMCU(t *testing.T, streams []signaling.PublisherStream) *StreamTestMCU {
+	return &StreamTestMCU{
+		TestMCU: TestMCU{
+			t: t,
+		},
+
+		streams: streams,
+	}
+}
+
+func TestProxyStreams(t *testing.T) {
+	signaling.CatchLogForTest(t)
+	assert := assert.New(t)
+	require := require.New(t)
+	proxy, key, server := newProxyServerForTest(t)
+
+	streams := []signaling.PublisherStream{
+		{
+			Mid:    "0",
+			Mindex: 0,
+			Type:   "audio",
+			Codec:  "opus",
+		},
+		{
+			Mid:    "1",
+			Mindex: 1,
+			Type:   "video",
+			Codec:  "vp8",
+		},
+	}
+
+	mcu := NewStreamTestMCU(t, streams)
+	proxy.mcu = mcu
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewProxyTestClient(ctx, t, server.URL)
+	defer client.CloseWithBye()
+
+	require.NoError(client.SendHello(key))
+
+	if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello)
+	}
+
+	_, err := client.RunUntilLoad(ctx, 0)
+	assert.NoError(err)
+
+	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+		Id:   "2345",
+		Type: "command",
+		Command: &signaling.CommandProxyClientMessage{
+			Type:       "create-publisher",
+			StreamType: signaling.StreamTypeVideo,
+		},
+	}))
+
+	var clientId string
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("2345", message.Id)
+		if err := checkMessageType(message, "command"); assert.NoError(err) {
+			if assert.NotEmpty(message.Command.Id) {
+				clientId = message.Command.Id
+			}
+		}
+	}
+
+	require.NotEmpty(clientId, "should have received publisher id")
+
+	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+		Id:   "3456",
+		Type: "command",
+		Command: &signaling.CommandProxyClientMessage{
+			Type:     "get-publisher-streams",
+			ClientId: clientId,
+		},
+	}))
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("3456", message.Id)
+		if err := checkMessageType(message, "command"); assert.NoError(err) {
+			assert.Equal(clientId, message.Command.Id)
+			assert.Equal(streams, message.Command.Streams)
+		}
+	}
+}
+
 type RemoteSubscriberTestMCU struct {
 	TestMCU
 
@@ -648,9 +763,15 @@ type TestRemotePublisher struct {
 	refcnt     atomic.Int32
 	closed     context.Context
 	closeFunc  context.CancelFunc
+	listener   signaling.McuListener
+	controller signaling.RemotePublisherController
 }
 
 func (p *TestRemotePublisher) Id() string {
+	return "id"
+}
+
+func (p *TestRemotePublisher) PublisherId() signaling.PublicSessionId {
 	return "id"
 }
 
@@ -669,6 +790,13 @@ func (p *TestRemotePublisher) MaxBitrate() int {
 func (p *TestRemotePublisher) Close(ctx context.Context) {
 	if count := p.refcnt.Add(-1); assert.True(p.t, count >= 0) && count == 0 {
 		p.closeFunc()
+		shortCtx, cancel := context.WithTimeout(ctx, time.Millisecond)
+		defer cancel()
+		// Won't be able to preform remote call to actually stop publishing.
+		if err := p.controller.StopPublishing(shortCtx, p); !errors.Is(err, context.DeadlineExceeded) {
+			assert.NoError(p.t, err)
+		}
+		p.listener.PublisherClosed(p)
 	}
 }
 
@@ -684,6 +812,13 @@ func (p *TestRemotePublisher) RtcpPort() int {
 	return 2
 }
 
+func (p *TestRemotePublisher) SetMedia(mediaType signaling.MediaType) {
+}
+
+func (p *TestRemotePublisher) HasMedia(mediaType signaling.MediaType) bool {
+	return false
+}
+
 func (m *RemoteSubscriberTestMCU) NewRemotePublisher(ctx context.Context, listener signaling.McuListener, controller signaling.RemotePublisherController, streamType signaling.StreamType) (signaling.McuRemotePublisher, error) {
 	require.Nil(m.t, m.publisher)
 	assert.EqualValues(m.t, "video", streamType)
@@ -694,6 +829,8 @@ func (m *RemoteSubscriberTestMCU) NewRemotePublisher(ctx context.Context, listen
 		streamType: streamType,
 		closed:     closeCtx,
 		closeFunc:  closeFunc,
+		listener:   listener,
+		controller: controller,
 	}
 	m.publisher.refcnt.Add(1)
 	return m.publisher, nil
@@ -813,6 +950,8 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 		}
 	}
 
+	assert.True(proxy.hasRemotePublishers())
+
 	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
 		Id:   "3456",
 		Type: "command",
@@ -841,6 +980,8 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 			assert.Fail("publisher was not closed")
 		}
 	}
+
+	assert.False(proxy.hasRemotePublishers())
 }
 
 func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
@@ -936,10 +1077,12 @@ func NewUnpublishRemoteTestMCU(t *testing.T) *UnpublishRemoteTestMCU {
 type UnpublishRemoteTestPublisher struct {
 	TestMCUPublisher
 
-	t *testing.T
+	t *testing.T // +checklocksignore: Only written to from constructor.
 
-	mu         sync.RWMutex
-	remoteId   signaling.PublicSessionId
+	mu sync.RWMutex
+	// +checklocks:mu
+	remoteId signaling.PublicSessionId
+	// +checklocks:mu
 	remoteData *remotePublisherData
 }
 

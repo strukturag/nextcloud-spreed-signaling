@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	statsGrpcClients = prometheus.NewGauge(prometheus.GaugeOpts{
+	statsGrpcClients = prometheus.NewGauge(prometheus.GaugeOpts{ // +checklocksignore: Global readonly variable.
 		Namespace: "signaling",
 		Subsystem: "grpc",
 		Name:      "clients",
