@@ -4,7 +4,9 @@
 #listen = 127.0.0.1:9090
 
 [app]
-# Set to "true" to install pprof debug handlers.
+# Set to "true" to install pprof debug handlers. Access will only be possible
+# from IPs allowed through the "allowed_ips" option below.
+#
 # See "https://golang.org/pkg/net/http/pprof/" for further information.
 #debug = false
 
@@ -90,8 +92,9 @@ url = ws://localhost:8188/
 #blockedcandidates = 1.2.3.0/24
 
 [stats]
-# Comma-separated list of IP addresses that are allowed to access the stats
-# endpoint. Leave empty (or commented) to only allow access from "127.0.0.1".
+# Comma-separated list of IP addresses that are allowed to access the debug,
+# stats and metrics endpoints.
+# Leave empty (or commented) to only allow access from localhost.
 #allowed_ips =
 
 [etcd]
