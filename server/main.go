@@ -30,7 +30,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
@@ -308,19 +307,6 @@ func main() {
 	}
 	if err := server.Start(r); err != nil {
 		log.Fatal("Could not start backend server: ", err)
-	}
-
-	if debug, _ := config.GetBool("app", "debug"); debug {
-		log.Println("Installing debug handlers in \"/debug/pprof\"")
-		r.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
-		r.Handle("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
-		r.Handle("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
-		r.Handle("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
-		r.Handle("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
-		for _, profile := range runtimepprof.Profiles() {
-			name := profile.Name()
-			r.Handle("/debug/pprof/"+name, pprof.Handler(name))
-		}
 	}
 
 	var listeners Listeners

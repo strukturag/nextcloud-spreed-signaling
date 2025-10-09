@@ -246,8 +246,8 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 	if !statsAllowedIps.Empty() {
 		log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 	} else {
-		log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
 		statsAllowedIps = signaling.DefaultAllowedIps()
+		log.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 	}
 
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
@@ -377,14 +377,21 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 
 	if debug, _ := config.GetBool("app", "debug"); debug {
 		log.Println("Installing debug handlers in \"/debug/pprof\"")
-		r.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
-		r.Handle("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
-		r.Handle("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
-		r.Handle("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
-		r.Handle("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
+		s := r.PathPrefix("/debug/pprof").Subrouter()
+		s.HandleFunc("", result.setCommonHeaders(result.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/debug/pprof/", http.StatusTemporaryRedirect)
+		})))
+		s.HandleFunc("/", result.setCommonHeaders(result.validateStatsRequest(pprof.Index)))
+		s.HandleFunc("/cmdline", result.setCommonHeaders(result.validateStatsRequest(pprof.Cmdline)))
+		s.HandleFunc("/profile", result.setCommonHeaders(result.validateStatsRequest(pprof.Profile)))
+		s.HandleFunc("/symbol", result.setCommonHeaders(result.validateStatsRequest(pprof.Symbol)))
+		s.HandleFunc("/trace", result.setCommonHeaders(result.validateStatsRequest(pprof.Trace)))
 		for _, profile := range runtimepprof.Profiles() {
 			name := profile.Name()
-			r.Handle("/debug/pprof/"+name, pprof.Handler(name))
+			handler := pprof.Handler(name)
+			s.HandleFunc("/"+name, result.setCommonHeaders(result.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
+				handler.ServeHTTP(w, r)
+			})))
 		}
 	}
 
@@ -594,8 +601,8 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 		if !statsAllowedIps.Empty() {
 			log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 		} else {
-			log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
 			statsAllowedIps = signaling.DefaultAllowedIps()
+			log.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 		}
 		s.statsAllowedIps.Store(statsAllowedIps)
 	} else {

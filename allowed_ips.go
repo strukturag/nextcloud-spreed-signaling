@@ -103,6 +103,10 @@ func DefaultAllowedIps() *AllowedIps {
 			IP:   net.ParseIP("127.0.0.1"),
 			Mask: net.CIDRMask(32, 32),
 		},
+		{
+			IP:   net.ParseIP("::1"),
+			Mask: net.CIDRMask(128, 128),
+		},
 	}
 
 	result := &AllowedIps{
@@ -115,6 +119,7 @@ var (
 	privateIpNets = []string{
 		// Loopback addresses.
 		"127.0.0.0/8",
+		"::1",
 		// Private addresses.
 		"10.0.0.0/8",
 		"172.16.0.0/12",

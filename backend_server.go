@@ -34,9 +34,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"net/url"
 	"reflect"
 	"regexp"
+	runtimepprof "runtime/pprof"
 	"slices"
 	"strings"
 	"sync"
@@ -66,6 +68,7 @@ type BackendServer struct {
 	roomSessions RoomSessions
 
 	version        string
+	debug          bool
 	welcomeMessage string
 
 	turnapikey  string
@@ -111,8 +114,8 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 	if !statsAllowedIps.Empty() {
 		log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 	} else {
-		log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
 		statsAllowedIps = DefaultAllowedIps()
+		log.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 	}
 
 	invalidSecret := make([]byte, 32)
@@ -120,11 +123,14 @@ func NewBackendServer(config *goconf.ConfigFile, hub *Hub, version string) (*Bac
 		return nil, err
 	}
 
+	debug, _ := config.GetBool("app", "debug")
+
 	result := &BackendServer{
 		hub:          hub,
 		events:       hub.events,
 		roomSessions: hub.roomSessions,
 		version:      version,
+		debug:        debug,
 
 		turnapikey:  turnapikey,
 		turnsecret:  []byte(turnsecret),
@@ -145,8 +151,8 @@ func (b *BackendServer) Reload(config *goconf.ConfigFile) {
 		if !statsAllowedIps.Empty() {
 			log.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 		} else {
-			log.Printf("No IPs configured for the stats endpoint, only allowing access from 127.0.0.1")
 			statsAllowedIps = DefaultAllowedIps()
+			log.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 		}
 		b.statsAllowedIps.Store(statsAllowedIps)
 	} else {
@@ -167,22 +173,42 @@ func (b *BackendServer) Start(r *mux.Router) error {
 
 	b.welcomeMessage = string(welcomeMessage) + "\n"
 
+	if b.debug {
+		log.Println("Installing debug handlers in \"/debug/pprof\"")
+		s := r.PathPrefix("/debug/pprof").Subrouter()
+		s.HandleFunc("", b.setCommonHeaders(b.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/debug/pprof/", http.StatusTemporaryRedirect)
+		})))
+		s.HandleFunc("/", b.setCommonHeaders(b.validateStatsRequest(pprof.Index)))
+		s.HandleFunc("/cmdline", b.setCommonHeaders(b.validateStatsRequest(pprof.Cmdline)))
+		s.HandleFunc("/profile", b.setCommonHeaders(b.validateStatsRequest(pprof.Profile)))
+		s.HandleFunc("/symbol", b.setCommonHeaders(b.validateStatsRequest(pprof.Symbol)))
+		s.HandleFunc("/trace", b.setCommonHeaders(b.validateStatsRequest(pprof.Trace)))
+		for _, profile := range runtimepprof.Profiles() {
+			name := profile.Name()
+			handler := pprof.Handler(name)
+			s.HandleFunc("/"+name, b.setCommonHeaders(b.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
+				handler.ServeHTTP(w, r)
+			})))
+		}
+	}
+
 	s := r.PathPrefix("/api/v1").Subrouter()
-	s.HandleFunc("/welcome", b.setComonHeaders(b.welcomeFunc)).Methods("GET")
-	s.HandleFunc("/room/{roomid}", b.setComonHeaders(b.parseRequestBody(b.roomHandler))).Methods("POST")
-	s.HandleFunc("/stats", b.setComonHeaders(b.validateStatsRequest(b.statsHandler))).Methods("GET")
-	s.HandleFunc("/serverinfo", b.setComonHeaders(b.validateStatsRequest(b.serverinfoHandler))).Methods("GET")
+	s.HandleFunc("/welcome", b.setCommonHeaders(b.welcomeFunc)).Methods("GET")
+	s.HandleFunc("/room/{roomid}", b.setCommonHeaders(b.parseRequestBody(b.roomHandler))).Methods("POST")
+	s.HandleFunc("/stats", b.setCommonHeaders(b.validateStatsRequest(b.statsHandler))).Methods("GET")
+	s.HandleFunc("/serverinfo", b.setCommonHeaders(b.validateStatsRequest(b.serverinfoHandler))).Methods("GET")
 
 	// Expose prometheus metrics at "/metrics".
-	r.HandleFunc("/metrics", b.setComonHeaders(b.validateStatsRequest(b.metricsHandler))).Methods("GET")
+	r.HandleFunc("/metrics", b.setCommonHeaders(b.validateStatsRequest(b.metricsHandler))).Methods("GET")
 
 	// Provide a REST service to get TURN credentials.
 	// See https://tools.ietf.org/html/draft-uberti-behave-turn-rest-00
-	r.HandleFunc("/turn/credentials", b.setComonHeaders(b.getTurnCredentials)).Methods("GET")
+	r.HandleFunc("/turn/credentials", b.setCommonHeaders(b.getTurnCredentials)).Methods("GET")
 	return nil
 }
 
-func (b *BackendServer) setComonHeaders(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+func (b *BackendServer) setCommonHeaders(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "nextcloud-spreed-signaling/"+b.version)
 		w.Header().Set("X-Spreed-Signaling-Features", strings.Join(b.hub.info.Features, ", "))
