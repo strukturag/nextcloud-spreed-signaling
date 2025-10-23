@@ -466,6 +466,10 @@ Message format (Server -> Client):
         "roomid": "the-room-id",
         "properties": {
           ...additional room properties...
+        },
+        "bandwidth": {
+          "maxstreambitrate": 1048576,
+          "maxscreenbitrate": 2097152
         }
       }
     }
@@ -474,6 +478,10 @@ Message format (Server -> Client):
 - The `roomid` will be empty if the client is no longer in a room.
 - Can be sent without a request if the server moves a client to a room / out of
   the current room or the properties of a room change.
+- The optional `bandwidth` field contains information on the expected bandwidth
+  limits (in bits per second) for publishing in this room. If publishing is done
+  through signaling proxies or there already are other publishers in the room,
+  the actual limits might be lower than what is returned here.
 
 
 Message format (Server -> Client if already joined before):
