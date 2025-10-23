@@ -759,11 +759,6 @@ func (c *mcuProxyConnection) scheduleReconnect() {
 	}
 	c.close()
 
-	if c.IsShutdownScheduled() {
-		c.proxy.removeConnection(c)
-		return
-	}
-
 	interval := c.reconnectInterval.Load()
 	// Prevent all servers from reconnecting at the same time in case of an
 	// interrupted connection to the proxy or a restart.
@@ -809,11 +804,6 @@ func (c *mcuProxyConnection) reconnect() {
 	if err != nil {
 		log.Printf("Could not connect to %s: %s", c, err)
 		c.scheduleReconnect()
-		return
-	}
-
-	if c.IsShutdownScheduled() {
-		c.proxy.removeConnection(c)
 		return
 	}
 

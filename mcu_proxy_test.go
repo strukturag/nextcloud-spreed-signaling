@@ -2501,6 +2501,46 @@ func Test_ProxyReconnectAfter(t *testing.T) {
 	}
 }
 
+func Test_ProxyReconnectAfterShutdown(t *testing.T) {
+	CatchLogForTest(t)
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := NewProxyServerForTest(t, "DE")
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{server},
+	}, 0)
+
+	connections := mcu.getSortedConnections(nil)
+	require.Len(connections, 1)
+	sessionId := connections[0].SessionId()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := server.GetSingleClient()
+	require.NotNil(client)
+
+	client.sendMessage(&ProxyServerMessage{
+		Type: "event",
+		Event: &EventProxyServerMessage{
+			Type: "shutdown-scheduled",
+		},
+	})
+
+	// Force reconnect.
+	client.close()
+	assert.NoError(mcu.WaitForDisconnected(ctx))
+
+	// The client will automatically reconnect and resume the session.
+	time.Sleep(10 * time.Millisecond)
+	assert.NoError(mcu.WaitForConnections(ctx))
+
+	if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
+		assert.Equal(sessionId, connections[0].SessionId())
+	}
+}
+
 func Test_ProxyResume(t *testing.T) {
 	CatchLogForTest(t)
 	t.Parallel()
