@@ -131,6 +131,7 @@ type Mcu interface {
 
 	GetStats() any
 	GetServerInfoSfu() *BackendServerInfoSfu
+	GetBandwidthLimits() (int, int)
 
 	NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)
 	NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)
