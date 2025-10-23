@@ -56,6 +56,14 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 	numBackends := 0
 	if allowAll {
 		log.Println("WARNING: All backend hostnames are allowed, only use for development!")
+		maxStreamBitrate, err := config.GetInt("backend", "maxstreambitrate")
+		if err != nil || maxStreamBitrate < 0 {
+			maxStreamBitrate = 0
+		}
+		maxScreenBitrate, err := config.GetInt("backend", "maxscreenbitrate")
+		if err != nil || maxScreenBitrate < 0 {
+			maxScreenBitrate = 0
+		}
 		compatBackend = &Backend{
 			id:     "compat",
 			secret: []byte(commonSecret),
@@ -64,6 +72,9 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 
 			sessionLimit: uint64(sessionLimit),
 			counted:      true,
+
+			maxStreamBitrate: maxStreamBitrate,
+			maxScreenBitrate: maxScreenBitrate,
 		}
 		if sessionLimit > 0 {
 			log.Printf("Allow a maximum of %d sessions", sessionLimit)
@@ -103,6 +114,14 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 		if len(allowMap) == 0 {
 			log.Println("WARNING: No backend hostnames are allowed, check your configuration!")
 		} else {
+			maxStreamBitrate, err := config.GetInt("backend", "maxstreambitrate")
+			if err != nil || maxStreamBitrate < 0 {
+				maxStreamBitrate = 0
+			}
+			maxScreenBitrate, err := config.GetInt("backend", "maxscreenbitrate")
+			if err != nil || maxScreenBitrate < 0 {
+				maxScreenBitrate = 0
+			}
 			compatBackend = &Backend{
 				id:     "compat",
 				secret: []byte(commonSecret),
@@ -111,6 +130,9 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 
 				sessionLimit: uint64(sessionLimit),
 				counted:      true,
+
+				maxStreamBitrate: maxStreamBitrate,
+				maxScreenBitrate: maxScreenBitrate,
 			}
 			hosts := make([]string, 0, len(allowMap))
 			for host := range allowMap {
