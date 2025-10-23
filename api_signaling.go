@@ -689,6 +689,12 @@ func (m *RoomFederationMessage) CheckValid() error {
 type RoomServerMessage struct {
 	RoomId     string          `json:"roomid"`
 	Properties json.RawMessage `json:"properties,omitempty"`
+	Bandwidth  *RoomBandwidth  `json:"bandwidth,omitempty"`
+}
+
+type RoomBandwidth struct {
+	MaxStreamBitrate int `json:"maxstreambitrate"`
+	MaxScreenBitrate int `json:"maxscreenbitrate"`
 }
 
 type RoomErrorDetails struct {

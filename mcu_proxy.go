@@ -1544,6 +1544,10 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 	return mcu, nil
 }
 
+func (m *mcuProxy) GetBandwidthLimits() (int, int) {
+	return int(m.settings.MaxStreamBitrate()), int(m.settings.MaxScreenBitrate())
+}
+
 func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 	options, err := GetStringOptions(config, "continent-overrides", false)
 	if err != nil {

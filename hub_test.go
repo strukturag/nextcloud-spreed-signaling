@@ -2520,6 +2520,7 @@ func TestJoinRoom(t *testing.T) {
 	t.Parallel()
 	CatchLogForTest(t)
 	require := require.New(t)
+	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -2531,6 +2532,7 @@ func TestJoinRoom(t *testing.T) {
 	roomId := "test-room"
 	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
+	assert.Nil(roomMsg.Room.Bandwidth)
 
 	// We will receive a "joined" event.
 	client.RunUntilJoined(ctx, hello.Hello)
@@ -2538,6 +2540,114 @@ func TestJoinRoom(t *testing.T) {
 	// Leave room.
 	roomMsg = MustSucceed2(t, client.JoinRoom, ctx, "")
 	require.Equal("", roomMsg.Room.RoomId)
+}
+
+func TestJoinRoomBackendBandwidth(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(server)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("backend", "maxstreambitrate", "1000")
+		config.AddOption("backend", "maxscreenbitrate", "2000")
+		return config, nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	if bw := roomMsg.Room.Bandwidth; assert.NotNil(bw) {
+		assert.EqualValues(1000, bw.MaxStreamBitrate)
+		assert.EqualValues(2000, bw.MaxScreenBitrate)
+	}
+
+	// We will receive a "joined" event.
+	client.RunUntilJoined(ctx, hello.Hello)
+}
+
+func TestJoinRoomMcuBandwidth(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+	mcu, err := NewTestMCU()
+	require.NoError(err)
+	hub.SetMcu(mcu)
+
+	mcu.SetBandwidthLimits(1000, 2000)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	if bw := roomMsg.Room.Bandwidth; assert.NotNil(bw) {
+		assert.EqualValues(1000, bw.MaxStreamBitrate)
+		assert.EqualValues(2000, bw.MaxScreenBitrate)
+	}
+
+	// We will receive a "joined" event.
+	client.RunUntilJoined(ctx, hello.Hello)
+}
+
+func TestJoinRoomPreferMcuBandwidth(t *testing.T) {
+	t.Parallel()
+	CatchLogForTest(t)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(server)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("backend", "maxstreambitrate", "1000")
+		config.AddOption("backend", "maxscreenbitrate", "2000")
+		return config, nil
+	})
+
+	mcu, err := NewTestMCU()
+	require.NoError(err)
+	hub.SetMcu(mcu)
+
+	// The MCU bandwidth limits overwrite any backend limits.
+	mcu.SetBandwidthLimits(100, 200)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	if bw := roomMsg.Room.Bandwidth; assert.NotNil(bw) {
+		assert.EqualValues(100, bw.MaxStreamBitrate)
+		assert.EqualValues(200, bw.MaxScreenBitrate)
+	}
+
+	// We will receive a "joined" event.
+	client.RunUntilJoined(ctx, hello.Hello)
 }
 
 func TestJoinInvalidRoom(t *testing.T) {

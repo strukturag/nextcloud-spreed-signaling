@@ -358,6 +358,10 @@ type TestMCU struct {
 	t *testing.T
 }
 
+func (m *TestMCU) GetBandwidthLimits() (int, int) {
+	return 0, 0
+}
+
 func (m *TestMCU) Start(ctx context.Context) error {
 	return nil
 }
