@@ -57,9 +57,26 @@ type dnsMonitorEntry struct {
 	hostname string
 	hostIP   net.IP
 
-	mu      sync.Mutex
-	ips     []net.IP
+	mu sync.Mutex
+	// +checklocks:mu
+	ips []net.IP
+	// +checklocks:mu
 	entries map[*DnsMonitorEntry]bool
+}
+
+func (e *dnsMonitorEntry) clearRemoved() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	deleted := false
+	for entry := range e.entries {
+		if entry.entry.Load() == nil {
+			delete(e.entries, entry)
+			deleted = true
+		}
+	}
+
+	return deleted && len(e.entries) == 0
 }
 
 func (e *dnsMonitorEntry) setIPs(ips []net.IP, fromIP bool) {
@@ -134,6 +151,7 @@ func (e *dnsMonitorEntry) removeEntry(entry *DnsMonitorEntry) bool {
 	return len(e.entries) == 0
 }
 
+// +checklocks:e.mu
 func (e *dnsMonitorEntry) runCallbacks(all []net.IP, add []net.IP, keep []net.IP, remove []net.IP) {
 	for entry := range e.entries {
 		entry.callback(entry, all, add, keep, remove)
@@ -247,7 +265,7 @@ func (m *DnsMonitor) Remove(entry *DnsMonitorEntry) {
 		m.hasRemoved.Store(true)
 		return
 	}
-	defer m.mu.Unlock()
+	defer m.mu.Unlock() // +checklocksforce: only executed if the TryLock above succeeded.
 
 	e, found := m.hostnames[oldEntry.hostname]
 	if !found {
@@ -268,15 +286,7 @@ func (m *DnsMonitor) clearRemoved() {
 	defer m.mu.Unlock()
 
 	for hostname, entry := range m.hostnames {
-		deleted := false
-		for e := range entry.entries {
-			if e.entry.Load() == nil {
-				delete(entry.entries, e)
-				deleted = true
-			}
-		}
-
-		if deleted && len(entry.entries) == 0 {
+		if entry.clearRemoved() {
 			delete(m.hostnames, hostname)
 		}
 	}

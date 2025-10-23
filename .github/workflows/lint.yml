@@ -8,6 +8,7 @@ on:
       - '.golangci.yml'
       - '**.go'
       - 'go.*'
+      - 'Makefile'
   pull_request:
     branches: [ master ]
     paths:
@@ -15,6 +16,7 @@ on:
       - '.golangci.yml'
       - '**.go'
       - 'go.*'
+      - 'Makefile'
 
 permissions:
   contents: read
@@ -52,6 +54,20 @@ jobs:
       - name: moderize
         run: |
           GOEXPERIMENT=synctest go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -test ./...
+
+  checklocks:
+    name: checklocks
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+
+      - name: checklocks
+        run: |
+          make checklocks
 
   dependencies:
     name: dependencies

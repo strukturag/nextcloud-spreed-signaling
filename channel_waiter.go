@@ -26,8 +26,10 @@ import (
 )
 
 type ChannelWaiters struct {
-	mu      sync.RWMutex
-	id      uint64
+	mu sync.RWMutex
+	// +checklocks:mu
+	id uint64
+	// +checklocks:mu
 	waiters map[uint64]chan struct{}
 }
 

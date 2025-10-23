@@ -67,7 +67,9 @@ func (w *SingleWaiter) cancel() {
 type SingleNotifier struct {
 	sync.Mutex
 
-	waiter  *SingleWaiter
+	// +checklocks:Mutex
+	waiter *SingleWaiter
+	// +checklocks:Mutex
 	waiters map[*SingleWaiter]bool
 }
 

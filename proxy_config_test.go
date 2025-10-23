@@ -52,10 +52,12 @@ type proxyConfigEvent struct {
 }
 
 type mcuProxyForConfig struct {
-	t        *testing.T
+	t  *testing.T
+	mu sync.Mutex
+	// +checklocks:mu
 	expected []proxyConfigEvent
-	mu       sync.Mutex
-	waiters  []chan struct{}
+	// +checklocks:mu
+	waiters []chan struct{}
 }
 
 func newMcuProxyForConfig(t *testing.T) *mcuProxyForConfig {
@@ -63,6 +65,8 @@ func newMcuProxyForConfig(t *testing.T) *mcuProxyForConfig {
 		t: t,
 	}
 	t.Cleanup(func() {
+		proxy.mu.Lock()
+		defer proxy.mu.Unlock()
 		assert.Empty(t, proxy.expected)
 	})
 	return proxy
@@ -83,25 +87,60 @@ func (p *mcuProxyForConfig) Expect(action string, url string, ips ...net.IP) {
 	})
 }
 
-func (p *mcuProxyForConfig) WaitForEvents(ctx context.Context) {
+func (p *mcuProxyForConfig) addWaiter() chan struct{} {
 	p.t.Helper()
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if len(p.expected) == 0 {
-		return
+		return nil
 	}
 
 	waiter := make(chan struct{})
 	p.waiters = append(p.waiters, waiter)
-	p.mu.Unlock()
-	defer p.mu.Lock()
+	return waiter
+}
+
+func (p *mcuProxyForConfig) WaitForEvents(ctx context.Context) {
+	p.t.Helper()
+
+	waiter := p.addWaiter()
+	if waiter == nil {
+		return
+	}
+
 	select {
 	case <-ctx.Done():
 		assert.NoError(p.t, ctx.Err())
 	case <-waiter:
 	}
+}
+
+func (p *mcuProxyForConfig) getWaitersIfEmpty() []chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if len(p.expected) != 0 {
+		return nil
+	}
+
+	waiters := p.waiters
+	p.waiters = nil
+	return waiters
+}
+
+func (p *mcuProxyForConfig) getExpectedEvent() *proxyConfigEvent {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if len(p.expected) == 0 {
+		return nil
+	}
+
+	expected := p.expected[0]
+	p.expected = p.expected[1:]
+	return &expected
 }
 
 func (p *mcuProxyForConfig) checkEvent(event *proxyConfigEvent) {
@@ -121,31 +160,23 @@ func (p *mcuProxyForConfig) checkEvent(event *proxyConfigEvent) {
 		}
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if len(p.expected) == 0 {
+	expected := p.getExpectedEvent()
+	if expected == nil {
 		assert.Fail(p.t, "no event expected", "received %+v from %s:%d", event, caller.File, caller.Line)
 		return
 	}
 
-	defer func() {
-		if len(p.expected) == 0 {
-			waiters := p.waiters
-			p.waiters = nil
-			p.mu.Unlock()
-			defer p.mu.Lock()
-
-			for _, ch := range waiters {
-				ch <- struct{}{}
-			}
-		}
-	}()
-
-	expected := p.expected[0]
-	p.expected = p.expected[1:]
-	if !reflect.DeepEqual(expected, *event) {
+	if !reflect.DeepEqual(expected, event) {
 		assert.Fail(p.t, "wrong event", "expected %+v, received %+v from %s:%d", expected, event, caller.File, caller.Line)
+	}
+
+	waiters := p.getWaitersIfEmpty()
+	if len(waiters) == 0 {
+		return
+	}
+
+	for _, ch := range waiters {
+		ch <- struct{}{}
 	}
 }
 

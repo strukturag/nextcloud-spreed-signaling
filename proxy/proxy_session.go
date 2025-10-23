@@ -53,20 +53,27 @@ type ProxySession struct {
 	ctx       context.Context
 	closeFunc context.CancelFunc
 
-	clientLock      sync.Mutex
-	client          *ProxyClient
+	clientLock sync.Mutex
+	// +checklocks:clientLock
+	client *ProxyClient
+	// +checklocks:clientLock
 	pendingMessages []*signaling.ProxyServerMessage
 
 	publishersLock sync.Mutex
-	publishers     map[string]signaling.McuPublisher
-	publisherIds   map[signaling.McuPublisher]string
+	// +checklocks:publishersLock
+	publishers map[string]signaling.McuPublisher
+	// +checklocks:publishersLock
+	publisherIds map[signaling.McuPublisher]string
 
 	subscribersLock sync.Mutex
-	subscribers     map[string]signaling.McuSubscriber
-	subscriberIds   map[signaling.McuSubscriber]string
+	// +checklocks:subscribersLock
+	subscribers map[string]signaling.McuSubscriber
+	// +checklocks:subscribersLock
+	subscriberIds map[signaling.McuSubscriber]string
 
 	remotePublishersLock sync.Mutex
-	remotePublishers     map[signaling.McuRemoteAwarePublisher]map[string]*remotePublisherData
+	// +checklocks:remotePublishersLock
+	remotePublishers map[signaling.McuRemoteAwarePublisher]map[string]*remotePublisherData
 }
 
 func NewProxySession(proxy *ProxyServer, sid uint64, id signaling.PublicSessionId) *ProxySession {
@@ -301,6 +308,8 @@ func (s *ProxySession) DeletePublisher(publisher signaling.McuPublisher) string 
 	delete(s.publishers, id)
 	delete(s.publisherIds, publisher)
 	if rp, ok := publisher.(signaling.McuRemoteAwarePublisher); ok {
+		s.remotePublishersLock.Lock()
+		defer s.remotePublishersLock.Unlock()
 		delete(s.remotePublishers, rp)
 	}
 	go s.proxy.PublisherDeleted(publisher)
@@ -363,8 +372,8 @@ func (s *ProxySession) clearRemotePublishers() {
 }
 
 func (s *ProxySession) clearSubscribers() {
-	s.publishersLock.Lock()
-	defer s.publishersLock.Unlock()
+	s.subscribersLock.Lock()
+	defer s.subscribersLock.Unlock()
 
 	go func(subscribers map[string]signaling.McuSubscriber) {
 		for id, subscriber := range subscribers {

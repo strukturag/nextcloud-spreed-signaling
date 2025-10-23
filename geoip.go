@@ -32,7 +32,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -59,12 +59,11 @@ type GeoLookup struct {
 	url    string
 	isFile bool
 	client http.Client
-	mu     sync.Mutex
 
-	lastModifiedHeader string
-	lastModifiedTime   time.Time
+	lastModifiedHeader atomic.Value
+	lastModifiedTime   atomic.Int64
 
-	reader *maxminddb.Reader
+	reader atomic.Pointer[maxminddb.Reader]
 }
 
 func NewGeoLookupFromUrl(url string) (*GeoLookup, error) {
@@ -87,12 +86,9 @@ func NewGeoLookupFromFile(filename string) (*GeoLookup, error) {
 }
 
 func (g *GeoLookup) Close() {
-	g.mu.Lock()
-	if g.reader != nil {
-		g.reader.Close()
-		g.reader = nil
+	if reader := g.reader.Swap(nil); reader != nil {
+		reader.Close()
 	}
-	g.mu.Unlock()
 }
 
 func (g *GeoLookup) Update() error {
@@ -109,7 +105,7 @@ func (g *GeoLookup) updateFile() error {
 		return err
 	}
 
-	if info.ModTime().Equal(g.lastModifiedTime) {
+	if info.ModTime().UnixNano() == g.lastModifiedTime.Load() {
 		return nil
 	}
 
@@ -125,13 +121,11 @@ func (g *GeoLookup) updateFile() error {
 	metadata := reader.Metadata
 	log.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
 
-	g.mu.Lock()
-	if g.reader != nil {
-		g.reader.Close()
+	if old := g.reader.Swap(reader); old != nil {
+		old.Close()
 	}
-	g.reader = reader
-	g.lastModifiedTime = info.ModTime()
-	g.mu.Unlock()
+
+	g.lastModifiedTime.Store(info.ModTime().UnixNano())
 	return nil
 }
 
@@ -140,8 +134,8 @@ func (g *GeoLookup) updateUrl() error {
 	if err != nil {
 		return err
 	}
-	if g.lastModifiedHeader != "" {
-		request.Header.Add("If-Modified-Since", g.lastModifiedHeader)
+	if header := g.lastModifiedHeader.Load(); header != nil {
+		request.Header.Add("If-Modified-Since", header.(string))
 	}
 	response, err := g.client.Do(request)
 	if err != nil {
@@ -210,13 +204,11 @@ func (g *GeoLookup) updateUrl() error {
 	metadata := reader.Metadata
 	log.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
 
-	g.mu.Lock()
-	if g.reader != nil {
-		g.reader.Close()
+	if old := g.reader.Swap(reader); old != nil {
+		old.Close()
 	}
-	g.reader = reader
-	g.lastModifiedHeader = response.Header.Get("Last-Modified")
-	g.mu.Unlock()
+
+	g.lastModifiedHeader.Store(response.Header.Get("Last-Modified"))
 	return nil
 }
 
@@ -227,14 +219,12 @@ func (g *GeoLookup) LookupCountry(ip net.IP) (string, error) {
 		} `maxminddb:"country"`
 	}
 
-	g.mu.Lock()
-	if g.reader == nil {
-		g.mu.Unlock()
+	reader := g.reader.Load()
+	if reader == nil {
 		return "", ErrDatabaseNotInitialized
 	}
-	err := g.reader.Lookup(ip, &record)
-	g.mu.Unlock()
-	if err != nil {
+
+	if err := reader.Lookup(ip, &record); err != nil {
 		return "", err
 	}
 

@@ -57,16 +57,22 @@ const (
 )
 
 var (
-	ErrUnexpectedHttpStatus = errors.New("unexpected_http_status")
+	ErrUnexpectedHttpStatus = errors.New("unexpected_http_status") // +checklocksignore: Global readonly variable.
 )
 
 type capabilitiesEntry struct {
-	c              *Capabilities
-	mu             sync.RWMutex
-	nextUpdate     time.Time
-	etag           string
+	mu sync.RWMutex
+	// +checklocks:mu
+	c *Capabilities
+
+	// +checklocks:mu
+	nextUpdate time.Time
+	// +checklocks:mu
+	etag string
+	// +checklocks:mu
 	mustRevalidate bool
-	capabilities   api.StringMap
+	// +checklocks:mu
+	capabilities api.StringMap
 }
 
 func newCapabilitiesEntry(c *Capabilities) *capabilitiesEntry {
@@ -82,10 +88,12 @@ func (e *capabilitiesEntry) valid(now time.Time) bool {
 	return e.validLocked(now)
 }
 
+// +checklocksread:e.mu
 func (e *capabilitiesEntry) validLocked(now time.Time) bool {
 	return e.nextUpdate.After(now)
 }
 
+// +checklocks:e.mu
 func (e *capabilitiesEntry) updateRequest(r *http.Request) {
 	if e.etag != "" {
 		r.Header.Set("If-None-Match", e.etag)
@@ -99,6 +107,7 @@ func (e *capabilitiesEntry) invalidate() {
 	e.nextUpdate = time.Now()
 }
 
+// +checklocks:e.mu
 func (e *capabilitiesEntry) errorIfMustRevalidate(err error) (bool, error) {
 	if !e.mustRevalidate {
 		return false, nil
@@ -238,9 +247,11 @@ type Capabilities struct {
 	// Can be overwritten by tests.
 	getNow func() time.Time
 
-	version        string
-	pool           *HttpClientPool
-	entries        map[string]*capabilitiesEntry
+	version string
+	pool    *HttpClientPool
+	// +checklocks:mu
+	entries map[string]*capabilitiesEntry
+	// +checklocks:mu
 	nextInvalidate map[string]time.Time
 
 	buffers BufferPool

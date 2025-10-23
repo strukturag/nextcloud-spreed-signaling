@@ -414,14 +414,18 @@ type GrpcClients struct {
 	mu      sync.RWMutex
 	version string
 
+	// +checklocks:mu
 	clientsMap map[string]*grpcClientsList
-	clients    []*GrpcClient
+	// +checklocks:mu
+	clients []*GrpcClient
 
-	dnsMonitor   *DnsMonitor
+	dnsMonitor *DnsMonitor
+	// +checklocks:mu
 	dnsDiscovery bool
 
-	etcdClient        *EtcdClient
-	targetPrefix      string
+	etcdClient   *EtcdClient // +checklocksignore: Only written to from constructor.
+	targetPrefix string
+	// +checklocks:mu
 	targetInformation map[string]*GrpcTargetInformationEtcd
 	dialOptions       atomic.Value // []grpc.DialOption
 	creds             credentials.TransportCredentials
@@ -432,7 +436,7 @@ type GrpcClients struct {
 	selfCheckWaitGroup   sync.WaitGroup
 
 	closeCtx  context.Context
-	closeFunc context.CancelFunc
+	closeFunc context.CancelFunc // +checklocksignore: No locking necessary.
 }
 
 func NewGrpcClients(config *goconf.ConfigFile, etcdClient *EtcdClient, dnsMonitor *DnsMonitor, version string) (*GrpcClients, error) {
@@ -755,6 +759,9 @@ func (c *GrpcClients) onLookup(entry *DnsMonitorEntry, all []net.IP, added []net
 }
 
 func (c *GrpcClients) loadTargetsEtcd(config *goconf.ConfigFile, fromReload bool, opts ...grpc.DialOption) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if !c.etcdClient.IsConfigured() {
 		return fmt.Errorf("no etcd endpoints configured")
 	}
@@ -894,6 +901,7 @@ func (c *GrpcClients) EtcdKeyDeleted(client *EtcdClient, key string, prevValue [
 	c.removeEtcdClientLocked(key)
 }
 
+// +checklocks:c.mu
 func (c *GrpcClients) removeEtcdClientLocked(key string) {
 	info, found := c.targetInformation[key]
 	if !found {
