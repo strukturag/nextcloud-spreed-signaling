@@ -225,12 +225,13 @@ func (r *ServerMessage) CloseAfterSend(session Session) bool {
 }
 
 func (r *ServerMessage) IsChatRefresh() bool {
-	if r.Type != "message" || r.Message == nil || len(r.Message.Data) == 0 {
+	if r.Type != "event" || r.Event == nil ||
+		r.Event.Type != "message" || r.Event.Message == nil || len(r.Event.Message.Data) == 0 {
 		return false
 	}
 
-	var data MessageServerMessageData
-	if err := json.Unmarshal(r.Message.Data, &data); err != nil {
+	data, err := r.Event.Message.GetData()
+	if data == nil || err != nil {
 		return false
 	}
 
@@ -542,11 +543,13 @@ const (
 	ServerFeatureJoinFeatures          = "join-features"
 	ServerFeatureOfferCodecs           = "offer-codecs"
 	ServerFeatureServerInfo            = "serverinfo"
+	ServerFeatureChatRelay             = "chat-relay"
 
 	// Features to send to internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
 
 	// Possible client features from the "hello" request.
+	ClientFeatureChatRelay      = "chat-relay"
 	ClientFeatureInternalInCall = "internal-incall"
 	ClientFeatureStartDialout   = "start-dialout"
 )
@@ -565,6 +568,7 @@ var (
 		ServerFeatureJoinFeatures,
 		ServerFeatureOfferCodecs,
 		ServerFeatureServerInfo,
+		ServerFeatureChatRelay,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
@@ -579,6 +583,7 @@ var (
 		ServerFeatureJoinFeatures,
 		ServerFeatureOfferCodecs,
 		ServerFeatureServerInfo,
+		ServerFeatureChatRelay,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -594,6 +599,7 @@ var (
 		ServerFeatureJoinFeatures,
 		ServerFeatureOfferCodecs,
 		ServerFeatureServerInfo,
+		ServerFeatureChatRelay,
 	}
 )
 
@@ -900,14 +906,8 @@ type MessageServerMessageSender struct {
 	UserId    string          `json:"userid,omitempty"`
 }
 
-type MessageServerMessageDataChat struct {
-	Refresh bool `json:"refresh"`
-}
-
 type MessageServerMessageData struct {
 	Type string `json:"type"`
-
-	Chat *MessageServerMessageDataChat `json:"chat,omitempty"`
 }
 
 type MessageServerMessage struct {
@@ -1144,27 +1144,45 @@ type RoomDisinviteEventServerMessage struct {
 	Reason string `json:"reason"`
 }
 
-type RoomEventMessage struct {
-	RoomId string          `json:"roomid"`
-	Data   json.RawMessage `json:"data,omitempty"`
-}
-
-type RoomFlagsServerMessage struct {
-	RoomId    string          `json:"roomid"`
-	SessionId PublicSessionId `json:"sessionid"`
-	Flags     uint32          `json:"flags"`
-}
-
 type ChatComment api.StringMap
 
 type RoomEventMessageDataChat struct {
-	Comment *ChatComment `json:"comment,omitempty"`
+	// Refresh will be included if the client does not support the "chat-relay" feature.
+	Refresh bool `json:"refresh,omitempty"`
+
+	// Comment will be included if the client supports the "chat-relay" feature.
+	Comment json.RawMessage `json:"comment,omitempty"`
 }
 
 type RoomEventMessageData struct {
 	Type string `json:"type"`
 
 	Chat *RoomEventMessageDataChat `json:"chat,omitempty"`
+}
+
+type RoomEventMessage struct {
+	RoomId string          `json:"roomid"`
+	Data   json.RawMessage `json:"data,omitempty"`
+}
+
+func (m *RoomEventMessage) GetData() (*RoomEventMessageData, error) {
+	if len(m.Data) == 0 {
+		return nil, nil
+	}
+
+	// TODO: Cache parsed result.
+	var data RoomEventMessageData
+	if err := json.Unmarshal(m.Data, &data); err != nil {
+		return nil, err
+	}
+
+	return &data, nil
+}
+
+type RoomFlagsServerMessage struct {
+	RoomId    string          `json:"roomid"`
+	SessionId PublicSessionId `json:"sessionid"`
+	Flags     uint32          `json:"flags"`
 }
 
 type EventServerMessage struct {
