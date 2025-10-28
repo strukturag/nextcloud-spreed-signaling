@@ -345,7 +345,7 @@ type mcuProxyConnection struct {
 	ip           net.IP
 	connectToken string
 
-	load       atomic.Int64
+	load       atomic.Uint64
 	bandwidth  atomic.Pointer[EventProxyServerBandwidth]
 	mu         sync.Mutex
 	closer     *Closer
@@ -413,6 +413,9 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP, token str
 	conn.country.Store("")
 	conn.version.Store("")
 	conn.features.Store([]string{})
+	statsProxyBackendLoadCurrent.WithLabelValues(conn.url.String()).Set(0)
+	statsProxyUsageCurrent.WithLabelValues(conn.url.String(), "incoming").Set(0)
+	statsProxyUsageCurrent.WithLabelValues(conn.url.String(), "outgoing").Set(0)
 	return conn, nil
 }
 
@@ -478,7 +481,7 @@ type mcuProxyConnectionStats struct {
 	Connected  bool       `json:"connected"`
 	Publishers int64      `json:"publishers"`
 	Clients    int64      `json:"clients"`
-	Load       *int64     `json:"load,omitempty"`
+	Load       *uint64    `json:"load,omitempty"`
 	Shutdown   *bool      `json:"shutdown,omitempty"`
 	Temporary  *bool      `json:"temporary,omitempty"`
 	Uptime     *time.Time `json:"uptime,omitempty"`
@@ -514,7 +517,7 @@ func (c *mcuProxyConnection) GetStats() *mcuProxyConnectionStats {
 	return result
 }
 
-func (c *mcuProxyConnection) Load() int64 {
+func (c *mcuProxyConnection) Load() uint64 {
 	return c.load.Load()
 }
 
@@ -747,6 +750,10 @@ func (c *mcuProxyConnection) closeIfEmpty() bool {
 
 		log.Printf("All clients disconnected, closing connection to %s", c)
 		c.stop(ctx)
+
+		statsProxyBackendLoadCurrent.DeleteLabelValues(c.url.String())
+		statsProxyUsageCurrent.DeleteLabelValues(c.url.String(), "incoming")
+		statsProxyUsageCurrent.DeleteLabelValues(c.url.String(), "outgoing")
 
 		c.proxy.removeConnection(c)
 	}()
@@ -1082,6 +1089,18 @@ func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 		c.load.Store(event.Load)
 		c.bandwidth.Store(event.Bandwidth)
 		statsProxyBackendLoadCurrent.WithLabelValues(c.url.String()).Set(float64(event.Load))
+		if bw := event.Bandwidth; bw != nil {
+			if bw.Incoming != nil {
+				statsProxyUsageCurrent.WithLabelValues(c.url.String(), "incoming").Set(*bw.Incoming)
+			} else {
+				statsProxyUsageCurrent.WithLabelValues(c.url.String(), "incoming").Set(0)
+			}
+			if bw.Outgoing != nil {
+				statsProxyUsageCurrent.WithLabelValues(c.url.String(), "outgoing").Set(*bw.Outgoing)
+			} else {
+				statsProxyUsageCurrent.WithLabelValues(c.url.String(), "outgoing").Set(0)
+			}
+		}
 		return
 	case "shutdown-scheduled":
 		log.Printf("Proxy %s is scheduled to shutdown", c)

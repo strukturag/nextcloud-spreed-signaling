@@ -41,8 +41,10 @@ import (
 
 const (
 	pluginVideoRoom = "janus.plugin.videoroom"
+	eventWebsocket  = "janus.eventhandler.wsevh"
 
 	keepaliveInterval = 30 * time.Second
+	bandwidthInterval = time.Second
 
 	videoPublisherUserId  = 1
 	screenPublisherUserId = 2
@@ -137,7 +139,12 @@ func getPluginStringValue(data janus.PluginData, pluginName string, key string) 
 // TODO(jojo): Lots of error handling still missing.
 
 type clientInterface interface {
+	Handle() uint64
+
 	NotifyReconnected()
+
+	Bandwidth() *McuClientBandwidthInfo
+	UpdateBandwidth(media string, sent uint32, received uint32)
 }
 
 type mcuJanusSettings struct {
@@ -220,9 +227,9 @@ type mcuJanus struct {
 
 	closeChan chan struct{}
 
-	muClients sync.Mutex
+	muClients sync.RWMutex
 	// +checklocks:muClients
-	clients  map[clientInterface]bool
+	clients  map[uint64]clientInterface
 	clientId atomic.Uint64
 
 	// +checklocks:mu
@@ -253,7 +260,7 @@ func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mc
 		url:       url,
 		settings:  settings,
 		closeChan: make(chan struct{}, 1),
-		clients:   make(map[clientInterface]bool),
+		clients:   make(map[uint64]clientInterface),
 
 		publishers:       make(map[StreamId]*mcuJanusPublisher),
 		remotePublishers: make(map[StreamId]*mcuJanusRemotePublisher),
@@ -304,6 +311,44 @@ func (m *mcuJanus) GetBandwidthLimits() (int, int) {
 	return int(m.settings.MaxStreamBitrate()), int(m.settings.MaxScreenBitrate())
 }
 
+func (m *mcuJanus) Bandwidth() (result *McuClientBandwidthInfo) {
+	m.muClients.RLock()
+	defer m.muClients.RUnlock()
+
+	for _, client := range m.clients {
+		if bandwidth := client.Bandwidth(); bandwidth != nil {
+			if result == nil {
+				result = &McuClientBandwidthInfo{}
+			}
+			result.Received += bandwidth.Received
+			result.Sent += bandwidth.Sent
+		}
+	}
+	return
+}
+
+func (m *mcuJanus) updateBandwidthStats() {
+	if info := m.info.Load(); info != nil {
+		if !info.EventHandlers {
+			// Event handlers are disabled, no stats will be available.
+			return
+		}
+
+		if _, found := info.Events[eventWebsocket]; !found {
+			// Event handler plugin not found, no stats will be available.
+			return
+		}
+	}
+
+	if bandwidth := m.Bandwidth(); bandwidth != nil {
+		statsJanusBandwidthCurrent.WithLabelValues("incoming").Set(float64(bandwidth.Received))
+		statsJanusBandwidthCurrent.WithLabelValues("outgoing").Set(float64(bandwidth.Sent))
+	} else {
+		statsJanusBandwidthCurrent.WithLabelValues("incoming").Set(0)
+		statsJanusBandwidthCurrent.WithLabelValues("outgoing").Set(0)
+	}
+}
+
 func (m *mcuJanus) reconnect(ctx context.Context) error {
 	m.disconnect()
 	gw, err := m.createJanusGateway(ctx, m.url, m)
@@ -334,11 +379,27 @@ func (m *mcuJanus) doReconnect(ctx context.Context) {
 	m.reconnectInterval = initialReconnectInterval
 	m.mu.Unlock()
 
-	m.muClients.Lock()
-	for client := range m.clients {
-		go client.NotifyReconnected()
+	m.notifyClientsReconnected()
+}
+
+func (m *mcuJanus) notifyClientsReconnected() {
+	m.muClients.RLock()
+	defer m.muClients.RUnlock()
+
+	for oldHandle, client := range m.clients {
+		go func(oldHandle uint64, client clientInterface) {
+			client.NotifyReconnected()
+			newHandle := client.Handle()
+
+			if oldHandle != newHandle {
+				m.muClients.Lock()
+				defer m.muClients.Unlock()
+
+				delete(m.clients, oldHandle)
+				m.clients[newHandle] = client
+			}
+		}(oldHandle, client)
 	}
-	m.muClients.Unlock()
 }
 
 func (m *mcuJanus) scheduleReconnect(err error) {
@@ -379,14 +440,25 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 	}
 
 	log.Printf("Connected to %s %s by %s", info.Name, info.VersionString, info.Author)
-	plugin, found := info.Plugins[pluginVideoRoom]
-	if !found {
+	m.version = info.Version
+
+	if plugin, found := info.Plugins[pluginVideoRoom]; found {
+		log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
+	} else {
 		return fmt.Errorf("plugin %s is not supported", pluginVideoRoom)
 	}
 
-	m.version = info.Version
+	if plugin, found := info.Events[eventWebsocket]; found {
+		if !info.EventHandlers {
+			log.Printf("Found %s %s by %s but event handlers are disabled, realtime usage will not be available", plugin.Name, plugin.VersionString, plugin.Author)
+		} else {
+			log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
+		}
+	} else {
+		log.Printf("Plugin %s not found, realtime usage will not be available", eventWebsocket)
+	}
 
-	log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
+	log.Printf("Used dependencies: %+v", info.Dependencies)
 	if !info.DataChannels {
 		return fmt.Errorf("data channels are not supported")
 	}
@@ -421,25 +493,32 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 
 func (m *mcuJanus) registerClient(client clientInterface) {
 	m.muClients.Lock()
-	m.clients[client] = true
-	m.muClients.Unlock()
+	defer m.muClients.Unlock()
+
+	m.clients[client.Handle()] = client
 }
 
 func (m *mcuJanus) unregisterClient(client clientInterface) {
 	m.muClients.Lock()
-	delete(m.clients, client)
-	m.muClients.Unlock()
+	defer m.muClients.Unlock()
+
+	delete(m.clients, client.Handle())
 }
 
 func (m *mcuJanus) run() {
 	ticker := time.NewTicker(keepaliveInterval)
 	defer ticker.Stop()
 
+	bandwidthTicker := time.NewTicker(bandwidthInterval)
+	defer bandwidthTicker.Stop()
+
 loop:
 	for {
 		select {
 		case <-ticker.C:
 			m.sendKeepalive(context.Background())
+		case <-bandwidthTicker.C:
+			m.updateBandwidthStats()
 		case <-m.closeChan:
 			break loop
 		}
@@ -974,4 +1053,16 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 	statsSubscribersCurrent.WithLabelValues(string(publisher.StreamType())).Inc()
 	statsSubscribersTotal.WithLabelValues(string(publisher.StreamType())).Inc()
 	return client, nil
+}
+
+func (m *mcuJanus) UpdateBandwidth(handle uint64, media string, sent uint32, received uint32) {
+	m.muClients.RLock()
+	defer m.muClients.RUnlock()
+
+	client, found := m.clients[handle]
+	if !found {
+		return
+	}
+
+	client.UpdateBandwidth(media, sent, received)
 }

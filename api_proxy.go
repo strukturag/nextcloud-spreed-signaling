@@ -347,7 +347,7 @@ type EventProxyServerMessage struct {
 	Type string `json:"type"`
 
 	ClientId string `json:"clientId,omitempty"`
-	Load     int64  `json:"load,omitempty"`
+	Load     uint64 `json:"load,omitempty"`
 	Sid      string `json:"sid,omitempty"`
 
 	Bandwidth *EventProxyServerBandwidth `json:"bandwidth,omitempty"`

@@ -551,7 +551,7 @@ type TestProxyServerHandler struct {
 	country  string
 
 	mu       sync.Mutex
-	load     atomic.Int64
+	load     atomic.Uint64
 	incoming atomic.Pointer[float64]
 	outgoing atomic.Pointer[float64]
 	// +checklocks:mu
@@ -666,7 +666,7 @@ func (h *TestProxyServerHandler) Clear(incoming bool, outgoing bool) {
 	}
 }
 
-func (h *TestProxyServerHandler) getLoadMessage(load int64) *ProxyServerMessage {
+func (h *TestProxyServerHandler) getLoadMessage(load uint64) *ProxyServerMessage {
 	msg := &ProxyServerMessage{
 		Type: "event",
 		Event: &EventProxyServerMessage{
@@ -691,7 +691,12 @@ func (h *TestProxyServerHandler) updateLoad(delta int64) {
 		return
 	}
 
-	load := h.load.Add(delta)
+	var load uint64
+	if delta > 0 {
+		load = h.load.Add(uint64(delta))
+	} else {
+		load = h.load.Add(^uint64(delta - 1))
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()

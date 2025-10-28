@@ -355,6 +355,9 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 			ReadBufferSize:  websocketReadBufferSize,
 			WriteBufferSize: websocketWriteBufferSize,
 			WriteBufferPool: websocketWriteBufferPool,
+			Subprotocols: []string{
+				JanusEventsSubprotocol,
+			},
 		},
 		cookie:       NewSessionIdCodec([]byte(hashKey), blockBytes),
 		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
@@ -3091,6 +3094,22 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	conn, err := h.upgrader.Upgrade(w, r, header)
 	if err != nil {
 		log.Printf("Could not upgrade request from %s: %s", addr, err)
+		return
+	}
+
+	if conn.Subprotocol() == JanusEventsSubprotocol {
+		if h.mcu == nil {
+			log.Printf("Could not create Janus events handler for %s: no MCU configured", addr)
+			return
+		}
+
+		client, err := NewJanusEventsHandler(r.Context(), h.mcu, conn, addr, agent)
+		if err != nil {
+			log.Printf("Could not create Janus events handler for %s: %s", addr, err)
+			return
+		}
+
+		client.Run()
 		return
 	}
 

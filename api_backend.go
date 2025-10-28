@@ -546,7 +546,7 @@ type BackendServerInfoSfuProxy struct {
 	Features []string `json:"features,omitempty"`
 
 	Country   string                     `json:"country,omitempty"`
-	Load      *int64                     `json:"load,omitempty"`
+	Load      *uint64                    `json:"load,omitempty"`
 	Bandwidth *EventProxyServerBandwidth `json:"bandwidth,omitempty"`
 }
 
