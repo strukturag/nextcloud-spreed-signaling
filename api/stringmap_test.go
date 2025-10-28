@@ -88,3 +88,28 @@ func TestGetStringMapString(t *testing.T) {
 	_, ok = GetStringMapString[StringMapTestString](m, "invalid")
 	assert.False(ok)
 }
+
+func TestGetStringMapStringMap(t *testing.T) {
+	assert := assert.New(t)
+
+	m := StringMap{
+		"foo": map[string]any{
+			"bar": 1,
+		},
+		"bar": StringMap{
+			"baz": 2,
+		},
+	}
+	if v, ok := m.GetStringMap("foo"); assert.True(ok) {
+		assert.EqualValues(map[string]any{
+			"bar": 1,
+		}, v)
+	}
+	if v, ok := m.GetStringMap("bar"); assert.True(ok) {
+		assert.EqualValues(map[string]any{
+			"baz": 2,
+		}, v)
+	}
+	v, ok := m.GetStringMap("baz")
+	assert.False(ok, "expected missing entry, got %+v", v)
+}
