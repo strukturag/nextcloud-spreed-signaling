@@ -122,10 +122,18 @@ func (g *TestJanusGateway) Info(ctx context.Context) (*InfoMsg, error) {
 		VersionString: "1.4.0",
 		Author:        "struktur AG",
 		DataChannels:  true,
+		EventHandlers: true,
 		FullTrickle:   true,
 		Plugins: map[string]janus.PluginInfo{
 			pluginVideoRoom: {
 				Name:          "Test VideoRoom plugin",
+				VersionString: "0.0.0",
+				Author:        "struktur AG",
+			},
+		},
+		Events: map[string]janus.PluginInfo{
+			eventWebsocket: {
+				Name:          "Test Websocket events",
 				VersionString: "0.0.0",
 				Author:        "struktur AG",
 			},
@@ -1071,15 +1079,24 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 }
 
 func Test_JanusPublisherSubscriber(t *testing.T) {
+	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"))
+	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"))
+
 	CatchLogForTest(t)
-	t.Parallel()
 	require := require.New(t)
+	assert := assert.New(t)
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
+
+	// Bandwidth for unknown handles is ignored.
+	mcu.UpdateBandwidth(1234, "video", 100, 200)
+	mcu.updateBandwidthStats()
+	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 0)
+	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 0)
 
 	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
@@ -1095,6 +1112,24 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	require.NoError(err)
 	defer pub.Close(context.Background())
 
+	janusPub, ok := pub.(*mcuJanusPublisher)
+	require.True(ok)
+
+	assert.Nil(mcu.Bandwidth())
+	assert.Nil(janusPub.Bandwidth())
+	mcu.UpdateBandwidth(janusPub.Handle(), "video", 1000, 2000)
+	if bw := janusPub.Bandwidth(); assert.NotNil(bw) {
+		assert.EqualValues(1000, bw.Sent)
+		assert.EqualValues(2000, bw.Received)
+	}
+	if bw := mcu.Bandwidth(); assert.NotNil(bw) {
+		assert.EqualValues(1000, bw.Sent)
+		assert.EqualValues(2000, bw.Received)
+	}
+	mcu.updateBandwidthStats()
+	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
+	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 1000)
+
 	listener2 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1105,6 +1140,25 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, StreamTypeVideo, initiator2)
 	require.NoError(err)
 	defer sub.Close(context.Background())
+
+	janusSub, ok := sub.(*mcuJanusSubscriber)
+	require.True(ok)
+
+	assert.Nil(janusSub.Bandwidth())
+	mcu.UpdateBandwidth(janusSub.Handle(), "video", 3000, 4000)
+	if bw := janusSub.Bandwidth(); assert.NotNil(bw) {
+		assert.EqualValues(3000, bw.Sent)
+		assert.EqualValues(4000, bw.Received)
+	}
+	if bw := mcu.Bandwidth(); assert.NotNil(bw) {
+		assert.EqualValues(4000, bw.Sent)
+		assert.EqualValues(6000, bw.Received)
+	}
+	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
+	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 1000)
+	mcu.updateBandwidthStats()
+	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 6000)
+	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 4000)
 }
 
 func Test_JanusSubscriberPublisher(t *testing.T) {
