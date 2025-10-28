@@ -46,6 +46,9 @@ type TestMCU struct {
 	publishers map[PublicSessionId]*TestMCUPublisher
 	// +checklocks:mu
 	subscribers map[string]*TestMCUSubscriber
+
+	maxStreamBitrate atomic.Int32
+	maxScreenBitrate atomic.Int32
 }
 
 func NewTestMCU() (*TestMCU, error) {
@@ -53,6 +56,15 @@ func NewTestMCU() (*TestMCU, error) {
 		publishers:  make(map[PublicSessionId]*TestMCUPublisher),
 		subscribers: make(map[string]*TestMCUSubscriber),
 	}, nil
+}
+
+func (m *TestMCU) GetBandwidthLimits() (int, int) {
+	return int(m.maxStreamBitrate.Load()), int(m.maxScreenBitrate.Load())
+}
+
+func (m *TestMCU) SetBandwidthLimits(maxStreamBitrate int, maxScreenBitrate int) {
+	m.maxStreamBitrate.Store(int32(maxStreamBitrate))
+	m.maxScreenBitrate.Store(int32(maxScreenBitrate))
 }
 
 func (m *TestMCU) Start(ctx context.Context) error {

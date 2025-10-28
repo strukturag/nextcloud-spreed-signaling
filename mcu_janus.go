@@ -300,6 +300,10 @@ func (m *mcuJanus) disconnect() {
 	}
 }
 
+func (m *mcuJanus) GetBandwidthLimits() (int, int) {
+	return int(m.settings.MaxStreamBitrate()), int(m.settings.MaxScreenBitrate())
+}
+
 func (m *mcuJanus) reconnect(ctx context.Context) error {
 	m.disconnect()
 	gw, err := m.createJanusGateway(ctx, m.url, m)
