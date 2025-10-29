@@ -1294,7 +1294,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling9(in *jlex
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Load = int64(in.Int64())
+				out.Load = uint64(in.Uint64())
 			}
 		case "sid":
 			if in.IsNull() {
@@ -1343,7 +1343,7 @@ func easyjson1c8542dbEncodeGithubComStrukturagNextcloudSpreedSignaling9(out *jwr
 	if in.Load != 0 {
 		const prefix string = ",\"load\":"
 		out.RawString(prefix)
-		out.Int64(int64(in.Load))
+		out.Uint64(uint64(in.Load))
 	}
 	if in.Sid != "" {
 		const prefix string = ",\"sid\":"

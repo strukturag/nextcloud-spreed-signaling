@@ -1018,12 +1018,12 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling8(in *jlex
 				out.Load = nil
 			} else {
 				if out.Load == nil {
-					out.Load = new(int64)
+					out.Load = new(uint64)
 				}
 				if in.IsNull() {
 					in.Skip()
 				} else {
-					*out.Load = int64(in.Int64())
+					*out.Load = uint64(in.Uint64())
 				}
 			}
 		case "bandwidth":
@@ -1111,7 +1111,7 @@ func easyjson4354c623EncodeGithubComStrukturagNextcloudSpreedSignaling8(out *jwr
 	if in.Load != nil {
 		const prefix string = ",\"load\":"
 		out.RawString(prefix)
-		out.Int64(int64(*in.Load))
+		out.Uint64(uint64(*in.Load))
 	}
 	if in.Bandwidth != nil {
 		const prefix string = ",\"bandwidth\":"
