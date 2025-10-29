@@ -142,18 +142,30 @@ var msgtypes = map[string]func() any{
 	"trickle":     func() any { return &TrickleMsg{} },
 }
 
+type InfoDependencies struct {
+	Glib2   string `json:"glib2"`
+	Jansson string `json:"jansson"`
+	Libnice string `json:"libnice"`
+	Libsrtp string `json:"libsrtp"`
+	Libcurl string `json:"libcurl,omitempty"`
+	Crypto  string `json:"crypto"`
+}
+
 type InfoMsg struct {
 	Name          string
 	Version       int
 	VersionString string `json:"version_string"`
 	Author        string
 	DataChannels  bool   `json:"data_channels"`
+	EventHandlers bool   `json:"event_handlers"`
 	IPv6          bool   `json:"ipv6"`
 	LocalIP       string `json:"local-ip"`
 	ICE_TCP       bool   `json:"ice-tcp"`
 	FullTrickle   bool   `json:"full-trickle"`
 	Transports    map[string]janus.PluginInfo
 	Plugins       map[string]janus.PluginInfo
+	Events        map[string]janus.PluginInfo
+	Dependencies  InfoDependencies
 }
 
 type TrickleMsg struct {

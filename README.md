@@ -139,13 +139,22 @@ server.
 
 A Janus server (from https://github.com/meetecho/janus-gateway) can be used to
 act as a WebRTC gateway. See the documentation of Janus on how to configure and
-run the server. At least the `VideoRoom` plugin and the websocket transport of
-Janus must be enabled.
+run the server. At least the `VideoRoom` plugin, the websocket transport and the
+websocket events handler of Janus must be enabled. Also broadcasting of events
+must be enabled.
 
 The signaling server uses the `VideoRoom` plugin of Janus to manage sessions.
 All gateway details are hidden from the clients, all messages are sent through
 the signaling server. Only WebRTC media is exchanged directly between the
 gateway and the clients.
+
+To enable sending of events from Janus, the option `broadcast` must be set to
+`true` in the block `events` of `janus.jcfg`. In the configuration of the
+websocket events handler (`janus.eventhandler.wsevh.jcfg`), the module must be
+enabled by setting `enabled` to `true`, the `backend` must be set to the
+websocket url of the signaling server (or signaling proxy) and `subprotocol`
+must be set to `janus-events`.
+At least events of type `media` must be subscribed.
 
 Edit the `server.conf` and enter the URL to the websocket endpoint of Janus in
 the section `[mcu]` and key `url`. During startup, the signaling server will

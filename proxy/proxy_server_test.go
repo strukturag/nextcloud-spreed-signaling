@@ -446,6 +446,105 @@ func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId signali
 	return errors.New("not implemented")
 }
 
+type PublisherTestMCU struct {
+	TestMCU
+}
+
+type TestPublisherWithBandwidth struct {
+	TestMCUPublisher
+
+	bandwidth *signaling.McuClientBandwidthInfo
+}
+
+func (p *TestPublisherWithBandwidth) Bandwidth() *signaling.McuClientBandwidthInfo {
+	return p.bandwidth
+}
+
+func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+	publisher := &TestPublisherWithBandwidth{
+		TestMCUPublisher: TestMCUPublisher{
+			id:         id,
+			sid:        sid,
+			streamType: streamType,
+		},
+
+		bandwidth: &signaling.McuClientBandwidthInfo{
+			Sent:     1000,
+			Received: 2000,
+		},
+	}
+	return publisher, nil
+}
+
+func NewPublisherTestMCU(t *testing.T) *PublisherTestMCU {
+	return &PublisherTestMCU{
+		TestMCU: TestMCU{
+			t: t,
+		},
+	}
+}
+
+func TestProxyPublisherBandwidth(t *testing.T) {
+	signaling.CatchLogForTest(t)
+	assert := assert.New(t)
+	require := require.New(t)
+	proxy, key, server := newProxyServerForTest(t)
+
+	// Values are in bits per second.
+	proxy.maxIncoming.Store(10000 * 8)
+	proxy.maxOutgoing.Store(10000 * 8)
+
+	mcu := NewPublisherTestMCU(t)
+	proxy.mcu = mcu
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewProxyTestClient(ctx, t, server.URL)
+	defer client.CloseWithBye()
+
+	require.NoError(client.SendHello(key))
+
+	if hello, err := client.RunUntilHello(ctx); assert.NoError(err) {
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello)
+	}
+
+	_, err := client.RunUntilLoad(ctx, 0)
+	assert.NoError(err)
+
+	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+		Id:   "2345",
+		Type: "command",
+		Command: &signaling.CommandProxyClientMessage{
+			Type:       "create-publisher",
+			StreamType: signaling.StreamTypeVideo,
+		},
+	}))
+
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("2345", message.Id)
+		if err := checkMessageType(message, "command"); assert.NoError(err) {
+			assert.NotEmpty(message.Command.Id)
+		}
+	}
+
+	proxy.updateLoad()
+
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		if err := checkMessageType(message, "event"); assert.NoError(err) && assert.Equal("update-load", message.Event.Type) {
+			assert.EqualValues(1, message.Event.Load)
+			if bw := message.Event.Bandwidth; assert.NotNil(bw) {
+				if assert.NotNil(bw.Incoming) {
+					assert.EqualValues(20, *bw.Incoming)
+				}
+				if assert.NotNil(bw.Outgoing) {
+					assert.EqualValues(10, *bw.Outgoing)
+				}
+			}
+		}
+	}
+}
+
 type HangingTestMCU struct {
 	TestMCU
 	ctx       context.Context
