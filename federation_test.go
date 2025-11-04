@@ -250,12 +250,14 @@ func Test_Federation(t *testing.T) {
 	// Client1 will receive the updated "remoteSessionId"
 	if message, ok := client1.RunUntilMessage(ctx); ok {
 		client1.checkSingleMessageJoined(message)
-		evt := message.Event.Join[0]
-		remoteSessionId = evt.SessionId
-		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
-		assert.Equal(testDefaultUserId+"2", evt.UserId)
-		assert.True(evt.Federated)
-		assert.Equal(features2, evt.Features)
+		if assert.Len(message.Event.Join, 1, "invalid message received: %+v", message) {
+			evt := message.Event.Join[0]
+			remoteSessionId = evt.SessionId
+			assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
+			assert.Equal(testDefaultUserId+"2", evt.UserId)
+			assert.True(evt.Federated)
+			assert.Equal(features2, evt.Features)
+		}
 	}
 	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 
@@ -659,7 +661,7 @@ func Test_FederationChangeRoom(t *testing.T) {
 	session2 := hub2.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
 	fed := session2.GetFederationClient()
 	require.NotNil(fed)
-	localAddr := fed.conn.LocalAddr()
+	localAddr := fed.LocalAddr()
 
 	// The client1 will see the remote session id for client2.
 	var remoteSessionId PublicSessionId
@@ -701,7 +703,7 @@ func Test_FederationChangeRoom(t *testing.T) {
 
 	fed2 := session2.GetFederationClient()
 	require.NotNil(fed2)
-	localAddr2 := fed2.conn.LocalAddr()
+	localAddr2 := fed2.LocalAddr()
 	assert.Equal(localAddr, localAddr2)
 }
 
