@@ -195,6 +195,8 @@ type Hub struct {
 	remoteSessions map[*RemoteSession]bool
 	// +checklocks:mu
 	federatedSessions map[*ClientSession]bool
+	// +checklocks:mu
+	federationClients map[*FederationClient]bool
 
 	backendTimeout time.Duration
 	backend        *BackendClient
@@ -387,6 +389,7 @@ func NewHub(config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer
 		dialoutSessions:    make(map[*ClientSession]bool),
 		remoteSessions:     make(map[*RemoteSession]bool),
 		federatedSessions:  make(map[*ClientSession]bool),
+		federationClients:  make(map[*FederationClient]bool),
 
 		backendTimeout: backendTimeout,
 		backend:        backend,
@@ -833,6 +836,13 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 	}
 	h.mu.Unlock()
 	return
+}
+
+func (h *Hub) removeFederationClient(client *FederationClient) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	delete(h.federationClients, client)
 }
 
 // +checklocksread:h.mu
@@ -1797,8 +1807,9 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		}
 
 		h.mu.Lock()
+		defer h.mu.Unlock()
 		h.federatedSessions[session] = true
-		h.mu.Unlock()
+		h.federationClients[client] = true
 		return
 	}
 

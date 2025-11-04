@@ -87,20 +87,26 @@ type FederationClient struct {
 	changeRoomId atomic.Bool
 	federation   atomic.Pointer[RoomFederationMessage]
 
-	mu             sync.Mutex
-	dialer         *websocket.Dialer
-	url            string
-	conn           *websocket.Conn
-	closer         *Closer
+	mu     sync.Mutex
+	dialer *websocket.Dialer
+	url    string
+	// +checklocks:mu
+	conn   *websocket.Conn
+	closer *Closer
+	// +checklocks:mu
 	reconnectDelay time.Duration
-	reconnecting   bool
-	reconnectFunc  *time.Timer
+	reconnecting   atomic.Bool
+	// +checklocks:mu
+	reconnectFunc *time.Timer
 
-	helloMu    sync.Mutex
+	helloMu sync.Mutex
+	// +checklocks:helloMu
 	helloMsgId string
-	helloAuth  *FederationAuthParams
-	resumeId   PrivateSessionId
-	hello      atomic.Pointer[HelloServerMessage]
+	// +checklocks:helloMu
+	helloAuth *FederationAuthParams
+	// +checklocks:helloMu
+	resumeId PrivateSessionId
+	hello    atomic.Pointer[HelloServerMessage]
 
 	// +checklocks:helloMu
 	pendingMessages []*ClientMessage
@@ -165,6 +171,17 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 	}()
 
 	return result, nil
+}
+
+func (c *FederationClient) LocalAddr() net.Addr {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.conn == nil {
+		return nil
+	}
+
+	return c.conn.LocalAddr()
 }
 
 func (c *FederationClient) URL() string {
@@ -255,16 +272,20 @@ func (c *FederationClient) Leave(message *ClientMessage) error {
 		}
 	}
 
-	if err := c.sendMessageLocked(message); err != nil && !errors.Is(err, websocket.ErrCloseSent) {
-		return err
+	c.closeOnLeave.Store(true)
+	if err := c.sendMessageLocked(message); err != nil {
+		c.closeOnLeave.Store(false)
+		if !errors.Is(err, websocket.ErrCloseSent) {
+			return err
+		}
 	}
 
-	c.closeOnLeave.Store(true)
 	return nil
 }
 
 func (c *FederationClient) Close() {
 	c.closer.Close()
+	c.hub.removeFederationClient(c)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -272,6 +293,7 @@ func (c *FederationClient) Close() {
 	c.closeConnection(true)
 }
 
+// +checklocks:c.mu
 func (c *FederationClient) closeConnection(withBye bool) {
 	if c.conn == nil {
 		return
@@ -311,8 +333,9 @@ func (c *FederationClient) scheduleReconnect() {
 	c.scheduleReconnectLocked()
 }
 
+// +checklocks:c.mu
 func (c *FederationClient) scheduleReconnectLocked() {
-	c.reconnecting = true
+	c.reconnecting.Store(true)
 	if c.hello.Swap(nil) != nil {
 		c.session.SendMessage(&ServerMessage{
 			Type: "event",
@@ -454,6 +477,7 @@ func (c *FederationClient) sendHello(auth *FederationAuthParams) error {
 	return c.sendHelloLocked(auth)
 }
 
+// +checklocks:c.helloMu
 func (c *FederationClient) sendHelloLocked(auth *FederationAuthParams) error {
 	c.helloMsgId = newRandomString(8)
 
@@ -539,7 +563,7 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 	c.hello.Store(msg.Hello)
 	if c.resumeId == "" {
 		c.resumeId = msg.Hello.ResumeId
-		if c.reconnecting {
+		if c.reconnecting.Load() {
 			c.session.SendMessage(&ServerMessage{
 				Type: "event",
 				Event: &EventServerMessage{
@@ -941,6 +965,7 @@ func (c *FederationClient) deferMessage(message *ClientMessage) {
 	}
 }
 
+// +checklocks:c.mu
 func (c *FederationClient) sendMessageLocked(message *ClientMessage) error {
 	if c.conn == nil {
 		if message.Type != "room" {

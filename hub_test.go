@@ -287,6 +287,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 		sessions := len(h.sessions)
 		remoteSessions := len(h.remoteSessions)
 		federatedSessions := len(h.federatedSessions)
+		federationClients := len(h.federatedSessions)
 		h.mu.Unlock()
 		h.ru.Lock()
 		rooms := len(h.rooms)
@@ -298,6 +299,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 			sessions == 0 &&
 			remoteSessions == 0 &&
 			federatedSessions == 0 &&
+			federationClients == 0 &&
 			readActive == 0 &&
 			writeActive == 0 {
 			break
@@ -308,7 +310,17 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 			h.mu.Lock()
 			h.ru.Lock()
 			dumpGoroutines("", os.Stderr)
-			assert.Fail(t, "Error waiting for hub to terminate", "clients %+v / rooms %+v / sessions %+v / remoteSessions %v / federatedSessions %v / %d read / %d write: %s", h.clients, h.rooms, h.sessions, remoteSessions, federatedSessions, readActive, writeActive, ctx.Err())
+			assert.Fail(t, "Error waiting for hub to terminate", "clients %+v / rooms %+v / sessions %+v / remoteSessions %v / federatedSessions %v / federationClients %v / %d read / %d write: %s",
+				h.clients,
+				h.rooms,
+				h.sessions,
+				remoteSessions,
+				federatedSessions,
+				federationClients,
+				readActive,
+				writeActive,
+				ctx.Err(),
+			)
 			h.ru.Unlock()
 			h.mu.Unlock()
 			return
