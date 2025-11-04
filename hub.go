@@ -824,6 +824,7 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 	}
 	delete(h.expiredSessions, session)
 	if session, ok := session.(*ClientSession); ok {
+		delete(h.federatedSessions, session)
 		delete(h.anonymousSessions, session)
 		delete(h.dialoutSessions, session)
 	}
