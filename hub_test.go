@@ -579,13 +579,20 @@ func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	return response
 }
 
+type testAuthToken struct {
+	PrivateKey string
+	PublicKey  string
+}
+
+var (
+	authTokens testStorage[testAuthToken]
+)
+
 func ensureAuthTokens(t *testing.T) (string, string) {
 	require := require.New(t)
-	if privateKey := os.Getenv("PRIVATE_AUTH_TOKEN_" + t.Name()); privateKey != "" {
-		publicKey := os.Getenv("PUBLIC_AUTH_TOKEN_" + t.Name())
-		// should not happen, always both keys are created
-		require.NotEmpty(publicKey, "public key is empty")
-		return privateKey, publicKey
+
+	if tokens, found := authTokens.Get(t); found {
+		return tokens.PrivateKey, tokens.PublicKey
 	}
 
 	var private []byte
@@ -643,9 +650,12 @@ func ensureAuthTokens(t *testing.T) (string, string) {
 	}
 
 	privateKey := base64.StdEncoding.EncodeToString(private)
-	t.Setenv("PRIVATE_AUTH_TOKEN_"+t.Name(), privateKey)
 	publicKey := base64.StdEncoding.EncodeToString(public)
-	t.Setenv("PUBLIC_AUTH_TOKEN_"+t.Name(), publicKey)
+
+	authTokens.Set(t, testAuthToken{
+		PrivateKey: privateKey,
+		PublicKey:  publicKey,
+	})
 	return privateKey, publicKey
 }
 
@@ -682,6 +692,10 @@ func getPublicAuthToken(t *testing.T) (key any) {
 func registerBackendHandler(t *testing.T, router *mux.Router) {
 	registerBackendHandlerUrl(t, router, "/")
 }
+
+var (
+	skipV2Capabilities testStorage[bool]
+)
 
 func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 	handleFunc := validateBackendChecksum(t, func(w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
@@ -728,8 +742,8 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if strings.Contains(t.Name(), "MultiRoom") {
 			signaling[ConfigKeySessionPingLimit] = 2
 		}
-		useV2 := os.Getenv("SKIP_V2_CAPABILITIES") == ""
-		if (strings.Contains(t.Name(), "V2") && useV2) || strings.Contains(t.Name(), "Federation") {
+		skipV2, _ := skipV2Capabilities.Get(t)
+		if (strings.Contains(t.Name(), "V2") && !skipV2) || strings.Contains(t.Name(), "Federation") {
 			key := getPublicAuthToken(t)
 			public, err := x509.MarshalPKIXPublicKey(key)
 			require.NoError(t, err)
@@ -1087,7 +1101,7 @@ func TestClientHelloV2_CachedCapabilities(t *testing.T) {
 			defer cancel()
 
 			// Simulate old-style Nextcloud without capabilities for Hello V2.
-			t.Setenv("SKIP_V2_CAPABILITIES", "1")
+			skipV2Capabilities.Set(t, true)
 
 			client1 := NewTestClient(t, server, hub)
 			defer client1.CloseWithBye()
@@ -1099,7 +1113,7 @@ func TestClientHelloV2_CachedCapabilities(t *testing.T) {
 			assert.NotEmpty(hello1.Hello.SessionId, "%+v", hello1.Hello)
 
 			// Simulate updated Nextcloud with capabilities for Hello V2.
-			t.Setenv("SKIP_V2_CAPABILITIES", "")
+			skipV2Capabilities.Set(t, false)
 
 			client2 := NewTestClient(t, server, hub)
 			defer client2.CloseWithBye()
