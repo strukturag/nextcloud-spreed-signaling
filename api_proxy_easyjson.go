@@ -1423,6 +1423,18 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling10(in *jle
 					*out.Outgoing = float64(in.Float64())
 				}
 			}
+		case "received":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Received = uint64(in.Uint64())
+			}
+		case "sent":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Sent = uint64(in.Uint64())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -1452,6 +1464,26 @@ func easyjson1c8542dbEncodeGithubComStrukturagNextcloudSpreedSignaling10(out *jw
 			out.RawString(prefix)
 		}
 		out.Float64(float64(*in.Outgoing))
+	}
+	if in.Received != 0 {
+		const prefix string = ",\"received\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Uint64(uint64(in.Received))
+	}
+	if in.Sent != 0 {
+		const prefix string = ",\"sent\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Uint64(uint64(in.Sent))
 	}
 	out.RawByte('}')
 }
