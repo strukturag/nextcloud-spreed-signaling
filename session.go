@@ -80,6 +80,13 @@ type SessionWithInCall interface {
 	GetInCall() int
 }
 
+type SessionWithBandwidth interface {
+	Session
+
+	Bandwidth() (uint32, uint32, *McuClientBandwidthInfo)
+	UpdatePublisherBandwidth(ctx context.Context, streamType StreamType, bandwidth api.Bandwidth) error
+}
+
 func parseUserData(data json.RawMessage) func() (api.StringMap, error) {
 	return sync.OnceValues(func() (api.StringMap, error) {
 		if len(data) == 0 {
