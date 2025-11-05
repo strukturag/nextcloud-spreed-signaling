@@ -523,11 +523,15 @@ func (e JanusEventCoreShutdown) String() string {
 	return marshalEvent(e)
 }
 
+type McuEventHandler interface {
+	UpdateBandwidth(handle uint64, media string, sent uint32, received uint32)
+}
+
 type JanusEventsHandler struct {
 	mu sync.Mutex
 
 	ctx context.Context
-	mcu *mcuJanus
+	mcu McuEventHandler
 	// +checklocks:mu
 	conn  *websocket.Conn
 	addr  string
@@ -536,19 +540,38 @@ type JanusEventsHandler struct {
 	events chan JanusEvent
 }
 
-func NewJanusEventsHandler(ctx context.Context, mcu Mcu, conn *websocket.Conn, addr string, agent string) (*JanusEventsHandler, error) {
-	if !internal.IsLoopbackIP(addr) && !internal.IsPrivateIP(addr) {
-		return nil, errors.New("only loopback and private connections allowed")
+func RunJanusEventsHandler(ctx context.Context, mcu Mcu, conn *websocket.Conn, addr string, agent string) {
+	deadline := time.Now().Add(time.Second)
+	if mcu == nil {
+		conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "no mcu configured"), deadline) // nolint
+		return
 	}
 
-	m, ok := mcu.(*mcuJanus)
+	m, ok := mcu.(McuEventHandler)
 	if !ok {
-		return nil, errors.New("need a Janus MCU")
+		conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "mcu does not support events"), deadline) // nolint
+		return
 	}
 
+	if !internal.IsLoopbackIP(addr) && !internal.IsPrivateIP(addr) {
+		conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "only loopback and private connections allowed"), deadline) // nolint
+		return
+	}
+
+	client, err := NewJanusEventsHandler(ctx, m, conn, addr, agent)
+	if err != nil {
+		log.Printf("Could not create Janus events handler for %s: %s", addr, err)
+		conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "error creating handler"), deadline) // nolint
+		return
+	}
+
+	client.Run()
+}
+
+func NewJanusEventsHandler(ctx context.Context, mcu McuEventHandler, conn *websocket.Conn, addr string, agent string) (*JanusEventsHandler, error) {
 	handler := &JanusEventsHandler{
 		ctx:   ctx,
-		mcu:   m,
+		mcu:   mcu,
 		conn:  conn,
 		addr:  addr,
 		agent: agent,
@@ -623,11 +646,28 @@ func (h *JanusEventsHandler) readPump() {
 			break
 		}
 
-		var events []JanusEvent
-		if err := json.Unmarshal(decodeBuffer.Bytes(), &events); err != nil {
-			log.Printf("Error decoding message %s from %s: %v", decodeBuffer.String(), h.addr, err)
+		if decodeBuffer.Len() == 0 {
+			log.Printf("Received empty message from %s", h.addr)
 			bufferPool.Put(decodeBuffer)
 			break
+		}
+
+		var events []JanusEvent
+		if data := decodeBuffer.Bytes(); data[0] != '[' {
+			var event JanusEvent
+			if err := json.Unmarshal(data, &event); err != nil {
+				log.Printf("Error decoding message %s from %s: %v", decodeBuffer.String(), h.addr, err)
+				bufferPool.Put(decodeBuffer)
+				break
+			}
+
+			events = append(events, event)
+		} else {
+			if err := json.Unmarshal(data, &events); err != nil {
+				log.Printf("Error decoding message %s from %s: %v", decodeBuffer.String(), h.addr, err)
+				bufferPool.Put(decodeBuffer)
+				break
+			}
 		}
 
 		bufferPool.Put(decodeBuffer)

@@ -672,13 +672,7 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	if conn.Subprotocol() == signaling.JanusEventsSubprotocol {
 		agent := r.Header.Get("User-Agent")
-		client, err := signaling.NewJanusEventsHandler(r.Context(), s.mcu, conn, addr, agent)
-		if err != nil {
-			log.Printf("Could not create Janus events handler for %s: %s", addr, err)
-			return
-		}
-
-		client.Run()
+		signaling.RunJanusEventsHandler(r.Context(), s.mcu, conn, addr, agent)
 		return
 	}
 

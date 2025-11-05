@@ -3098,18 +3098,7 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if conn.Subprotocol() == JanusEventsSubprotocol {
-		if h.mcu == nil {
-			log.Printf("Could not create Janus events handler for %s: no MCU configured", addr)
-			return
-		}
-
-		client, err := NewJanusEventsHandler(r.Context(), h.mcu, conn, addr, agent)
-		if err != nil {
-			log.Printf("Could not create Janus events handler for %s: %s", addr, err)
-			return
-		}
-
-		client.Run()
+		RunJanusEventsHandler(r.Context(), h.mcu, conn, addr, agent)
 		return
 	}
 
