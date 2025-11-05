@@ -226,6 +226,7 @@ type McuClientWithBandwidth interface {
 	McuClient
 
 	Bandwidth() *McuClientBandwidthInfo
+	SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error
 }
 
 type McuPublisher interface {
