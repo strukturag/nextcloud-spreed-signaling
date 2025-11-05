@@ -123,6 +123,24 @@ func (c *janusClient) Bandwidth() *sfu.ClientBandwidthInfo {
 	return result
 }
 
+func (c *janusClient) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error {
+	handle := c.handle.Load()
+	if handle == nil {
+		return sfu.ErrNotConnected
+	}
+
+	configure_msg := api.StringMap{
+		"request": "configure",
+		"bitrate": bandwidth.Bits(),
+	}
+	_, err := handle.Message(ctx, configure_msg, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *janusClient) closeClient(ctx context.Context) bool {
 	if handle := c.handle.Swap(nil); handle != nil {
 		close(c.closeChan)
