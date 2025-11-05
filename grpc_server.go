@@ -74,6 +74,7 @@ type GrpcServer struct {
 	UnimplementedRpcInternalServer
 	UnimplementedRpcMcuServer
 	UnimplementedRpcSessionsServer
+	UnimplementedRpcRoomsServer
 
 	logger   log.Logger
 	version  string
@@ -114,6 +115,7 @@ func NewGrpcServer(ctx context.Context, config *goconf.ConfigFile, version strin
 	RegisterRpcInternalServer(conn, result)
 	RegisterRpcSessionsServer(conn, result)
 	RegisterRpcMcuServer(conn, result)
+	RegisterRpcRoomsServer(conn, result)
 	return result, nil
 }
 
@@ -402,4 +404,55 @@ func (s *GrpcServer) ProxySession(request RpcSessions_ProxySessionServer) error 
 	defer hub.unregisterClient(sid)
 
 	return client.run()
+}
+
+func (s *GrpcServer) GetRoomBandwidth(ctx context.Context, request *RoomBandwidthRequest) (*RoomBandwidthReply, error) {
+	statsGrpcServerCalls.WithLabelValues("GetRoomBandwidth").Inc()
+
+	var backendUrls []string
+	if len(request.BackendUrls) > 0 {
+		backendUrls = request.BackendUrls
+	} else {
+		// Only compat backend.
+		backendUrls = []string{""}
+	}
+
+	var result RoomBandwidthReply
+	processed := make(map[string]bool)
+	for _, bu := range backendUrls {
+		var parsed *url.URL
+		if bu != "" {
+			var err error
+			parsed, err = url.Parse(bu)
+			if err != nil {
+				return nil, status.Error(codes.InvalidArgument, "invalid url")
+			}
+		}
+
+		backend := s.hub.GetBackend(parsed)
+		if backend == nil {
+			return nil, status.Error(codes.NotFound, "no such backend")
+		}
+
+		// Only process each backend once.
+		if processed[backend.Id()] {
+			continue
+		}
+		processed[backend.Id()] = true
+
+		room := s.hub.GetRoomForBackend(request.RoomId, backend)
+		if room == nil {
+			return nil, status.Error(codes.NotFound, "no such room")
+		}
+
+		publishers, subscribers, bandwidth := room.Bandwidth()
+		result.Publishers += publishers
+		result.Subscribers += subscribers
+		if bandwidth != nil {
+			result.Incoming += bandwidth.Received.Bits()
+			result.Outgoing += bandwidth.Sent.Bits()
+		}
+	}
+
+	return &result, nil
 }

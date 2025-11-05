@@ -43,6 +43,7 @@ import (
 	"google.golang.org/grpc/resolver"
 	status "google.golang.org/grpc/status"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -68,6 +69,7 @@ type grpcClientImpl struct {
 	RpcInternalClient
 	RpcMcuClient
 	RpcSessionsClient
+	RpcRoomsClient
 }
 
 func newGrpcClientImpl(conn grpc.ClientConnInterface) *grpcClientImpl {
@@ -76,6 +78,7 @@ func newGrpcClientImpl(conn grpc.ClientConnInterface) *grpcClientImpl {
 		RpcInternalClient: NewRpcInternalClient(conn),
 		RpcMcuClient:      NewRpcMcuClient(conn),
 		RpcSessionsClient: NewRpcSessionsClient(conn),
+		RpcRoomsClient:    NewRpcRoomsClient(conn),
 	}
 }
 
@@ -442,6 +445,28 @@ func (c *GrpcClient) ProxySession(ctx context.Context, sessionId PublicSessionId
 
 	go proxy.recvPump()
 	return proxy, nil
+}
+
+func (c *GrpcClient) GetRoomBandwidth(ctx context.Context, room *Room) (uint32, uint32, *McuClientBandwidthInfo, error) {
+	statsGrpcClientCalls.WithLabelValues("GetRoomBandwidth").Inc()
+	response, err := c.impl.GetRoomBandwidth(ctx, &RoomBandwidthRequest{
+		RoomId:      room.Id(),
+		BackendUrls: room.Backend().Urls(),
+	}, grpc.WaitForReady(true))
+	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		return 0, 0, nil, nil
+	} else if err != nil {
+		return 0, 0, nil, err
+	}
+
+	var bandwidth *McuClientBandwidthInfo
+	if response.GetIncoming() != 0 || response.GetOutgoing() != 0 {
+		bandwidth = &McuClientBandwidthInfo{
+			Sent:     api.BandwidthFromBits(response.GetOutgoing()),
+			Received: api.BandwidthFromBits(response.GetIncoming()),
+		}
+	}
+	return response.GetPublishers(), response.GetSubscribers(), bandwidth, nil
 }
 
 type grpcClientsList struct {

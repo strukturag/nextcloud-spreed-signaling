@@ -464,6 +464,10 @@ func (p *TestPublisherWithBandwidth) Bandwidth() *signaling.McuClientBandwidthIn
 	return p.bandwidth
 }
 
+func (p *TestPublisherWithBandwidth) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error {
+	return errors.New("not implemented")
+}
+
 func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	publisher := &TestPublisherWithBandwidth{
 		TestMCUPublisher: TestMCUPublisher{
