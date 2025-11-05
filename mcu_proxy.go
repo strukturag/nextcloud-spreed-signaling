@@ -416,6 +416,8 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP, token str
 	statsProxyBackendLoadCurrent.WithLabelValues(conn.url.String()).Set(0)
 	statsProxyUsageCurrent.WithLabelValues(conn.url.String(), "incoming").Set(0)
 	statsProxyUsageCurrent.WithLabelValues(conn.url.String(), "outgoing").Set(0)
+	statsProxyBandwidthCurrent.WithLabelValues(conn.url.String(), "incoming").Set(0)
+	statsProxyBandwidthCurrent.WithLabelValues(conn.url.String(), "outgoing").Set(0)
 	return conn, nil
 }
 
@@ -754,6 +756,8 @@ func (c *mcuProxyConnection) closeIfEmpty() bool {
 		statsProxyBackendLoadCurrent.DeleteLabelValues(c.url.String())
 		statsProxyUsageCurrent.DeleteLabelValues(c.url.String(), "incoming")
 		statsProxyUsageCurrent.DeleteLabelValues(c.url.String(), "outgoing")
+		statsProxyBandwidthCurrent.DeleteLabelValues(c.url.String(), "incoming")
+		statsProxyBandwidthCurrent.DeleteLabelValues(c.url.String(), "outgoing")
 
 		c.proxy.removeConnection(c)
 	}()
@@ -1090,6 +1094,8 @@ func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 		c.bandwidth.Store(event.Bandwidth)
 		statsProxyBackendLoadCurrent.WithLabelValues(c.url.String()).Set(float64(event.Load))
 		if bw := event.Bandwidth; bw != nil {
+			statsProxyBandwidthCurrent.WithLabelValues(c.url.String(), "incoming").Set(float64(bw.Received))
+			statsProxyBandwidthCurrent.WithLabelValues(c.url.String(), "outgoing").Set(float64(bw.Sent))
 			if bw.Incoming != nil {
 				statsProxyUsageCurrent.WithLabelValues(c.url.String(), "incoming").Set(*bw.Incoming)
 			} else {

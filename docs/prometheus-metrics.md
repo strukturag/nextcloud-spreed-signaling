@@ -57,4 +57,5 @@ The following metrics are available:
 | `signaling_backend_client_requests_errors_total`  | Counter   | 2.0.3     | The total number of backend client requests that had an error             | `backend`, `error`                |
 | `signaling_mcu_bandwidth`                         | Gauge     | 2.0.5     | The current bandwidth in bytes per second                                 | `direction`                       |
 | `signaling_mcu_backend_usage`                     | Gauge     | 2.0.5     | The current usage of signaling proxy backends in percent                  | `url`, `direction`                |
+| `signaling_mcu_backend_bandwidth`                 | Gauge     | 2.0.5     | The current bandwidth of signaling proxy backends in bytes per second     | `url`, `direction`                |
 | `signaling_proxy_load`                            | Gauge     | 2.0.5     | The current load of the signaling proxy                                   |                                   |

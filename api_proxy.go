@@ -321,6 +321,11 @@ type EventProxyServerBandwidth struct {
 	Incoming *float64 `json:"incoming,omitempty"`
 	// Outgoing is the bandwidth utilization for subscribers in percent.
 	Outgoing *float64 `json:"outgoing,omitempty"`
+
+	// Received is the incoming bandwidth in bytes per second.
+	Received uint64 `json:"received,omitempty"`
+	// Sent is the outgoing bandwidth in bytes per second.
+	Sent uint64 `json:"sent,omitempty"`
 }
 
 func (b *EventProxyServerBandwidth) String() string {

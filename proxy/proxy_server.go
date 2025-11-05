@@ -503,8 +503,12 @@ func (s *ProxyServer) newLoadEvent(load uint64, incoming uint64, outgoing uint64
 	}
 	maxIncoming := s.maxIncoming.Load()
 	maxOutgoing := s.maxOutgoing.Load()
-	if maxIncoming > 0 || maxOutgoing > 0 {
-		msg.Event.Bandwidth = &signaling.EventProxyServerBandwidth{}
+	if maxIncoming > 0 || maxOutgoing > 0 || incoming != 0 || outgoing != 0 {
+		// Values should be sent in bytes per second.
+		msg.Event.Bandwidth = &signaling.EventProxyServerBandwidth{
+			Received: incoming / 8,
+			Sent:     outgoing / 8,
+		}
 		if maxIncoming > 0 {
 			value := float64(incoming) / float64(maxIncoming) * 100
 			msg.Event.Bandwidth.Incoming = &value

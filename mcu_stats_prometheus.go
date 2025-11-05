@@ -115,6 +115,12 @@ var (
 		Name:      "backend_usage",
 		Help:      "The current usage of signaling proxy backends in percent",
 	}, []string{"url", "direction"})
+	statsProxyBandwidthCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "backend_bandwidth",
+		Help:      "The current bandwidth of signaling proxy backends in bytes per second",
+	}, []string{"url", "direction"})
 	statsProxyNobackendAvailableTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "signaling",
 		Subsystem: "mcu",
@@ -126,6 +132,7 @@ var (
 		statsConnectedProxyBackendsCurrent,
 		statsProxyBackendLoadCurrent,
 		statsProxyUsageCurrent,
+		statsProxyBandwidthCurrent,
 		statsProxyNobackendAvailableTotal,
 	}
 )
