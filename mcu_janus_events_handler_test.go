@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -258,8 +259,12 @@ func (s *janusEventSender) AddEvent(t *testing.T, eventType int, eventSubtype in
 	t.Helper()
 
 	require := require.New(t)
+	assert := assert.New(t)
 	data, err := json.Marshal(event)
 	require.NoError(err)
+	if s, ok := event.(fmt.Stringer); assert.True(ok, "%T should implement fmt.Stringer", event) {
+		assert.Equal(s.String(), string(data))
+	}
 
 	message := JanusEvent{
 		Type:     eventType,
@@ -269,6 +274,220 @@ func (s *janusEventSender) AddEvent(t *testing.T, eventType int, eventSubtype in
 	}
 
 	s.events = append(s.events, message)
+}
+
+func TestJanusEventsHandlerDifferentTypes(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	_, url, handler := NewTestJanusEventsHandlerServer(t)
+
+	mcu := &TestMcuWithEvents{
+		t: t,
+	}
+	handler.mcu = mcu
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	dialer := websocket.Dialer{
+		Subprotocols: []string{
+			JanusEventsSubprotocol,
+		},
+	}
+	conn, response, err := dialer.DialContext(ctx, url, nil)
+	require.NoError(err)
+
+	assert.Equal(JanusEventsSubprotocol, response.Header.Get("Sec-WebSocket-Protocol"))
+
+	var sender janusEventSender
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeSession,
+		0,
+		1,
+		JanusEventSession{
+			Name: "created",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeHandle,
+		0,
+		1,
+		JanusEventHandle{
+			Name: "attached",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeExternal,
+		0,
+		0,
+		JanusEventExternal{
+			Schema: "test-external",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeJSEP,
+		0,
+		1,
+		JanusEventJSEP{
+			Owner: "testing",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeWebRTC,
+		JanusEventSubTypeWebRTCICE,
+		1,
+		JanusEventWebRTCICE{
+			ICE: "gathering",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeWebRTC,
+		JanusEventSubTypeWebRTCLocalCandidate,
+		1,
+		JanusEventWebRTCLocalCandidate{
+			LocalCandidate: "invalid-candidate",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeWebRTC,
+		JanusEventSubTypeWebRTCRemoteCandidate,
+		1,
+		JanusEventWebRTCRemoteCandidate{
+			RemoteCandidate: "invalid-candidate",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeWebRTC,
+		JanusEventSubTypeWebRTCSelectedPair,
+		1,
+		JanusEventWebRTCSelectedPair{
+			SelectedPair: "invalid-pair",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeWebRTC,
+		JanusEventSubTypeWebRTCDTLS,
+		1,
+		JanusEventWebRTCDTLS{
+			DTLS: "trying",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeWebRTC,
+		JanusEventSubTypeWebRTCPeerConnection,
+		1,
+		JanusEventWebRTCPeerConnection{
+			Connection: "webrtcup",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeMedia,
+		JanusEventSubTypeMediaState,
+		1,
+		JanusEventMediaState{
+			Media: "audio",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeMedia,
+		JanusEventSubTypeMediaSlowLink,
+		1,
+		JanusEventMediaSlowLink{
+			Media: "audio",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypePlugin,
+		0,
+		1,
+		JanusEventPlugin{
+			Plugin: "test-plugin",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeTransport,
+		0,
+		1,
+		JanusEventTransport{
+			Transport: "test-transport",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeCore,
+		JanusEventSubTypeCoreStatusStartup,
+		0,
+		JanusEventCoreStartup{
+			Status: "started",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeCore,
+		JanusEventSubTypeCoreStatusStartup,
+		0,
+		JanusEventCoreStartup{
+			Status: "update",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeCore,
+		JanusEventSubTypeCoreStatusShutdown,
+		0,
+		JanusEventCoreShutdown{
+			Status: "shutdown",
+		},
+	)
+
+	sender.AddEvent(
+		t,
+		JanusEventTypeMedia,
+		JanusEventSubTypeMediaStats,
+		1,
+		JanusEventMediaStats{
+			Media:                "audio",
+			BytesSentLastSec:     100,
+			BytesReceivedLastSec: 200,
+		},
+	)
+	sender.Send(t, conn)
+
+	// Wait until all events are processed.
+	assert.NoError(mcu.WaitForUpdates(ctx, 1))
 }
 
 func TestJanusEventsHandlerNotGrouped(t *testing.T) {

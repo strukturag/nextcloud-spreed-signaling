@@ -115,7 +115,20 @@ func (e JanusEvent) Decode() (any, error) {
 	case JanusEventTypeJSEP:
 		return unmarshalEvent[JanusEventJSEP](e.Event)
 	case JanusEventTypeWebRTC:
-		return unmarshalEvent[JanusEventWebRTC](e.Event)
+		switch e.SubType {
+		case JanusEventSubTypeWebRTCICE:
+			return unmarshalEvent[JanusEventWebRTCICE](e.Event)
+		case JanusEventSubTypeWebRTCLocalCandidate:
+			return unmarshalEvent[JanusEventWebRTCLocalCandidate](e.Event)
+		case JanusEventSubTypeWebRTCRemoteCandidate:
+			return unmarshalEvent[JanusEventWebRTCRemoteCandidate](e.Event)
+		case JanusEventSubTypeWebRTCSelectedPair:
+			return unmarshalEvent[JanusEventWebRTCSelectedPair](e.Event)
+		case JanusEventSubTypeWebRTCDTLS:
+			return unmarshalEvent[JanusEventWebRTCDTLS](e.Event)
+		case JanusEventSubTypeWebRTCPeerConnection:
+			return unmarshalEvent[JanusEventWebRTCPeerConnection](e.Event)
+		}
 	case JanusEventTypeMedia:
 		switch e.SubType {
 		case JanusEventSubTypeMediaState:
@@ -292,16 +305,6 @@ type JanusEventWebRTCPeerConnection struct {
 }
 
 func (e JanusEventWebRTCPeerConnection) String() string {
-	return marshalEvent(e)
-}
-
-// type=16
-type JanusEventWebRTC struct {
-	Owner string          `json:"owner"`
-	Jsep  json.RawMessage `json:"jsep"`
-}
-
-func (e JanusEventWebRTC) String() string {
 	return marshalEvent(e)
 }
 
