@@ -2208,6 +2208,16 @@ func (h *Hub) GetRoomUsers(ctx context.Context, roomId string, backend *talk.Bac
 	return entries, true
 }
 
+func (h *Hub) GetRoomBandwidth(roomId string, backend *talk.Backend) (uint32, uint32, *sfu.ClientBandwidthInfo, bool) {
+	room := h.GetRoomForBackend(roomId, backend)
+	if room == nil {
+		return 0, 0, nil, false
+	}
+
+	publishers, subscribers, bandwidth := room.Bandwidth()
+	return publishers, subscribers, bandwidth, true
+}
+
 // removeRoomLocked removes the given room from the hub. Returns "false" if
 // a different room is registered for the same id.
 //

@@ -202,6 +202,7 @@ type ClientWithBandwidth interface {
 	Client
 
 	Bandwidth() *ClientBandwidthInfo
+	SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error
 }
 
 type Publisher interface {
