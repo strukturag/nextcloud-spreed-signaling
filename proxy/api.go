@@ -349,6 +349,8 @@ type EventServerMessage struct {
 	Sid      string `json:"sid,omitempty"`
 
 	Bandwidth *EventServerBandwidth `json:"bandwidth,omitempty"`
+
+	ClientBandwidths map[string]EventServerBandwidth `json:"clientBandwidths,omitempty"`
 }
 
 // Information on a proxy in the etcd cluster.

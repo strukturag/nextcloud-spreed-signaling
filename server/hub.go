@@ -2100,6 +2100,16 @@ func (h *Hub) GetTransientEntries(roomId string, backend *talk.Backend) (api.Tra
 	return entries, true
 }
 
+func (h *Hub) GetRoomBandwidth(roomId string, backend *talk.Backend) (uint32, uint32, *sfu.ClientBandwidthInfo, bool) {
+	room := h.GetRoomForBackend(roomId, backend)
+	if room == nil {
+		return 0, 0, nil, false
+	}
+
+	publishers, subscribers, bandwidth := room.Bandwidth()
+	return publishers, subscribers, bandwidth, true
+}
+
 func (h *Hub) removeRoom(room *Room) {
 	internalRoomId := getRoomIdForBackend(room.Id(), room.Backend())
 	h.ru.Lock()

@@ -80,6 +80,7 @@ type grpcClientImpl struct {
 	RpcInternalClient
 	RpcMcuClient
 	RpcSessionsClient
+	RpcRoomsClient
 }
 
 func newClientImpl(conn grpc.ClientConnInterface) *grpcClientImpl {
@@ -88,6 +89,7 @@ func newClientImpl(conn grpc.ClientConnInterface) *grpcClientImpl {
 		RpcInternalClient: NewRpcInternalClient(conn),
 		RpcMcuClient:      NewRpcMcuClient(conn),
 		RpcSessionsClient: NewRpcSessionsClient(conn),
+		RpcRoomsClient:    NewRpcRoomsClient(conn),
 	}
 }
 
@@ -454,6 +456,28 @@ func (c *Client) ProxySession(ctx context.Context, sessionId api.PublicSessionId
 
 	go proxy.recvPump()
 	return proxy, nil
+}
+
+func (c *Client) GetRoomBandwidth(ctx context.Context, roomId string, urls []string) (uint32, uint32, *sfu.ClientBandwidthInfo, error) {
+	statsGrpcClientCalls.WithLabelValues("GetRoomBandwidth").Inc()
+	response, err := c.impl.GetRoomBandwidth(ctx, &RoomBandwidthRequest{
+		RoomId:      roomId,
+		BackendUrls: urls,
+	}, grpc.WaitForReady(true))
+	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		return 0, 0, nil, nil
+	} else if err != nil {
+		return 0, 0, nil, err
+	}
+
+	var bandwidth *sfu.ClientBandwidthInfo
+	if response.GetIncoming() != 0 || response.GetOutgoing() != 0 {
+		bandwidth = &sfu.ClientBandwidthInfo{
+			Sent:     api.BandwidthFromBits(response.GetOutgoing()),
+			Received: api.BandwidthFromBits(response.GetIncoming()),
+		}
+	}
+	return response.GetPublishers(), response.GetSubscribers(), bandwidth, nil
 }
 
 type clientsList struct {

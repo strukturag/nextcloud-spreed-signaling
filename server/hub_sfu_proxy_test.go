@@ -141,6 +141,10 @@ func (h *mockGrpcServerHub) GetPublisherIdForSessionId(ctx context.Context, sess
 	return nil, status.Error(codes.NotFound, "no such publisher")
 }
 
+func (h *mockGrpcServerHub) GetRoomBandwidth(roomId string, backend *talk.Backend) (uint32, uint32, *sfu.ClientBandwidthInfo, bool) {
+	return 0, 0, nil, false
+}
+
 func (h *mockGrpcServerHub) ProxySession(request grpc.RpcSessions_ProxySessionServer) error {
 	return errors.New("not implemented")
 }

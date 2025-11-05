@@ -1641,3 +1641,69 @@ func (s *ClientSession) ProcessResponse(message *api.ClientMessage) bool {
 
 	return cb(message)
 }
+
+func (s *ClientSession) Bandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var publishers uint32
+	var subscribers uint32
+	var bandwidth *sfu.ClientBandwidthInfo
+	for _, pub := range s.publishers {
+		if pub.StreamType() != sfu.StreamTypeVideo {
+			continue
+		}
+
+		if pub, ok := pub.(sfu.ClientWithBandwidth); ok {
+			if bw := pub.Bandwidth(); bw != nil {
+				if bandwidth == nil {
+					bandwidth = &sfu.ClientBandwidthInfo{}
+				}
+
+				bandwidth.Received += bw.Received
+				bandwidth.Sent += bw.Sent
+				publishers++
+			}
+		}
+	}
+
+	for _, sub := range s.subscribers {
+		if sub.StreamType() != sfu.StreamTypeVideo {
+			continue
+		}
+
+		if sub, ok := sub.(sfu.ClientWithBandwidth); ok {
+			if bw := sub.Bandwidth(); bw != nil {
+				if bandwidth == nil {
+					bandwidth = &sfu.ClientBandwidthInfo{}
+				}
+
+				bandwidth.Received += bw.Received
+				bandwidth.Sent += bw.Sent
+				subscribers++
+			}
+		}
+	}
+
+	return publishers, subscribers, bandwidth
+}
+
+func (s *ClientSession) UpdatePublisherBandwidth(ctx context.Context, streamType sfu.StreamType, bandwidth api.Bandwidth) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, pub := range s.publishers {
+		if pub.StreamType() != streamType {
+			continue
+		}
+
+		if pub, ok := pub.(sfu.ClientWithBandwidth); ok {
+			s.mu.Unlock()
+			defer s.mu.Lock()
+
+			return pub.SetBandwidth(ctx, bandwidth)
+		}
+	}
+
+	return nil
+}

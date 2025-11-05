@@ -109,6 +109,7 @@ type proxyPubSubCommon struct {
 	proxyId    string
 	conn       *proxyConnection
 	listener   sfu.Listener
+	bandwidth  atomic.Pointer[sfu.ClientBandwidthInfo]
 }
 
 func (c *proxyPubSubCommon) Id() string {
@@ -125,6 +126,17 @@ func (c *proxyPubSubCommon) StreamType() sfu.StreamType {
 
 func (c *proxyPubSubCommon) MaxBitrate() api.Bandwidth {
 	return c.maxBitrate
+}
+
+func (c *proxyPubSubCommon) UpdateBandwidth(sent api.Bandwidth, received api.Bandwidth) {
+	c.bandwidth.Store(&sfu.ClientBandwidthInfo{
+		Sent:     sent,
+		Received: received,
+	})
+}
+
+func (c *proxyPubSubCommon) Bandwidth() *sfu.ClientBandwidthInfo {
+	return c.bandwidth.Load()
 }
 
 func (c *proxyPubSubCommon) doSendMessage(ctx context.Context, msg *proxy.ClientMessage, callback func(error, api.StringMap)) {
@@ -1110,6 +1122,28 @@ func (c *proxyConnection) processPayload(msg *proxy.ServerMessage) {
 	c.logger.Printf("Received payload for unknown client %+v from %s", payload, c)
 }
 
+func (c *proxyConnection) updatePublisherBandwidths(bandwidths map[string]proxy.EventServerBandwidth) {
+	c.publishersLock.RLock()
+	defer c.publishersLock.RUnlock()
+
+	for id, pub := range c.publishers {
+		if bw, ok := bandwidths[id]; ok {
+			pub.UpdateBandwidth(bw.Sent, bw.Received)
+		}
+	}
+}
+
+func (c *proxyConnection) updateSubscriberBandwidths(bandwidths map[string]proxy.EventServerBandwidth) {
+	c.subscribersLock.RLock()
+	defer c.subscribersLock.RUnlock()
+
+	for id, sub := range c.subscribers {
+		if bw, ok := bandwidths[id]; ok {
+			sub.UpdateBandwidth(bw.Sent, bw.Received)
+		}
+	}
+}
+
 func (c *proxyConnection) processEvent(msg *proxy.ServerMessage) {
 	event := msg.Event
 	switch event.Type {
@@ -1143,6 +1177,10 @@ func (c *proxyConnection) processEvent(msg *proxy.ServerMessage) {
 			} else {
 				statsProxyUsageCurrent.WithLabelValues(c.url.String(), "outgoing").Set(0)
 			}
+		}
+		if len(event.ClientBandwidths) > 0 {
+			c.updatePublisherBandwidths(event.ClientBandwidths)
+			c.updateSubscriberBandwidths(event.ClientBandwidths)
 		}
 		return
 	case "shutdown-scheduled":
