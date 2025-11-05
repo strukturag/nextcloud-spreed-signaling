@@ -1013,6 +1013,30 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingProxy7(in 
 					(*out.Bandwidth).UnmarshalEasyJSON(in)
 				}
 			}
+		case "clientBandwidths":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				in.Delim('{')
+				if !in.IsDelim('}') {
+					out.ClientBandwidths = make(map[string]EventServerBandwidth)
+				} else {
+					out.ClientBandwidths = nil
+				}
+				for !in.IsDelim('}') {
+					key := string(in.String())
+					in.WantColon()
+					var v8 EventServerBandwidth
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						(v8).UnmarshalEasyJSON(in)
+					}
+					(out.ClientBandwidths)[key] = v8
+					in.WantComma()
+				}
+				in.Delim('}')
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -1051,6 +1075,25 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingProxy7(out
 		const prefix string = ",\"bandwidth\":"
 		out.RawString(prefix)
 		(*in.Bandwidth).MarshalEasyJSON(out)
+	}
+	if len(in.ClientBandwidths) != 0 {
+		const prefix string = ",\"clientBandwidths\":"
+		out.RawString(prefix)
+		{
+			out.RawByte('{')
+			v9First := true
+			for v9Name, v9Value := range in.ClientBandwidths {
+				if v9First {
+					v9First = false
+				} else {
+					out.RawByte(',')
+				}
+				out.String(string(v9Name))
+				out.RawByte(':')
+				(v9Value).MarshalEasyJSON(out)
+			}
+			out.RawByte('}')
+		}
 	}
 	out.RawByte('}')
 }
@@ -1256,9 +1299,9 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingProxy9(in 
 					out.Streams = (out.Streams)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v8 sfu.PublisherStream
-					easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingSfu(in, &v8)
-					out.Streams = append(out.Streams, v8)
+					var v10 sfu.PublisherStream
+					easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingSfu(in, &v10)
+					out.Streams = append(out.Streams, v10)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -1313,11 +1356,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingProxy9(out
 		}
 		{
 			out.RawByte('[')
-			for v9, v10 := range in.Streams {
-				if v9 > 0 {
+			for v11, v12 := range in.Streams {
+				if v11 > 0 {
 					out.RawByte(',')
 				}
-				easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingSfu(out, v10)
+				easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingSfu(out, v12)
 			}
 			out.RawByte(']')
 		}
