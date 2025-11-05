@@ -200,15 +200,29 @@ func IsValidStreamType(s string) bool {
 	}
 }
 
+type McuClientBandwidthInfo struct {
+	// Sent is the outgoing bandwidth in bytes per second.
+	Sent uint64
+	// Received is the incoming bandwidth in bytes per second.
+	Received uint64
+}
+
 type McuClient interface {
 	Id() string
 	Sid() string
 	StreamType() StreamType
+	// MaxBitrate is the maximum allowed bitrate in bits per second.
 	MaxBitrate() int
 
 	Close(ctx context.Context)
 
 	SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap))
+}
+
+type McuClientWithBandwidth interface {
+	McuClient
+
+	Bandwidth() *McuClientBandwidthInfo
 }
 
 type McuPublisher interface {

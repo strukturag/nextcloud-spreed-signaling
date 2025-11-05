@@ -37,7 +37,7 @@ import (
 type mcuJanusClient struct {
 	mcu      *mcuJanus
 	listener McuListener
-	mu       sync.Mutex // nolint
+	mu       sync.Mutex
 
 	id         uint64
 	session    uint64
@@ -45,6 +45,9 @@ type mcuJanusClient struct {
 	sid        string
 	streamType StreamType
 	maxBitrate int
+
+	// +checklocks:mu
+	bandwidth map[string]*McuClientBandwidthInfo
 
 	handle    atomic.Pointer[JanusHandle]
 	handleId  atomic.Uint64
@@ -67,6 +70,10 @@ func (c *mcuJanusClient) Sid() string {
 	return c.sid
 }
 
+func (c *mcuJanusClient) Handle() uint64 {
+	return c.handleId.Load()
+}
+
 func (c *mcuJanusClient) StreamType() StreamType {
 	return c.streamType
 }
@@ -79,6 +86,40 @@ func (c *mcuJanusClient) Close(ctx context.Context) {
 }
 
 func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
+}
+
+func (c *mcuJanusClient) UpdateBandwidth(media string, sent uint32, received uint32) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.bandwidth == nil {
+		c.bandwidth = make(map[string]*McuClientBandwidthInfo)
+	}
+
+	info, found := c.bandwidth[media]
+	if !found {
+		info = &McuClientBandwidthInfo{}
+		c.bandwidth[media] = info
+	}
+
+	info.Sent = uint64(sent)
+	info.Received = uint64(received)
+}
+
+func (c *mcuJanusClient) Bandwidth() *McuClientBandwidthInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.bandwidth == nil {
+		return nil
+	}
+
+	result := &McuClientBandwidthInfo{}
+	for _, info := range c.bandwidth {
+		result.Received += info.Received
+		result.Sent += info.Sent
+	}
+	return result
 }
 
 func (c *mcuJanusClient) closeClient(ctx context.Context) bool {

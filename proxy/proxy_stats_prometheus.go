@@ -86,6 +86,12 @@ var (
 		Name:      "token_errors_total",
 		Help:      "The total number of token errors",
 	}, []string{"reason"})
+	statsLoadCurrent = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "proxy",
+		Name:      "load",
+		Help:      "The current load of the signaling proxy",
+	})
 )
 
 func init() {
@@ -99,4 +105,5 @@ func init() {
 	prometheus.MustRegister(statsCommandMessagesTotal)
 	prometheus.MustRegister(statsPayloadMessagesTotal)
 	prometheus.MustRegister(statsTokenErrorsTotal)
+	prometheus.MustRegister(statsLoadCurrent)
 }

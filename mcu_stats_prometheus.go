@@ -86,6 +86,17 @@ var (
 		statsMcuPublisherStreamTypesCurrent,
 	}
 
+	statsJanusBandwidthCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "bandwidth",
+		Help:      "The current bandwidth in bytes per second",
+	}, []string{"direction"})
+
+	janusMcuStats = []prometheus.Collector{
+		statsJanusBandwidthCurrent,
+	}
+
 	statsConnectedProxyBackendsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "signaling",
 		Subsystem: "mcu",
@@ -98,6 +109,18 @@ var (
 		Name:      "backend_load",
 		Help:      "Current load of signaling proxy backends",
 	}, []string{"url"})
+	statsProxyUsageCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "backend_usage",
+		Help:      "The current usage of signaling proxy backends in percent",
+	}, []string{"url", "direction"})
+	statsProxyBandwidthCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "backend_bandwidth",
+		Help:      "The current bandwidth of signaling proxy backends in bytes per second",
+	}, []string{"url", "direction"})
 	statsProxyNobackendAvailableTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "signaling",
 		Subsystem: "mcu",
@@ -108,16 +131,20 @@ var (
 	proxyMcuStats = []prometheus.Collector{
 		statsConnectedProxyBackendsCurrent,
 		statsProxyBackendLoadCurrent,
+		statsProxyUsageCurrent,
+		statsProxyBandwidthCurrent,
 		statsProxyNobackendAvailableTotal,
 	}
 )
 
 func RegisterJanusMcuStats() {
 	registerAll(commonMcuStats...)
+	registerAll(janusMcuStats...)
 }
 
 func UnregisterJanusMcuStats() {
 	unregisterAll(commonMcuStats...)
+	unregisterAll(janusMcuStats...)
 }
 
 func RegisterProxyMcuStats() {

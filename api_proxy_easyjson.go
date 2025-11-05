@@ -1294,7 +1294,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling9(in *jlex
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Load = int64(in.Int64())
+				out.Load = uint64(in.Uint64())
 			}
 		case "sid":
 			if in.IsNull() {
@@ -1343,7 +1343,7 @@ func easyjson1c8542dbEncodeGithubComStrukturagNextcloudSpreedSignaling9(out *jwr
 	if in.Load != 0 {
 		const prefix string = ",\"load\":"
 		out.RawString(prefix)
-		out.Int64(int64(in.Load))
+		out.Uint64(uint64(in.Load))
 	}
 	if in.Sid != "" {
 		const prefix string = ",\"sid\":"
@@ -1423,6 +1423,18 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling10(in *jle
 					*out.Outgoing = float64(in.Float64())
 				}
 			}
+		case "received":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Received = uint64(in.Uint64())
+			}
+		case "sent":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Sent = uint64(in.Uint64())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -1452,6 +1464,26 @@ func easyjson1c8542dbEncodeGithubComStrukturagNextcloudSpreedSignaling10(out *jw
 			out.RawString(prefix)
 		}
 		out.Float64(float64(*in.Outgoing))
+	}
+	if in.Received != 0 {
+		const prefix string = ",\"received\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Uint64(uint64(in.Received))
+	}
+	if in.Sent != 0 {
+		const prefix string = ",\"sent\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Uint64(uint64(in.Sent))
 	}
 	out.RawByte('}')
 }

@@ -226,7 +226,7 @@ func (c *ProxyTestClient) RunUntilHello(ctx context.Context) (message *signaling
 	return message, nil
 }
 
-func (c *ProxyTestClient) RunUntilLoad(ctx context.Context, load int64) (message *signaling.ProxyServerMessage, err error) {
+func (c *ProxyTestClient) RunUntilLoad(ctx context.Context, load uint64) (message *signaling.ProxyServerMessage, err error) {
 	if message, err = c.RunUntilMessage(ctx); err != nil {
 		return nil, err
 	}

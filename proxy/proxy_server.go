@@ -115,12 +115,12 @@ type ProxyServer struct {
 	url     string
 	mcu     signaling.Mcu
 	stopped atomic.Bool
-	load    atomic.Int64
+	load    atomic.Uint64
 
-	maxIncoming     atomic.Int64
-	currentIncoming atomic.Int64
-	maxOutgoing     atomic.Int64
-	currentOutgoing atomic.Int64
+	maxIncoming     atomic.Uint64
+	currentIncoming atomic.Uint64
+	maxOutgoing     atomic.Uint64
+	currentOutgoing atomic.Uint64
 
 	shutdownChannel   chan struct{}
 	shutdownScheduled atomic.Bool
@@ -356,6 +356,9 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  websocketReadBufferSize,
 			WriteBufferSize: websocketWriteBufferSize,
+			Subprotocols: []string{
+				signaling.JanusEventsSubprotocol,
+			},
 		},
 
 		tokens: tokens,
@@ -374,11 +377,13 @@ func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*
 		remotePublishers:  make(map[string]map[*proxyRemotePublisher]bool),
 	}
 
-	result.maxIncoming.Store(int64(maxIncoming) * 1024 * 1024)
-	result.maxOutgoing.Store(int64(maxOutgoing) * 1024 * 1024)
+	result.maxIncoming.Store(uint64(maxIncoming) * 1024 * 1024)
+	result.maxOutgoing.Store(uint64(maxOutgoing) * 1024 * 1024)
 	result.statsAllowedIps.Store(statsAllowedIps)
 	result.trustedProxies.Store(trustedProxiesIps)
 	result.upgrader.CheckOrigin = result.checkOrigin
+
+	statsLoadCurrent.Set(0)
 
 	if debug, _ := config.GetBool("app", "debug"); debug {
 		log.Println("Installing debug handlers in \"/debug/pprof\"")
@@ -488,7 +493,7 @@ loop:
 	}
 }
 
-func (s *ProxyServer) newLoadEvent(load int64, incoming int64, outgoing int64) *signaling.ProxyServerMessage {
+func (s *ProxyServer) newLoadEvent(load uint64, incoming uint64, outgoing uint64) *signaling.ProxyServerMessage {
 	msg := &signaling.ProxyServerMessage{
 		Type: "event",
 		Event: &signaling.EventProxyServerMessage{
@@ -498,8 +503,12 @@ func (s *ProxyServer) newLoadEvent(load int64, incoming int64, outgoing int64) *
 	}
 	maxIncoming := s.maxIncoming.Load()
 	maxOutgoing := s.maxOutgoing.Load()
-	if maxIncoming > 0 || maxOutgoing > 0 {
-		msg.Event.Bandwidth = &signaling.EventProxyServerBandwidth{}
+	if maxIncoming > 0 || maxOutgoing > 0 || incoming != 0 || outgoing != 0 {
+		// Values should be sent in bytes per second.
+		msg.Event.Bandwidth = &signaling.EventProxyServerBandwidth{
+			Received: incoming / 8,
+			Sent:     outgoing / 8,
+		}
 		if maxIncoming > 0 {
 			value := float64(incoming) / float64(maxIncoming) * 100
 			msg.Event.Bandwidth.Incoming = &value
@@ -521,10 +530,11 @@ func (s *ProxyServer) updateLoad() {
 		return
 	}
 
+	statsLoadCurrent.Set(float64(load))
 	s.sendLoadToAll(load, incoming, outgoing)
 }
 
-func (s *ProxyServer) sendLoadToAll(load int64, incoming int64, outgoing int64) {
+func (s *ProxyServer) sendLoadToAll(load uint64, incoming uint64, outgoing uint64) {
 	if s.shutdownScheduled.Load() {
 		// Server is scheduled to shutdown, no need to update clients with current load.
 		return
@@ -628,9 +638,9 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 	}
 
 	maxIncoming, maxOutgoing := getTargetBandwidths(config)
-	oldIncoming := s.maxIncoming.Swap(int64(maxIncoming))
-	oldOutgoing := s.maxOutgoing.Swap(int64(maxOutgoing))
-	if oldIncoming != int64(maxIncoming) || oldOutgoing != int64(maxOutgoing) {
+	oldIncoming := s.maxIncoming.Swap(uint64(maxIncoming))
+	oldOutgoing := s.maxOutgoing.Swap(uint64(maxOutgoing))
+	if oldIncoming != uint64(maxIncoming) || oldOutgoing != uint64(maxOutgoing) {
 		// Notify sessions about updated load / bandwidth usage.
 		go s.sendLoadToAll(s.load.Load(), s.currentIncoming.Load(), s.currentOutgoing.Load())
 	}
@@ -661,6 +671,12 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrader.Upgrade(w, r, header)
 	if err != nil {
 		log.Printf("Could not upgrade request from %s: %s", addr, err)
+		return
+	}
+
+	if conn.Subprotocol() == signaling.JanusEventsSubprotocol {
+		agent := r.Header.Get("User-Agent")
+		signaling.RunJanusEventsHandler(r.Context(), s.mcu, conn, addr, agent)
 		return
 	}
 
@@ -1562,20 +1578,29 @@ func (s *ProxyServer) HasClients() bool {
 	return len(s.clients) > 0
 }
 
-func (s *ProxyServer) GetClientsLoad() (load int64, incoming int64, outgoing int64) {
+func (s *ProxyServer) GetClientsLoad() (load uint64, incoming uint64, outgoing uint64) {
 	s.clientsLock.RLock()
 	defer s.clientsLock.RUnlock()
 
 	for _, c := range s.clients {
-		bitrate := int64(c.MaxBitrate())
-		load += bitrate
+		// Use "current" bandwidth usage if supported.
+		if bw, ok := c.(signaling.McuClientWithBandwidth); ok {
+			if bandwidth := bw.Bandwidth(); bandwidth != nil {
+				incoming += bandwidth.Received * 8
+				outgoing += bandwidth.Sent * 8
+				continue
+			}
+		}
+
+		bitrate := uint64(c.MaxBitrate())
 		if _, ok := c.(signaling.McuPublisher); ok {
 			incoming += bitrate
 		} else if _, ok := c.(signaling.McuSubscriber); ok {
 			outgoing += bitrate
 		}
 	}
-	load = load / 1024
+	load = incoming + outgoing
+	load = min(uint64(len(s.clients)), load/1024)
 	return
 }
 
