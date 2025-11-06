@@ -219,6 +219,9 @@ type CommandClientMessage struct {
 	Hostname string `json:"hostname,omitempty"`
 	Port     int    `json:"port,omitempty"`
 	RtcpPort int    `json:"rtcpPort,omitempty"`
+
+	// Bandwidth is set if Type is "update-bandwidth"
+	Bandwidth api.Bandwidth `json:"bandwidth,omitempty"`
 }
 
 func (m *CommandClientMessage) CheckValid() error {
