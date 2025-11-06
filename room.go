@@ -147,8 +147,8 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEv
 
 		// TODO: Make configurable
 		bandwidthPerRoom:      api.BandwidthFromMegabits(10),
-		minPublisherBandwidth: api.BandwidthFromBytes(512 * 1024),
-		maxPublisherBandwidth: api.BandwidthFromMegabits(4),
+		minPublisherBandwidth: api.BandwidthFromMegabits(1),
+		maxPublisherBandwidth: api.BandwidthFromMegabits(3),
 	}
 
 	if err := events.RegisterBackendRoomListener(roomId, backend, room); err != nil {
@@ -1337,11 +1337,11 @@ func (r *Room) updateBandwidth() {
 		if maxBitrate := r.Backend().maxStreamBitrate; perPublisher < maxBitrate {
 			perPublisher = maxBitrate
 		}
+		perPublisher = min(r.maxPublisherBandwidth, perPublisher)
+		perPublisher = max(r.minPublisherBandwidth, perPublisher)
 		log.Printf("Bandwidth in room %s for %d pub / %d sub: %+v (max %d)", r.Id(), publishers, subscribers, bandwidth, perPublisher.Bytes())
 
 		if perPublisher != 0 {
-			perPublisher = min(r.maxPublisherBandwidth, perPublisher)
-			perPublisher = max(r.minPublisherBandwidth, perPublisher)
 
 			for _, session := range publisherSessions {
 				go func() {
