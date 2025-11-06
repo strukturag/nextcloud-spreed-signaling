@@ -139,6 +139,22 @@ func (c *proxyPubSubCommon) Bandwidth() *sfu.ClientBandwidthInfo {
 	return c.bandwidth.Load()
 }
 
+func (c *proxyPubSubCommon) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error {
+	_, _, err := c.conn.performSyncRequest(ctx, &proxy.ClientMessage{
+		Type: "command",
+		Command: &proxy.CommandClientMessage{
+			ClientId:  c.proxyId,
+			Type:      "update-bandwidth",
+			Bandwidth: bandwidth,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *proxyPubSubCommon) doSendMessage(ctx context.Context, msg *proxy.ClientMessage, callback func(error, api.StringMap)) {
 	c.conn.performAsyncRequest(ctx, msg, func(err error, response *proxy.ServerMessage) {
 		if err != nil {

@@ -1239,6 +1239,37 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			},
 		}
 		session.sendMessage(response)
+	case "update-bandwidth":
+		client := s.GetClient(cmd.ClientId)
+		if client == nil {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		clientWithBandwidth, ok := client.(sfu.ClientWithBandwidth)
+		if !ok {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		if cmd.Bandwidth != 0 {
+			ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+			defer cancel()
+
+			if err := clientWithBandwidth.SetBandwidth(ctx2, cmd.Bandwidth); err != nil {
+				session.sendMessage(message.NewWrappedErrorServerMessage(err))
+				return
+			}
+		}
+
+		response := &proxy.ServerMessage{
+			Id:   message.Id,
+			Type: "command",
+			Command: &proxy.CommandServerMessage{
+				Id: cmd.ClientId,
+			},
+		}
+		session.sendMessage(response)
 	case "publish-remote":
 		client := s.GetClient(cmd.ClientId)
 		if client == nil {
