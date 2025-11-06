@@ -144,7 +144,7 @@ type clientInterface interface {
 	NotifyReconnected()
 
 	Bandwidth() *McuClientBandwidthInfo
-	UpdateBandwidth(media string, sent uint32, received uint32)
+	UpdateBandwidth(media string, sent api.Bandwidth, received api.Bandwidth)
 }
 
 type mcuJanusSettings struct {
@@ -307,8 +307,8 @@ func (m *mcuJanus) disconnect() {
 	}
 }
 
-func (m *mcuJanus) GetBandwidthLimits() (int, int) {
-	return int(m.settings.MaxStreamBitrate()), int(m.settings.MaxScreenBitrate())
+func (m *mcuJanus) GetBandwidthLimits() (api.Bandwidth, api.Bandwidth) {
+	return m.settings.MaxStreamBitrate(), m.settings.MaxScreenBitrate()
 }
 
 func (m *mcuJanus) Bandwidth() (result *McuClientBandwidthInfo) {
@@ -341,8 +341,8 @@ func (m *mcuJanus) updateBandwidthStats() {
 	}
 
 	if bandwidth := m.Bandwidth(); bandwidth != nil {
-		statsJanusBandwidthCurrent.WithLabelValues("incoming").Set(float64(bandwidth.Received))
-		statsJanusBandwidthCurrent.WithLabelValues("outgoing").Set(float64(bandwidth.Sent))
+		statsJanusBandwidthCurrent.WithLabelValues("incoming").Set(float64(bandwidth.Received.Bytes()))
+		statsJanusBandwidthCurrent.WithLabelValues("outgoing").Set(float64(bandwidth.Sent.Bytes()))
 	} else {
 		statsJanusBandwidthCurrent.WithLabelValues("incoming").Set(0)
 		statsJanusBandwidthCurrent.WithLabelValues("outgoing").Set(0)
@@ -655,7 +655,7 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher PublicSessionId, 
 	}
 }
 
-func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id PublicSessionId, streamType StreamType, settings NewPublisherSettings) (uint64, int, error) {
+func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id PublicSessionId, streamType StreamType, settings NewPublisherSettings) (uint64, api.Bandwidth, error) {
 	create_msg := api.StringMap{
 		"request":     "create",
 		"description": getStreamId(id, streamType),
@@ -677,11 +677,11 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	if profile := settings.H264Profile; profile != "" {
 		create_msg["h264_profile"] = profile
 	}
-	var maxBitrate int
+	var maxBitrate api.Bandwidth
 	if streamType == StreamTypeScreen {
-		maxBitrate = int(m.settings.MaxScreenBitrate())
+		maxBitrate = m.settings.MaxScreenBitrate()
 	} else {
-		maxBitrate = int(m.settings.MaxStreamBitrate())
+		maxBitrate = m.settings.MaxStreamBitrate()
 	}
 	bitrate := settings.Bitrate
 	if bitrate <= 0 {
@@ -689,7 +689,7 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	} else {
 		bitrate = min(bitrate, maxBitrate)
 	}
-	create_msg["bitrate"] = bitrate
+	create_msg["bitrate"] = bitrate.Bits()
 	create_response, err := handle.Request(ctx, create_msg)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
@@ -710,7 +710,7 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	return roomId, bitrate, nil
 }
 
-func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id PublicSessionId, streamType StreamType, settings NewPublisherSettings) (*JanusHandle, uint64, uint64, int, error) {
+func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id PublicSessionId, streamType StreamType, settings NewPublisherSettings) (*JanusHandle, uint64, uint64, api.Bandwidth, error) {
 	session := m.session
 	if session == nil {
 		return nil, 0, 0, 0, ErrNotConnected
@@ -1055,7 +1055,7 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 	return client, nil
 }
 
-func (m *mcuJanus) UpdateBandwidth(handle uint64, media string, sent uint32, received uint32) {
+func (m *mcuJanus) UpdateBandwidth(handle uint64, media string, sent api.Bandwidth, received api.Bandwidth) {
 	m.muClients.RLock()
 	defer m.muClients.RUnlock()
 

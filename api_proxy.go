@@ -196,8 +196,8 @@ type ByeProxyServerMessage struct {
 // Type "command"
 
 type NewPublisherSettings struct {
-	Bitrate    int       `json:"bitrate,omitempty"`
-	MediaTypes MediaType `json:"mediatypes,omitempty"`
+	Bitrate    api.Bandwidth `json:"bitrate,omitempty"`
+	MediaTypes MediaType     `json:"mediatypes,omitempty"`
 
 	AudioCodec  string `json:"audiocodec,omitempty"`
 	VideoCodec  string `json:"videocodec,omitempty"`
@@ -214,7 +214,7 @@ type CommandProxyClientMessage struct {
 	ClientId    string          `json:"clientId,omitempty"`
 
 	// Deprecated: use PublisherSettings instead.
-	Bitrate int `json:"bitrate,omitempty"`
+	Bitrate api.Bandwidth `json:"bitrate,omitempty"`
 	// Deprecated: use PublisherSettings instead.
 	MediaTypes MediaType `json:"mediatypes,omitempty"`
 
@@ -269,7 +269,7 @@ type CommandProxyServerMessage struct {
 	Id  string `json:"id,omitempty"`
 	Sid string `json:"sid,omitempty"`
 
-	Bitrate int `json:"bitrate,omitempty"`
+	Bitrate api.Bandwidth `json:"bitrate,omitempty"`
 
 	Streams []PublisherStream `json:"streams,omitempty"`
 }
@@ -322,10 +322,10 @@ type EventProxyServerBandwidth struct {
 	// Outgoing is the bandwidth utilization for subscribers in percent.
 	Outgoing *float64 `json:"outgoing,omitempty"`
 
-	// Received is the incoming bandwidth in bytes per second.
-	Received uint64 `json:"received,omitempty"`
-	// Sent is the outgoing bandwidth in bytes per second.
-	Sent uint64 `json:"sent,omitempty"`
+	// Received is the incoming bandwidth.
+	Received api.Bandwidth `json:"received,omitempty"`
+	// Sent is the outgoing bandwidth.
+	Sent api.Bandwidth `json:"sent,omitempty"`
 }
 
 func (b *EventProxyServerBandwidth) String() string {

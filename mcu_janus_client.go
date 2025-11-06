@@ -44,7 +44,7 @@ type mcuJanusClient struct {
 	roomId     uint64
 	sid        string
 	streamType StreamType
-	maxBitrate int
+	maxBitrate api.Bandwidth
 
 	// +checklocks:mu
 	bandwidth map[string]*McuClientBandwidthInfo
@@ -78,7 +78,7 @@ func (c *mcuJanusClient) StreamType() StreamType {
 	return c.streamType
 }
 
-func (c *mcuJanusClient) MaxBitrate() int {
+func (c *mcuJanusClient) MaxBitrate() api.Bandwidth {
 	return c.maxBitrate
 }
 
@@ -88,7 +88,7 @@ func (c *mcuJanusClient) Close(ctx context.Context) {
 func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 }
 
-func (c *mcuJanusClient) UpdateBandwidth(media string, sent uint32, received uint32) {
+func (c *mcuJanusClient) UpdateBandwidth(media string, sent api.Bandwidth, received api.Bandwidth) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -102,8 +102,8 @@ func (c *mcuJanusClient) UpdateBandwidth(media string, sent uint32, received uin
 		c.bandwidth[media] = info
 	}
 
-	info.Sent = uint64(sent)
-	info.Received = uint64(received)
+	info.Sent = sent
+	info.Received = received
 }
 
 func (c *mcuJanusClient) Bandwidth() *McuClientBandwidthInfo {

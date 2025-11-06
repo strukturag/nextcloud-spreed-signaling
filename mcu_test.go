@@ -35,9 +35,9 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
-const (
-	TestMaxBitrateScreen = 12345678
-	TestMaxBitrateVideo  = 23456789
+var (
+	TestMaxBitrateScreen = api.BandwidthFromBits(12345678)
+	TestMaxBitrateVideo  = api.BandwidthFromBits(23456789)
 )
 
 type TestMCU struct {
@@ -47,8 +47,8 @@ type TestMCU struct {
 	// +checklocks:mu
 	subscribers map[string]*TestMCUSubscriber
 
-	maxStreamBitrate atomic.Int32
-	maxScreenBitrate atomic.Int32
+	maxStreamBitrate api.AtomicBandwidth
+	maxScreenBitrate api.AtomicBandwidth
 }
 
 func NewTestMCU() (*TestMCU, error) {
@@ -58,13 +58,13 @@ func NewTestMCU() (*TestMCU, error) {
 	}, nil
 }
 
-func (m *TestMCU) GetBandwidthLimits() (int, int) {
-	return int(m.maxStreamBitrate.Load()), int(m.maxScreenBitrate.Load())
+func (m *TestMCU) GetBandwidthLimits() (api.Bandwidth, api.Bandwidth) {
+	return m.maxStreamBitrate.Load(), m.maxScreenBitrate.Load()
 }
 
-func (m *TestMCU) SetBandwidthLimits(maxStreamBitrate int, maxScreenBitrate int) {
-	m.maxStreamBitrate.Store(int32(maxStreamBitrate))
-	m.maxScreenBitrate.Store(int32(maxScreenBitrate))
+func (m *TestMCU) SetBandwidthLimits(maxStreamBitrate api.Bandwidth, maxScreenBitrate api.Bandwidth) {
+	m.maxStreamBitrate.Store(maxStreamBitrate)
+	m.maxScreenBitrate.Store(maxScreenBitrate)
 }
 
 func (m *TestMCU) Start(ctx context.Context) error {
@@ -92,7 +92,7 @@ func (m *TestMCU) GetServerInfoSfu() *BackendServerInfoSfu {
 }
 
 func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
-	var maxBitrate int
+	var maxBitrate api.Bandwidth
 	if streamType == StreamTypeScreen {
 		maxBitrate = TestMaxBitrateScreen
 	} else {
@@ -176,7 +176,7 @@ func (c *TestMCUClient) StreamType() StreamType {
 	return c.streamType
 }
 
-func (c *TestMCUClient) MaxBitrate() int {
+func (c *TestMCUClient) MaxBitrate() api.Bandwidth {
 	return 0
 }
 

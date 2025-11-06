@@ -36,6 +36,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type TestJanusEventsServerHandler struct {
@@ -195,7 +197,7 @@ type TestMcuWithEvents struct {
 	idx int
 }
 
-func (m *TestMcuWithEvents) UpdateBandwidth(handle uint64, media string, sent uint32, received uint32) {
+func (m *TestMcuWithEvents) UpdateBandwidth(handle uint64, media string, sent api.Bandwidth, received api.Bandwidth) {
 	assert := assert.New(m.t)
 
 	m.mu.Lock()
@@ -206,13 +208,13 @@ func (m *TestMcuWithEvents) UpdateBandwidth(handle uint64, media string, sent ui
 	case 1:
 		assert.EqualValues(1, handle)
 		assert.EqualValues("audio", media)
-		assert.EqualValues(100, sent)
-		assert.EqualValues(200, received)
+		assert.EqualValues(api.BandwidthFromBytes(100), sent)
+		assert.EqualValues(api.BandwidthFromBytes(200), received)
 	case 2:
 		assert.EqualValues(1, handle)
 		assert.EqualValues("video", media)
-		assert.EqualValues(200, sent)
-		assert.EqualValues(300, received)
+		assert.EqualValues(api.BandwidthFromBytes(200), sent)
+		assert.EqualValues(api.BandwidthFromBytes(300), received)
 	default:
 		assert.Fail("too many updates", "received update %d (handle=%d, media=%s, sent=%d, received=%d)", m.idx, handle, media, sent, received)
 	}

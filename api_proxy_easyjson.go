@@ -913,7 +913,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling6(in *jlex
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Bitrate = int(in.Int())
+				out.Bitrate = api.Bandwidth(in.Uint64())
 			}
 		case "mediatypes":
 			if in.IsNull() {
@@ -963,7 +963,7 @@ func easyjson1c8542dbEncodeGithubComStrukturagNextcloudSpreedSignaling6(out *jwr
 		const prefix string = ",\"bitrate\":"
 		first = false
 		out.RawString(prefix[1:])
-		out.Int(int(in.Bitrate))
+		out.Uint64(uint64(in.Bitrate))
 	}
 	if in.MediaTypes != 0 {
 		const prefix string = ",\"mediatypes\":"
@@ -1427,13 +1427,13 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling10(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Received = uint64(in.Uint64())
+				out.Received = api.Bandwidth(in.Uint64())
 			}
 		case "sent":
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Sent = uint64(in.Uint64())
+				out.Sent = api.Bandwidth(in.Uint64())
 			}
 		default:
 			in.SkipRecursive()
@@ -1541,7 +1541,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling11(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Bitrate = int(in.Int())
+				out.Bitrate = api.Bandwidth(in.Uint64())
 			}
 		case "streams":
 			if in.IsNull() {
@@ -1604,7 +1604,7 @@ func easyjson1c8542dbEncodeGithubComStrukturagNextcloudSpreedSignaling11(out *jw
 		} else {
 			out.RawString(prefix)
 		}
-		out.Int(int(in.Bitrate))
+		out.Uint64(uint64(in.Bitrate))
 	}
 	if len(in.Streams) != 0 {
 		const prefix string = ",\"streams\":"
@@ -1894,7 +1894,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling13(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Bitrate = int(in.Int())
+				out.Bitrate = api.Bandwidth(in.Uint64())
 			}
 		case "mediatypes":
 			if in.IsNull() {
@@ -1988,7 +1988,7 @@ func easyjson1c8542dbEncodeGithubComStrukturagNextcloudSpreedSignaling13(out *jw
 	if in.Bitrate != 0 {
 		const prefix string = ",\"bitrate\":"
 		out.RawString(prefix)
-		out.Int(int(in.Bitrate))
+		out.Uint64(uint64(in.Bitrate))
 	}
 	if in.MediaTypes != 0 {
 		const prefix string = ",\"mediatypes\":"

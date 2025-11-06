@@ -82,7 +82,7 @@ type McuProxy interface {
 type mcuProxyPubSubCommon struct {
 	sid        string
 	streamType StreamType
-	maxBitrate int
+	maxBitrate api.Bandwidth
 	proxyId    string
 	conn       *mcuProxyConnection
 	listener   McuListener
@@ -100,7 +100,7 @@ func (c *mcuProxyPubSubCommon) StreamType() StreamType {
 	return c.streamType
 }
 
-func (c *mcuProxyPubSubCommon) MaxBitrate() int {
+func (c *mcuProxyPubSubCommon) MaxBitrate() api.Bandwidth {
 	return c.maxBitrate
 }
 
@@ -148,7 +148,7 @@ type mcuProxyPublisher struct {
 	settings NewPublisherSettings
 }
 
-func newMcuProxyPublisher(id PublicSessionId, sid string, streamType StreamType, maxBitrate int, settings NewPublisherSettings, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
+func newMcuProxyPublisher(id PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, settings NewPublisherSettings, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
 	return &mcuProxyPublisher{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			sid:        sid,
@@ -240,7 +240,7 @@ type mcuProxySubscriber struct {
 	publisherConn *mcuProxyConnection
 }
 
-func newMcuProxySubscriber(publisherId PublicSessionId, sid string, streamType StreamType, maxBitrate int, proxyId string, conn *mcuProxyConnection, listener McuListener, publisherConn *mcuProxyConnection) *mcuProxySubscriber {
+func newMcuProxySubscriber(publisherId PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, proxyId string, conn *mcuProxyConnection, listener McuListener, publisherConn *mcuProxyConnection) *mcuProxySubscriber {
 	return &mcuProxySubscriber{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			sid:        sid,
@@ -1094,8 +1094,8 @@ func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 		c.bandwidth.Store(event.Bandwidth)
 		statsProxyBackendLoadCurrent.WithLabelValues(c.url.String()).Set(float64(event.Load))
 		if bw := event.Bandwidth; bw != nil {
-			statsProxyBandwidthCurrent.WithLabelValues(c.url.String(), "incoming").Set(float64(bw.Received))
-			statsProxyBandwidthCurrent.WithLabelValues(c.url.String(), "outgoing").Set(float64(bw.Sent))
+			statsProxyBandwidthCurrent.WithLabelValues(c.url.String(), "incoming").Set(float64(bw.Received.Bytes()))
+			statsProxyBandwidthCurrent.WithLabelValues(c.url.String(), "outgoing").Set(float64(bw.Sent.Bytes()))
 			if bw.Incoming != nil {
 				statsProxyUsageCurrent.WithLabelValues(c.url.String(), "incoming").Set(*bw.Incoming)
 			} else {
@@ -1569,8 +1569,8 @@ func NewMcuProxy(config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *
 	return mcu, nil
 }
 
-func (m *mcuProxy) GetBandwidthLimits() (int, int) {
-	return int(m.settings.MaxStreamBitrate()), int(m.settings.MaxScreenBitrate())
+func (m *mcuProxy) GetBandwidthLimits() (api.Bandwidth, api.Bandwidth) {
+	return m.settings.MaxStreamBitrate(), m.settings.MaxScreenBitrate()
 }
 
 func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
@@ -2009,11 +2009,11 @@ func (m *mcuProxy) removePublisher(publisher *mcuProxyPublisher) {
 }
 
 func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuPublisher {
-	var maxBitrate int
+	var maxBitrate api.Bandwidth
 	if streamType == StreamTypeScreen {
-		maxBitrate = int(m.settings.MaxScreenBitrate())
+		maxBitrate = m.settings.MaxScreenBitrate()
 	} else {
-		maxBitrate = int(m.settings.MaxStreamBitrate())
+		maxBitrate = m.settings.MaxStreamBitrate()
 	}
 
 	publisherSettings := settings

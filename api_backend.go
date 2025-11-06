@@ -453,8 +453,8 @@ type BackendInformationEtcd struct {
 	parsedUrls []*url.URL
 	Secret     string `json:"secret"`
 
-	MaxStreamBitrate int `json:"maxstreambitrate,omitempty"`
-	MaxScreenBitrate int `json:"maxscreenbitrate,omitempty"`
+	MaxStreamBitrate api.Bandwidth `json:"maxstreambitrate,omitempty"`
+	MaxScreenBitrate api.Bandwidth `json:"maxscreenbitrate,omitempty"`
 
 	SessionLimit uint64 `json:"sessionlimit,omitempty"`
 }

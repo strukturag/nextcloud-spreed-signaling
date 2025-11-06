@@ -4022,13 +4022,13 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling29(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.MaxStreamBitrate = int(in.Int())
+				out.MaxStreamBitrate = api.Bandwidth(in.Uint64())
 			}
 		case "maxscreenbitrate":
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.MaxScreenBitrate = int(in.Int())
+				out.MaxScreenBitrate = api.Bandwidth(in.Uint64())
 			}
 		case "sessionlimit":
 			if in.IsNull() {
@@ -4088,12 +4088,12 @@ func easyjson4354c623EncodeGithubComStrukturagNextcloudSpreedSignaling29(out *jw
 	if in.MaxStreamBitrate != 0 {
 		const prefix string = ",\"maxstreambitrate\":"
 		out.RawString(prefix)
-		out.Int(int(in.MaxStreamBitrate))
+		out.Uint64(uint64(in.MaxStreamBitrate))
 	}
 	if in.MaxScreenBitrate != 0 {
 		const prefix string = ",\"maxscreenbitrate\":"
 		out.RawString(prefix)
-		out.Int(int(in.MaxScreenBitrate))
+		out.Uint64(uint64(in.MaxScreenBitrate))
 	}
 	if in.SessionLimit != 0 {
 		const prefix string = ",\"sessionlimit\":"

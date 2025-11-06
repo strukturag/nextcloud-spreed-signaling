@@ -1093,7 +1093,7 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	defer cancel()
 
 	// Bandwidth for unknown handles is ignored.
-	mcu.UpdateBandwidth(1234, "video", 100, 200)
+	mcu.UpdateBandwidth(1234, "video", api.BandwidthFromBytes(100), api.BandwidthFromBytes(200))
 	mcu.updateBandwidthStats()
 	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 0)
 	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 0)
@@ -1117,14 +1117,14 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 
 	assert.Nil(mcu.Bandwidth())
 	assert.Nil(janusPub.Bandwidth())
-	mcu.UpdateBandwidth(janusPub.Handle(), "video", 1000, 2000)
+	mcu.UpdateBandwidth(janusPub.Handle(), "video", api.BandwidthFromBytes(1000), api.BandwidthFromBytes(2000))
 	if bw := janusPub.Bandwidth(); assert.NotNil(bw) {
-		assert.EqualValues(1000, bw.Sent)
-		assert.EqualValues(2000, bw.Received)
+		assert.EqualValues(api.BandwidthFromBytes(1000), bw.Sent)
+		assert.EqualValues(api.BandwidthFromBytes(2000), bw.Received)
 	}
 	if bw := mcu.Bandwidth(); assert.NotNil(bw) {
-		assert.EqualValues(1000, bw.Sent)
-		assert.EqualValues(2000, bw.Received)
+		assert.EqualValues(api.BandwidthFromBytes(1000), bw.Sent)
+		assert.EqualValues(api.BandwidthFromBytes(2000), bw.Received)
 	}
 	mcu.updateBandwidthStats()
 	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
@@ -1145,14 +1145,14 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	require.True(ok)
 
 	assert.Nil(janusSub.Bandwidth())
-	mcu.UpdateBandwidth(janusSub.Handle(), "video", 3000, 4000)
+	mcu.UpdateBandwidth(janusSub.Handle(), "video", api.BandwidthFromBytes(3000), api.BandwidthFromBytes(4000))
 	if bw := janusSub.Bandwidth(); assert.NotNil(bw) {
-		assert.EqualValues(3000, bw.Sent)
-		assert.EqualValues(4000, bw.Received)
+		assert.EqualValues(api.BandwidthFromBytes(3000), bw.Sent)
+		assert.EqualValues(api.BandwidthFromBytes(4000), bw.Received)
 	}
 	if bw := mcu.Bandwidth(); assert.NotNil(bw) {
-		assert.EqualValues(4000, bw.Sent)
-		assert.EqualValues(6000, bw.Received)
+		assert.EqualValues(api.BandwidthFromBytes(4000), bw.Sent)
+		assert.EqualValues(api.BandwidthFromBytes(6000), bw.Received)
 	}
 	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
 	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 1000)

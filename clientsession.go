@@ -910,7 +910,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 			H264Profile: data.H264Profile,
 		}
 		if backend := s.Backend(); backend != nil {
-			var maxBitrate int
+			var maxBitrate api.Bandwidth
 			if streamType == StreamTypeScreen {
 				maxBitrate = backend.maxScreenBitrate
 			} else {
