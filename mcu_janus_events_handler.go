@@ -302,7 +302,8 @@ func (e JanusEventWebRTCDTLS) String() string {
 
 // type=16, subtype=6
 type JanusEventWebRTCPeerConnection struct {
-	Connection string `json:"connection"` // "webrtcup"
+	Connection string `json:"connection"`       // "webrtcup", "hangup"
+	Reason     string `json:"reason,omitempty"` // Only if "connection" == "hangup"
 }
 
 func (e JanusEventWebRTCPeerConnection) String() string {
@@ -737,6 +738,15 @@ func (h *JanusEventsHandler) processEvent(event JanusEvent) {
 	}
 
 	switch evt := evt.(type) {
+	case *JanusEventWebRTCICE:
+		statsJanusICEStateTotal.WithLabelValues(evt.ICE).Inc()
+	case *JanusEventWebRTCDTLS:
+		statsJanusDTLSStateTotal.WithLabelValues(evt.DTLS).Inc()
+	case *JanusEventWebRTCPeerConnection:
+		statsJanusPeerConnectionStateTotal.WithLabelValues(evt.Connection, evt.Reason).Inc()
+	case *JanusEventWebRTCSelectedPair:
+		statsJanusSelectedLocalCandidateTotal.WithLabelValues(evt.Candidates.Local.Type, evt.Candidates.Local.Transport, fmt.Sprintf("ipv%d", evt.Candidates.Local.Family)).Inc()
+		statsJanusSelectedRemoteCandidateTotal.WithLabelValues(evt.Candidates.Remote.Type, evt.Candidates.Remote.Transport, fmt.Sprintf("ipv%d", evt.Candidates.Remote.Family)).Inc()
 	case *JanusEventMediaStats:
 		h.mcu.UpdateBandwidth(event.HandleId, evt.Media, api.BandwidthFromBytes(uint64(evt.BytesSentLastSec)), api.BandwidthFromBytes(uint64(evt.BytesReceivedLastSec)))
 	}

@@ -92,9 +92,44 @@ var (
 		Name:      "bandwidth",
 		Help:      "The current bandwidth in bytes per second",
 	}, []string{"direction"})
+	statsJanusSelectedLocalCandidateTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "selected_local_candidate_total",
+		Help:      "Total number of selected local candidates",
+	}, []string{"type", "transport", "family"})
+	statsJanusSelectedRemoteCandidateTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "selected_remote_candidate_total",
+		Help:      "Total number of selected remote candidates",
+	}, []string{"type", "transport", "family"})
+	statsJanusPeerConnectionStateTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "peerconnection_state_total",
+		Help:      "Total number of PeerConnections states",
+	}, []string{"state", "reason"})
+	statsJanusICEStateTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "ice_state_total",
+		Help:      "Total number of ICE connection states",
+	}, []string{"state"})
+	statsJanusDTLSStateTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "dtls_state_total",
+		Help:      "Total number of DTLS connection states",
+	}, []string{"state"})
 
 	janusMcuStats = []prometheus.Collector{
 		statsJanusBandwidthCurrent,
+		statsJanusSelectedLocalCandidateTotal,
+		statsJanusSelectedRemoteCandidateTotal,
+		statsJanusPeerConnectionStateTotal,
+		statsJanusICEStateTotal,
+		statsJanusDTLSStateTotal,
 	}
 
 	statsConnectedProxyBackendsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
