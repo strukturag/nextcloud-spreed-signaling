@@ -35,6 +35,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
@@ -527,7 +528,7 @@ func (e JanusEventCoreShutdown) String() string {
 }
 
 type McuEventHandler interface {
-	UpdateBandwidth(handle uint64, media string, sent uint32, received uint32)
+	UpdateBandwidth(handle uint64, media string, sent api.Bandwidth, received api.Bandwidth)
 }
 
 type JanusEventsHandler struct {
@@ -737,6 +738,6 @@ func (h *JanusEventsHandler) processEvent(event JanusEvent) {
 
 	switch evt := evt.(type) {
 	case *JanusEventMediaStats:
-		h.mcu.UpdateBandwidth(event.HandleId, evt.Media, evt.BytesSentLastSec, evt.BytesReceivedLastSec)
+		h.mcu.UpdateBandwidth(event.HandleId, evt.Media, api.BandwidthFromBytes(uint64(evt.BytesSentLastSec)), api.BandwidthFromBytes(uint64(evt.BytesReceivedLastSec)))
 	}
 }

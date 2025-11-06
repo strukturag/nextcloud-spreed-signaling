@@ -38,12 +38,12 @@ const (
 	McuTypeProxy = "proxy"
 
 	McuTypeDefault = McuTypeJanus
-
-	defaultMaxStreamBitrate = 1024 * 1024
-	defaultMaxScreenBitrate = 2048 * 1024
 )
 
 var (
+	defaultMaxStreamBitrate = api.BandwidthFromMegabits(1)
+	defaultMaxScreenBitrate = api.BandwidthFromMegabits(2)
+
 	ErrNotConnected = fmt.Errorf("not connected")
 )
 
@@ -74,25 +74,25 @@ type McuInitiator interface {
 }
 
 type McuSettings interface {
-	MaxStreamBitrate() int32
-	MaxScreenBitrate() int32
+	MaxStreamBitrate() api.Bandwidth
+	MaxScreenBitrate() api.Bandwidth
 	Timeout() time.Duration
 
 	Reload(config *goconf.ConfigFile)
 }
 
 type mcuCommonSettings struct {
-	maxStreamBitrate atomic.Int32
-	maxScreenBitrate atomic.Int32
+	maxStreamBitrate api.AtomicBandwidth
+	maxScreenBitrate api.AtomicBandwidth
 
 	timeout atomic.Int64
 }
 
-func (s *mcuCommonSettings) MaxStreamBitrate() int32 {
+func (s *mcuCommonSettings) MaxStreamBitrate() api.Bandwidth {
 	return s.maxStreamBitrate.Load()
 }
 
-func (s *mcuCommonSettings) MaxScreenBitrate() int32 {
+func (s *mcuCommonSettings) MaxScreenBitrate() api.Bandwidth {
 	return s.maxScreenBitrate.Load()
 }
 
@@ -107,17 +107,17 @@ func (s *mcuCommonSettings) setTimeout(timeout time.Duration) {
 func (s *mcuCommonSettings) load(config *goconf.ConfigFile) error {
 	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
 	if maxStreamBitrate <= 0 {
-		maxStreamBitrate = defaultMaxStreamBitrate
+		maxStreamBitrate = int(defaultMaxStreamBitrate.Bits())
 	}
 	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", maxStreamBitrate)
-	s.maxStreamBitrate.Store(int32(maxStreamBitrate))
+	s.maxStreamBitrate.Store(api.BandwidthFromBits(uint64(maxStreamBitrate)))
 
 	maxScreenBitrate, _ := config.GetInt("mcu", "maxscreenbitrate")
 	if maxScreenBitrate <= 0 {
-		maxScreenBitrate = defaultMaxScreenBitrate
+		maxScreenBitrate = int(defaultMaxScreenBitrate.Bits())
 	}
 	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", maxScreenBitrate)
-	s.maxScreenBitrate.Store(int32(maxScreenBitrate))
+	s.maxScreenBitrate.Store(api.BandwidthFromBits(uint64(maxScreenBitrate)))
 	return nil
 }
 
@@ -131,7 +131,7 @@ type Mcu interface {
 
 	GetStats() any
 	GetServerInfoSfu() *BackendServerInfoSfu
-	GetBandwidthLimits() (int, int)
+	GetBandwidthLimits() (api.Bandwidth, api.Bandwidth)
 
 	NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)
 	NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)
@@ -201,18 +201,18 @@ func IsValidStreamType(s string) bool {
 }
 
 type McuClientBandwidthInfo struct {
-	// Sent is the outgoing bandwidth in bytes per second.
-	Sent uint64
-	// Received is the incoming bandwidth in bytes per second.
-	Received uint64
+	// Sent is the outgoing bandwidth.
+	Sent api.Bandwidth
+	// Received is the incoming bandwidth.
+	Received api.Bandwidth
 }
 
 type McuClient interface {
 	Id() string
 	Sid() string
 	StreamType() StreamType
-	// MaxBitrate is the maximum allowed bitrate in bits per second.
-	MaxBitrate() int
+	// MaxBitrate is the maximum allowed bitrate.
+	MaxBitrate() api.Bandwidth
 
 	Close(ctx context.Context)
 

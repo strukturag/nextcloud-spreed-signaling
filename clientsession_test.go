@@ -63,7 +63,7 @@ func TestBandwidth_Client(t *testing.T) {
 	client.RunUntilJoined(ctx, hello.Hello)
 
 	// Client may not send an offer with audio and video.
-	bitrate := 10000
+	bitrate := api.BandwidthFromBits(10000)
 	require.NoError(client.SendMessage(MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
@@ -135,7 +135,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			require.True(client.RunUntilJoined(ctx, hello.Hello))
 
 			// Client may not send an offer with audio and video.
-			bitrate := 10000
+			bitrate := api.BandwidthFromBits(10000)
 			require.NoError(client.SendMessage(MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello.Hello.SessionId,
@@ -154,7 +154,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			pub := mcu.GetPublisher(hello.Hello.SessionId)
 			require.NotNil(pub, "Could not find publisher")
 
-			var expectBitrate int
+			var expectBitrate api.Bandwidth
 			if streamType == StreamTypeVideo {
 				expectBitrate = backend.maxStreamBitrate
 			} else {

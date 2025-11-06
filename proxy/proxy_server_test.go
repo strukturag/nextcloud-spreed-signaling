@@ -358,7 +358,7 @@ type TestMCU struct {
 	t *testing.T
 }
 
-func (m *TestMCU) GetBandwidthLimits() (int, int) {
+func (m *TestMCU) GetBandwidthLimits() (api.Bandwidth, api.Bandwidth) {
 	return 0, 0
 }
 
@@ -416,7 +416,7 @@ func (p *TestMCUPublisher) StreamType() signaling.StreamType {
 	return p.streamType
 }
 
-func (p *TestMCUPublisher) MaxBitrate() int {
+func (p *TestMCUPublisher) MaxBitrate() api.Bandwidth {
 	return 0
 }
 
@@ -469,8 +469,8 @@ func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener signaling.
 		},
 
 		bandwidth: &signaling.McuClientBandwidthInfo{
-			Sent:     1000,
-			Received: 2000,
+			Sent:     api.BandwidthFromBytes(1000),
+			Received: api.BandwidthFromBytes(2000),
 		},
 	}
 	return publisher, nil
@@ -490,9 +490,8 @@ func TestProxyPublisherBandwidth(t *testing.T) {
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
 
-	// Values are in bits per second.
-	proxy.maxIncoming.Store(10000 * 8)
-	proxy.maxOutgoing.Store(10000 * 8)
+	proxy.maxIncoming.Store(api.BandwidthFromBytes(10000))
+	proxy.maxOutgoing.Store(api.BandwidthFromBytes(10000))
 
 	mcu := NewPublisherTestMCU(t)
 	proxy.mcu = mcu
@@ -886,7 +885,7 @@ func (p *TestRemotePublisher) StreamType() signaling.StreamType {
 	return p.streamType
 }
 
-func (p *TestRemotePublisher) MaxBitrate() int {
+func (p *TestRemotePublisher) MaxBitrate() api.Bandwidth {
 	return 0
 }
 
@@ -959,7 +958,7 @@ func (s *TestRemoteSubscriber) StreamType() signaling.StreamType {
 	return s.publisher.StreamType()
 }
 
-func (s *TestRemoteSubscriber) MaxBitrate() int {
+func (s *TestRemoteSubscriber) MaxBitrate() api.Bandwidth {
 	return 0
 }
 

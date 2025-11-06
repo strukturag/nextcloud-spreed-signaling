@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/dlintw/goconf"
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
@@ -73,8 +74,8 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 			sessionLimit: uint64(sessionLimit),
 			counted:      true,
 
-			maxStreamBitrate: maxStreamBitrate,
-			maxScreenBitrate: maxScreenBitrate,
+			maxStreamBitrate: api.BandwidthFromBits(uint64(maxStreamBitrate)),
+			maxScreenBitrate: api.BandwidthFromBits(uint64(maxScreenBitrate)),
 		}
 		if sessionLimit > 0 {
 			log.Printf("Allow a maximum of %d sessions", sessionLimit)
@@ -131,8 +132,8 @@ func NewBackendStorageStatic(config *goconf.ConfigFile) (BackendStorage, error) 
 				sessionLimit: uint64(sessionLimit),
 				counted:      true,
 
-				maxStreamBitrate: maxStreamBitrate,
-				maxScreenBitrate: maxScreenBitrate,
+				maxStreamBitrate: api.BandwidthFromBits(uint64(maxStreamBitrate)),
+				maxScreenBitrate: api.BandwidthFromBits(uint64(maxScreenBitrate)),
 			}
 			hosts := make([]string, 0, len(allowMap))
 			for host := range allowMap {
@@ -342,8 +343,8 @@ func getConfiguredHosts(backendIds string, config *goconf.ConfigFile, commonSecr
 			id:     id,
 			secret: []byte(secret),
 
-			maxStreamBitrate: maxStreamBitrate,
-			maxScreenBitrate: maxScreenBitrate,
+			maxStreamBitrate: api.BandwidthFromBits(uint64(maxStreamBitrate)),
+			maxScreenBitrate: api.BandwidthFromBits(uint64(maxScreenBitrate)),
 
 			sessionLimit: uint64(sessionLimit),
 		}

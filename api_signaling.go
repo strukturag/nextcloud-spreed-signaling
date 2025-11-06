@@ -693,8 +693,8 @@ type RoomServerMessage struct {
 }
 
 type RoomBandwidth struct {
-	MaxStreamBitrate int `json:"maxstreambitrate"`
-	MaxScreenBitrate int `json:"maxscreenbitrate"`
+	MaxStreamBitrate api.Bandwidth `json:"maxstreambitrate"`
+	MaxScreenBitrate api.Bandwidth `json:"maxscreenbitrate"`
 }
 
 type RoomErrorDetails struct {
@@ -730,11 +730,11 @@ type MessageClientMessageData struct {
 	Payload  api.StringMap `json:"payload"`
 
 	// Only supported if Type == "offer"
-	Bitrate     int    `json:"bitrate,omitempty"`
-	AudioCodec  string `json:"audiocodec,omitempty"`
-	VideoCodec  string `json:"videocodec,omitempty"`
-	VP9Profile  string `json:"vp9profile,omitempty"`
-	H264Profile string `json:"h264profile,omitempty"`
+	Bitrate     api.Bandwidth `json:"bitrate,omitempty"`
+	AudioCodec  string        `json:"audiocodec,omitempty"`
+	VideoCodec  string        `json:"videocodec,omitempty"`
+	VP9Profile  string        `json:"vp9profile,omitempty"`
+	H264Profile string        `json:"h264profile,omitempty"`
 
 	offerSdp  *sdp.SessionDescription // Only set if Type == "offer"
 	answerSdp *sdp.SessionDescription // Only set if Type == "answer"

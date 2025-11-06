@@ -30,6 +30,7 @@ import (
 	"sync"
 
 	"github.com/dlintw/goconf"
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
@@ -51,8 +52,8 @@ type Backend struct {
 
 	allowHttp bool
 
-	maxStreamBitrate int
-	maxScreenBitrate int
+	maxStreamBitrate api.Bandwidth
+	maxScreenBitrate api.Bandwidth
 
 	sessionLimit uint64
 	sessionsLock sync.Mutex

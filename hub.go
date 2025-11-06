@@ -1661,20 +1661,20 @@ func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Roo
 			RoomId:     room.id,
 			Properties: room.Properties(),
 		}
-		var mcuStreamBitrate int
-		var mcuScreenBitrate int
+		var mcuStreamBitrate api.Bandwidth
+		var mcuScreenBitrate api.Bandwidth
 		if mcu := h.mcu; mcu != nil {
 			mcuStreamBitrate, mcuScreenBitrate = mcu.GetBandwidthLimits()
 		}
 
-		var backendStreamBitrate int
-		var backendScreenBitrate int
+		var backendStreamBitrate api.Bandwidth
+		var backendScreenBitrate api.Bandwidth
 		if backend := room.Backend(); backend != nil {
 			backendStreamBitrate = backend.maxStreamBitrate
 			backendScreenBitrate = backend.maxScreenBitrate
 		}
 
-		var maxStreamBitrate int
+		var maxStreamBitrate api.Bandwidth
 		if mcuStreamBitrate != 0 && backendStreamBitrate != 0 {
 			maxStreamBitrate = min(mcuStreamBitrate, backendStreamBitrate)
 		} else if mcuStreamBitrate != 0 {
@@ -1683,7 +1683,7 @@ func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Roo
 			maxStreamBitrate = backendStreamBitrate
 		}
 
-		var maxScreenBitrate int
+		var maxScreenBitrate api.Bandwidth
 		if mcuScreenBitrate != 0 && backendScreenBitrate != 0 {
 			maxScreenBitrate = min(mcuScreenBitrate, backendScreenBitrate)
 		} else if mcuScreenBitrate != 0 {
