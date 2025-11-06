@@ -2083,13 +2083,13 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling15(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.MaxStreamBitrate = int(in.Int())
+				out.MaxStreamBitrate = api.Bandwidth(in.Uint64())
 			}
 		case "maxscreenbitrate":
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.MaxScreenBitrate = int(in.Int())
+				out.MaxScreenBitrate = api.Bandwidth(in.Uint64())
 			}
 		default:
 			in.SkipRecursive()
@@ -2108,12 +2108,12 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling15(out *jw
 	{
 		const prefix string = ",\"maxstreambitrate\":"
 		out.RawString(prefix[1:])
-		out.Int(int(in.MaxStreamBitrate))
+		out.Uint64(uint64(in.MaxStreamBitrate))
 	}
 	{
 		const prefix string = ",\"maxscreenbitrate\":"
 		out.RawString(prefix)
-		out.Int(int(in.MaxScreenBitrate))
+		out.Uint64(uint64(in.MaxScreenBitrate))
 	}
 	out.RawByte('}')
 }
@@ -2640,7 +2640,7 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling21(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Bitrate = int(in.Int())
+				out.Bitrate = api.Bandwidth(in.Uint64())
 			}
 		case "audiocodec":
 			if in.IsNull() {
@@ -2725,7 +2725,7 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling21(out *jw
 	if in.Bitrate != 0 {
 		const prefix string = ",\"bitrate\":"
 		out.RawString(prefix)
-		out.Int(int(in.Bitrate))
+		out.Uint64(uint64(in.Bitrate))
 	}
 	if in.AudioCodec != "" {
 		const prefix string = ",\"audiocodec\":"
