@@ -56,6 +56,10 @@ var (
 	// errRoomRequestSuperseded is the cancel cause of a pending room request
 	// that was replaced by a newer room request of the same session.
 	errRoomRequestSuperseded = errors.New("room request superseded")
+
+	// minBandwidthOfActivePublisher is the bandwidth a publisher must be sending
+	// to be counted as "active".
+	minBandwidthOfActivePublisher = api.BandwidthFromBits(64 * 1024) // +checklocksignore: Global readonly variable.
 )
 
 type pendingRoomRequest struct {
@@ -2008,7 +2012,9 @@ func (s *ClientSession) Bandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo) {
 
 				bandwidth.Received += bw.Received
 				bandwidth.Sent += bw.Sent
-				publishers++
+				if bw.Received >= minBandwidthOfActivePublisher {
+					publishers++
+				}
 			}
 		}
 	}
