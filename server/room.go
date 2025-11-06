@@ -112,6 +112,10 @@ type Room struct {
 
 	// bandwidthPerRoom is the maximum incoming bandwidth per room.
 	bandwidthPerRoom api.Bandwidth
+	// minPublisherBandwidth is the minimum bandwidth per publisher.
+	minPublisherBandwidth api.Bandwidth
+	// maxPublisherBandwidth is the maximum bandwidth per publisher.
+	maxPublisherBandwidth api.Bandwidth
 }
 
 func getRoomIdForBackend(id string, backend *talk.Backend) string {
@@ -152,7 +156,9 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		transientData: api.NewTransientData(),
 
 		// TODO: Make configurable
-		bandwidthPerRoom: api.BandwidthFromMegabits(10),
+		bandwidthPerRoom:      api.BandwidthFromMegabits(10),
+		minPublisherBandwidth: api.BandwidthFromBytes(512 * 1024),
+		maxPublisherBandwidth: api.BandwidthFromMegabits(4),
 	}
 
 	if err := asyncEvents.RegisterBackendRoomListener(roomId, backend, room); err != nil {
@@ -1479,6 +1485,9 @@ func (r *Room) updateBandwidth() {
 		r.logger.Printf("Bandwidth in room %s for %d pub / %d sub: %+v (max %s)", r.Id(), publishers, subscribers, bandwidth, perPublisher)
 
 		if perPublisher != 0 {
+			perPublisher = min(r.maxPublisherBandwidth, perPublisher)
+			perPublisher = max(r.minPublisherBandwidth, perPublisher)
+
 			for _, session := range publisherSessions {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), r.hub.mcuTimeout)
