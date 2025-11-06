@@ -118,6 +118,22 @@ func (c *mcuProxyPubSubCommon) Bandwidth() *McuClientBandwidthInfo {
 	return c.bandwidth.Load()
 }
 
+func (c *mcuProxyPubSubCommon) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error {
+	_, _, err := c.conn.performSyncRequest(ctx, &ProxyClientMessage{
+		Type: "command",
+		Command: &CommandProxyClientMessage{
+			ClientId:  c.proxyId,
+			Type:      "update-bandwidth",
+			Bandwidth: bandwidth,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClientMessage, callback func(error, api.StringMap)) {
 	c.conn.performAsyncRequest(ctx, msg, func(err error, response *ProxyServerMessage) {
 		if err != nil {
