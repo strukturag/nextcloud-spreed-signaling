@@ -1989,6 +1989,12 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling13(in *jle
 			} else {
 				out.RtcpPort = int(in.Int())
 			}
+		case "bandwidth":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Bandwidth = api.Bandwidth(in.Uint64())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -2067,6 +2073,11 @@ func easyjson1c8542dbEncodeGithubComStrukturagNextcloudSpreedSignaling13(out *jw
 		const prefix string = ",\"rtcpPort\":"
 		out.RawString(prefix)
 		out.Int(int(in.RtcpPort))
+	}
+	if in.Bandwidth != 0 {
+		const prefix string = ",\"bandwidth\":"
+		out.RawString(prefix)
+		out.Uint64(uint64(in.Bandwidth))
 	}
 	out.RawByte('}')
 }
