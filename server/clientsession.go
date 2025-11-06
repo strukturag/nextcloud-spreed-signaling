@@ -53,6 +53,10 @@ var (
 	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
 	// feature is returned by the capabilities endpoint.
 	PathToOcsSignalingBackend = "ocs/v2.php/apps/spreed/api/v1/signaling/backend"
+
+	// minBandwidthOfActivePublisher is the bandwidth a publisher must be sending
+	// to be counted as "active".
+	minBandwidthOfActivePublisher = api.BandwidthFromBits(64 * 1024) // +checklocksignore: Global readonly variable.
 )
 
 // ResponseHandlerFunc will return "true" has been fully processed.
@@ -1662,7 +1666,9 @@ func (s *ClientSession) Bandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo) {
 
 				bandwidth.Received += bw.Received
 				bandwidth.Sent += bw.Sent
-				publishers++
+				if bw.Received >= minBandwidthOfActivePublisher {
+					publishers++
+				}
 			}
 		}
 	}
