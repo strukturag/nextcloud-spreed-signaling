@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -248,6 +249,7 @@ func (s *janusEventSender) SendSingle(t *testing.T, conn *websocket.Conn) {
 	require.Len(s.events, 1)
 
 	require.NoError(conn.WriteJSON(s.events[0]))
+	s.events = nil
 }
 
 func (s *janusEventSender) Send(t *testing.T, conn *websocket.Conn) {
@@ -255,6 +257,7 @@ func (s *janusEventSender) Send(t *testing.T, conn *websocket.Conn) {
 
 	require := require.New(t)
 	require.NoError(conn.WriteJSON(s.events))
+	s.events = nil
 }
 
 func (s *janusEventSender) AddEvent(t *testing.T, eventType int, eventSubtype int, handleId uint64, event any) {
@@ -493,7 +496,6 @@ func TestJanusEventsHandlerDifferentTypes(t *testing.T) {
 }
 
 func TestJanusEventsHandlerNotGrouped(t *testing.T) {
-	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 
@@ -517,16 +519,51 @@ func TestJanusEventsHandlerNotGrouped(t *testing.T) {
 
 	assert.Equal(JanusEventsSubprotocol, response.Header.Get("Sec-WebSocket-Protocol"))
 
+	assertCollectorChangeBy(t, statsJanusMediaNACKTotal.WithLabelValues("audio", "incoming"), 20)
+	assertCollectorChangeBy(t, statsJanusMediaNACKTotal.WithLabelValues("audio", "outgoing"), 30)
+	assertCollectorChangeBy(t, statsJanusMediaRetransmissionsTotal.WithLabelValues("audio"), 40)
+	assertCollectorChangeBy(t, statsJanusMediaLostTotal.WithLabelValues("audio", "local"), 50)
+	assertCollectorChangeBy(t, statsJanusMediaLostTotal.WithLabelValues("audio", "remote"), 60)
+
 	var sender janusEventSender
+	sender.AddEvent(
+		t,
+		JanusEventTypeHandle,
+		0,
+		1,
+		JanusEventHandle{
+			Name: "attached",
+		},
+	)
+	sender.SendSingle(t, conn)
 	sender.AddEvent(
 		t,
 		JanusEventTypeMedia,
 		JanusEventSubTypeMediaStats,
 		1,
 		JanusEventMediaStats{
-			Media:                "audio",
-			BytesSentLastSec:     100,
-			BytesReceivedLastSec: 200,
+			Media:                   "audio",
+			BytesSentLastSec:        100,
+			BytesReceivedLastSec:    200,
+			Codec:                   "opus",
+			RTT:                     10,
+			JitterLocal:             11,
+			JitterRemote:            12,
+			NacksReceived:           20,
+			NacksSent:               30,
+			RetransmissionsReceived: 40,
+			Lost:                    50,
+			LostByRemote:            60,
+		},
+	)
+	sender.SendSingle(t, conn)
+	sender.AddEvent(
+		t,
+		JanusEventTypeHandle,
+		0,
+		1,
+		JanusEventHandle{
+			Name: "detached",
 		},
 	)
 	sender.SendSingle(t, conn)
@@ -584,4 +621,20 @@ func TestJanusEventsHandlerGrouped(t *testing.T) {
 	sender.Send(t, conn)
 
 	assert.NoError(mcu.WaitForUpdates(ctx, 2))
+}
+
+func TestValueCounter(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+
+	var c ValueCounter
+	assert.EqualValues(0, c.Update("foo", 0))
+	assert.EqualValues(10, c.Update("foo", 10))
+	assert.EqualValues(0, c.Update("foo", 10))
+	assert.EqualValues(1, c.Update("foo", 11))
+	assert.EqualValues(10, c.Update("bar", 10))
+	assert.EqualValues(1, c.Update("bar", 11))
+	assert.EqualValues(uint64(math.MaxUint64-10), c.Update("baz", math.MaxUint64-10))
+	assert.EqualValues(20, c.Update("baz", 10))
 }

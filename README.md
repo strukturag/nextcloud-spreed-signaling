@@ -154,7 +154,7 @@ websocket events handler (`janus.eventhandler.wsevh.jcfg`), the module must be
 enabled by setting `enabled` to `true`, the `backend` must be set to the
 websocket url of the signaling server (or signaling proxy) and `subprotocol`
 must be set to `janus-events`.
-At least events of type `media` and `webrtc` must be subscribed.
+At least events of type `handles`, `media` and `webrtc` must be subscribed.
 
 Edit the `server.conf` and enter the URL to the websocket endpoint of Janus in
 the section `[mcu]` and key `url`. During startup, the signaling server will

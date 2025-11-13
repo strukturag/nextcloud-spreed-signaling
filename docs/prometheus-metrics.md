@@ -67,3 +67,8 @@ The following metrics are available:
 | `signaling_mcu_slow_link_total`                   | Counter   | 2.0.5     | Total number of slow link events                                          | `media`, `direction`              |
 | `signaling_mcu_media_rtt`                         | Histogram | 2.0.5     | The roundtrip time of WebRTC media in milliseconds                        | `media`                           |
 | `signaling_mcu_media_jitter`                      | Histogram | 2.0.5     | The jitter of WebRTC media in milliseconds                                | `media`, `origin`                 |
+| `signaling_mcu_media_codecs_total`                | Counter   | 2.0.5     | The total number of codecs                                                | `media`, `codec`                  |
+| `signaling_mcu_media_nacks_total`                 | Counter   | 2.0.5     | The total number of NACKs                                                 | `media`, `direction`              |
+| `signaling_mcu_media_retransmissions_total`       | Counter   | 2.0.5     | The total number of received retransmissions                              | `media`                           |
+| `signaling_mcu_media_bytes_total`                 | Counter   | 2.0.5     | The total number of media bytes sent / received                           | `media`, `direction`              |
+| `signaling_mcu_media_lost_total`                  | Counter   | 2.0.5     | The total number of lost media packets                                    | `media`, `origin`                 |

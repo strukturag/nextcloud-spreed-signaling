@@ -136,6 +136,36 @@ var (
 		Help:      "The jitter of WebRTC media in milliseconds",
 		Buckets:   prometheus.ExponentialBucketsRange(1, 2000, 20),
 	}, []string{"media", "origin"})
+	statsJanusMediaCodecsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "media_codecs_total",
+		Help:      "The total number of codecs",
+	}, []string{"media", "codec"})
+	statsJanusMediaNACKTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "media_nacks_total",
+		Help:      "The total number of NACKs",
+	}, []string{"media", "direction"})
+	statsJanusMediaRetransmissionsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "media_retransmissions_total",
+		Help:      "The total number of received retransmissions",
+	}, []string{"media"})
+	statsJanusMediaBytesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "media_bytes_total",
+		Help:      "The total number of media bytes sent / received",
+	}, []string{"media", "direction"})
+	statsJanusMediaLostTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "media_lost_total",
+		Help:      "The total number of lost media packets",
+	}, []string{"media", "origin"})
 
 	janusMcuStats = []prometheus.Collector{
 		statsJanusBandwidthCurrent,
@@ -146,6 +176,11 @@ var (
 		statsJanusSlowLinkTotal,
 		statsJanusMediaRTT,
 		statsJanusMediaJitter,
+		statsJanusMediaCodecsTotal,
+		statsJanusMediaNACKTotal,
+		statsJanusMediaRetransmissionsTotal,
+		statsJanusMediaBytesTotal,
+		statsJanusMediaLostTotal,
 	}
 
 	statsConnectedProxyBackendsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
