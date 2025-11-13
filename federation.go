@@ -660,6 +660,11 @@ func (c *FederationClient) updateComment(comment api.StringMap, localCloudUrl st
 		changed = true
 	}
 
+	if token, found := api.GetStringMapString[string](comment, "token"); found && c.changeRoomId.Load() && token == c.RemoteRoomId() {
+		comment["token"] = c.RoomId()
+		changed = true
+	}
+
 	if params, found := api.GetStringMapEntry[map[string]any](comment, "messageParameters"); found {
 		localUrl := getCloudUrlWithoutPath(c.session.BackendUrl())
 		remoteUrl := getCloudUrlWithoutPath(c.federation.Load().NextcloudUrl)

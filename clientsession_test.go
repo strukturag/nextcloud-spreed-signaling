@@ -204,6 +204,7 @@ func TestFeatureChatRelay(t *testing.T) {
 				"lala": map[string]any{
 					"one": "eins",
 				},
+				"token": roomId,
 			}
 			message := api.StringMap{
 				"type": "chat",
@@ -340,6 +341,7 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			require.NotNil(room)
 
 			chatComment := map[string]any{
+				"token":             roomId,
 				"actorId":           hello1.Hello.UserId,
 				"actorType":         "users",
 				"lastEditActorId":   hello1.Hello.UserId,
@@ -370,6 +372,7 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 				},
 			}
 			federatedChatComment := map[string]any{
+				"token":             federatedRoomId,
 				"actorId":           hello1.Hello.UserId + "@" + getCloudUrl(server1.URL),
 				"actorType":         "federated_users",
 				"lastEditActorId":   hello1.Hello.UserId + "@" + getCloudUrl(server1.URL),
