@@ -39,6 +39,10 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
+func TestMcuJanusStats(t *testing.T) {
+	collectAndLint(t, janusMcuStats...)
+}
+
 type TestJanusHandle struct {
 	id uint64
 
