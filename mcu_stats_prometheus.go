@@ -128,6 +128,20 @@ var (
 		Name:      "slow_link_total",
 		Help:      "Total number of slow link events",
 	}, []string{"media", "direction"})
+	statsJanusMediaRTT = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "media_rtt",
+		Help:      "The roundtrip time of WebRTC media in milliseconds",
+		Buckets:   prometheus.ExponentialBucketsRange(1, 10000, 25),
+	}, []string{"media"})
+	statsJanusMediaJitter = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "media_jitter",
+		Help:      "The jitter of WebRTC media in milliseconds",
+		Buckets:   prometheus.ExponentialBucketsRange(1, 2000, 20),
+	}, []string{"media", "origin"})
 
 	janusMcuStats = []prometheus.Collector{
 		statsJanusBandwidthCurrent,
@@ -137,6 +151,8 @@ var (
 		statsJanusICEStateTotal,
 		statsJanusDTLSStateTotal,
 		statsJanusSlowLinkTotal,
+		statsJanusMediaRTT,
+		statsJanusMediaJitter,
 	}
 
 	statsConnectedProxyBackendsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{

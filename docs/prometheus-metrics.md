@@ -66,3 +66,5 @@ The following metrics are available:
 | `signaling_mcu_ice_state_total`                   | Counter   | 2.0.5     | Total number of ICE connection states                                     | `state`                           |
 | `signaling_mcu_dtls_state_total`                  | Counter   | 2.0.5     | Total number of DTLS connection states                                    | `state`                           |
 | `signaling_mcu_slow_link_total`                   | Counter   | 2.0.5     | Total number of slow link events                                          | `media`, `direction`              |
+| `signaling_mcu_media_rtt`                         | Histogram | 2.0.5     | The roundtrip time of WebRTC media in milliseconds                        | `media`                           |
+| `signaling_mcu_media_jitter`                      | Histogram | 2.0.5     | The jitter of WebRTC media in milliseconds                                | `media`, `origin`                 |

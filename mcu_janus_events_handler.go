@@ -757,6 +757,15 @@ func (h *JanusEventsHandler) processEvent(event JanusEvent) {
 		}
 		statsJanusSlowLinkTotal.WithLabelValues(evt.Media, direction).Inc()
 	case *JanusEventMediaStats:
+		if rtt := evt.RTT; rtt > 0 {
+			statsJanusMediaRTT.WithLabelValues(evt.Media).Observe(float64(rtt))
+		}
+		if jitter := evt.JitterLocal; jitter > 0 {
+			statsJanusMediaJitter.WithLabelValues(evt.Media, "local").Observe(float64(jitter))
+		}
+		if jitter := evt.JitterRemote; jitter > 0 {
+			statsJanusMediaJitter.WithLabelValues(evt.Media, "remote").Observe(float64(jitter))
+		}
 		h.mcu.UpdateBandwidth(event.HandleId, evt.Media, api.BandwidthFromBytes(uint64(evt.BytesSentLastSec)), api.BandwidthFromBytes(uint64(evt.BytesReceivedLastSec)))
 	}
 }
