@@ -92,18 +92,12 @@ var (
 		Name:      "bandwidth",
 		Help:      "The current bandwidth in bytes per second",
 	}, []string{"direction"})
-	statsJanusSelectedLocalCandidateTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+	statsJanusSelectedCandidateTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "signaling",
 		Subsystem: "mcu",
-		Name:      "selected_local_candidate_total",
-		Help:      "Total number of selected local candidates",
-	}, []string{"type", "transport", "family"})
-	statsJanusSelectedRemoteCandidateTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "signaling",
-		Subsystem: "mcu",
-		Name:      "selected_remote_candidate_total",
-		Help:      "Total number of selected remote candidates",
-	}, []string{"type", "transport", "family"})
+		Name:      "selected_candidate_total",
+		Help:      "Total number of selected candidates",
+	}, []string{"origin", "type", "transport", "family"})
 	statsJanusPeerConnectionStateTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "signaling",
 		Subsystem: "mcu",
@@ -145,8 +139,7 @@ var (
 
 	janusMcuStats = []prometheus.Collector{
 		statsJanusBandwidthCurrent,
-		statsJanusSelectedLocalCandidateTotal,
-		statsJanusSelectedRemoteCandidateTotal,
+		statsJanusSelectedCandidateTotal,
 		statsJanusPeerConnectionStateTotal,
 		statsJanusICEStateTotal,
 		statsJanusDTLSStateTotal,

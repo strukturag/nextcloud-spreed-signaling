@@ -745,8 +745,8 @@ func (h *JanusEventsHandler) processEvent(event JanusEvent) {
 	case *JanusEventWebRTCPeerConnection:
 		statsJanusPeerConnectionStateTotal.WithLabelValues(evt.Connection, evt.Reason).Inc()
 	case *JanusEventWebRTCSelectedPair:
-		statsJanusSelectedLocalCandidateTotal.WithLabelValues(evt.Candidates.Local.Type, evt.Candidates.Local.Transport, fmt.Sprintf("ipv%d", evt.Candidates.Local.Family)).Inc()
-		statsJanusSelectedRemoteCandidateTotal.WithLabelValues(evt.Candidates.Remote.Type, evt.Candidates.Remote.Transport, fmt.Sprintf("ipv%d", evt.Candidates.Remote.Family)).Inc()
+		statsJanusSelectedCandidateTotal.WithLabelValues("local", evt.Candidates.Local.Type, evt.Candidates.Local.Transport, fmt.Sprintf("ipv%d", evt.Candidates.Local.Family)).Inc()
+		statsJanusSelectedCandidateTotal.WithLabelValues("remote", evt.Candidates.Remote.Type, evt.Candidates.Remote.Transport, fmt.Sprintf("ipv%d", evt.Candidates.Remote.Family)).Inc()
 	case *JanusEventMediaSlowLink:
 		var direction string
 		// "uplink" is Janus -> client, "downlink" is client -> Janus.

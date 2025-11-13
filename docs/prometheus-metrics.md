@@ -60,8 +60,7 @@ The following metrics are available:
 | `signaling_mcu_backend_bandwidth`                 | Gauge     | 2.0.5     | The current bandwidth of signaling proxy backends in bytes per second     | `url`, `direction`                |
 | `signaling_proxy_load`                            | Gauge     | 2.0.5     | The current load of the signaling proxy                                   |                                   |
 | `signaling_client_rtt`                            | Histogram | 2.0.5     | The roundtrip time of WebSocket ping messages in milliseconds             |                                   |
-| `signaling_mcu_selected_local_candidate_total`    | Counter   | 2.0.5     | Total number of selected local candidates                                 | `type`, `transport`, `family`     |
-| `signaling_mcu_selected_remote_candidate_total`   | Counter   | 2.0.5     | Total number of selected local candidates                                 | `type`, `transport`, `family`     |
+| `signaling_mcu_selected_candidate_total`          | Counter   | 2.0.5     | Total number of selected candidates                                       | `origin`, `type`, `transport`, `family` |
 | `signaling_mcu_peerconnection_state_total`        | Counter   | 2.0.5     | Total number PeerConnection states                                        | `state`, `reason`                 |
 | `signaling_mcu_ice_state_total`                   | Counter   | 2.0.5     | Total number of ICE connection states                                     | `state`                           |
 | `signaling_mcu_dtls_state_total`                  | Counter   | 2.0.5     | Total number of DTLS connection states                                    | `state`                           |
