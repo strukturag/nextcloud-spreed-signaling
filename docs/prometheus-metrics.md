@@ -65,3 +65,4 @@ The following metrics are available:
 | `signaling_mcu_peerconnection_state_total`        | Counter   | 2.0.5     | Total number PeerConnection states                                        | `state`, `reason`                 |
 | `signaling_mcu_ice_state_total`                   | Counter   | 2.0.5     | Total number of ICE connection states                                     | `state`                           |
 | `signaling_mcu_dtls_state_total`                  | Counter   | 2.0.5     | Total number of DTLS connection states                                    | `state`                           |
+| `signaling_mcu_slow_link_total`                   | Counter   | 2.0.5     | Total number of slow link events                                          | `media`, `direction`              |

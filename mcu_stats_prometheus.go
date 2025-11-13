@@ -122,6 +122,12 @@ var (
 		Name:      "dtls_state_total",
 		Help:      "Total number of DTLS connection states",
 	}, []string{"state"})
+	statsJanusSlowLinkTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "mcu",
+		Name:      "slow_link_total",
+		Help:      "Total number of slow link events",
+	}, []string{"media", "direction"})
 
 	janusMcuStats = []prometheus.Collector{
 		statsJanusBandwidthCurrent,
@@ -130,6 +136,7 @@ var (
 		statsJanusPeerConnectionStateTotal,
 		statsJanusICEStateTotal,
 		statsJanusDTLSStateTotal,
+		statsJanusSlowLinkTotal,
 	}
 
 	statsConnectedProxyBackendsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
