@@ -117,10 +117,11 @@ type ProxyServer struct {
 	stopped atomic.Bool
 	load    atomic.Uint64
 
-	maxIncoming     api.AtomicBandwidth
-	currentIncoming api.AtomicBandwidth
-	maxOutgoing     api.AtomicBandwidth
-	currentOutgoing api.AtomicBandwidth
+	maxIncoming       api.AtomicBandwidth
+	currentIncoming   api.AtomicBandwidth
+	maxOutgoing       api.AtomicBandwidth
+	currentOutgoing   api.AtomicBandwidth
+	currentBandwidths atomic.Pointer[map[string]*signaling.McuClientBandwidthInfo]
 
 	shutdownChannel   chan struct{}
 	shutdownScheduled atomic.Bool
@@ -521,26 +522,32 @@ func (s *ProxyServer) newLoadEvent(load uint64, incoming api.Bandwidth, outgoing
 }
 
 func (s *ProxyServer) updateLoad() {
-	load, incoming, outgoing := s.GetClientsLoad()
+	load, incoming, outgoing, bandwidths := s.GetClientsLoad()
 	oldLoad := s.load.Swap(load)
 	oldIncoming := s.currentIncoming.Swap(incoming)
 	oldOutgoing := s.currentOutgoing.Swap(outgoing)
-	if oldLoad == load && oldIncoming == incoming && oldOutgoing == outgoing {
+	if len(bandwidths) == 0 {
+		s.currentBandwidths.Store(nil)
+	} else {
+		s.currentBandwidths.Store(&bandwidths)
+	}
+	if oldLoad == load && oldIncoming == incoming && oldOutgoing == outgoing && len(bandwidths) == 0 {
 		return
 	}
 
 	statsLoadCurrent.Set(float64(load))
-	s.sendLoadToAll(load, incoming, outgoing)
+	s.sendLoadToAll(load, incoming, outgoing, bandwidths)
 }
 
-func (s *ProxyServer) sendLoadToAll(load uint64, incoming api.Bandwidth, outgoing api.Bandwidth) {
+func (s *ProxyServer) sendLoadToAll(load uint64, incoming api.Bandwidth, outgoing api.Bandwidth, bandwidths map[string]*signaling.McuClientBandwidthInfo) {
 	if s.shutdownScheduled.Load() {
 		// Server is scheduled to shutdown, no need to update clients with current load.
 		return
 	}
 
-	msg := s.newLoadEvent(load, incoming, outgoing)
+	loadEvent := s.newLoadEvent(load, incoming, outgoing)
 	s.IterateSessions(func(session *ProxySession) {
+		msg := session.updateLoadEvent(loadEvent, bandwidths)
 		session.sendMessage(msg)
 	})
 }
@@ -641,7 +648,11 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 	oldOutgoing := s.maxOutgoing.Swap(maxOutgoing)
 	if oldIncoming != maxIncoming || oldOutgoing != maxOutgoing {
 		// Notify sessions about updated load / bandwidth usage.
-		go s.sendLoadToAll(s.load.Load(), s.currentIncoming.Load(), s.currentOutgoing.Load())
+		var bandwidths map[string]*signaling.McuClientBandwidthInfo
+		if bw := s.currentBandwidths.Load(); bw != nil {
+			bandwidths = *bw
+		}
+		go s.sendLoadToAll(s.load.Load(), s.currentIncoming.Load(), s.currentOutgoing.Load(), bandwidths)
 	}
 
 	s.tokens.Reload(config)
@@ -728,7 +739,12 @@ func (s *ProxyServer) onMcuDisconnected() {
 }
 
 func (s *ProxyServer) sendCurrentLoad(session *ProxySession) {
+	var bandwidths map[string]*signaling.McuClientBandwidthInfo
+	if bw := s.currentBandwidths.Load(); bw != nil {
+		bandwidths = *bw
+	}
 	msg := s.newLoadEvent(s.load.Load(), s.currentIncoming.Load(), s.currentOutgoing.Load())
+	msg = session.updateLoadEvent(msg, bandwidths)
 	session.sendMessage(msg)
 }
 
@@ -1202,6 +1218,37 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			},
 		}
 		session.sendMessage(response)
+	case "update-bandwidth":
+		client := s.GetClient(cmd.ClientId)
+		if client == nil {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		clientWithBandwidth, ok := client.(signaling.McuClientWithBandwidth)
+		if !ok {
+			session.sendMessage(message.NewErrorServerMessage(UnknownClient))
+			return
+		}
+
+		if cmd.Bandwidth != 0 {
+			ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+			defer cancel()
+
+			if err := clientWithBandwidth.SetBandwidth(ctx2, cmd.Bandwidth); err != nil {
+				session.sendMessage(message.NewWrappedErrorServerMessage(err))
+				return
+			}
+		}
+
+		response := &signaling.ProxyServerMessage{
+			Id:   message.Id,
+			Type: "command",
+			Command: &signaling.CommandProxyServerMessage{
+				Id: cmd.ClientId,
+			},
+		}
+		session.sendMessage(response)
 	case "publish-remote":
 		client := s.GetClient(cmd.ClientId)
 		if client == nil {
@@ -1577,14 +1624,18 @@ func (s *ProxyServer) HasClients() bool {
 	return len(s.clients) > 0
 }
 
-func (s *ProxyServer) GetClientsLoad() (load uint64, incoming api.Bandwidth, outgoing api.Bandwidth) {
+func (s *ProxyServer) GetClientsLoad() (load uint64, incoming api.Bandwidth, outgoing api.Bandwidth, bandwidths map[string]*signaling.McuClientBandwidthInfo) {
 	s.clientsLock.RLock()
 	defer s.clientsLock.RUnlock()
 
-	for _, c := range s.clients {
+	for id, c := range s.clients {
 		// Use "current" bandwidth usage if supported.
 		if bw, ok := c.(signaling.McuClientWithBandwidth); ok {
 			if bandwidth := bw.Bandwidth(); bandwidth != nil {
+				if bandwidths == nil {
+					bandwidths = make(map[string]*signaling.McuClientBandwidthInfo)
+				}
+				bandwidths[id] = bandwidth
 				incoming += bandwidth.Received
 				outgoing += bandwidth.Sent
 				continue

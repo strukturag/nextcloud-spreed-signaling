@@ -86,6 +86,7 @@ type mcuProxyPubSubCommon struct {
 	proxyId    string
 	conn       *mcuProxyConnection
 	listener   McuListener
+	bandwidth  atomic.Pointer[McuClientBandwidthInfo]
 }
 
 func (c *mcuProxyPubSubCommon) Id() string {
@@ -102,6 +103,33 @@ func (c *mcuProxyPubSubCommon) StreamType() StreamType {
 
 func (c *mcuProxyPubSubCommon) MaxBitrate() api.Bandwidth {
 	return c.maxBitrate
+}
+
+func (c *mcuProxyPubSubCommon) UpdateBandwidth(sent api.Bandwidth, received api.Bandwidth) {
+	c.bandwidth.Store(&McuClientBandwidthInfo{
+		Sent:     sent,
+		Received: received,
+	})
+}
+
+func (c *mcuProxyPubSubCommon) Bandwidth() *McuClientBandwidthInfo {
+	return c.bandwidth.Load()
+}
+
+func (c *mcuProxyPubSubCommon) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error {
+	_, _, err := c.conn.performSyncRequest(ctx, &ProxyClientMessage{
+		Type: "command",
+		Command: &CommandProxyClientMessage{
+			ClientId:  c.proxyId,
+			Type:      "update-bandwidth",
+			Bandwidth: bandwidth,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *mcuProxyPubSubCommon) doSendMessage(ctx context.Context, msg *ProxyClientMessage, callback func(error, api.StringMap)) {
@@ -1073,6 +1101,28 @@ func (c *mcuProxyConnection) processPayload(msg *ProxyServerMessage) {
 	log.Printf("Received payload for unknown client %+v from %s", payload, c)
 }
 
+func (c *mcuProxyConnection) updatePublisherBandwidths(bandwidths map[string]EventProxyServerBandwidth) {
+	c.publishersLock.RLock()
+	defer c.publishersLock.RUnlock()
+
+	for id, pub := range c.publishers {
+		if bw, ok := bandwidths[id]; ok {
+			pub.UpdateBandwidth(bw.Sent, bw.Received)
+		}
+	}
+}
+
+func (c *mcuProxyConnection) updateSubscriberBandwidths(bandwidths map[string]EventProxyServerBandwidth) {
+	c.subscribersLock.RLock()
+	defer c.subscribersLock.RUnlock()
+
+	for id, sub := range c.subscribers {
+		if bw, ok := bandwidths[id]; ok {
+			sub.UpdateBandwidth(bw.Sent, bw.Received)
+		}
+	}
+}
+
 func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 	event := msg.Event
 	switch event.Type {
@@ -1106,6 +1156,10 @@ func (c *mcuProxyConnection) processEvent(msg *ProxyServerMessage) {
 			} else {
 				statsProxyUsageCurrent.WithLabelValues(c.url.String(), "outgoing").Set(0)
 			}
+		}
+		if len(event.ClientBandwidths) > 0 {
+			c.updatePublisherBandwidths(event.ClientBandwidths)
+			c.updateSubscriberBandwidths(event.ClientBandwidths)
 		}
 		return
 	case "shutdown-scheduled":
