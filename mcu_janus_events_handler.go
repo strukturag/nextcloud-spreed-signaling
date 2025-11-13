@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -302,7 +303,8 @@ func (e JanusEventWebRTCDTLS) String() string {
 
 // type=16, subtype=6
 type JanusEventWebRTCPeerConnection struct {
-	Connection string `json:"connection"` // "webrtcup"
+	Connection string `json:"connection"`       // "webrtcup", "hangup"
+	Reason     string `json:"reason,omitempty"` // Only if "connection" == "hangup"
 }
 
 func (e JanusEventWebRTCPeerConnection) String() string {
@@ -373,10 +375,10 @@ type JanusEventMediaStats struct {
 	RTTValues *JanusMediaStatsRTTValues `json:"rtt-values,omitempty"`
 
 	// For all media on all layers
-	PacketsReceived int32 `json:"packets-received"`
-	PacketsSent     int32 `json:"packets-sent"`
-	BytesReceived   int64 `json:"bytes-received"`
-	BytesSent       int64 `json:"bytes-sent"`
+	PacketsReceived uint32 `json:"packets-received"`
+	PacketsSent     uint32 `json:"packets-sent"`
+	BytesReceived   uint64 `json:"bytes-received"`
+	BytesSent       uint64 `json:"bytes-sent"`
 
 	// For layer 0 if REMB is enabled
 	REMBBitrate uint32 `json:"remb-bitrate"`
@@ -531,6 +533,91 @@ type McuEventHandler interface {
 	UpdateBandwidth(handle uint64, media string, sent api.Bandwidth, received api.Bandwidth)
 }
 
+type ValueCounter struct {
+	values map[string]uint64
+}
+
+func (c *ValueCounter) Update(key string, value uint64) uint64 {
+	if c.values == nil {
+		c.values = make(map[string]uint64)
+	}
+
+	var delta uint64
+	prev := c.values[key]
+	if value == prev {
+		return 0
+	} else if value < prev {
+		// Wrap around
+		c.values[key] = 0
+		delta = math.MaxUint64 - prev + value
+	} else {
+		delta = value - prev
+	}
+
+	c.values[key] += delta
+	return delta
+}
+
+type handleStats struct {
+	codecs map[string]string
+
+	bytesReceived ValueCounter
+	bytesSent     ValueCounter
+
+	nacksReceived ValueCounter
+	nacksSent     ValueCounter
+
+	lostLocal  ValueCounter
+	lostRemote ValueCounter
+
+	retransmissionsReceived ValueCounter
+}
+
+func (h *handleStats) Codec(media string, codec string) {
+	if h.codecs == nil {
+		h.codecs = make(map[string]string)
+	}
+	if h.codecs[media] != codec {
+		statsJanusMediaCodecsTotal.WithLabelValues(media, codec).Inc()
+		h.codecs[media] = codec
+	}
+}
+
+func (h *handleStats) BytesReceived(media string, bytes uint64) {
+	delta := h.bytesReceived.Update(media, bytes)
+	statsJanusMediaBytesTotal.WithLabelValues(media, "incoming").Add(float64(delta))
+}
+
+func (h *handleStats) BytesSent(media string, bytes uint64) {
+	delta := h.bytesSent.Update(media, bytes)
+	statsJanusMediaBytesTotal.WithLabelValues(media, "outgoing").Add(float64(delta))
+}
+
+func (h *handleStats) NacksReceived(media string, nacks uint64) {
+	delta := h.nacksReceived.Update(media, nacks)
+	statsJanusMediaNACKTotal.WithLabelValues(media, "incoming").Add(float64(delta))
+}
+
+func (h *handleStats) NacksSent(media string, nacks uint64) {
+	delta := h.nacksSent.Update(media, nacks)
+	statsJanusMediaNACKTotal.WithLabelValues(media, "outgoing").Add(float64(delta))
+}
+
+func (h *handleStats) RetransmissionsReceived(media string, retransmissions uint64) {
+	delta := h.retransmissionsReceived.Update(media, retransmissions)
+	statsJanusMediaRetransmissionsTotal.WithLabelValues(media).Add(float64(delta))
+}
+
+func (h *handleStats) LostLocal(media string, lost uint64) {
+	delta := h.lostLocal.Update(media, lost)
+	statsJanusMediaLostTotal.WithLabelValues(media, "local").Add(float64(delta))
+}
+
+func (h *handleStats) LostRemote(media string, lost uint64) {
+	delta := h.lostRemote.Update(media, lost)
+	statsJanusMediaLostTotal.WithLabelValues(media, "remote").Add(float64(delta))
+}
+
 type JanusEventsHandler struct {
 	mu sync.Mutex
 
@@ -540,6 +627,9 @@ type JanusEventsHandler struct {
 	conn  *websocket.Conn
 	addr  string
 	agent string
+
+	supportsHandles bool
+	handleStats     map[uint64]*handleStats
 
 	events chan JanusEvent
 }
@@ -729,6 +819,32 @@ func (h *JanusEventsHandler) processEvents() {
 	}
 }
 
+func (h *JanusEventsHandler) deleteHandleStats(event JanusEvent) {
+	if event.HandleId != 0 {
+		delete(h.handleStats, event.HandleId)
+	}
+}
+
+func (h *JanusEventsHandler) getHandleStats(event JanusEvent) *handleStats {
+	if !h.supportsHandles {
+		// Only create per-handle stats if enabled in Janus. Otherwise the
+		// handleStats map will never be cleaned up.
+		return nil
+	} else if event.HandleId == 0 {
+		return nil
+	}
+
+	if h.handleStats == nil {
+		h.handleStats = make(map[uint64]*handleStats)
+	}
+	stats, found := h.handleStats[event.HandleId]
+	if !found {
+		stats = &handleStats{}
+		h.handleStats[event.HandleId] = stats
+	}
+	return stats
+}
+
 func (h *JanusEventsHandler) processEvent(event JanusEvent) {
 	evt, err := event.Decode()
 	if err != nil {
@@ -737,7 +853,77 @@ func (h *JanusEventsHandler) processEvent(event JanusEvent) {
 	}
 
 	switch evt := evt.(type) {
+	case *JanusEventHandle:
+		switch evt.Name {
+		case "attached":
+			h.supportsHandles = true
+		case "detached":
+			h.deleteHandleStats(event)
+		}
+	case *JanusEventWebRTCICE:
+		statsJanusICEStateTotal.WithLabelValues(evt.ICE).Inc()
+	case *JanusEventWebRTCDTLS:
+		statsJanusDTLSStateTotal.WithLabelValues(evt.DTLS).Inc()
+	case *JanusEventWebRTCPeerConnection:
+		statsJanusPeerConnectionStateTotal.WithLabelValues(evt.Connection, evt.Reason).Inc()
+	case *JanusEventWebRTCSelectedPair:
+		statsJanusSelectedCandidateTotal.WithLabelValues("local", evt.Candidates.Local.Type, evt.Candidates.Local.Transport, fmt.Sprintf("ipv%d", evt.Candidates.Local.Family)).Inc()
+		statsJanusSelectedCandidateTotal.WithLabelValues("remote", evt.Candidates.Remote.Type, evt.Candidates.Remote.Transport, fmt.Sprintf("ipv%d", evt.Candidates.Remote.Family)).Inc()
+	case *JanusEventMediaSlowLink:
+		var direction string
+		// "uplink" is Janus -> client, "downlink" is client -> Janus.
+		if evt.SlowLink == "uplink" {
+			direction = "outgoing"
+		} else {
+			direction = "incoming"
+		}
+		statsJanusSlowLinkTotal.WithLabelValues(evt.Media, direction).Inc()
 	case *JanusEventMediaStats:
+		if rtt := evt.RTT; rtt > 0 {
+			statsJanusMediaRTT.WithLabelValues(evt.Media).Observe(float64(rtt))
+		}
+		if jitter := evt.JitterLocal; jitter > 0 {
+			statsJanusMediaJitter.WithLabelValues(evt.Media, "local").Observe(float64(jitter))
+		}
+		if jitter := evt.JitterRemote; jitter > 0 {
+			statsJanusMediaJitter.WithLabelValues(evt.Media, "remote").Observe(float64(jitter))
+		}
+		if codec := evt.Codec; codec != "" {
+			if stats := h.getHandleStats(event); stats != nil {
+				stats.Codec(evt.Media, codec)
+			}
+		}
+		if stats := h.getHandleStats(event); stats != nil {
+			stats.BytesReceived(evt.Media, evt.BytesReceived)
+		}
+		if stats := h.getHandleStats(event); stats != nil {
+			stats.BytesSent(evt.Media, evt.BytesSent)
+		}
+		if nacks := evt.NacksReceived; nacks > 0 {
+			if stats := h.getHandleStats(event); stats != nil {
+				stats.NacksReceived(evt.Media, uint64(nacks))
+			}
+		}
+		if nacks := evt.NacksSent; nacks > 0 {
+			if stats := h.getHandleStats(event); stats != nil {
+				stats.NacksSent(evt.Media, uint64(nacks))
+			}
+		}
+		if retransmissions := evt.RetransmissionsReceived; retransmissions > 0 {
+			if stats := h.getHandleStats(event); stats != nil {
+				stats.RetransmissionsReceived(evt.Media, uint64(retransmissions))
+			}
+		}
+		if lost := evt.Lost; lost > 0 {
+			if stats := h.getHandleStats(event); stats != nil {
+				stats.LostLocal(evt.Media, uint64(lost))
+			}
+		}
+		if lost := evt.LostByRemote; lost > 0 {
+			if stats := h.getHandleStats(event); stats != nil {
+				stats.LostRemote(evt.Media, uint64(lost))
+			}
+		}
 		h.mcu.UpdateBandwidth(event.HandleId, evt.Media, api.BandwidthFromBytes(uint64(evt.BytesSentLastSec)), api.BandwidthFromBytes(uint64(evt.BytesReceivedLastSec)))
 	}
 }

@@ -353,6 +353,7 @@ func (c *Client) ReadPump() {
 					log.Printf("Client from %s has RTT of %d ms (%s)", addr, rtt_ms, rtt)
 				}
 			}
+			statsClientRTT.Observe(float64(rtt.Milliseconds()))
 			c.getHandler().OnRTTReceived(c, rtt)
 		}
 		return nil

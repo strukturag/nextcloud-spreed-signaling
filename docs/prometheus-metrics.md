@@ -59,3 +59,16 @@ The following metrics are available:
 | `signaling_mcu_backend_usage`                     | Gauge     | 2.0.5     | The current usage of signaling proxy backends in percent                  | `url`, `direction`                |
 | `signaling_mcu_backend_bandwidth`                 | Gauge     | 2.0.5     | The current bandwidth of signaling proxy backends in bytes per second     | `url`, `direction`                |
 | `signaling_proxy_load`                            | Gauge     | 2.0.5     | The current load of the signaling proxy                                   |                                   |
+| `signaling_client_rtt`                            | Histogram | 2.0.5     | The roundtrip time of WebSocket ping messages in milliseconds             |                                   |
+| `signaling_mcu_selected_candidate_total`          | Counter   | 2.0.5     | Total number of selected candidates                                       | `origin`, `type`, `transport`, `family` |
+| `signaling_mcu_peerconnection_state_total`        | Counter   | 2.0.5     | Total number PeerConnection states                                        | `state`, `reason`                 |
+| `signaling_mcu_ice_state_total`                   | Counter   | 2.0.5     | Total number of ICE connection states                                     | `state`                           |
+| `signaling_mcu_dtls_state_total`                  | Counter   | 2.0.5     | Total number of DTLS connection states                                    | `state`                           |
+| `signaling_mcu_slow_link_total`                   | Counter   | 2.0.5     | Total number of slow link events                                          | `media`, `direction`              |
+| `signaling_mcu_media_rtt`                         | Histogram | 2.0.5     | The roundtrip time of WebRTC media in milliseconds                        | `media`                           |
+| `signaling_mcu_media_jitter`                      | Histogram | 2.0.5     | The jitter of WebRTC media in milliseconds                                | `media`, `origin`                 |
+| `signaling_mcu_media_codecs_total`                | Counter   | 2.0.5     | The total number of codecs                                                | `media`, `codec`                  |
+| `signaling_mcu_media_nacks_total`                 | Counter   | 2.0.5     | The total number of NACKs                                                 | `media`, `direction`              |
+| `signaling_mcu_media_retransmissions_total`       | Counter   | 2.0.5     | The total number of received retransmissions                              | `media`                           |
+| `signaling_mcu_media_bytes_total`                 | Counter   | 2.0.5     | The total number of media bytes sent / received                           | `media`, `direction`              |
+| `signaling_mcu_media_lost_total`                  | Counter   | 2.0.5     | The total number of lost media packets                                    | `media`, `origin`                 |

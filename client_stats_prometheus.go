@@ -32,9 +32,17 @@ var (
 		Name:      "countries_total",
 		Help:      "The total number of connections by country",
 	}, []string{"country"})
+	statsClientRTT = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "signaling",
+		Subsystem: "client",
+		Name:      "rtt",
+		Help:      "The roundtrip time of WebSocket ping messages in milliseconds",
+		Buckets:   prometheus.ExponentialBucketsRange(1, 30000, 50),
+	})
 
 	clientStats = []prometheus.Collector{
 		statsClientCountries,
+		statsClientRTT,
 	}
 )
 

@@ -42,6 +42,22 @@ func ResetStatsValue[T prometheus.Gauge](t *testing.T, collector T) {
 	})
 }
 
+func assertCollectorChangeBy(t *testing.T, collector prometheus.Collector, delta float64) {
+	t.Helper()
+
+	ch := make(chan *prometheus.Desc, 1)
+	collector.Describe(ch)
+	desc := <-ch
+
+	before := testutil.ToFloat64(collector)
+	t.Cleanup(func() {
+		t.Helper()
+
+		after := testutil.ToFloat64(collector)
+		assert.EqualValues(t, delta, after-before, "failed for %s", desc)
+	})
+}
+
 func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64) {
 	// Make sure test is not executed with "t.Parallel()"
 	t.Setenv("PARALLEL_CHECK", "1")
