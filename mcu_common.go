@@ -105,19 +105,21 @@ func (s *mcuCommonSettings) setTimeout(timeout time.Duration) {
 }
 
 func (s *mcuCommonSettings) load(config *goconf.ConfigFile) error {
-	maxStreamBitrate, _ := config.GetInt("mcu", "maxstreambitrate")
-	if maxStreamBitrate <= 0 {
-		maxStreamBitrate = int(defaultMaxStreamBitrate.Bits())
+	maxStreamBitrateValue, _ := config.GetInt("mcu", "maxstreambitrate")
+	if maxStreamBitrateValue <= 0 {
+		maxStreamBitrateValue = int(defaultMaxStreamBitrate.Bits())
 	}
-	log.Printf("Maximum bandwidth %d bits/sec per publishing stream", maxStreamBitrate)
-	s.maxStreamBitrate.Store(api.BandwidthFromBits(uint64(maxStreamBitrate)))
+	maxStreamBitrate := api.BandwidthFromBits(uint64(maxStreamBitrateValue))
+	log.Printf("Maximum bandwidth %s per publishing stream", maxStreamBitrate)
+	s.maxStreamBitrate.Store(maxStreamBitrate)
 
-	maxScreenBitrate, _ := config.GetInt("mcu", "maxscreenbitrate")
-	if maxScreenBitrate <= 0 {
-		maxScreenBitrate = int(defaultMaxScreenBitrate.Bits())
+	maxScreenBitrateValue, _ := config.GetInt("mcu", "maxscreenbitrate")
+	if maxScreenBitrateValue <= 0 {
+		maxScreenBitrateValue = int(defaultMaxScreenBitrate.Bits())
 	}
-	log.Printf("Maximum bandwidth %d bits/sec per screensharing stream", maxScreenBitrate)
-	s.maxScreenBitrate.Store(api.BandwidthFromBits(uint64(maxScreenBitrate)))
+	maxScreenBitrate := api.BandwidthFromBits(uint64(maxScreenBitrateValue))
+	log.Printf("Maximum bandwidth %s per screensharing stream", maxScreenBitrate)
+	s.maxScreenBitrate.Store(maxScreenBitrate)
 	return nil
 }
 

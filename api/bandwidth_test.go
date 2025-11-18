@@ -56,3 +56,54 @@ func TestBandwidth(t *testing.T) {
 	assert.EqualValues(1000, old)
 	assert.EqualValues(2000, a.Load())
 }
+
+func TestBandwidthString(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+	testcases := []struct {
+		value    Bandwidth
+		expected string
+	}{
+		{
+			0,
+			"unlimited",
+		},
+		{
+			BandwidthFromBits(123),
+			"123 bps",
+		},
+		{
+			BandwidthFromBits(1023),
+			"1023 bps",
+		},
+		{
+			BandwidthFromBits(1024),
+			"1 Kbps",
+		},
+		{
+			BandwidthFromBits(1024 + 512),
+			"1.50 Kbps",
+		},
+		{
+			BandwidthFromBits(1024*1024 - 1),
+			"1023.99 Kbps",
+		},
+		{
+			BandwidthFromBits(1024 * 1024),
+			"1 Mbps",
+		},
+		{
+			BandwidthFromBits(1024*1024*1024 - 1),
+			"1023.99 Mbps",
+		},
+		{
+			BandwidthFromBits(1024 * 1024 * 1024),
+			"1 Gbps",
+		},
+	}
+
+	for idx, tc := range testcases {
+		assert.Equal(tc.expected, tc.value.String(), "failed for testcase %d (%d)", idx, tc.value.Bits())
+	}
+}

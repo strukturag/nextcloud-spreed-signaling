@@ -190,26 +190,21 @@ func GetLocalIP() (string, error) {
 }
 
 func getTargetBandwidths(config *goconf.ConfigFile) (api.Bandwidth, api.Bandwidth) {
-	maxIncoming, _ := config.GetInt("bandwidth", "incoming")
-	if maxIncoming < 0 {
-		maxIncoming = 0
+	maxIncomingValue, _ := config.GetInt("bandwidth", "incoming")
+	if maxIncomingValue < 0 {
+		maxIncomingValue = 0
 	}
-	if maxIncoming > 0 {
-		log.Printf("Target bandwidth for incoming streams: %d MBit/s", maxIncoming)
-	} else {
-		log.Printf("Target bandwidth for incoming streams: unlimited")
-	}
-	maxOutgoing, _ := config.GetInt("bandwidth", "outgoing")
-	if maxOutgoing < 0 {
-		maxOutgoing = 0
-	}
-	if maxIncoming > 0 {
-		log.Printf("Target bandwidth for outgoing streams: %d MBit/s", maxOutgoing)
-	} else {
-		log.Printf("Target bandwidth for outgoing streams: unlimited")
-	}
+	maxIncoming := api.BandwidthFromMegabits(uint64(maxIncomingValue))
+	log.Printf("Target bandwidth for incoming streams: %s", maxIncoming)
 
-	return api.BandwidthFromMegabits(uint64(maxIncoming)), api.BandwidthFromMegabits(uint64(maxOutgoing))
+	maxOutgoingValue, _ := config.GetInt("bandwidth", "outgoing")
+	if maxOutgoingValue < 0 {
+		maxOutgoingValue = 0
+	}
+	maxOutgoing := api.BandwidthFromMegabits(uint64(maxOutgoingValue))
+	log.Printf("Target bandwidth for outgoing streams: %s", maxOutgoing)
+
+	return maxIncoming, maxOutgoing
 }
 
 func NewProxyServer(r *mux.Router, version string, config *goconf.ConfigFile) (*ProxyServer, error) {
