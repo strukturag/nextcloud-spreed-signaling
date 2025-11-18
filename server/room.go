@@ -106,10 +106,11 @@ type Room struct {
 
 	transientData *api.TransientData
 
-	publishersCount     atomic.Uint32
-	subscribersCount    atomic.Uint32
-	bandwidth           atomic.Pointer[sfu.ClientBandwidthInfo]
-	bandwidthConfigured bool
+	allPublishersCount    atomic.Uint32
+	localPublishersCount  atomic.Uint32
+	localSubscribersCount atomic.Uint32
+	localBandwidth        atomic.Pointer[sfu.ClientBandwidthInfo]
+	bandwidthConfigured   bool
 }
 
 func getRoomIdForBackend(id string, backend *talk.Backend) string {
@@ -1366,8 +1367,9 @@ func (r *Room) fetchInitialTransientData() {
 	}
 }
 
+// Bandwidth returns information on the local streams.
 func (r *Room) Bandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo) {
-	return r.publishersCount.Load(), r.subscribersCount.Load(), r.bandwidth.Load()
+	return r.localPublishersCount.Load(), r.localSubscribersCount.Load(), r.localBandwidth.Load()
 }
 
 func (r *Room) getLocalBandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo, []SessionWithBandwidth) {
@@ -1397,9 +1399,9 @@ func (r *Room) getLocalBandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo, []
 		}
 	}
 
-	r.publishersCount.Store(publishers)
-	r.subscribersCount.Store(subscribers)
-	r.bandwidth.Store(bandwidth)
+	r.localPublishersCount.Store(publishers)
+	r.localSubscribersCount.Store(subscribers)
+	r.localBandwidth.Store(bandwidth)
 	return publishers, subscribers, bandwidth, publisherSessions
 }
 
@@ -1466,7 +1468,7 @@ func (r *Room) GetNextPublisherBandwidth(streamType sfu.StreamType) api.Bandwidt
 		return maxStreamBitrate
 	}
 
-	perPublisher := api.BandwidthFromBits(bandwidthPerRoom.Bits() / max(uint64(r.publishersCount.Load()+1), 2))
+	perPublisher := api.BandwidthFromBits(bandwidthPerRoom.Bits() / max(uint64(r.allPublishersCount.Load()+1), 2))
 	if maxStreamBitrate > 0 && perPublisher > maxStreamBitrate {
 		perPublisher = maxStreamBitrate
 	}
@@ -1520,13 +1522,16 @@ func (r *Room) updateBandwidth() *sync.WaitGroup {
 				Sent:     remote.Sent,
 			}
 		} else {
-			bandwidth.Received += remote.Received
-			bandwidth.Sent += remote.Sent
+			bandwidth = &sfu.ClientBandwidthInfo{
+				Received: bandwidth.Received + remote.Received,
+				Sent:     bandwidth.Sent + remote.Sent,
+			}
 		}
 		publishers += remotePublishers
 		subscribers += remoteSubscribers
 	}
 
+	r.allPublishersCount.Store(publishers)
 	if publishers != 0 || subscribers != 0 || bandwidth != nil {
 		perPublisher := api.BandwidthFromBits(bandwidthPerRoom.Bits() / max(uint64(publishers), 2))
 		if maxBitrate := r.Backend().MaxStreamBitrate(); maxBitrate > 0 && perPublisher > maxBitrate {

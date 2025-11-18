@@ -483,13 +483,11 @@ func TestRoom_BandwidthNoPublishers(t *testing.T) {
 	assert.Nil(bw)
 }
 
-func TestRoom_Bandwidth(t *testing.T) {
+func TestRoom_LowBandwidthNoPublisher(t *testing.T) {
 	t.Parallel()
-	logger := logtest.NewLoggerForTest(t)
-	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
-	hub, _, router, server := CreateHubForTestWithConfig(t, func(s *httptest.Server) (*goconf.ConfigFile, error) {
+	hub, _, _, server := CreateHubForTestWithConfig(t, func(s *httptest.Server) (*goconf.ConfigFile, error) {
 		config, err := getTestConfig(s)
 		if err != nil {
 			return nil, err
@@ -507,13 +505,80 @@ func TestRoom_Bandwidth(t *testing.T) {
 	mcu := sfutest.NewSFU(t)
 	hub.SetMcu(mcu)
 
-	config, err := getTestConfig(server)
-	require.NoError(err)
-	b, err := NewBackendServer(ctx, config, hub, "no-version")
-	require.NoError(err)
-	require.NoError(b.Start(router))
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
 
-	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello.Hello.SessionId,
+	}, api.MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}))
+	require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
+
+	pub := mcu.GetPublisher(hello.Hello.SessionId)
+	require.NotNil(pub)
+
+	// A publisher must send at least 64 Kbit/s to be counted as "active".
+	pub.SetBandwidthInfo(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(0),
+		Received: api.BandwidthFromBits(60000),
+	})
+
+	room.updateBandwidth().Wait()
+	pubs, subs, bw := room.Bandwidth()
+	assert.EqualValues(0, pubs)
+	assert.EqualValues(0, subs)
+	assert.Equal(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(0),
+		Received: api.BandwidthFromBits(60000),
+	}, bw)
+
+	assert.EqualValues(0, pub.GetBandwidth())
+	assert.EqualValues(1234567, room.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
+	assert.EqualValues(500000, room.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
+}
+
+func TestRoom_Bandwidth(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTestWithConfig(t, func(s *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(s)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("backend", "maxstreambitrate", "700000")
+		config.AddOption("backend", "maxscreenbitrate", "1234567")
+
+		config.AddOption("backend", "bitrateperroom", "1000000")
+		config.AddOption("backend", "minpublisherbitrate", "10000")
+		config.AddOption("backend", "maxpublisherbitrate", "500000")
+		return config, err
+	})
+
+	mcu := sfutest.NewSFU(t)
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
@@ -561,4 +626,195 @@ func TestRoom_Bandwidth(t *testing.T) {
 	assert.EqualValues(500000, pub.GetBandwidth())
 	assert.EqualValues(1234567, room.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
 	assert.EqualValues(500000, room.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
+}
+
+func TestRoom_BandwidthClustered(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub1, hub2, _, _, server1, server2 := CreateClusteredHubsForTestWithConfig(t, func(s *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(s)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("backend", "maxstreambitrate", "400000")
+		config.AddOption("backend", "maxscreenbitrate", "600000")
+
+		config.AddOption("backend", "bitrateperroom", "600000")
+		config.AddOption("backend", "minpublisherbitrate", "100000")
+		config.AddOption("backend", "maxpublisherbitrate", "300000")
+		return config, err
+	})
+
+	mcu1 := sfutest.NewSFU(t)
+	hub1.SetMcu(mcu1)
+
+	mcu2 := sfutest.NewSFU(t)
+	hub2.SetMcu(mcu2)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg1 := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg1.Room.RoomId)
+	client1.RunUntilJoined(ctx, hello1.Hello)
+
+	roomMsg2 := MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg2.Room.RoomId)
+	client1.RunUntilJoined(ctx, hello2.Hello)
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	room1 := hub1.getRoom(roomId)
+	require.NotNil(room1)
+	room2 := hub2.getRoom(roomId)
+	require.NotNil(room2)
+
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello1.Hello.SessionId,
+	}, api.MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}))
+	require.True(client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
+
+	pub1 := mcu1.GetPublisher(hello1.Hello.SessionId)
+	require.NotNil(pub1)
+	pub1.SetBandwidthInfo(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(0),
+		Received: api.BandwidthFromBits(300000),
+	})
+
+	room1.updateBandwidth().Wait()
+	pubs, subs, bw := room1.Bandwidth()
+	assert.EqualValues(1, pubs)
+	assert.EqualValues(0, subs)
+	assert.Equal(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(0),
+		Received: api.BandwidthFromBits(300000),
+	}, bw)
+
+	assert.EqualValues(300000, pub1.GetBandwidth())
+	assert.EqualValues(600000, room1.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
+	assert.EqualValues(300000, room1.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
+
+	room2.updateBandwidth().Wait()
+	pubs, subs, bw = room2.Bandwidth()
+	assert.EqualValues(0, pubs)
+	assert.EqualValues(0, subs)
+	assert.Nil(bw)
+
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello2.Hello.SessionId,
+	}, api.MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "65432",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}))
+	require.True(client2.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
+
+	pub2 := mcu2.GetPublisher(hello2.Hello.SessionId)
+	require.NotNil(pub2)
+	pub2.SetBandwidthInfo(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(0),
+		Received: api.BandwidthFromBits(300000),
+	})
+
+	// Room1 will not have the latest properties (e.g. total number of publishers)
+	// from room2 yet as that has not been updated yet.
+	room1.updateBandwidth().Wait()
+	pubs, subs, bw = room1.Bandwidth()
+	assert.EqualValues(1, pubs)
+	assert.EqualValues(0, subs)
+	assert.Equal(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(0),
+		Received: api.BandwidthFromBits(300000),
+	}, bw)
+
+	assert.EqualValues(300000, pub1.GetBandwidth())
+	assert.EqualValues(600000, room1.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
+	assert.EqualValues(300000, room1.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
+
+	// After room2 has been updated, room1 will receive the latest properties when
+	// updating again.
+	room2.updateBandwidth().Wait()
+	pubs, subs, bw = room2.Bandwidth()
+	assert.EqualValues(1, pubs)
+	assert.EqualValues(0, subs)
+	assert.Equal(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(0),
+		Received: api.BandwidthFromBits(300000),
+	}, bw)
+
+	assert.EqualValues(300000, pub2.GetBandwidth())
+	assert.EqualValues(600000, room2.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
+	// The next publisher (the third one) will get limited bandwidths.
+	assert.EqualValues(200000, room2.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
+
+	room1.updateBandwidth().Wait()
+	pubs, subs, bw = room1.Bandwidth()
+	assert.EqualValues(1, pubs)
+	assert.EqualValues(0, subs)
+	assert.Equal(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(0),
+		Received: api.BandwidthFromBits(300000),
+	}, bw)
+
+	assert.EqualValues(300000, pub1.GetBandwidth())
+	assert.EqualValues(600000, room1.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
+	assert.EqualValues(200000, room1.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
+
+	// Joining a third publisher will decrease the bandwidth of all other publishers.
+	client3, hello3 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"3")
+	roomMsg3 := MustSucceed2(t, client3.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg3.Room.RoomId)
+	client1.RunUntilJoined(ctx, hello3.Hello)
+	client2.RunUntilJoined(ctx, hello3.Hello)
+	client3.RunUntilJoined(ctx, hello1.Hello, hello2.Hello, hello3.Hello)
+
+	require.NoError(client3.SendMessage(api.MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello3.Hello.SessionId,
+	}, api.MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "65432",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}))
+	require.True(client3.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
+
+	pub3 := mcu1.GetPublisher(hello3.Hello.SessionId)
+	require.NotNil(pub3)
+	pub3.SetBandwidthInfo(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(0),
+		Received: api.BandwidthFromBits(200000),
+	})
+
+	room1.updateBandwidth().Wait()
+	room2.updateBandwidth().Wait()
+
+	assert.EqualValues(600000, room1.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
+	assert.EqualValues(150000, room1.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
+	assert.EqualValues(600000, room2.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
+	assert.EqualValues(150000, room2.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
+
+	assert.EqualValues(200000, pub1.GetBandwidth())
+	assert.EqualValues(200000, pub2.GetBandwidth())
+	assert.EqualValues(200000, pub3.GetBandwidth())
 }
