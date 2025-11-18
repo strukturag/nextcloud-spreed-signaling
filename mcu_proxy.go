@@ -119,6 +119,9 @@ func (c *mcuProxyPubSubCommon) Bandwidth() *McuClientBandwidthInfo {
 }
 
 func (c *mcuProxyPubSubCommon) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error {
+	if c.maxBitrate > 0 {
+		bandwidth = min(bandwidth, c.maxBitrate)
+	}
 	_, _, err := c.conn.performSyncRequest(ctx, &ProxyClientMessage{
 		Type: "command",
 		Command: &CommandProxyClientMessage{
