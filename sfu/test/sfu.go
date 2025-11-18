@@ -208,6 +208,9 @@ type SFUPublisher struct {
 	settings sfu.NewPublisherSettings
 
 	sdp string
+
+	bandwidth     atomic.Uint64
+	bandwidthInfo atomic.Pointer[sfu.ClientBandwidthInfo]
 }
 
 func (p *SFUPublisher) Settings() sfu.NewPublisherSettings {
@@ -270,6 +273,23 @@ func (p *SFUPublisher) PublishRemote(ctx context.Context, remoteId api.PublicSes
 
 func (p *SFUPublisher) UnpublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("remote publishing not supported")
+}
+
+func (p *SFUPublisher) SetBandwidthInfo(bandwidth *sfu.ClientBandwidthInfo) {
+	p.bandwidthInfo.Store(bandwidth)
+}
+
+func (p *SFUPublisher) Bandwidth() *sfu.ClientBandwidthInfo {
+	return p.bandwidthInfo.Load()
+}
+
+func (p *SFUPublisher) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error {
+	p.bandwidth.Store(bandwidth.Bits())
+	return nil
+}
+
+func (p *SFUPublisher) GetBandwidth() api.Bandwidth {
+	return api.BandwidthFromBits(p.bandwidth.Load())
 }
 
 type SFUSubscriber struct {

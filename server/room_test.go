@@ -28,15 +28,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	sfutest "github.com/strukturag/nextcloud-spreed-signaling/sfu/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -475,4 +481,84 @@ func TestRoom_BandwidthNoPublishers(t *testing.T) {
 	assert.EqualValues(0, pubs)
 	assert.EqualValues(0, subs)
 	assert.Nil(bw)
+}
+
+func TestRoom_Bandwidth(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, router, server := CreateHubForTestWithConfig(t, func(s *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(s)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("backend", "maxstreambitrate", "700000")
+		config.AddOption("backend", "maxscreenbitrate", "1234567")
+
+		config.AddOption("backend", "bitrateperroom", "1000000")
+		config.AddOption("backend", "minpublisherbitrate", "10000")
+		config.AddOption("backend", "maxpublisherbitrate", "500000")
+		return config, err
+	})
+
+	mcu := sfutest.NewSFU(t)
+	hub.SetMcu(mcu)
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	b, err := NewBackendServer(ctx, config, hub, "no-version")
+	require.NoError(err)
+	require.NoError(b.Start(router))
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello.Hello.SessionId,
+	}, api.MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}))
+	require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
+
+	pub := mcu.GetPublisher(hello.Hello.SessionId)
+	require.NotNil(pub)
+
+	pub.SetBandwidthInfo(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(2000),
+		Received: api.BandwidthFromBits(100000),
+	})
+
+	room.updateBandwidth().Wait()
+	pubs, subs, bw := room.Bandwidth()
+	assert.EqualValues(1, pubs)
+	assert.EqualValues(0, subs)
+	assert.Equal(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(2000),
+		Received: api.BandwidthFromBits(100000),
+	}, bw)
+
+	assert.EqualValues(500000, pub.GetBandwidth())
+	assert.EqualValues(1234567, room.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
+	assert.EqualValues(500000, room.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
 }
