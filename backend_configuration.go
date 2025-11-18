@@ -55,6 +55,10 @@ type Backend struct {
 	maxStreamBitrate api.Bandwidth
 	maxScreenBitrate api.Bandwidth
 
+	bandwidthPerRoom      api.AtomicBandwidth
+	minPublisherBandwidth api.AtomicBandwidth
+	maxPublisherBandwidth api.AtomicBandwidth
+
 	sessionLimit uint64
 	sessionsLock sync.Mutex
 	// +checklocks:sessionsLock
@@ -86,6 +90,9 @@ func (b *Backend) Equal(other *Backend) bool {
 		b.allowHttp == other.allowHttp &&
 		b.maxStreamBitrate == other.maxStreamBitrate &&
 		b.maxScreenBitrate == other.maxScreenBitrate &&
+		b.bandwidthPerRoom.Load() == other.bandwidthPerRoom.Load() &&
+		b.minPublisherBandwidth.Load() == other.minPublisherBandwidth.Load() &&
+		b.maxPublisherBandwidth.Load() == other.maxPublisherBandwidth.Load() &&
 		b.sessionLimit == other.sessionLimit &&
 		bytes.Equal(b.secret, other.secret) &&
 		slices.Equal(b.urls, other.urls)

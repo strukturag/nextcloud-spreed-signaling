@@ -195,6 +195,9 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		maxScreenBitrate: info.MaxScreenBitrate,
 		sessionLimit:     info.SessionLimit,
 	}
+	backend.bandwidthPerRoom.Store(info.BandwidthPerRoom)
+	backend.minPublisherBandwidth.Store(info.MinPublisherBandwidth)
+	backend.maxPublisherBandwidth.Store(info.MaxPublisherBandwidth)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
