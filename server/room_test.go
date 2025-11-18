@@ -626,6 +626,24 @@ func TestRoom_Bandwidth(t *testing.T) {
 	assert.EqualValues(500000, pub.GetBandwidth())
 	assert.EqualValues(1234567, room.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
 	assert.EqualValues(500000, room.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
+
+	// Clearing the per-room limit will reset the bandwidth of publishers.
+	room.Backend().SetBandwidthPerRoom(0)
+	room.Backend().SetMinPublisherBandwidth(0)
+	room.Backend().SetMaxPublisherBandwidth(0)
+	room.updateBandwidth().Wait()
+
+	pubs, subs, bw = room.Bandwidth()
+	assert.EqualValues(1, pubs)
+	assert.EqualValues(0, subs)
+	assert.Equal(&sfu.ClientBandwidthInfo{
+		Sent:     api.BandwidthFromBits(2000),
+		Received: api.BandwidthFromBits(100000),
+	}, bw)
+
+	assert.EqualValues(700000, pub.GetBandwidth())
+	assert.EqualValues(1234567, room.GetNextPublisherBandwidth(sfu.StreamTypeScreen))
+	assert.EqualValues(700000, room.GetNextPublisherBandwidth(sfu.StreamTypeVideo))
 }
 
 func TestRoom_BandwidthClustered(t *testing.T) {
