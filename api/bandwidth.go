@@ -56,10 +56,8 @@ func (b Bandwidth) String() string {
 		return formatWithRemainder(b.Bits(), Megabit.Bits(), "Mbps")
 	} else if b >= Kilobit {
 		return formatWithRemainder(b.Bits(), Kilobit.Bits(), "Kbps")
-	} else if b > 0 {
-		return fmt.Sprintf("%d bps", b)
 	} else {
-		return "unlimited"
+		return fmt.Sprintf("%d bps", b)
 	}
 }
 

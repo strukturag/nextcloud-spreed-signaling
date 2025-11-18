@@ -195,14 +195,22 @@ func getTargetBandwidths(config *goconf.ConfigFile) (api.Bandwidth, api.Bandwidt
 		maxIncomingValue = 0
 	}
 	maxIncoming := api.BandwidthFromMegabits(uint64(maxIncomingValue))
-	log.Printf("Target bandwidth for incoming streams: %s", maxIncoming)
+	if maxIncoming > 0 {
+		log.Printf("Target bandwidth for incoming streams: %s", maxIncoming)
+	} else {
+		log.Printf("Target bandwidth for incoming streams: unlimited")
+	}
 
 	maxOutgoingValue, _ := config.GetInt("bandwidth", "outgoing")
 	if maxOutgoingValue < 0 {
 		maxOutgoingValue = 0
 	}
 	maxOutgoing := api.BandwidthFromMegabits(uint64(maxOutgoingValue))
-	log.Printf("Target bandwidth for outgoing streams: %s", maxOutgoing)
+	if maxOutgoing > 0 {
+		log.Printf("Target bandwidth for outgoing streams: %s", maxOutgoing)
+	} else {
+		log.Printf("Target bandwidth for outgoing streams: unlimited")
+	}
 
 	return maxIncoming, maxOutgoing
 }

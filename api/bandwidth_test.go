@@ -67,7 +67,7 @@ func TestBandwidthString(t *testing.T) {
 	}{
 		{
 			0,
-			"unlimited",
+			"0 bps",
 		},
 		{
 			BandwidthFromBits(123),
