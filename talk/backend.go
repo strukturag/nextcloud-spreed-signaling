@@ -55,6 +55,10 @@ type Backend struct {
 	maxStreamBitrate api.Bandwidth
 	maxScreenBitrate api.Bandwidth
 
+	bandwidthPerRoom      api.AtomicBandwidth
+	minPublisherBandwidth api.AtomicBandwidth
+	maxPublisherBandwidth api.AtomicBandwidth
+
 	sessionLimit uint64
 	sessionsLock sync.Mutex
 	// +checklocks:sessionsLock
@@ -138,7 +142,7 @@ func NewBackendFromEtcd(key string, info *etcd.BackendInformationEtcd) *Backend 
 		return u.Scheme == "http"
 	})
 
-	return &Backend{
+	backend := &Backend{
 		id:     key,
 		urls:   info.Urls,
 		secret: []byte(info.Secret),
@@ -149,6 +153,10 @@ func NewBackendFromEtcd(key string, info *etcd.BackendInformationEtcd) *Backend 
 		maxScreenBitrate: info.MaxScreenBitrate,
 		sessionLimit:     info.SessionLimit,
 	}
+	backend.bandwidthPerRoom.Store(info.BandwidthPerRoom)
+	backend.minPublisherBandwidth.Store(info.MinPublisherBandwidth)
+	backend.maxPublisherBandwidth.Store(info.MaxPublisherBandwidth)
+	return backend
 }
 
 func (b *Backend) Id() string {
@@ -174,6 +182,9 @@ func (b *Backend) Equal(other *Backend) bool {
 		b.allowHttp == other.allowHttp &&
 		b.maxStreamBitrate == other.maxStreamBitrate &&
 		b.maxScreenBitrate == other.maxScreenBitrate &&
+		b.bandwidthPerRoom.Load() == other.bandwidthPerRoom.Load() &&
+		b.minPublisherBandwidth.Load() == other.minPublisherBandwidth.Load() &&
+		b.maxPublisherBandwidth.Load() == other.maxPublisherBandwidth.Load() &&
 		b.sessionLimit == other.sessionLimit &&
 		bytes.Equal(b.secret, other.secret) &&
 		slices.Equal(b.urls, other.urls)
@@ -234,6 +245,30 @@ func (b *Backend) SetMaxScreenBitrate(bitrate api.Bandwidth) {
 
 func (b *Backend) MaxScreenBitrate() api.Bandwidth {
 	return b.maxScreenBitrate
+}
+
+func (b *Backend) BandwidthPerRoom() api.Bandwidth {
+	return b.bandwidthPerRoom.Load()
+}
+
+func (b *Backend) SetBandwidthPerRoom(bandwidth api.Bandwidth) {
+	b.bandwidthPerRoom.Store(bandwidth)
+}
+
+func (b *Backend) MinPublisherBandwidth() api.Bandwidth {
+	return b.minPublisherBandwidth.Load()
+}
+
+func (b *Backend) SetMinPublisherBandwidth(bandwidth api.Bandwidth) {
+	b.minPublisherBandwidth.Store(bandwidth)
+}
+
+func (b *Backend) MaxPublisherBandwidth() api.Bandwidth {
+	return b.maxPublisherBandwidth.Load()
+}
+
+func (b *Backend) SetMaxPublisherBandwidth(bandwidth api.Bandwidth) {
+	b.maxPublisherBandwidth.Store(bandwidth)
 }
 
 func (b *Backend) CopyCount(other *Backend) {
