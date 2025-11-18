@@ -22,13 +22,46 @@
 package api
 
 import (
+	"fmt"
+	"math"
 	"sync/atomic"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
+var (
+	Kilobit = BandwidthFromBits(1024)
+	Megabit = BandwidthFromBits(1024) * Kilobit
+	Gigabit = BandwidthFromBits(1024) * Megabit
+)
+
 // Bandwidth stores a bandwidth in bits per second.
 type Bandwidth uint64
+
+func formatWithRemainder(value uint64, divisor uint64, format string) string {
+	if value%divisor == 0 {
+		return fmt.Sprintf("%d %s", value/divisor, format)
+	} else {
+		v := float64(value) / float64(divisor)
+		v = math.Trunc(v*100) / 100
+		return fmt.Sprintf("%.2f %s", v, format)
+	}
+}
+
+// String returns the formatted bandwidth.
+func (b Bandwidth) String() string {
+	if b >= Gigabit {
+		return formatWithRemainder(b.Bits(), Gigabit.Bits(), "Gbps")
+	} else if b >= Megabit {
+		return formatWithRemainder(b.Bits(), Megabit.Bits(), "Mbps")
+	} else if b >= Kilobit {
+		return formatWithRemainder(b.Bits(), Kilobit.Bits(), "Kbps")
+	} else if b > 0 {
+		return fmt.Sprintf("%d bps", b)
+	} else {
+		return "unlimited"
+	}
+}
 
 // Bits returns the bandwidth in bits per second.
 func (b Bandwidth) Bits() uint64 {
@@ -47,7 +80,7 @@ func BandwidthFromBits(b uint64) Bandwidth {
 
 // BandwithFromBits creates a bandwidth from megabits per second.
 func BandwidthFromMegabits(b uint64) Bandwidth {
-	return Bandwidth(b * 1024 * 1024)
+	return Bandwidth(b) * Megabit
 }
 
 // BandwidthFromBytes creates a bandwidth from bytes per second.
