@@ -128,6 +128,9 @@ func (c *mcuJanusClient) SetBandwidth(ctx context.Context, bandwidth api.Bandwid
 		return ErrNotConnected
 	}
 
+	if c.maxBitrate > 0 {
+		bandwidth = min(bandwidth, c.maxBitrate)
+	}
 	configure_msg := api.StringMap{
 		"request": "configure",
 		"bitrate": bandwidth.Bits(),
