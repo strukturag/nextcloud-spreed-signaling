@@ -440,3 +440,39 @@ func TestRoom_InCallAll(t *testing.T) {
 		checkMessageInCallAll(t, msg, roomId, 0)
 	}
 }
+
+func TestRoom_BandwidthNoPublishers(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, router, server := CreateHubForTest(t)
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	b, err := NewBackendServer(ctx, config, hub, "no-version")
+	require.NoError(err)
+	require.NoError(b.Start(router))
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	client.RunUntilJoined(ctx, hello1.Hello)
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+
+	room.updateBandwidth().Wait()
+	pubs, subs, bw := room.Bandwidth()
+	assert.EqualValues(0, pubs)
+	assert.EqualValues(0, subs)
+	assert.Nil(bw)
+}
