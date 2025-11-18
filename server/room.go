@@ -106,16 +106,10 @@ type Room struct {
 
 	transientData *api.TransientData
 
-	publishersCount  atomic.Uint32
-	subscribersCount atomic.Uint32
-	bandwidth        atomic.Pointer[sfu.ClientBandwidthInfo]
-
-	// bandwidthPerRoom is the maximum incoming bandwidth per room.
-	bandwidthPerRoom api.Bandwidth
-	// minPublisherBandwidth is the minimum bandwidth per publisher.
-	minPublisherBandwidth api.Bandwidth
-	// maxPublisherBandwidth is the maximum bandwidth per publisher.
-	maxPublisherBandwidth api.Bandwidth
+	publishersCount     atomic.Uint32
+	subscribersCount    atomic.Uint32
+	bandwidth           atomic.Pointer[sfu.ClientBandwidthInfo]
+	bandwidthConfigured bool
 }
 
 func getRoomIdForBackend(id string, backend *talk.Backend) string {
@@ -154,11 +148,6 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		lastRoomRequests: make(map[string]int64),
 
 		transientData: api.NewTransientData(),
-
-		// TODO: Make configurable
-		bandwidthPerRoom:      api.BandwidthFromMegabits(10),
-		minPublisherBandwidth: api.BandwidthFromMegabits(1),
-		maxPublisherBandwidth: api.BandwidthFromMegabits(3),
 	}
 
 	if err := asyncEvents.RegisterBackendRoomListener(roomId, backend, room); err != nil {
@@ -1462,6 +1451,34 @@ func (r *Room) getRemoteBandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo) {
 }
 
 func (r *Room) updateBandwidth() {
+	// bandwidthPerRoom is the maximum incoming bandwidth per room.
+	bandwidthPerRoom := r.backend.BandwidthPerRoom()
+	// minPublisherBandwidth is the minimum bandwidth per publisher.
+	minPublisherBandwidth := r.backend.MinPublisherBandwidth()
+	// maxPublisherBandwidth is the maximum bandwidth per publisher.
+	maxPublisherBandwidth := r.backend.MaxPublisherBandwidth()
+	if bandwidthPerRoom == 0 || minPublisherBandwidth == 0 || maxPublisherBandwidth == 0 {
+		if !r.bandwidthConfigured {
+			return
+		}
+
+		// Reset bandwidths to default.
+		r.bandwidthConfigured = false
+		_, _, _, publisherSessions := r.getLocalBandwidth()
+		bitrate := r.backend.MaxStreamBitrate()
+		for _, session := range publisherSessions {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), r.hub.mcuTimeout)
+				defer cancel()
+
+				if err := session.UpdatePublisherBandwidth(ctx, sfu.StreamTypeVideo, bitrate); err != nil {
+					r.logger.Printf("Could not update bandwidth of %s publisher in %s: %s", sfu.StreamTypeVideo, session.PublicId(), err)
+				}
+			}()
+		}
+		return
+	}
+
 	publishers, subscribers, bandwidth, publisherSessions := r.getLocalBandwidth()
 	if remotePublishers, remoteSubscribers, remote := r.getRemoteBandwidth(); remote != nil {
 		if bandwidth == nil {
@@ -1478,16 +1495,16 @@ func (r *Room) updateBandwidth() {
 	}
 
 	if publishers != 0 || subscribers != 0 || bandwidth != nil {
-		perPublisher := api.BandwidthFromBits(r.bandwidthPerRoom.Bits() / max(uint64(publishers), 2))
+		perPublisher := api.BandwidthFromBits(bandwidthPerRoom.Bits() / max(uint64(publishers), 2))
 		if maxBitrate := r.Backend().MaxStreamBitrate(); perPublisher < maxBitrate {
 			perPublisher = maxBitrate
 		}
-		perPublisher = min(r.maxPublisherBandwidth, perPublisher)
-		perPublisher = max(r.minPublisherBandwidth, perPublisher)
+		perPublisher = min(maxPublisherBandwidth, perPublisher)
+		perPublisher = max(minPublisherBandwidth, perPublisher)
 		r.logger.Printf("Bandwidth in room %s for %d pub / %d sub: %+v (max %s)", r.Id(), publishers, subscribers, bandwidth, perPublisher)
 
 		if perPublisher != 0 {
-
+			r.bandwidthConfigured = true
 			for _, session := range publisherSessions {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), r.hub.mcuTimeout)

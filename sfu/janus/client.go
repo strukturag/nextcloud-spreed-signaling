@@ -129,6 +129,9 @@ func (c *janusClient) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth)
 		return sfu.ErrNotConnected
 	}
 
+	if c.maxBitrate > 0 {
+		bandwidth = min(bandwidth, c.maxBitrate)
+	}
 	configure_msg := api.StringMap{
 		"request": "configure",
 		"bitrate": bandwidth.Bits(),
