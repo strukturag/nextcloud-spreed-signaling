@@ -22,10 +22,7 @@ permissions:
   contents: read
 
 jobs:
-  go:
-    env:
-      MAXMIND_GEOLITE2_LICENSE: ${{ secrets.MAXMIND_GEOLITE2_LICENSE }}
-      USE_DB_IP_GEOIP_DATABASE: "1"
+  build:
     strategy:
       matrix:
         go-version:
@@ -45,9 +42,41 @@ jobs:
         make proxy -j$(nproc)
         make server -j$(nproc)
 
+  go:
+    env:
+      MAXMIND_GEOLITE2_LICENSE: ${{ secrets.MAXMIND_GEOLITE2_LICENSE }}
+      USE_DB_IP_GEOIP_DATABASE: "1"
+    strategy:
+      matrix:
+        go-version:
+          - "1.24"
+          - "1.25"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-go@v6
+      with:
+        go-version: ${{ matrix.go-version }}
+
     - name: Run tests
       run: |
         make test TIMEOUT=120s
+
+  coverage:
+    env:
+      MAXMIND_GEOLITE2_LICENSE: ${{ secrets.MAXMIND_GEOLITE2_LICENSE }}
+      USE_DB_IP_GEOIP_DATABASE: "1"
+    strategy:
+      matrix:
+        go-version:
+          - "1.24"
+          - "1.25"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-go@v6
+      with:
+        go-version: ${{ matrix.go-version }}
 
     - name: Generate coverage report
       run: |
