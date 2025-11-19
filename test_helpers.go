@@ -22,8 +22,11 @@
 package signaling
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"log"
+	"sync"
 	"testing"
 )
 
@@ -38,13 +41,18 @@ func init() {
 }
 
 type testLogWriter struct {
-	t testing.TB
+	mu sync.Mutex
+	t  testing.TB
 }
 
 func (w *testLogWriter) Write(b []byte) (int, error) {
 	w.t.Helper()
-	w.t.Logf("%s", string(b))
-	return len(b), nil
+	if !bytes.HasSuffix(b, []byte("\n")) {
+		b = append(b, '\n')
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return writeTestOutput(w.t, b)
 }
 
 func CatchLogForTest(t testing.TB) {
@@ -53,6 +61,37 @@ func CatchLogForTest(t testing.TB) {
 		log.SetFlags(prevFlags)
 	})
 
-	log.SetOutput(&testLogWriter{t})
-	log.SetFlags(prevFlags | log.Lshortfile)
+	log.SetOutput(&testLogWriter{
+		t: t,
+	})
+	log.SetFlags(prevFlags | log.Lmicroseconds | log.Lshortfile)
+}
+
+var (
+	// +checklocks:testLoggersLock
+	testLoggers     = map[testing.TB]Logger{}
+	testLoggersLock sync.Mutex
+)
+
+func NewLoggerForTest(t testing.TB) Logger {
+	t.Helper()
+	testLoggersLock.Lock()
+	defer testLoggersLock.Unlock()
+
+	logger, found := testLoggers[t]
+	if !found {
+		logger = log.New(&testLogWriter{
+			t: t,
+		}, fmt.Sprintf("%s: ", t.Name()), log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
+
+		t.Cleanup(func() {
+			testLoggersLock.Lock()
+			defer testLoggersLock.Unlock()
+
+			delete(testLoggers, t)
+		})
+
+		testLoggers[t] = logger
+	}
+	return logger
 }
