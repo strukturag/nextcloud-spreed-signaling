@@ -24,18 +24,22 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
 	"net/url"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
+	sdpmock "github.com/strukturag/nextcloud-spreed-signaling/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu/mock"
 	proxytest "github.com/strukturag/nextcloud-spreed-signaling/sfu/proxy/test"
@@ -654,4 +658,109 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	require.NoError(t, err)
 
 	defer sub.Close(context.Background())
+}
+
+func Test_ProxySetBandwidth(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := testserver.NewProxyServerForTest(t, "DE")
+	mcu, _ := proxytest.NewMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Servers: []testserver.ProxyTestServer{server},
+	}, 0, nil)
+
+	hub, _, _, hubserver := CreateHubForTestWithConfig(t, func(s *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(s)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("backend", "maxstreambitrate", "700000")
+		config.AddOption("backend", "maxscreenbitrate", "800000")
+
+		config.AddOption("backend", "bitrateperroom", "1000000")
+		config.AddOption("backend", "minpublisherbitrate", "10000")
+		config.AddOption("backend", "maxpublisherbitrate", "500000")
+		return config, err
+	})
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, hubserver, hub, testDefaultUserId+"1")
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello.Hello.SessionId,
+	}, api.MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": sdpmock.MockSdpOfferAudioAndVideo,
+		},
+	}))
+
+	client.RunUntilAnswer(ctx, sdpmock.MockSdpAnswerAudioAndVideo)
+
+	sess := hub.GetSessionByPublicId(hello.Hello.SessionId)
+	require.NotNil(sess)
+
+	session, ok := sess.(*ClientSession)
+	require.True(ok, "expected clientsession, got %T", sess)
+
+	pub := session.GetPublisher(sfu.StreamTypeVideo)
+	require.NotNil(pub)
+
+	publisher, ok := pub.(sfu.ClientWithBandwidth)
+	require.True(ok, "expected publisher with bandwidth, got %T", sess)
+	publisherId := publisher.Id()
+
+	proxyclient := server.GetSingleClient()
+	proxyclient.SendMessage(&proxy.ServerMessage{
+		Type: "event",
+		Event: &proxy.EventServerMessage{
+			Type: "update-load",
+			Load: 1,
+			ClientBandwidths: map[string]proxy.EventServerBandwidth{
+				publisherId: {
+					Sent:     api.BandwidthFromBits(0),
+					Received: api.BandwidthFromBits(100000),
+				},
+			},
+		},
+	})
+
+	for publisher.Bandwidth() == nil {
+		if !assert.NoError(ctx.Err()) {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+	if bw := publisher.Bandwidth(); assert.NotNil(bw) {
+		assert.EqualValues(0, bw.Sent)
+		assert.EqualValues(100000, bw.Received)
+	}
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+	room.updateBandwidth().Wait()
+
+	proxyPub := server.GetPublisher(api.PublicSessionId(publisherId))
+	require.NotNil(proxyPub)
+	for proxyPub.Bandwidth() == 0 {
+		if !assert.NoError(ctx.Err()) {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+	assert.EqualValues(500000, proxyPub.Bandwidth())
 }
