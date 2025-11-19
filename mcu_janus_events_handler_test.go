@@ -63,7 +63,9 @@ func (h *TestJanusEventsServerHandler) ServeHTTP(w http.ResponseWriter, r *http.
 		if host, _, err := net.SplitHostPort(addr); err == nil {
 			addr = host
 		}
-		RunJanusEventsHandler(r.Context(), h.mcu, conn, addr, r.Header.Get("User-Agent"))
+		logger := NewLoggerForTest(h.t)
+		ctx := NewLoggerContext(r.Context(), logger)
+		RunJanusEventsHandler(ctx, h.mcu, conn, addr, r.Header.Get("User-Agent"))
 		return
 	}
 

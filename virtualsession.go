@@ -24,7 +24,6 @@ package signaling
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/url"
 	"sync/atomic"
 
@@ -38,6 +37,7 @@ const (
 )
 
 type VirtualSession struct {
+	logger    Logger
 	hub       *Hub
 	session   *ClientSession
 	privateId PrivateSessionId
@@ -61,6 +61,7 @@ func GetVirtualSessionId(session Session, sessionId PublicSessionId) PublicSessi
 
 func NewVirtualSession(session *ClientSession, privateId PrivateSessionId, publicId PublicSessionId, data *SessionIdData, msg *AddSessionInternalClientMessage) (*VirtualSession, error) {
 	result := &VirtualSession{
+		logger:    session.hub.logger,
 		hub:       session.hub,
 		session:   session,
 		privateId: privateId,
@@ -154,7 +155,7 @@ func (s *VirtualSession) SetRoom(room *Room) {
 	s.room.Store(room)
 	if room != nil {
 		if err := s.hub.roomSessions.SetRoomSession(s, RoomSessionId(s.PublicId())); err != nil {
-			log.Printf("Error adding virtual room session %s: %s", s.PublicId(), err)
+			s.logger.Printf("Error adding virtual room session %s: %s", s.PublicId(), err)
 		}
 	} else {
 		s.hub.roomSessions.DeleteRoomSession(s)
@@ -191,7 +192,8 @@ func (s *VirtualSession) CloseWithFeedback(session Session, message *ClientMessa
 }
 
 func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, message *ClientMessage) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.hub.backendTimeout)
+	ctx := NewLoggerContext(context.Background(), s.logger)
+	ctx, cancel := context.WithTimeout(ctx, s.hub.backendTimeout)
 	defer cancel()
 
 	if options := s.Options(); options != nil && options.ActorId != "" && options.ActorType != "" {
@@ -203,7 +205,7 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 		var response BackendClientResponse
 		if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
 			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
-			log.Printf("Could not leave virtual session %s at backend %s: %s", virtualSessionId, s.BackendUrl(), err)
+			s.logger.Printf("Could not leave virtual session %s at backend %s: %s", virtualSessionId, s.BackendUrl(), err)
 			if session != nil && message != nil {
 				reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
 				session.SendMessage(reply)
@@ -214,7 +216,7 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 		if response.Type == "error" {
 			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
 			if session != nil && message != nil && (response.Error == nil || response.Error.Code != "no_such_room") {
-				log.Printf("Could not leave virtual session %s at backend %s: %+v", virtualSessionId, s.BackendUrl(), response.Error)
+				s.logger.Printf("Could not leave virtual session %s at backend %s: %+v", virtualSessionId, s.BackendUrl(), response.Error)
 				reply := message.NewErrorServerMessage(NewError("remove_failed", response.Error.Error()))
 				session.SendMessage(reply)
 			}
@@ -228,7 +230,7 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 		var response BackendClientSessionResponse
 		err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response)
 		if err != nil {
-			log.Printf("Could not remove virtual session %s from backend %s: %s", s.PublicId(), s.BackendUrl(), err)
+			s.logger.Printf("Could not remove virtual session %s from backend %s: %s", s.PublicId(), s.BackendUrl(), err)
 			if session != nil && message != nil {
 				reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
 				session.SendMessage(reply)
@@ -291,7 +293,7 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 				message.Message.Event.Type == "disinvite" &&
 				message.Message.Event.Disinvite != nil &&
 				message.Message.Event.Disinvite.RoomId == room.Id() {
-				log.Printf("Virtual session %s was disinvited from room %s, hanging up", s.PublicId(), room.Id())
+				s.logger.Printf("Virtual session %s was disinvited from room %s, hanging up", s.PublicId(), room.Id())
 				payload := api.StringMap{
 					"type": "hangup",
 					"hangup": map[string]string{
@@ -300,7 +302,7 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 				}
 				data, err := json.Marshal(payload)
 				if err != nil {
-					log.Printf("could not marshal control payload %+v: %s", payload, err)
+					s.logger.Printf("could not marshal control payload %+v: %s", payload, err)
 					return
 				}
 

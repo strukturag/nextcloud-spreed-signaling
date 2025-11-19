@@ -24,21 +24,10 @@ package signaling
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"sync"
 	"testing"
 )
-
-var (
-	prevWriter io.Writer
-	prevFlags  int
-)
-
-func init() {
-	prevWriter = log.Writer()
-	prevFlags = log.Flags()
-}
 
 type testLogWriter struct {
 	mu sync.Mutex
@@ -53,18 +42,6 @@ func (w *testLogWriter) Write(b []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return writeTestOutput(w.t, b)
-}
-
-func CatchLogForTest(t testing.TB) {
-	t.Cleanup(func() {
-		log.SetOutput(prevWriter)
-		log.SetFlags(prevFlags)
-	})
-
-	log.SetOutput(&testLogWriter{
-		t: t,
-	})
-	log.SetFlags(prevFlags | log.Lmicroseconds | log.Lshortfile)
 }
 
 var (

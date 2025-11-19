@@ -53,7 +53,9 @@ func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
 
 func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcClients, *DnsMonitor) {
 	dnsMonitor := newDnsMonitorForTest(t, time.Hour) // will be updated manually
-	client, err := NewGrpcClients(config, etcdClient, dnsMonitor, "0.0.0")
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
+	client, err := NewGrpcClients(ctx, config, etcdClient, dnsMonitor, "0.0.0")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		client.Close()
@@ -77,7 +79,8 @@ func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) (*GrpcClients
 	config.AddOption("grpc", "targettype", "etcd")
 	config.AddOption("grpc", "targetprefix", "/grpctargets")
 
-	etcdClient, err := NewEtcdClient(config, "")
+	logger := NewLoggerForTest(t)
+	etcdClient, err := NewEtcdClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, etcdClient.Close())
@@ -108,7 +111,8 @@ func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 }
 
 func Test_GrpcClients_EtcdInitial(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, addr1 := NewGrpcServerForTest(t)
 		_, addr2 := NewGrpcServerForTest(t)
@@ -119,7 +123,7 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) {
 		SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 		client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
 		require.NoError(t, client.WaitForInitialized(ctx))
 
@@ -130,13 +134,14 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) {
 
 func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	etcd := NewEtcdForTest(t)
 	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 	ch := client.getWakeupChannelForTesting()
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	assert.Empty(client.GetClients())
@@ -176,13 +181,14 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 
 func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	etcd := NewEtcdForTest(t)
 	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
 	ch := client.getWakeupChannelForTesting()
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	assert.Empty(client.GetClients())
@@ -214,7 +220,8 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 }
 
 func Test_GrpcClients_DnsDiscovery(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
@@ -228,7 +235,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 		client, dnsMonitor := NewGrpcClientsForTest(t, target)
 		ch := client.getWakeupChannelForTesting()
 
-		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		ctx, cancel := context.WithTimeout(ctx, testTimeout)
 		defer cancel()
 
 		// Wait for initial check to be done to make sure internal dnsmonitor goroutine is waiting.
@@ -268,7 +275,6 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 }
 
 func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	lookup := newMockDnsLookupForTest(t)
 	target := "testgrpc:12345"
@@ -298,7 +304,6 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 }
 
 func Test_GrpcClients_Encryption(t *testing.T) {
-	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		require := require.New(t)
 		serverKey, err := rsa.GenerateKey(rand.Reader, 1024)

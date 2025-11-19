@@ -29,7 +29,8 @@ import (
 )
 
 func TestDeferredExecutor_MultiClose(t *testing.T) {
-	e := NewDeferredExecutor(0)
+	logger := NewLoggerForTest(t)
+	e := NewDeferredExecutor(logger, 0)
 	defer e.waitForStop()
 
 	e.Close()
@@ -38,7 +39,8 @@ func TestDeferredExecutor_MultiClose(t *testing.T) {
 
 func TestDeferredExecutor_QueueSize(t *testing.T) {
 	SynctestTest(t, func(t *testing.T) {
-		e := NewDeferredExecutor(0)
+		logger := NewLoggerForTest(t)
+		e := NewDeferredExecutor(logger, 0)
 		defer e.waitForStop()
 		defer e.Close()
 
@@ -59,7 +61,8 @@ func TestDeferredExecutor_QueueSize(t *testing.T) {
 }
 
 func TestDeferredExecutor_Order(t *testing.T) {
-	e := NewDeferredExecutor(64)
+	logger := NewLoggerForTest(t)
+	e := NewDeferredExecutor(logger, 64)
 	defer e.waitForStop()
 	defer e.Close()
 
@@ -86,7 +89,8 @@ func TestDeferredExecutor_Order(t *testing.T) {
 }
 
 func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
-	e := NewDeferredExecutor(64)
+	logger := NewLoggerForTest(t)
+	e := NewDeferredExecutor(logger, 64)
 	defer e.waitForStop()
 
 	done := make(chan struct{})
@@ -99,8 +103,8 @@ func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
 }
 
 func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
-	CatchLogForTest(t)
-	e := NewDeferredExecutor(64)
+	logger := NewLoggerForTest(t)
+	e := NewDeferredExecutor(logger, 64)
 	defer e.waitForStop()
 
 	e.Close()
@@ -111,7 +115,8 @@ func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
 }
 
 func TestDeferredExecutor_WaitForStopTwice(t *testing.T) {
-	e := NewDeferredExecutor(64)
+	logger := NewLoggerForTest(t)
+	e := NewDeferredExecutor(logger, 64)
 	defer e.waitForStop()
 
 	e.Close()

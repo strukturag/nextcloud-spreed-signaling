@@ -139,7 +139,6 @@ func Test_TransientDataDeadlock(t *testing.T) {
 
 func Test_TransientMessages(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	hub, _, _, server := CreateHubForTest(t)
 

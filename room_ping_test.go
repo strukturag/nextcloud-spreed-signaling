@@ -32,7 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
+func NewRoomPingForTest(ctx context.Context, t *testing.T) (*url.URL, *RoomPing) {
 	require := require.New(t)
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
@@ -45,7 +45,7 @@ func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
 	config, err := getTestConfig(server)
 	require.NoError(err)
 
-	backend, err := NewBackendClient(config, 1, "0.0", nil)
+	backend, err := NewBackendClient(ctx, config, 1, "0.0", nil)
 	require.NoError(err)
 
 	p, err := NewRoomPing(backend, backend.capabilities)
@@ -58,11 +58,12 @@ func NewRoomPingForTest(t *testing.T) (*url.URL, *RoomPing) {
 }
 
 func TestSingleRoomPing(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
-	u, ping := NewRoomPingForTest(t)
+	u, ping := NewRoomPingForTest(ctx, t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	room1 := &Room{
@@ -95,16 +96,17 @@ func TestSingleRoomPing(t *testing.T) {
 	}
 	clearPingRequests(t)
 
-	ping.publishActiveSessions()
+	ping.publishActiveSessions(ctx)
 	assert.Empty(getPingRequests(t))
 }
 
 func TestMultiRoomPing(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
-	u, ping := NewRoomPingForTest(t)
+	u, ping := NewRoomPingForTest(ctx, t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	room1 := &Room{
@@ -131,18 +133,19 @@ func TestMultiRoomPing(t *testing.T) {
 	assert.NoError(ping.SendPings(ctx, room2.Id(), u, entries2))
 	assert.Empty(getPingRequests(t))
 
-	ping.publishActiveSessions()
+	ping.publishActiveSessions(ctx)
 	if requests := getPingRequests(t); assert.Len(requests, 1) {
 		assert.Len(requests[0].Ping.Entries, 2)
 	}
 }
 
 func TestMultiRoomPing_Separate(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
-	u, ping := NewRoomPingForTest(t)
+	u, ping := NewRoomPingForTest(ctx, t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	room1 := &Room{
@@ -165,18 +168,19 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 	assert.NoError(ping.SendPings(ctx, room1.Id(), u, entries2))
 	assert.Empty(getPingRequests(t))
 
-	ping.publishActiveSessions()
+	ping.publishActiveSessions(ctx)
 	if requests := getPingRequests(t); assert.Len(requests, 1) {
 		assert.Len(requests[0].Ping.Entries, 2)
 	}
 }
 
 func TestMultiRoomPing_DeleteRoom(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
-	u, ping := NewRoomPingForTest(t)
+	u, ping := NewRoomPingForTest(ctx, t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	room1 := &Room{
@@ -205,7 +209,7 @@ func TestMultiRoomPing_DeleteRoom(t *testing.T) {
 
 	ping.DeleteRoom(room2.Id())
 
-	ping.publishActiveSessions()
+	ping.publishActiveSessions(ctx)
 	if requests := getPingRequests(t); assert.Len(requests, 1) {
 		assert.Len(requests[0].Ping.Entries, 1)
 	}

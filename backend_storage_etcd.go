@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"slices"
 	"time"
@@ -38,6 +37,7 @@ import (
 type backendStorageEtcd struct {
 	backendStorageCommon
 
+	logger     Logger
 	etcdClient *EtcdClient
 	keyPrefix  string
 	keyInfos   map[string]*BackendInformationEtcd
@@ -50,7 +50,7 @@ type backendStorageEtcd struct {
 	closeFunc context.CancelFunc
 }
 
-func NewBackendStorageEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient) (BackendStorage, error) {
+func NewBackendStorageEtcd(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient) (BackendStorage, error) {
 	if etcdClient == nil || !etcdClient.IsConfigured() {
 		return nil, fmt.Errorf("no etcd endpoints configured")
 	}
@@ -66,6 +66,7 @@ func NewBackendStorageEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient) (B
 		backendStorageCommon: backendStorageCommon{
 			backends: make(map[string][]*Backend),
 		},
+		logger:     logger,
 		etcdClient: etcdClient,
 		keyPrefix:  keyPrefix,
 		keyInfos:   make(map[string]*BackendInformationEtcd),
@@ -120,9 +121,9 @@ func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
 				if errors.Is(err, context.Canceled) {
 					return
 				} else if errors.Is(err, context.DeadlineExceeded) {
-					log.Printf("Timeout getting initial list of backends, retry in %s", backoff.NextWait())
+					s.logger.Printf("Timeout getting initial list of backends, retry in %s", backoff.NextWait())
 				} else {
-					log.Printf("Could not get initial list of backends, retry in %s: %s", backoff.NextWait(), err)
+					s.logger.Printf("Could not get initial list of backends, retry in %s: %s", backoff.NextWait(), err)
 				}
 
 				backoff.Wait(s.closeCtx)
@@ -140,7 +141,7 @@ func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
 			for s.closeCtx.Err() == nil {
 				var err error
 				if nextRevision, err = client.Watch(s.closeCtx, s.keyPrefix, nextRevision, s, clientv3.WithPrefix()); err != nil {
-					log.Printf("Error processing watch for %s (%s), retry in %s", s.keyPrefix, err, backoff.NextWait())
+					s.logger.Printf("Error processing watch for %s (%s), retry in %s", s.keyPrefix, err, backoff.NextWait())
 					backoff.Wait(s.closeCtx)
 					continue
 				}
@@ -149,7 +150,7 @@ func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
 					backoff.Reset()
 					prevRevision = nextRevision
 				} else {
-					log.Printf("Processing watch for %s interrupted, retry in %s", s.keyPrefix, backoff.NextWait())
+					s.logger.Printf("Processing watch for %s interrupted, retry in %s", s.keyPrefix, backoff.NextWait())
 					backoff.Wait(s.closeCtx)
 				}
 			}
@@ -171,11 +172,11 @@ func (s *backendStorageEtcd) getBackends(ctx context.Context, client *EtcdClient
 func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
 	var info BackendInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
-		log.Printf("Could not decode backend information %s: %s", string(data), err)
+		s.logger.Printf("Could not decode backend information %s: %s", string(data), err)
 		return
 	}
 	if err := info.CheckValid(); err != nil {
-		log.Printf("Received invalid backend information %s: %s", string(data), err)
+		s.logger.Printf("Received invalid backend information %s: %s", string(data), err)
 		return
 	}
 
@@ -205,7 +206,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		entries, found := s.backends[host]
 		if !found {
 			// Simple case, first backend for this host
-			log.Printf("Added backend %s (from %s)", info.Urls[idx], key)
+			s.logger.Printf("Added backend %s (from %s)", info.Urls[idx], key)
 			s.backends[host] = []*Backend{backend}
 			added = true
 			continue
@@ -215,7 +216,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		replaced := false
 		for idx, entry := range entries {
 			if entry.id == key {
-				log.Printf("Updated backend %s (from %s)", info.Urls[idx], key)
+				s.logger.Printf("Updated backend %s (from %s)", info.Urls[idx], key)
 				entries[idx] = backend
 				replaced = true
 				break
@@ -224,7 +225,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 
 		if !replaced {
 			// New backend, add to list.
-			log.Printf("Added backend %s (from %s)", info.Urls[idx], key)
+			s.logger.Printf("Added backend %s (from %s)", info.Urls[idx], key)
 			s.backends[host] = append(entries, backend)
 			added = true
 		}
@@ -256,13 +257,13 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prev
 				if slices.ContainsFunc(d, func(b *Backend) bool {
 					return slices.Contains(b.urls, u.String())
 				}) {
-					log.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
+					s.logger.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
 				}
 			}
 			continue
 		}
 
-		log.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
+		s.logger.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
 		newEntries := make([]*Backend, 0, len(entries)-1)
 		for _, entry := range entries {
 			if entry.id == key {

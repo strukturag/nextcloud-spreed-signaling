@@ -25,12 +25,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"log"
 	"os"
 	"sync/atomic"
 )
 
 type CertificateReloader struct {
+	logger Logger
+
 	certFile    string
 	certWatcher *FileWatcher
 
@@ -42,22 +43,23 @@ type CertificateReloader struct {
 	reloadCounter atomic.Uint64
 }
 
-func NewCertificateReloader(certFile string, keyFile string) (*CertificateReloader, error) {
+func NewCertificateReloader(logger Logger, certFile string, keyFile string) (*CertificateReloader, error) {
 	pair, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("could not load certificate / key: %w", err)
 	}
 
 	reloader := &CertificateReloader{
+		logger:   logger,
 		certFile: certFile,
 		keyFile:  keyFile,
 	}
 	reloader.certificate.Store(&pair)
-	reloader.certWatcher, err = NewFileWatcher(certFile, reloader.reload)
+	reloader.certWatcher, err = NewFileWatcher(reloader.logger, certFile, reloader.reload)
 	if err != nil {
 		return nil, err
 	}
-	reloader.keyWatcher, err = NewFileWatcher(keyFile, reloader.reload)
+	reloader.keyWatcher, err = NewFileWatcher(reloader.logger, keyFile, reloader.reload)
 	if err != nil {
 		reloader.certWatcher.Close() // nolint
 		return nil, err
@@ -72,10 +74,10 @@ func (r *CertificateReloader) Close() {
 }
 
 func (r *CertificateReloader) reload(filename string) {
-	log.Printf("reloading certificate from %s with %s", r.certFile, r.keyFile)
+	r.logger.Printf("reloading certificate from %s with %s", r.certFile, r.keyFile)
 	pair, err := tls.LoadX509KeyPair(r.certFile, r.keyFile)
 	if err != nil {
-		log.Printf("could not load certificate / key: %s", err)
+		r.logger.Printf("could not load certificate / key: %s", err)
 		return
 	}
 
@@ -100,6 +102,8 @@ func (r *CertificateReloader) GetReloadCounter() uint64 {
 }
 
 type CertPoolReloader struct {
+	logger Logger
+
 	certFile    string
 	certWatcher *FileWatcher
 
@@ -122,17 +126,18 @@ func loadCertPool(filename string) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-func NewCertPoolReloader(certFile string) (*CertPoolReloader, error) {
+func NewCertPoolReloader(logger Logger, certFile string) (*CertPoolReloader, error) {
 	pool, err := loadCertPool(certFile)
 	if err != nil {
 		return nil, err
 	}
 
 	reloader := &CertPoolReloader{
+		logger:   logger,
 		certFile: certFile,
 	}
 	reloader.pool.Store(pool)
-	reloader.certWatcher, err = NewFileWatcher(certFile, reloader.reload)
+	reloader.certWatcher, err = NewFileWatcher(reloader.logger, certFile, reloader.reload)
 	if err != nil {
 		return nil, err
 	}
@@ -145,10 +150,10 @@ func (r *CertPoolReloader) Close() {
 }
 
 func (r *CertPoolReloader) reload(filename string) {
-	log.Printf("reloading certificate pool from %s", r.certFile)
+	r.logger.Printf("reloading certificate pool from %s", r.certFile)
 	pool, err := loadCertPool(r.certFile)
 	if err != nil {
-		log.Printf("could not load certificate pool: %s", err)
+		r.logger.Printf("could not load certificate pool: %s", err)
 		return
 	}
 

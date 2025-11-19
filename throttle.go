@@ -24,7 +24,6 @@ package signaling
 import (
 	"context"
 	"errors"
-	"log"
 	"net"
 	"strconv"
 	"sync"
@@ -277,7 +276,8 @@ func (t *memoryThrottler) CheckBruteforce(ctx context.Context, client string, ac
 	if l >= maxBruteforceAttempts {
 		delta := now.Sub(entries[l-maxBruteforceAttempts].ts)
 		if delta <= maxBruteforceDurationThreshold {
-			log.Printf("Detected bruteforce attempt on \"%s\" from %s", action, client)
+			logger := LoggerFromContext(ctx)
+			logger.Printf("Detected bruteforce attempt on \"%s\" from %s", action, client)
 			statsThrottleBruteforceTotal.WithLabelValues(action).Inc()
 			return doThrottle, ErrBruteforceDetected
 		}
@@ -301,7 +301,8 @@ func (t *memoryThrottler) throttle(ctx context.Context, client string, action st
 	}
 	count := t.addEntry(client, action, entry)
 	delay := t.getDelay(count - 1)
-	log.Printf("Failed attempt on \"%s\" from %s, throttling by %s", action, client, delay)
+	logger := LoggerFromContext(ctx)
+	logger.Printf("Failed attempt on \"%s\" from %s, throttling by %s", action, client, delay)
 	statsThrottleDelayedTotal.WithLabelValues(action, strconv.FormatInt(delay.Milliseconds(), 10)).Inc()
 	t.doDelay(ctx, delay)
 }

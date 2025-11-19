@@ -174,11 +174,12 @@ func SetCapabilitiesGetNow(t *testing.T, capabilities *Capabilities, f func() ti
 
 func TestCapabilities(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	url, capabilities := NewCapabilitiesForTest(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	assert.True(capabilities.HasCapabilityFeature(ctx, url, "foo"))
@@ -217,7 +218,8 @@ func TestCapabilities(t *testing.T) {
 
 func TestInvalidateCapabilities(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -225,7 +227,7 @@ func TestInvalidateCapabilities(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	expectedString := "bar"
@@ -277,7 +279,8 @@ func TestInvalidateCapabilities(t *testing.T) {
 
 func TestCapabilitiesNoCache(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -285,7 +288,7 @@ func TestCapabilitiesNoCache(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	expectedString := "bar"
@@ -321,7 +324,8 @@ func TestCapabilitiesNoCache(t *testing.T) {
 
 func TestCapabilitiesShortCache(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -329,7 +333,7 @@ func TestCapabilitiesShortCache(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	expectedString := "bar"
@@ -375,7 +379,8 @@ func TestCapabilitiesShortCache(t *testing.T) {
 
 func TestCapabilitiesNoCacheETag(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -389,7 +394,7 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	expectedString := "bar"
@@ -416,7 +421,8 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 
 func TestCapabilitiesCacheNoMustRevalidate(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -427,7 +433,7 @@ func TestCapabilitiesCacheNoMustRevalidate(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	expectedString := "bar"
@@ -456,7 +462,8 @@ func TestCapabilitiesCacheNoMustRevalidate(t *testing.T) {
 
 func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -467,7 +474,7 @@ func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	expectedString := "bar"
@@ -496,7 +503,8 @@ func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 
 func TestCapabilitiesNoCacheMustRevalidate(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -507,7 +515,7 @@ func TestCapabilitiesNoCacheMustRevalidate(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	expectedString := "bar"
@@ -534,7 +542,8 @@ func TestCapabilitiesNoCacheMustRevalidate(t *testing.T) {
 
 func TestConcurrentExpired(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
 	url, capabilities := NewCapabilitiesForTestWithCallback(t, func(cr *CapabilitiesResponse, w http.ResponseWriter) error {
@@ -542,7 +551,7 @@ func TestConcurrentExpired(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	expectedString := "bar"

@@ -138,7 +138,9 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httpte
 	config := goconf.NewConfigFile()
 	config.AddOption("tokens", TokenIdForTest, pubkey.Name())
 
-	proxy, err = NewProxyServer(r, "0.0", config)
+	logger := signaling.NewLoggerForTest(t)
+	ctx := signaling.NewLoggerContext(t.Context(), logger)
+	proxy, err = NewProxyServer(ctx, r, "0.0", config)
 	require.NoError(err)
 
 	server := httptest.NewServer(r)
@@ -150,7 +152,6 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httpte
 }
 
 func TestTokenValid(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -173,7 +174,6 @@ func TestTokenValid(t *testing.T) {
 }
 
 func TestTokenNotSigned(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, _, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -198,7 +198,6 @@ func TestTokenNotSigned(t *testing.T) {
 }
 
 func TestTokenUnknown(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -223,7 +222,6 @@ func TestTokenUnknown(t *testing.T) {
 }
 
 func TestTokenInFuture(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -248,7 +246,6 @@ func TestTokenInFuture(t *testing.T) {
 }
 
 func TestTokenExpired(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -305,7 +302,6 @@ func TestPublicIPs(t *testing.T) {
 }
 
 func TestWebsocketFeatures(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	_, _, server := newProxyServerForTest(t)
 
@@ -333,7 +329,6 @@ func TestWebsocketFeatures(t *testing.T) {
 }
 
 func TestProxyCreateSession(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	_, key, server := newProxyServerForTest(t)
@@ -485,7 +480,6 @@ func NewPublisherTestMCU(t *testing.T) *PublisherTestMCU {
 }
 
 func TestProxyPublisherBandwidth(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -605,7 +599,6 @@ func (m *HangingTestMCU) NewSubscriber(ctx context.Context, listener signaling.M
 }
 
 func TestProxyCancelOnClose(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -684,7 +677,6 @@ func (m *CodecsTestMCU) NewPublisher(ctx context.Context, listener signaling.Mcu
 }
 
 func TestProxyCodecs(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -767,7 +759,6 @@ func NewStreamTestMCU(t *testing.T, streams []signaling.PublisherStream) *Stream
 }
 
 func TestProxyStreams(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -992,7 +983,6 @@ func (m *RemoteSubscriberTestMCU) NewRemoteSubscriber(ctx context.Context, liste
 }
 
 func TestProxyRemoteSubscriber(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -1087,7 +1077,6 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 }
 
 func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -1250,7 +1239,6 @@ func (p *UnpublishRemoteTestPublisher) UnpublishRemote(ctx context.Context, remo
 }
 
 func TestProxyUnpublishRemote(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -1367,7 +1355,6 @@ func TestProxyUnpublishRemote(t *testing.T) {
 }
 
 func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -1499,7 +1486,6 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 }
 
 func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)

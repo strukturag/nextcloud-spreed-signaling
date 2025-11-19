@@ -24,7 +24,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -46,6 +45,7 @@ type remotePublisherData struct {
 }
 
 type ProxySession struct {
+	logger    signaling.Logger
 	proxy     *ProxyServer
 	id        signaling.PublicSessionId
 	sid       uint64
@@ -79,6 +79,7 @@ type ProxySession struct {
 func NewProxySession(proxy *ProxyServer, sid uint64, id signaling.PublicSessionId) *ProxySession {
 	ctx, closeFunc := context.WithCancel(context.Background())
 	result := &ProxySession{
+		logger:    proxy.logger,
 		proxy:     proxy,
 		id:        id,
 		sid:       sid,
@@ -169,7 +170,7 @@ func (s *ProxySession) SetClient(client *ProxyClient) *ProxyClient {
 func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer api.StringMap) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
-		log.Printf("Received offer %+v from unknown %s client %s (%+v)", offer, client.StreamType(), client.Id(), client)
+		s.logger.Printf("Received offer %+v from unknown %s client %s (%+v)", offer, client.StreamType(), client.Id(), client)
 		return
 	}
 
@@ -189,7 +190,7 @@ func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer api.Strin
 func (s *ProxySession) OnIceCandidate(client signaling.McuClient, candidate any) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
-		log.Printf("Received candidate %+v from unknown %s client %s (%+v)", candidate, client.StreamType(), client.Id(), client)
+		s.logger.Printf("Received candidate %+v from unknown %s client %s (%+v)", candidate, client.StreamType(), client.Id(), client)
 		return
 	}
 
@@ -222,7 +223,7 @@ func (s *ProxySession) sendMessage(message *signaling.ProxyServerMessage) {
 func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
-		log.Printf("Received ice completed event from unknown %s client %s (%+v)", client.StreamType(), client.Id(), client)
+		s.logger.Printf("Received ice completed event from unknown %s client %s (%+v)", client.StreamType(), client.Id(), client)
 		return
 	}
 
@@ -239,7 +240,7 @@ func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
 func (s *ProxySession) SubscriberSidUpdated(subscriber signaling.McuSubscriber) {
 	id := s.proxy.GetClientId(subscriber)
 	if id == "" {
-		log.Printf("Received subscriber sid updated event from unknown %s subscriber %s (%+v)", subscriber.StreamType(), subscriber.Id(), subscriber)
+		s.logger.Printf("Received subscriber sid updated event from unknown %s subscriber %s (%+v)", subscriber.StreamType(), subscriber.Id(), subscriber)
 		return
 	}
 
@@ -363,7 +364,7 @@ func (s *ProxySession) clearRemotePublishers() {
 		for publisher, entries := range remotePublishers {
 			for _, data := range entries {
 				if err := publisher.UnpublishRemote(context.Background(), s.PublicId(), data.hostname, data.port, data.rtcpPort); err != nil {
-					log.Printf("Error unpublishing %s %s from remote %s: %s", publisher.StreamType(), publisher.Id(), data.hostname, err)
+					s.logger.Printf("Error unpublishing %s %s from remote %s: %s", publisher.StreamType(), publisher.Id(), data.hostname, err)
 				}
 			}
 		}
@@ -476,7 +477,7 @@ func (s *ProxySession) OnRemotePublisherDeleted(publisherId signaling.PublicSess
 			delete(s.subscribers, id)
 			delete(s.subscriberIds, sub)
 
-			log.Printf("Remote subscriber %s was closed, closing %s subscriber %s", publisherId, sub.StreamType(), sub.Id())
+			s.logger.Printf("Remote subscriber %s was closed, closing %s subscriber %s", publisherId, sub.StreamType(), sub.Id())
 			go sub.Close(context.Background())
 		}
 	}

@@ -154,7 +154,8 @@ func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 	config.AddOption("etcd", "loglevel", "error")
 
-	client, err := NewEtcdClient(config, "")
+	logger := NewLoggerForTest(t)
+	client, err := NewEtcdClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, client.Close())
@@ -172,7 +173,8 @@ func NewEtcdClientWithTLSForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	config.AddOption("etcd", "clientcert", certfile)
 	config.AddOption("etcd", "cacert", certfile)
 
-	client, err := NewEtcdClient(config, "")
+	logger := NewLoggerForTest(t)
+	client, err := NewEtcdClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, client.Close())
@@ -196,12 +198,13 @@ func DeleteEtcdValue(etcd *embed.Etcd, key string) {
 
 func Test_EtcdClient_Get(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	require := require.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 
-	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	if info := client.GetServerInfoEtcd(); assert.NotNil(info) {
@@ -226,13 +229,13 @@ func Test_EtcdClient_Get(t *testing.T) {
 		}
 	}
 
-	if response, err := client.Get(context.Background(), "foo"); assert.NoError(err) {
+	if response, err := client.Get(ctx, "foo"); assert.NoError(err) {
 		assert.EqualValues(0, response.Count)
 	}
 
 	SetEtcdValue(etcd, "foo", []byte("bar"))
 
-	if response, err := client.Get(context.Background(), "foo"); assert.NoError(err) {
+	if response, err := client.Get(ctx, "foo"); assert.NoError(err) {
 		if assert.EqualValues(1, response.Count) {
 			assert.Equal("foo", string(response.Kvs[0].Key))
 			assert.Equal("bar", string(response.Kvs[0].Value))
@@ -242,12 +245,13 @@ func Test_EtcdClient_Get(t *testing.T) {
 
 func Test_EtcdClientTLS_Get(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	require := require.New(t)
 	etcd, client := NewEtcdClientWithTLSForTest(t)
 
-	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	if info := client.GetServerInfoEtcd(); assert.NotNil(info) {
@@ -288,11 +292,12 @@ func Test_EtcdClientTLS_Get(t *testing.T) {
 
 func Test_EtcdClient_GetPrefix(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 
-	if response, err := client.Get(context.Background(), "foo"); assert.NoError(err) {
+	if response, err := client.Get(ctx, "foo"); assert.NoError(err) {
 		assert.EqualValues(0, response.Count)
 	}
 
@@ -300,7 +305,7 @@ func Test_EtcdClient_GetPrefix(t *testing.T) {
 	SetEtcdValue(etcd, "foo/lala", []byte("2"))
 	SetEtcdValue(etcd, "lala/foo", []byte("3"))
 
-	if response, err := client.Get(context.Background(), "foo", clientv3.WithPrefix()); assert.NoError(err) {
+	if response, err := client.Get(ctx, "foo", clientv3.WithPrefix()); assert.NoError(err) {
 		if assert.EqualValues(2, response.Count) {
 			assert.Equal("foo", string(response.Kvs[0].Key))
 			assert.Equal("1", string(response.Kvs[0].Value))
@@ -399,13 +404,14 @@ func (l *EtcdClientTestListener) EtcdKeyDeleted(client *EtcdClient, key string, 
 
 func Test_EtcdClient_Watch(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 
 	SetEtcdValue(etcd, "foo/a", []byte("1"))
 
-	listener := NewEtcdClientTestListener(context.Background(), t)
+	listener := NewEtcdClientTestListener(ctx, t)
 	defer listener.Close()
 
 	client.AddListener(listener)

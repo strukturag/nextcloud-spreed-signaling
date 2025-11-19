@@ -24,7 +24,6 @@ package signaling
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 
 	"github.com/notedit/janus-go"
@@ -47,7 +46,7 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Subscriber %d: associated room has been destroyed, closing", p.handleId.Load())
+			p.logger.Printf("Subscriber %d: associated room has been destroyed, closing", p.handleId.Load())
 			go p.Close(ctx)
 		case "updated":
 			streams, ok := getPluginValue(event.Plugindata, pluginVideoRoom, "streams").([]any)
@@ -64,48 +63,48 @@ func (p *mcuJanusSubscriber) handleEvent(event *janus.EventMsg) {
 				}
 			}
 
-			log.Printf("Subscriber %d: received updated event with no active media streams, closing", p.handleId.Load())
+			p.logger.Printf("Subscriber %d: received updated event with no active media streams, closing", p.handleId.Load())
 			go p.Close(ctx)
 		case "event":
 			// Handle renegotiations, but ignore other events like selected
 			// substream / temporal layer.
 			if getPluginStringValue(event.Plugindata, pluginVideoRoom, "configured") == "ok" &&
 				event.Jsep != nil && event.Jsep["type"] == "offer" && event.Jsep["sdp"] != nil {
-				log.Printf("Subscriber %d: received updated offer", p.handleId.Load())
+				p.logger.Printf("Subscriber %d: received updated offer", p.handleId.Load())
 				p.listener.OnUpdateOffer(p, event.Jsep)
 			} else {
-				log.Printf("Subscriber %d: received unsupported event %+v", p.handleId.Load(), event)
+				p.logger.Printf("Subscriber %d: received unsupported event %+v", p.handleId.Load(), event)
 			}
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom event %s for subscriber %d: %+v", videoroom, p.handleId.Load(), event)
+			p.logger.Printf("Unsupported videoroom event %s for subscriber %d: %+v", videoroom, p.handleId.Load(), event)
 		}
 	} else {
-		log.Printf("Unsupported event for subscriber %d: %+v", p.handleId.Load(), event)
+		p.logger.Printf("Unsupported event for subscriber %d: %+v", p.handleId.Load(), event)
 	}
 }
 
 func (p *mcuJanusSubscriber) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Subscriber %d received hangup (%s), closing", p.handleId.Load(), event.Reason)
+	p.logger.Printf("Subscriber %d received hangup (%s), closing", p.handleId.Load(), event.Reason)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusSubscriber) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Subscriber %d received detached, closing", p.handleId.Load())
+	p.logger.Printf("Subscriber %d received detached, closing", p.handleId.Load())
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusSubscriber) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Subscriber %d received connected", p.handleId.Load())
+	p.logger.Printf("Subscriber %d received connected", p.handleId.Load())
 	p.mcu.SubscriberConnected(p.Id(), p.publisher, p.streamType)
 }
 
 func (p *mcuJanusSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
+		p.logger.Printf("Subscriber %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	} else {
-		log.Printf("Subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
+		p.logger.Printf("Subscriber %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	}
 }
 
@@ -119,21 +118,21 @@ func (p *mcuJanusSubscriber) NotifyReconnected() {
 	handle, pub, err := p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
 	if err != nil {
 		// TODO(jojo): Retry?
-		log.Printf("Could not reconnect subscriber for publisher %s: %s", p.publisher, err)
+		p.logger.Printf("Could not reconnect subscriber for publisher %s: %s", p.publisher, err)
 		p.Close(context.Background())
 		return
 	}
 
 	if prev := p.handle.Swap(handle); prev != nil {
 		if _, err := prev.Detach(context.Background()); err != nil {
-			log.Printf("Error detaching old subscriber handle %d: %s", prev.Id, err)
+			p.logger.Printf("Error detaching old subscriber handle %d: %s", prev.Id, err)
 		}
 	}
 	p.handleId.Store(handle.Id)
 	p.roomId = pub.roomId
 	p.sid = strconv.FormatUint(handle.Id, 10)
 	p.listener.SubscriberSidUpdated(p)
-	log.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId.Load())
+	p.logger.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId.Load())
 }
 
 func (p *mcuJanusSubscriber) closeClient(ctx context.Context) bool {
@@ -193,7 +192,7 @@ retry:
 		return
 	}
 
-	if error_code := getPluginIntValue(join_response.Plugindata, pluginVideoRoom, "error_code"); error_code > 0 {
+	if error_code := getPluginIntValue(p.logger, join_response.Plugindata, pluginVideoRoom, "error_code"); error_code > 0 {
 		switch error_code {
 		case JANUS_VIDEOROOM_ERROR_ALREADY_JOINED:
 			// The subscriber is already connected to the room. This can happen
@@ -219,7 +218,7 @@ retry:
 
 			if prev := p.handle.Swap(handle); prev != nil {
 				if _, err := prev.Detach(context.Background()); err != nil {
-					log.Printf("Error detaching old subscriber handle %d: %s", prev.Id, err)
+					p.logger.Printf("Error detaching old subscriber handle %d: %s", prev.Id, err)
 				}
 			}
 			p.handleId.Store(handle.Id)
@@ -229,19 +228,19 @@ retry:
 			p.closeChan = make(chan struct{}, 1)
 			statsSubscribersCurrent.WithLabelValues(string(p.streamType)).Inc()
 			go p.run(handle, p.closeChan)
-			log.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId.Load())
+			p.logger.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId.Load())
 			goto retry
 		case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
 			fallthrough
 		case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
 			switch error_code {
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
-				log.Printf("Publisher %s not created yet for %s, not joining room %d as subscriber", p.publisher, p.streamType, p.roomId)
+				p.logger.Printf("Publisher %s not created yet for %s, not joining room %d as subscriber", p.publisher, p.streamType, p.roomId)
 				go p.Close(context.Background())
 				callback(fmt.Errorf("Publisher %s not created yet for %s", p.publisher, p.streamType), nil)
 				return
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
-				log.Printf("Publisher %s not sending yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
+				p.logger.Printf("Publisher %s not sending yet for %s, wait and retry to join room %d as subscriber", p.publisher, p.streamType, p.roomId)
 			}
 
 			if !loggedNotPublishingYet {
@@ -254,7 +253,7 @@ retry:
 				callback(err, nil)
 				return
 			}
-			log.Printf("Retry subscribing %s from %s", p.streamType, p.publisher)
+			p.logger.Printf("Retry subscribing %s from %s", p.streamType, p.publisher)
 			goto retry
 		default:
 			// TODO(jojo): Should we handle other errors, too?
@@ -262,7 +261,7 @@ retry:
 			return
 		}
 	}
-	//log.Println("Joined as listener", join_response)
+	//p.logger.Println("Joined as listener", join_response)
 
 	p.session = join_response.Session
 	callback(nil, join_response.Jsep)

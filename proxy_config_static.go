@@ -23,7 +23,6 @@ package signaling
 
 import (
 	"errors"
-	"log"
 	"maps"
 	"net"
 	"net/url"
@@ -40,8 +39,9 @@ type ipList struct {
 }
 
 type proxyConfigStatic struct {
-	mu    sync.Mutex
-	proxy McuProxy
+	logger Logger
+	mu     sync.Mutex
+	proxy  McuProxy
 
 	dnsMonitor *DnsMonitor
 	// +checklocks:mu
@@ -51,8 +51,9 @@ type proxyConfigStatic struct {
 	connectionsMap map[string]*ipList
 }
 
-func NewProxyConfigStatic(config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *DnsMonitor) (ProxyConfig, error) {
+func NewProxyConfigStatic(logger Logger, config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *DnsMonitor) (ProxyConfig, error) {
 	result := &proxyConfigStatic{
+		logger:         logger,
 		proxy:          proxy,
 		dnsMonitor:     dnsMonitor,
 		connectionsMap: make(map[string]*ipList),
@@ -100,7 +101,7 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 				return err
 			}
 
-			log.Printf("Could not parse URL %s: %s", u, err)
+			p.logger.Printf("Could not parse URL %s: %s", u, err)
 			continue
 		}
 
@@ -121,7 +122,7 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 					return err
 				}
 
-				log.Printf("Could not create proxy connection to %s: %s", u, err)
+				p.logger.Printf("Could not create proxy connection to %s: %s", u, err)
 				continue
 			}
 		}
@@ -198,7 +199,7 @@ func (p *proxyConfigStatic) onLookup(entry *DnsMonitorEntry, all []net.IP, added
 
 	if len(added) > 0 {
 		if err := p.proxy.AddConnection(true, u, added...); err != nil {
-			log.Printf("Could not add proxy connection to %s with %+v: %s", u, added, err)
+			p.logger.Printf("Could not add proxy connection to %s with %+v: %s", u, added, err)
 		}
 	}
 

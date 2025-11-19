@@ -22,6 +22,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -64,28 +65,33 @@ func main() {
 	}
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
 	signal.Notify(sigChan, syscall.SIGHUP)
 	signal.Notify(sigChan, syscall.SIGUSR1)
 
-	log.Printf("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
+	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	logger := log.Default()
+	stopCtx = signaling.NewLoggerContext(stopCtx, logger)
+
+	logger.Printf("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
 
 	config, err := goconf.ReadConfigFile(*configFlag)
 	if err != nil {
-		log.Fatal("Could not read configuration: ", err)
+		logger.Fatal("Could not read configuration: ", err)
 	}
 
-	log.Printf("Using a maximum of %d CPUs", runtime.GOMAXPROCS(0))
+	logger.Printf("Using a maximum of %d CPUs", runtime.GOMAXPROCS(0))
 
 	r := mux.NewRouter()
 
-	proxy, err := NewProxyServer(r, version, config)
+	proxy, err := NewProxyServer(stopCtx, r, version, config)
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	if err := proxy.Start(config); err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 	defer proxy.Stop()
 
@@ -101,10 +107,10 @@ func main() {
 
 		for address := range signaling.SplitEntries(addr, " ") {
 			go func(address string) {
-				log.Println("Listening on", address)
+				logger.Println("Listening on", address)
 				listener, err := net.Listen("tcp", address)
 				if err != nil {
-					log.Fatal("Could not start listening: ", err)
+					logger.Fatal("Could not start listening: ", err)
 				}
 				srv := &http.Server{
 					Handler: r,
@@ -114,7 +120,7 @@ func main() {
 					WriteTimeout: time.Duration(writeTimeout) * time.Second,
 				}
 				if err := srv.Serve(listener); err != nil {
-					log.Fatal("Could not start server: ", err)
+					logger.Fatal("Could not start server: ", err)
 				}
 			}(address)
 		}
@@ -123,24 +129,24 @@ func main() {
 loop:
 	for {
 		select {
+		case <-stopCtx.Done():
+			logger.Println("Interrupted")
+			break loop
 		case sig := <-sigChan:
 			switch sig {
-			case os.Interrupt:
-				log.Println("Interrupted")
-				break loop
 			case syscall.SIGHUP:
-				log.Printf("Received SIGHUP, reloading %s", *configFlag)
+				logger.Printf("Received SIGHUP, reloading %s", *configFlag)
 				if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
-					log.Printf("Could not read configuration from %s: %s", *configFlag, err)
+					logger.Printf("Could not read configuration from %s: %s", *configFlag, err)
 				} else {
 					proxy.Reload(config)
 				}
 			case syscall.SIGUSR1:
-				log.Printf("Received SIGUSR1, scheduling server to shutdown")
+				logger.Printf("Received SIGUSR1, scheduling server to shutdown")
 				proxy.ScheduleShutdown()
 			}
 		case <-proxy.ShutdownChannel():
-			log.Printf("All clients disconnected, shutting down")
+			logger.Printf("All clients disconnected, shutting down")
 			break loop
 		}
 	}

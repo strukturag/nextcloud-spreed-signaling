@@ -38,7 +38,8 @@ func newProxyConfigStatic(t *testing.T, proxy McuProxy, dns bool, urls ...string
 		cfg.AddOption("mcu", "dnsdiscovery", "true")
 	}
 	dnsMonitor := newDnsMonitorForTest(t, time.Hour) // will be updated manually
-	p, err := NewProxyConfigStatic(cfg, proxy, dnsMonitor)
+	logger := NewLoggerForTest(t)
+	p, err := NewProxyConfigStatic(logger, cfg, proxy, dnsMonitor)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		p.Stop()
@@ -56,7 +57,6 @@ func updateProxyConfigStatic(t *testing.T, config ProxyConfig, dns bool, urls ..
 }
 
 func TestProxyConfigStaticSimple(t *testing.T) {
-	CatchLogForTest(t)
 	proxy := newMcuProxyForConfig(t)
 	config, _ := newProxyConfigStatic(t, proxy, false, "https://foo/")
 	proxy.Expect("add", "https://foo/")
@@ -73,7 +73,6 @@ func TestProxyConfigStaticSimple(t *testing.T) {
 }
 
 func TestProxyConfigStaticDNS(t *testing.T) {
-	CatchLogForTest(t)
 	lookup := newMockDnsLookupForTest(t)
 	proxy := newMcuProxyForConfig(t)
 	config, dnsMonitor := newProxyConfigStatic(t, proxy, true, "https://foo/")

@@ -224,7 +224,7 @@ type BackendConfiguration struct {
 	storage BackendStorage
 }
 
-func NewBackendConfiguration(config *goconf.ConfigFile, etcdClient *EtcdClient) (*BackendConfiguration, error) {
+func NewBackendConfiguration(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient) (*BackendConfiguration, error) {
 	backendType, _ := config.GetString("backend", "backendtype")
 	if backendType == "" {
 		backendType = DefaultBackendType
@@ -236,9 +236,9 @@ func NewBackendConfiguration(config *goconf.ConfigFile, etcdClient *EtcdClient) 
 	var err error
 	switch backendType {
 	case BackendTypeStatic:
-		storage, err = NewBackendStorageStatic(config)
+		storage, err = NewBackendStorageStatic(logger, config)
 	case BackendTypeEtcd:
-		storage, err = NewBackendStorageEtcd(config, etcdClient)
+		storage, err = NewBackendStorageEtcd(logger, config, etcdClient)
 	default:
 		err = fmt.Errorf("unknown backend type: %s", backendType)
 	}

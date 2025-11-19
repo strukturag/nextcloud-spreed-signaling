@@ -23,7 +23,6 @@ package signaling
 
 import (
 	"context"
-	"log"
 	"reflect"
 	"strconv"
 	"sync"
@@ -35,6 +34,7 @@ import (
 )
 
 type mcuJanusClient struct {
+	logger   Logger
 	mcu      *mcuJanus
 	listener McuListener
 	mu       sync.Mutex
@@ -127,7 +127,7 @@ func (c *mcuJanusClient) closeClient(ctx context.Context) bool {
 		close(c.closeChan)
 		if _, err := handle.Detach(ctx); err != nil {
 			if e, ok := err.(*janus.ErrorMsg); !ok || e.Err.Code != JANUS_ERROR_HANDLE_NOT_FOUND {
-				log.Println("Could not detach client", handle.Id, err)
+				c.logger.Println("Could not detach client", handle.Id, err)
 			}
 		}
 		return true
@@ -157,7 +157,7 @@ loop:
 			case *TrickleMsg:
 				c.handleTrickle(t)
 			default:
-				log.Println("Received unsupported event type", msg, reflect.TypeOf(msg))
+				c.logger.Println("Received unsupported event type", msg, reflect.TypeOf(msg))
 			}
 		case f := <-c.deferred:
 			f()
@@ -205,7 +205,8 @@ func (c *mcuJanusClient) sendAnswer(ctx context.Context, answer api.StringMap, c
 		callback(err, nil)
 		return
 	}
-	log.Println("Started listener", start_response)
+
+	c.logger.Println("Started listener", start_response)
 	callback(nil, nil)
 }
 

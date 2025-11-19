@@ -24,7 +24,6 @@ package signaling
 import (
 	"context"
 	"errors"
-	"log"
 	"sync"
 	"sync/atomic"
 )
@@ -117,6 +116,7 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 
 	var wg sync.WaitGroup
 	var result atomic.Value
+	logger := LoggerFromContext(ctx)
 	for _, client := range clients {
 		wg.Add(1)
 		go func(client *GrpcClient) {
@@ -126,10 +126,10 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 			if errors.Is(err, context.Canceled) {
 				return
 			} else if err != nil {
-				log.Printf("Received error while checking for room session id %s on %s: %s", roomSessionId, client.Target(), err)
+				logger.Printf("Received error while checking for room session id %s on %s: %s", roomSessionId, client.Target(), err)
 				return
 			} else if sid == "" {
-				log.Printf("Received empty session id for room session id %s from %s", roomSessionId, client.Target())
+				logger.Printf("Received empty session id for room session id %s from %s", roomSessionId, client.Target())
 				return
 			}
 

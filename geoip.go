@@ -24,9 +24,9 @@ package signaling
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -56,6 +56,7 @@ func GetGeoIpDownloadUrl(license string) string {
 }
 
 type GeoLookup struct {
+	logger Logger
 	url    string
 	isFile bool
 	client http.Client
@@ -66,15 +67,17 @@ type GeoLookup struct {
 	reader atomic.Pointer[maxminddb.Reader]
 }
 
-func NewGeoLookupFromUrl(url string) (*GeoLookup, error) {
+func NewGeoLookupFromUrl(logger Logger, url string) (*GeoLookup, error) {
 	geoip := &GeoLookup{
-		url: url,
+		logger: logger,
+		url:    url,
 	}
 	return geoip, nil
 }
 
-func NewGeoLookupFromFile(filename string) (*GeoLookup, error) {
+func NewGeoLookupFromFile(logger Logger, filename string) (*GeoLookup, error) {
 	geoip := &GeoLookup{
+		logger: logger,
 		url:    filename,
 		isFile: true,
 	}
@@ -119,7 +122,7 @@ func (g *GeoLookup) updateFile() error {
 	}
 
 	metadata := reader.Metadata
-	log.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
+	g.logger.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
 
 	if old := g.reader.Swap(reader); old != nil {
 		old.Close()
@@ -144,7 +147,7 @@ func (g *GeoLookup) updateUrl() error {
 	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusNotModified {
-		log.Printf("GeoIP database at %s has not changed", g.url)
+		g.logger.Printf("GeoIP database at %s has not changed", g.url)
 		return nil
 	} else if response.StatusCode/100 != 2 {
 		return fmt.Errorf("downloading %s returned an error: %s", g.url, response.Status)
@@ -202,7 +205,7 @@ func (g *GeoLookup) updateUrl() error {
 	}
 
 	metadata := reader.Metadata
-	log.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
+	g.logger.Printf("Using %s GeoIP database from %s (built on %s)", metadata.DatabaseType, g.url, time.Unix(int64(metadata.BuildEpoch), 0).UTC())
 
 	if old := g.reader.Swap(reader); old != nil {
 		old.Close()
@@ -268,7 +271,8 @@ func IsValidContinent(continent string) bool {
 	}
 }
 
-func LoadGeoIPOverrides(config *goconf.ConfigFile, ignoreErrors bool) (map[*net.IPNet]string, error) {
+func LoadGeoIPOverrides(ctx context.Context, config *goconf.ConfigFile, ignoreErrors bool) (map[*net.IPNet]string, error) {
+	logger := LoggerFromContext(ctx)
 	options, _ := GetStringOptions(config, "geoip-overrides", true)
 	if len(options) == 0 {
 		return nil, nil
@@ -283,7 +287,7 @@ func LoadGeoIPOverrides(config *goconf.ConfigFile, ignoreErrors bool) (map[*net.
 			_, ipNet, err = net.ParseCIDR(option)
 			if err != nil {
 				if ignoreErrors {
-					log.Printf("could not parse CIDR %s (%s), skipping", option, err)
+					logger.Printf("could not parse CIDR %s (%s), skipping", option, err)
 					continue
 				}
 
@@ -293,7 +297,7 @@ func LoadGeoIPOverrides(config *goconf.ConfigFile, ignoreErrors bool) (map[*net.
 			ip = net.ParseIP(option)
 			if ip == nil {
 				if ignoreErrors {
-					log.Printf("could not parse IP %s, skipping", option)
+					logger.Printf("could not parse IP %s, skipping", option)
 					continue
 				}
 
@@ -314,14 +318,14 @@ func LoadGeoIPOverrides(config *goconf.ConfigFile, ignoreErrors bool) (map[*net.
 
 		value = strings.ToUpper(strings.TrimSpace(value))
 		if value == "" {
-			log.Printf("IP %s doesn't have a country assigned, skipping", option)
+			logger.Printf("IP %s doesn't have a country assigned, skipping", option)
 			continue
 		} else if !IsValidCountry(value) {
-			log.Printf("Country %s for IP %s is invalid, skipping", value, option)
+			logger.Printf("Country %s for IP %s is invalid, skipping", value, option)
 			continue
 		}
 
-		log.Printf("Using country %s for %s", value, ipNet)
+		logger.Printf("Using country %s for %s", value, ipNet)
 		geoipOverrides[ipNet] = value
 	}
 

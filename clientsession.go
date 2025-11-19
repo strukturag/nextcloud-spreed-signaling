@@ -25,7 +25,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"net/url"
 	"slices"
@@ -55,6 +54,7 @@ const (
 type ResponseHandlerFunc func(message *ClientMessage) bool
 
 type ClientSession struct {
+	logger    Logger
 	hub       *Hub
 	events    AsyncEvents
 	privateId PrivateSessionId
@@ -119,8 +119,10 @@ type ClientSession struct {
 }
 
 func NewClientSession(hub *Hub, privateId PrivateSessionId, publicId PublicSessionId, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
-	ctx, closeFunc := context.WithCancel(context.Background())
+	ctx := NewLoggerContext(context.Background(), hub.logger)
+	ctx, closeFunc := context.WithCancel(ctx)
 	s := &ClientSession{
+		logger:    hub.logger,
 		hub:       hub,
 		events:    hub.events,
 		privateId: privateId,
@@ -276,7 +278,7 @@ func (s *ClientSession) SetPermissions(permissions []Permission) {
 
 	s.permissions = p
 	s.supportsPermissions = true
-	log.Printf("Permissions of session %s changed: %s", s.PublicId(), permissions)
+	s.logger.Printf("Permissions of session %s changed: %s", s.PublicId(), permissions)
 }
 
 func (s *ClientSession) Backend() *Backend {
@@ -443,19 +445,19 @@ func (s *ClientSession) UpdateRoomSessionId(roomSessionId RoomSessionId) error {
 
 	if roomSessionId != "" {
 		if room := s.GetRoom(); room != nil {
-			log.Printf("Session %s updated room session id to %s in room %s", s.PublicId(), roomSessionId, room.Id())
+			s.logger.Printf("Session %s updated room session id to %s in room %s", s.PublicId(), roomSessionId, room.Id())
 		} else if client := s.GetFederationClient(); client != nil {
-			log.Printf("Session %s updated room session id to %s in federated room %s", s.PublicId(), roomSessionId, client.RemoteRoomId())
+			s.logger.Printf("Session %s updated room session id to %s in federated room %s", s.PublicId(), roomSessionId, client.RemoteRoomId())
 		} else {
-			log.Printf("Session %s updated room session id to %s in unknown room", s.PublicId(), roomSessionId)
+			s.logger.Printf("Session %s updated room session id to %s in unknown room", s.PublicId(), roomSessionId)
 		}
 	} else {
 		if room := s.GetRoom(); room != nil {
-			log.Printf("Session %s cleared room session id in room %s", s.PublicId(), room.Id())
+			s.logger.Printf("Session %s cleared room session id in room %s", s.PublicId(), room.Id())
 		} else if client := s.GetFederationClient(); client != nil {
-			log.Printf("Session %s cleared room session id in federated room %s", s.PublicId(), client.RemoteRoomId())
+			s.logger.Printf("Session %s cleared room session id in federated room %s", s.PublicId(), client.RemoteRoomId())
 		} else {
-			log.Printf("Session %s cleared room session id in unknown room", s.PublicId())
+			s.logger.Printf("Session %s cleared room session id in unknown room", s.PublicId())
 		}
 	}
 
@@ -477,7 +479,7 @@ func (s *ClientSession) SubscribeRoomEvents(roomid string, roomSessionId RoomSes
 			return err
 		}
 	}
-	log.Printf("Session %s joined room %s with room session id %s", s.PublicId(), roomid, roomSessionId)
+	s.logger.Printf("Session %s joined room %s with room session id %s", s.PublicId(), roomid, roomSessionId)
 	s.roomSessionId = roomSessionId
 	return nil
 }
@@ -491,7 +493,7 @@ func (s *ClientSession) LeaveCall() {
 		return
 	}
 
-	log.Printf("Session %s left call %s", s.PublicId(), room.Id())
+	s.logger.Printf("Session %s left call %s", s.PublicId(), room.Id())
 	s.releaseMcuObjects()
 }
 
@@ -503,7 +505,7 @@ func (s *ClientSession) LeaveRoomWithMessage(notify bool, message *ClientMessage
 	if prev := s.federation.Swap(nil); prev != nil {
 		// Session was connected to a federation room.
 		if err := prev.Leave(message); err != nil {
-			log.Printf("Error leaving room for session %s on federation client %s: %s", s.PublicId(), prev.URL(), err)
+			s.logger.Printf("Error leaving room for session %s on federation client %s: %s", s.PublicId(), prev.URL(), err)
 			prev.Close()
 		}
 		return nil
@@ -548,15 +550,15 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 	if notify && room != nil && s.roomSessionId != "" && !s.roomSessionId.IsFederated() {
 		// Notify
 		go func(sid RoomSessionId) {
-			ctx := context.Background()
+			ctx := NewLoggerContext(context.Background(), s.logger)
 			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
 			request.Room.UpdateFromSession(s)
 			request.Room.Action = "leave"
 			var response api.StringMap
 			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
-				log.Printf("Could not notify about room session %s left room %s: %s", sid, room.Id(), err)
+				s.logger.Printf("Could not notify about room session %s left room %s: %s", sid, room.Id(), err)
 			} else {
-				log.Printf("Removed room session %s: %+v", sid, response)
+				s.logger.Printf("Removed room session %s: %+v", sid, response)
 			}
 		}(s.roomSessionId)
 	}
@@ -575,7 +577,7 @@ func (s *ClientSession) clearClientLocked(client HandlerClient) {
 	if s.client == nil {
 		return
 	} else if client != nil && s.client != client {
-		log.Printf("Trying to clear other client in session %s", s.PublicId())
+		s.logger.Printf("Trying to clear other client in session %s", s.PublicId())
 		return
 	}
 
@@ -630,7 +632,7 @@ func (s *ClientSession) sendOffer(client McuClient, sender PublicSessionId, stre
 	}
 	offer_data, err := json.Marshal(offer_message)
 	if err != nil {
-		log.Println("Could not serialize offer", offer_message, err)
+		s.logger.Println("Could not serialize offer", offer_message, err)
 		return
 	}
 	response_message := &ServerMessage{
@@ -661,7 +663,7 @@ func (s *ClientSession) sendCandidate(client McuClient, sender PublicSessionId, 
 	}
 	candidate_data, err := json.Marshal(candidate_message)
 	if err != nil {
-		log.Println("Could not serialize candidate", candidate_message, err)
+		s.logger.Println("Could not serialize candidate", candidate_message, err)
 		return
 	}
 	response_message := &ServerMessage{
@@ -750,7 +752,7 @@ func (s *ClientSession) OnIceCandidate(client McuClient, candidate any) {
 		}
 	}
 
-	log.Printf("Session %s received candidate %+v for unknown client %s", s.PublicId(), candidate, client.Id())
+	s.logger.Printf("Session %s received candidate %+v for unknown client %s", s.PublicId(), candidate, client.Id())
 }
 
 func (s *ClientSession) OnIceCompleted(client McuClient) {
@@ -942,7 +944,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		} else {
 			s.publishers[streamType] = publisher
 		}
-		log.Printf("Publishing %s as %s for session %s", streamType, publisher.Id(), s.PublicId())
+		s.logger.Printf("Publishing %s as %s for session %s", streamType, publisher.Id(), s.PublicId())
 		s.publisherWaiters.Wakeup()
 	} else {
 		publisher.SetMedia(mediaTypes)
@@ -1021,7 +1023,7 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id P
 		} else {
 			s.subscribers[getStreamId(id, streamType)] = subscriber
 		}
-		log.Printf("Subscribing %s from %s as %s in session %s", streamType, id, subscriber.Id(), s.PublicId())
+		s.logger.Printf("Subscribing %s from %s as %s in session %s", streamType, id, subscriber.Id(), s.PublicId())
 	}
 
 	return subscriber, nil
@@ -1059,7 +1061,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 					if (publisher.HasMedia(MediaTypeAudio) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO)) ||
 						(publisher.HasMedia(MediaTypeVideo) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_VIDEO)) {
 						delete(s.publishers, StreamTypeVideo)
-						log.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
+						s.logger.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
 						go func() {
 							publisher.Close(context.Background())
 						}()
@@ -1070,7 +1072,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
 				if publisher, found := s.publishers[StreamTypeScreen]; found {
 					delete(s.publishers, StreamTypeScreen)
-					log.Printf("Session %s is no longer allowed to publish screen, closing publisher %s", s.PublicId(), publisher.Id())
+					s.logger.Printf("Session %s is no longer allowed to publish screen, closing publisher %s", s.PublicId(), publisher.Id())
 					go func() {
 						publisher.Close(context.Background())
 					}()
@@ -1081,7 +1083,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 		return
 	case "message":
 		if message.Message.Type == "bye" && message.Message.Bye.Reason == "room_session_reconnected" {
-			log.Printf("Closing session %s because same room session %s connected", s.PublicId(), s.RoomSessionId())
+			s.logger.Printf("Closing session %s because same room session %s connected", s.PublicId(), s.RoomSessionId())
 			s.LeaveRoom(false)
 			defer s.closeAndWait(false)
 		}
@@ -1093,7 +1095,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 
 			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, StreamType(message.SendOffer.Data.RoomType))
 			if err != nil {
-				log.Printf("Could not create MCU subscriber for session %s to process sendoffer in %s: %s", message.SendOffer.SessionId, s.PublicId(), err)
+				s.logger.Printf("Could not create MCU subscriber for session %s to process sendoffer in %s: %s", message.SendOffer.SessionId, s.PublicId(), err)
 				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
 					Type: "message",
 					Message: &ServerMessage{
@@ -1102,11 +1104,11 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 						Error: NewError("client_not_found", "No MCU client found to send message to."),
 					},
 				}); err != nil {
-					log.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
+					s.logger.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
 				}
 				return
 			} else if mc == nil {
-				log.Printf("No MCU subscriber found for session %s to process sendoffer in %s", message.SendOffer.SessionId, s.PublicId())
+				s.logger.Printf("No MCU subscriber found for session %s to process sendoffer in %s", message.SendOffer.SessionId, s.PublicId())
 				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
 					Type: "message",
 					Message: &ServerMessage{
@@ -1115,14 +1117,14 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 						Error: NewError("client_not_found", "No MCU client found to send message to."),
 					},
 				}); err != nil {
-					log.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
+					s.logger.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
 				}
 				return
 			}
 
 			mc.SendMessage(s.Context(), nil, message.SendOffer.Data, func(err error, response api.StringMap) {
 				if err != nil {
-					log.Printf("Could not send MCU message %+v for session %s to %s: %s", message.SendOffer.Data, message.SendOffer.SessionId, s.PublicId(), err)
+					s.logger.Printf("Could not send MCU message %+v for session %s to %s: %s", message.SendOffer.Data, message.SendOffer.SessionId, s.PublicId(), err)
 					if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
 						Type: "message",
 						Message: &ServerMessage{
@@ -1131,7 +1133,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 							Error: NewError("processing_failed", "Processing of the message failed, please check server logs."),
 						},
 					}); err != nil {
-						log.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
+						s.logger.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
 					}
 					return
 				} else if response == nil {
@@ -1172,7 +1174,7 @@ func (s *ClientSession) storePendingMessage(message *ServerMessage) {
 	}
 	s.pendingClientMessages = append(s.pendingClientMessages, message)
 	if len(s.pendingClientMessages) >= warnPendingMessagesCount {
-		log.Printf("Session %s has %d pending messages", s.PublicId(), len(s.pendingClientMessages))
+		s.logger.Printf("Session %s has %d pending messages", s.PublicId(), len(s.pendingClientMessages))
 	}
 }
 
@@ -1227,7 +1229,7 @@ func (s *ClientSession) filterDuplicateJoin(entries []*EventServerMessageSession
 	result := make([]*EventServerMessageSessionEntry, 0, len(entries))
 	for _, e := range entries {
 		if s.seenJoinedEvents[e.SessionId] {
-			log.Printf("Session %s got duplicate joined event for %s, ignoring", s.publicId, e.SessionId)
+			s.logger.Printf("Session %s got duplicate joined event for %s, ignoring", s.publicId, e.SessionId)
 			continue
 		}
 
@@ -1383,7 +1385,7 @@ func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
 	switch msg.Type {
 	case "message":
 		if msg.Message == nil {
-			log.Printf("Received asynchronous message without payload: %+v", msg)
+			s.logger.Printf("Received asynchronous message without payload: %+v", msg)
 			return nil
 		}
 
@@ -1423,7 +1425,7 @@ func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
 				// Can happen mostly during tests where an older room async message
 				// could be received by a subscriber that joined after it was sent.
 				if joined := s.getRoomJoinTime(); joined.IsZero() || msg.SendTime.Before(joined) {
-					log.Printf("Message %+v was sent on %s before room was joined on %s, ignoring", msg.Message, msg.SendTime, joined)
+					s.logger.Printf("Message %+v was sent on %s before room was joined on %s, ignoring", msg.Message, msg.SendTime, joined)
 					return nil
 				}
 			}
@@ -1431,7 +1433,7 @@ func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
 
 		return msg.Message
 	default:
-		log.Printf("Received async message with unsupported type %s: %+v", msg.Type, msg)
+		s.logger.Printf("Received async message with unsupported type %s: %+v", msg.Type, msg)
 		return nil
 	}
 }
@@ -1453,7 +1455,7 @@ func (s *ClientSession) NotifySessionResumed(client HandlerClient) {
 	s.hasPendingParticipantsUpdate = false
 	s.mu.Unlock()
 
-	log.Printf("Send %d pending messages to session %s", len(messages), s.PublicId())
+	s.logger.Printf("Send %d pending messages to session %s", len(messages), s.PublicId())
 	// Send through session to handle connection interruptions.
 	s.SendMessages(messages)
 

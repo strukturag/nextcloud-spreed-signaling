@@ -23,7 +23,6 @@ package signaling
 
 import (
 	"context"
-	"log"
 	"net/url"
 	"slices"
 	"sync"
@@ -100,7 +99,7 @@ loop:
 		case <-p.closer.C:
 			break loop
 		case <-ticker.C:
-			p.publishActiveSessions()
+			p.publishActiveSessions(context.Background())
 		}
 	}
 }
@@ -114,20 +113,21 @@ func (p *RoomPing) getAndClearEntries() map[string]*pingEntries {
 	return entries
 }
 
-func (p *RoomPing) publishEntries(entries *pingEntries, timeout time.Duration) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func (p *RoomPing) publishEntries(ctx context.Context, entries *pingEntries, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	limit, _, found := p.capabilities.GetIntegerConfig(ctx, entries.url, ConfigGroupSignaling, ConfigKeySessionPingLimit)
 	if !found || limit <= 0 {
 		// Limit disabled while waiting for the next iteration, fallback to sending
 		// one request per room.
+		logger := LoggerFromContext(ctx)
 		for roomId, e := range entries.entries {
-			ctx2, cancel2 := context.WithTimeout(context.Background(), timeout)
+			ctx2, cancel2 := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 			defer cancel2()
 
 			if err := p.sendPingsDirect(ctx2, roomId, entries.url, e); err != nil {
-				log.Printf("Error pinging room %s for active entries %+v: %s", roomId, e, err)
+				logger.Printf("Error pinging room %s for active entries %+v: %s", roomId, e, err)
 			}
 		}
 		return
@@ -137,10 +137,10 @@ func (p *RoomPing) publishEntries(entries *pingEntries, timeout time.Duration) {
 	for _, e := range entries.entries {
 		allEntries = append(allEntries, e...)
 	}
-	p.sendPingsCombined(entries.url, allEntries, limit, timeout)
+	p.sendPingsCombined(ctx, entries.url, allEntries, limit, timeout)
 }
 
-func (p *RoomPing) publishActiveSessions() {
+func (p *RoomPing) publishActiveSessions(ctx context.Context) {
 	var timeout time.Duration
 	if p.backend.hub != nil {
 		timeout = p.backend.hub.backendTimeout
@@ -154,7 +154,7 @@ func (p *RoomPing) publishActiveSessions() {
 	for _, e := range entries {
 		go func(e *pingEntries) {
 			defer wg.Done()
-			p.publishEntries(e, timeout)
+			p.publishEntries(ctx, e, timeout)
 		}(e)
 	}
 	wg.Wait()
@@ -166,15 +166,16 @@ func (p *RoomPing) sendPingsDirect(ctx context.Context, roomId string, url *url.
 	return p.backend.PerformJSONRequest(ctx, url, request, &response)
 }
 
-func (p *RoomPing) sendPingsCombined(url *url.URL, entries []BackendPingEntry, limit int, timeout time.Duration) {
+func (p *RoomPing) sendPingsCombined(ctx context.Context, url *url.URL, entries []BackendPingEntry, limit int, timeout time.Duration) {
+	logger := LoggerFromContext(ctx)
 	for tosend := range slices.Chunk(entries, limit) {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		subCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 
 		request := NewBackendClientPingRequest("", tosend)
 		var response BackendClientResponse
-		if err := p.backend.PerformJSONRequest(ctx, url, request, &response); err != nil {
-			log.Printf("Error sending combined ping session entries %+v to %s: %s", tosend, url, err)
+		if err := p.backend.PerformJSONRequest(subCtx, url, request, &response); err != nil {
+			logger.Printf("Error sending combined ping session entries %+v to %s: %s", tosend, url, err)
 		}
 	}
 }

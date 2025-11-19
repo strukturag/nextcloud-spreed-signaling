@@ -55,7 +55,9 @@ func startLocalNatsServerPort(t *testing.T, port int) (*server.Server, int) {
 func CreateLocalNatsClientForTest(t *testing.T, options ...nats.Option) (*server.Server, int, NatsClient) {
 	t.Helper()
 	server, port := startLocalNatsServer(t)
-	result, err := NewNatsClient(server.ClientURL(), options...)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
+	result, err := NewNatsClient(ctx, server.ClientURL(), options...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		result.Close()
@@ -106,7 +108,6 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_Subscribe(t *testing.T) {
-	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
@@ -121,7 +122,6 @@ func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_PublishAfterClose(t *testing.T) {
-	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
@@ -138,7 +138,6 @@ func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_SubscribeAfterClose(t *testing.T) {
-	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
@@ -161,7 +160,6 @@ func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_BadSubjects(t *testing.T) {
-	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
@@ -170,7 +168,6 @@ func TestNatsClient_BadSubjects(t *testing.T) {
 }
 
 func TestNatsClient_MaxReconnects(t *testing.T) {
-	CatchLogForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)

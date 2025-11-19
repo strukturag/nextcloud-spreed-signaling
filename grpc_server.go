@@ -27,7 +27,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/url"
 	"os"
@@ -73,6 +72,7 @@ type GrpcServer struct {
 	UnimplementedRpcMcuServer
 	UnimplementedRpcSessionsServer
 
+	logger   Logger
 	version  string
 	creds    credentials.TransportCredentials
 	conn     *grpc.Server
@@ -82,7 +82,7 @@ type GrpcServer struct {
 	hub GrpcServerHub
 }
 
-func NewGrpcServer(config *goconf.ConfigFile, version string) (*GrpcServer, error) {
+func NewGrpcServer(ctx context.Context, config *goconf.ConfigFile, version string) (*GrpcServer, error) {
 	var listener net.Listener
 	if addr, _ := GetStringOptionWithEnv(config, "grpc", "listen"); addr != "" {
 		var err error
@@ -92,13 +92,15 @@ func NewGrpcServer(config *goconf.ConfigFile, version string) (*GrpcServer, erro
 		}
 	}
 
-	creds, err := NewReloadableCredentials(config, true)
+	logger := LoggerFromContext(ctx)
+	creds, err := NewReloadableCredentials(logger, config, true)
 	if err != nil {
 		return nil, err
 	}
 
 	conn := grpc.NewServer(grpc.Creds(creds))
 	result := &GrpcServer{
+		logger:   logger,
 		version:  version,
 		creds:    creds,
 		conn:     conn,
@@ -130,7 +132,7 @@ func (s *GrpcServer) Close() {
 func (s *GrpcServer) LookupResumeId(ctx context.Context, request *LookupResumeIdRequest) (*LookupResumeIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("LookupResumeId").Inc()
 	// TODO: Remove debug logging
-	log.Printf("Lookup session for resume id %s", request.ResumeId)
+	s.logger.Printf("Lookup session for resume id %s", request.ResumeId)
 	session := s.hub.GetSessionByResumeId(PrivateSessionId(request.ResumeId))
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such room session id")
@@ -144,7 +146,7 @@ func (s *GrpcServer) LookupResumeId(ctx context.Context, request *LookupResumeId
 func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSessionIdRequest) (*LookupSessionIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
-	log.Printf("Lookup session id for room session id %s", request.RoomSessionId)
+	s.logger.Printf("Lookup session id for room session id %s", request.RoomSessionId)
 	sid, err := s.hub.GetSessionIdByRoomSessionId(RoomSessionId(request.RoomSessionId))
 	if errors.Is(err, ErrNoSuchRoomSession) {
 		return nil, status.Error(codes.NotFound, "no such room session id")
@@ -154,7 +156,7 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 
 	if sid != "" && request.DisconnectReason != "" {
 		if session := s.hub.GetSessionByPublicId(PublicSessionId(sid)); session != nil {
-			log.Printf("Closing session %s because same room session %s connected", session.PublicId(), request.RoomSessionId)
+			s.logger.Printf("Closing session %s because same room session %s connected", session.PublicId(), request.RoomSessionId)
 			session.LeaveRoom(false)
 			switch sess := session.(type) {
 			case *ClientSession:
@@ -173,7 +175,7 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCallRequest) (*IsSessionInCallReply, error) {
 	statsGrpcServerCalls.WithLabelValues("IsSessionInCall").Inc()
 	// TODO: Remove debug logging
-	log.Printf("Check if session %s is in call %s on %s", request.SessionId, request.RoomId, request.BackendUrl)
+	s.logger.Printf("Check if session %s is in call %s on %s", request.SessionId, request.RoomId, request.BackendUrl)
 	session := s.hub.GetSessionByPublicId(PublicSessionId(request.SessionId))
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such session id")
@@ -194,7 +196,7 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *GetInternalSessionsRequest) (*GetInternalSessionsReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetInternalSessions").Inc()
 	// TODO: Remove debug logging
-	log.Printf("Get internal sessions from %s on %v (fallback %s)", request.RoomId, request.BackendUrls, request.BackendUrl)
+	s.logger.Printf("Get internal sessions from %s on %v (fallback %s)", request.RoomId, request.BackendUrls, request.BackendUrl)
 
 	var backendUrls []string
 	if len(request.BackendUrls) > 0 {
@@ -259,7 +261,7 @@ func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *GetIntern
 func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherIdRequest) (*GetPublisherIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
-	log.Printf("Get %s publisher id for session %s", request.StreamType, request.SessionId)
+	s.logger.Printf("Get %s publisher id for session %s", request.StreamType, request.SessionId)
 	session := s.hub.GetSessionByPublicId(PublicSessionId(request.SessionId))
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such session")
@@ -281,11 +283,11 @@ func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherId
 		}
 		var err error
 		if reply.ConnectToken, err = s.hub.CreateProxyToken(""); err != nil && !errors.Is(err, ErrNoProxyMcu) {
-			log.Printf("Error creating proxy token for connection: %s", err)
+			s.logger.Printf("Error creating proxy token for connection: %s", err)
 			return nil, status.Error(codes.Internal, "error creating proxy connect token")
 		}
 		if reply.PublisherToken, err = s.hub.CreateProxyToken(publisher.Id()); err != nil && !errors.Is(err, ErrNoProxyMcu) {
-			log.Printf("Error creating proxy token for publisher %s: %s", publisher.Id(), err)
+			s.logger.Printf("Error creating proxy token for publisher %s: %s", publisher.Id(), err)
 			return nil, status.Error(codes.Internal, "error creating proxy publisher token")
 		}
 		return reply, nil

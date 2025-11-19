@@ -53,7 +53,7 @@ func (tl *testListener) EtcdClientCreated(client *EtcdClient) {
 }
 
 func Test_BackendStorageEtcdNoLeak(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		etcd, client := NewEtcdClientForTest(t)
 		tl := &testListener{
@@ -67,7 +67,7 @@ func Test_BackendStorageEtcdNoLeak(t *testing.T) {
 		config.AddOption("backend", "backendtype", "etcd")
 		config.AddOption("backend", "backendprefix", "/backends")
 
-		cfg, err := NewBackendConfiguration(config, client)
+		cfg, err := NewBackendConfiguration(logger, config, client)
 		require.NoError(t, err)
 
 		<-tl.closed

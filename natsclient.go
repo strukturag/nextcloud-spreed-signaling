@@ -26,7 +26,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"os/signal"
@@ -64,17 +63,19 @@ func GetEncodedSubject(prefix string, suffix string) string {
 }
 
 type natsClient struct {
-	conn *nats.Conn
+	logger Logger
+	conn   *nats.Conn
 }
 
-func NewNatsClient(url string, options ...nats.Option) (NatsClient, error) {
+func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (NatsClient, error) {
+	logger := LoggerFromContext(ctx)
 	if url == ":loopback:" {
-		log.Printf("WARNING: events url %s is deprecated, please use %s instead", url, NatsLoopbackUrl)
+		logger.Printf("WARNING: events url %s is deprecated, please use %s instead", url, NatsLoopbackUrl)
 		url = NatsLoopbackUrl
 	}
 	if url == NatsLoopbackUrl {
-		log.Println("Using internal NATS loopback client")
-		return NewLoopbackNatsClient()
+		logger.Println("Using internal NATS loopback client")
+		return NewLoopbackNatsClient(logger)
 	}
 
 	backoff, err := NewExponentialBackoff(initialConnectInterval, maxConnectInterval)
@@ -82,7 +83,9 @@ func NewNatsClient(url string, options ...nats.Option) (NatsClient, error) {
 		return nil, err
 	}
 
-	client := &natsClient{}
+	client := &natsClient{
+		logger: logger,
+	}
 
 	options = append([]nats.Option{
 		nats.ClosedHandler(client.onClosed),
@@ -92,12 +95,12 @@ func NewNatsClient(url string, options ...nats.Option) (NatsClient, error) {
 	}, options...)
 	client.conn, err = nats.Connect(url, options...)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
 	// The initial connect must succeed, so we retry in the case of an error.
 	for err != nil {
-		log.Printf("Could not create connection (%s), will retry in %s", err, backoff.NextWait())
+		logger.Printf("Could not create connection (%s), will retry in %s", err, backoff.NextWait())
 		backoff.Wait(ctx)
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("interrupted")
@@ -105,7 +108,7 @@ func NewNatsClient(url string, options ...nats.Option) (NatsClient, error) {
 
 		client.conn, err = nats.Connect(url)
 	}
-	log.Printf("Connection established to %s (%s)", removeURLCredentials(client.conn.ConnectedUrl()), client.conn.ConnectedServerId())
+	logger.Printf("Connection established to %s (%s)", removeURLCredentials(client.conn.ConnectedUrl()), client.conn.ConnectedServerId())
 	return client, nil
 }
 
@@ -114,15 +117,15 @@ func (c *natsClient) Close() {
 }
 
 func (c *natsClient) onClosed(conn *nats.Conn) {
-	log.Println("NATS client closed", conn.LastError())
+	c.logger.Println("NATS client closed", conn.LastError())
 }
 
 func (c *natsClient) onDisconnected(conn *nats.Conn) {
-	log.Println("NATS client disconnected")
+	c.logger.Println("NATS client disconnected")
 }
 
 func (c *natsClient) onReconnected(conn *nats.Conn) {
-	log.Printf("NATS client reconnected to %s (%s)", conn.ConnectedUrl(), conn.ConnectedServerId())
+	c.logger.Printf("NATS client reconnected to %s (%s)", conn.ConnectedUrl(), conn.ConnectedServerId())
 }
 
 func (c *natsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error) {

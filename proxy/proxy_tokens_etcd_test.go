@@ -115,7 +115,8 @@ func newTokensEtcdForTesting(t *testing.T) (*tokensEtcd, *embed.Etcd) {
 	cfg.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 	cfg.AddOption("tokens", "keyformat", "/%s, /testing/%s/key")
 
-	tokens, err := NewProxyTokensEtcd(cfg)
+	logger := signaling.NewLoggerForTest(t)
+	tokens, err := NewProxyTokensEtcd(logger, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		tokens.Close()
@@ -155,7 +156,6 @@ func generateAndSaveKey(t *testing.T, etcd *embed.Etcd, name string) *rsa.Privat
 }
 
 func TestProxyTokensEtcd(t *testing.T) {
-	signaling.CatchLogForTest(t)
 	assert := assert.New(t)
 	tokens, etcd := newTokensEtcdForTesting(t)
 

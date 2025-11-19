@@ -76,18 +76,19 @@ func TestRoom_InCall(t *testing.T) {
 
 func TestRoom_Update(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(ctx, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(router))
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
@@ -170,18 +171,19 @@ loop:
 
 func TestRoom_Delete(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(ctx, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(router))
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
@@ -267,14 +269,15 @@ loop:
 
 func TestRoom_RoomJoinFeatures(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(ctx, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(router))
 
@@ -284,7 +287,7 @@ func TestRoom_RoomJoinFeatures(t *testing.T) {
 	features := []string{"one", "two", "three"}
 	require.NoError(client.SendHelloClientWithFeatures(testDefaultUserId, features))
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	hello := MustSucceed1(t, client.RunUntilHello, ctx)
@@ -304,18 +307,19 @@ func TestRoom_RoomJoinFeatures(t *testing.T) {
 
 func TestRoom_RoomSessionData(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(ctx, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(router))
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	client, hello := NewTestClientWithHello(ctx, t, server, hub, authAnonymousUserId)
@@ -347,18 +351,19 @@ func TestRoom_RoomSessionData(t *testing.T) {
 
 func TestRoom_InCallAll(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
 
 	config, err := getTestConfig(server)
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(ctx, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(router))
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
