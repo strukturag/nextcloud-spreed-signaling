@@ -152,7 +152,7 @@ func (c *RemoteConnection) reconnect() {
 		TLSClientConfig: c.tlsConfig,
 	}
 
-	conn, _, err := dialer.DialContext(context.TODO(), u.String(), nil)
+	conn, _, err := dialer.DialContext(c.closeCtx, u.String(), nil)
 	if err != nil {
 		c.logger.Printf("Error connecting to proxy at %s: %s", c, err)
 		c.scheduleReconnect()
@@ -162,6 +162,14 @@ func (c *RemoteConnection) reconnect() {
 	c.logger.Printf("Connected to %s", c)
 
 	c.mu.Lock()
+	if c.closeCtx.Err() != nil {
+		// Closed while waiting for lock.
+		c.mu.Unlock()
+		if err := conn.Close(); err != nil {
+			c.logger.Printf("Error closing connection to %s: %s", c, err)
+		}
+		return
+	}
 	c.connectedSince = time.Now()
 	c.conn = conn
 	c.mu.Unlock()
@@ -267,9 +275,6 @@ func (c *RemoteConnection) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.reconnectTimer.Stop()
-	if c.conn == nil {
-		return nil
-	}
 
 	if c.closeCtx.Err() != nil {
 		// Already closed
@@ -277,9 +282,13 @@ func (c *RemoteConnection) Close() error {
 	}
 
 	c.closeFunc()
-	err1 := c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{})
-	err2 := c.conn.Close()
-	c.conn = nil
+	var err1 error
+	var err2 error
+	if c.conn != nil {
+		err1 = c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{})
+		err2 = c.conn.Close()
+		c.conn = nil
+	}
 	c.connectedSince = time.Time{}
 	c.helloReceived = false
 	if err1 != nil {
