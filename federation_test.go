@@ -1042,3 +1042,92 @@ func Test_FederationResumeNewSession(t *testing.T) {
 	}
 	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 }
+
+func Test_FederationTransientData(t *testing.T) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	hub1, hub2, server1, server2 := CreateClusteredHubsForTest(t)
+
+	client1 := NewTestClient(t, server1, hub1)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHelloV2(testDefaultUserId + "1"))
+
+	client2 := NewTestClient(t, server2, hub2)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloV2(testDefaultUserId + "2"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello1 := MustSucceed1(t, client1.RunUntilHello, ctx)
+	hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
+
+	roomId := "test-room"
+	federatedRoomId := roomId + "@federated"
+	room1 := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, room1.Room.RoomId)
+
+	client1.RunUntilJoined(ctx, hello1.Hello)
+
+	now := time.Now()
+	userdata := api.StringMap{
+		"displayname": "Federated user",
+		"actorType":   "federated_users",
+		"actorId":     "the-federated-user-id",
+	}
+	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
+	require.NoError(err)
+
+	msg := &ClientMessage{
+		Id:   "join-room-fed",
+		Type: "room",
+		Room: &RoomClientMessage{
+			RoomId:    federatedRoomId,
+			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &RoomFederationMessage{
+				SignalingUrl: server1.URL,
+				NextcloudUrl: server1.URL,
+				RoomId:       roomId,
+				Token:        token,
+			},
+		},
+	}
+	require.NoError(client2.WriteJSON(msg))
+
+	if message, ok := client2.RunUntilMessage(ctx); ok {
+		assert.Equal(msg.Id, message.Id)
+		require.Equal("room", message.Type)
+		require.Equal(federatedRoomId, message.Room.RoomId)
+	}
+
+	// The client1 will see the remote session id for client2.
+	var remoteSessionId PublicSessionId
+	if message, ok := client1.RunUntilMessage(ctx); ok {
+		client1.checkSingleMessageJoined(message)
+		evt := message.Event.Join[0]
+		remoteSessionId = evt.SessionId
+		assert.NotEqual(hello2.Hello.SessionId, remoteSessionId)
+		assert.Equal(hello2.Hello.UserId, evt.UserId)
+		assert.True(evt.Federated)
+	}
+
+	// The client2 will see its own session id, not the one from the remote server.
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	require.NoError(client1.SetTransientData("foo", "bar", 0))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, "foo", "bar", nil)
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, "foo", "bar", nil)
+	}
+
+	require.NoError(client2.SetTransientData("bar", "baz", 0))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, "bar", "baz", nil)
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, "bar", "baz", nil)
+	}
+}
