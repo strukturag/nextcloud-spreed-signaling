@@ -25,7 +25,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,7 +46,9 @@ func getAsyncEventsForTest(t *testing.T) AsyncEvents {
 		events = getLoopbackAsyncEventsForTest(t)
 	}
 	t.Cleanup(func() {
-		events.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(t, events.Close(ctx))
 	})
 	return events
 }

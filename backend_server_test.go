@@ -125,6 +125,7 @@ func CreateBackendServerWithClusteringForTest(t *testing.T) (*BackendServer, *Ba
 
 func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *goconf.ConfigFile, config2 *goconf.ConfigFile) (*BackendServer, *BackendServer, *Hub, *Hub, *httptest.Server, *httptest.Server) {
 	require := require.New(t)
+	assert := assert.New(t)
 	r1 := mux.NewRouter()
 	registerBackendHandler(t, r1)
 
@@ -166,7 +167,9 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	events1, err := NewAsyncEvents(ctx, nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
-		events1.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(events1.Close(ctx))
 	})
 	client1, _ := NewGrpcClientsForTest(t, addr2)
 	hub1, err := NewHub(ctx, config1, events1, grpcServer1, client1, nil, r1, "no-version")
@@ -189,7 +192,9 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	events2, err := NewAsyncEvents(ctx, nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
-		events2.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(events2.Close(ctx))
 	})
 	client2, _ := NewGrpcClientsForTest(t, addr1)
 	hub2, err := NewHub(ctx, config2, events2, grpcServer2, client2, nil, r2, "no-version")

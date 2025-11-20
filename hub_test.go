@@ -204,6 +204,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	logger := NewLoggerForTest(t)
 	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
+	assert := assert.New(t)
 	r1 := mux.NewRouter()
 	registerBackendHandler(t, r1)
 
@@ -238,7 +239,9 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	events1, err := NewAsyncEvents(ctx, nats1.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
-		events1.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(events1.Close(ctx))
 	})
 	config1, err := getConfigFunc(server1)
 	require.NoError(err)
@@ -250,7 +253,9 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	events2, err := NewAsyncEvents(ctx, nats2.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
-		events2.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(events2.Close(ctx))
 	})
 	config2, err := getConfigFunc(server2)
 	require.NoError(err)

@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -281,7 +282,7 @@ func (e *asyncEventsNats) GetServerInfoNats() *BackendServerInfoNats {
 	return nats
 }
 
-func (e *asyncEventsNats) Close() {
+func (e *asyncEventsNats) Close(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	var wg sync.WaitGroup
@@ -320,7 +321,7 @@ func (e *asyncEventsNats) Close() {
 	e.userSubscriptions = make(map[string]*asyncUserSubscriberNats)
 	e.sessionSubscriptions = make(map[string]*asyncSessionSubscriberNats)
 	wg.Wait()
-	e.client.Close()
+	return e.client.Close(ctx)
 }
 
 func (e *asyncEventsNats) RegisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener) error {

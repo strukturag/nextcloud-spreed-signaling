@@ -184,7 +184,13 @@ func main() {
 	if err != nil {
 		logger.Fatal("Could not create async events client: ", err)
 	}
-	defer events.Close()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := events.Close(ctx); err != nil {
+			logger.Printf("Error closing events handler: %s", err)
+		}
+	}()
 
 	dnsMonitor, err := signaling.NewDnsMonitor(logger, dnsMonitorInterval)
 	if err != nil {

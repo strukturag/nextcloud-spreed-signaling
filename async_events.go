@@ -43,7 +43,7 @@ type AsyncSessionEventListener interface {
 }
 
 type AsyncEvents interface {
-	Close()
+	Close(ctx context.Context) error
 
 	RegisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener) error
 	UnregisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener)

@@ -22,6 +22,7 @@
 package signaling
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -60,7 +61,9 @@ func CreateLocalNatsClientForTest(t *testing.T, options ...nats.Option) (*server
 	result, err := NewNatsClient(ctx, server.ClientURL(), options...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		result.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(t, result.Close(ctx))
 	})
 	return server, port, result
 }
@@ -116,7 +119,7 @@ func TestNatsClient_Subscribe(t *testing.T) {
 }
 
 func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
-	client.Close()
+	assert.NoError(t, client.Close(t.Context()))
 
 	assert.ErrorIs(t, client.Publish("foo", "bar"), nats.ErrConnectionClosed)
 }
@@ -130,7 +133,7 @@ func TestNatsClient_PublishAfterClose(t *testing.T) {
 }
 
 func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
-	client.Close()
+	assert.NoError(t, client.Close(t.Context()))
 
 	ch := make(chan *nats.Msg)
 	_, err := client.Subscribe("foo", ch)

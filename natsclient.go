@@ -47,7 +47,7 @@ type NatsSubscription interface {
 }
 
 type NatsClient interface {
-	Close()
+	Close(ctx context.Context) error
 
 	Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error)
 	Publish(subject string, message any) error
@@ -65,6 +65,7 @@ func GetEncodedSubject(prefix string, suffix string) string {
 type natsClient struct {
 	logger Logger
 	conn   *nats.Conn
+	closed chan struct{}
 }
 
 func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (NatsClient, error) {
@@ -85,6 +86,7 @@ func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (Nat
 
 	client := &natsClient{
 		logger: logger,
+		closed: make(chan struct{}),
 	}
 
 	options = append([]nats.Option{
@@ -112,12 +114,23 @@ func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (Nat
 	return client, nil
 }
 
-func (c *natsClient) Close() {
+func (c *natsClient) Close(ctx context.Context) error {
 	c.conn.Close()
+	select {
+	case <-c.closed:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *natsClient) onClosed(conn *nats.Conn) {
-	c.logger.Println("NATS client closed", conn.LastError())
+	if err := conn.LastError(); err != nil {
+		c.logger.Printf("NATS client closed, last error %s", conn.LastError())
+	} else {
+		c.logger.Println("NATS client closed")
+	}
+	close(c.closed)
 }
 
 func (c *natsClient) onDisconnected(conn *nats.Conn) {
