@@ -274,3 +274,98 @@ func Test_TransientMessages(t *testing.T) {
 		})
 	}
 }
+
+func Test_TransientSessionData(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+	sessionKey1 := "sd:" + string(hello1.Hello.SessionId)
+	sessionKey2 := "sd:" + string(hello2.Hello.SessionId)
+	require.NotEqual(sessionKey1, sessionKey2)
+
+	require.NoError(client1.SetTransientData(sessionKey2, "foo", 0))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageError(t, msg, "not_allowed")
+	}
+	require.NoError(client2.SetTransientData(sessionKey1, "bar", 0))
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageError(t, msg, "not_allowed")
+	}
+
+	require.NoError(client1.SetTransientData(sessionKey1, "foo", 0))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, sessionKey1, "foo", nil)
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, sessionKey1, "foo", nil)
+	}
+
+	require.NoError(client2.RemoveTransientData(sessionKey1))
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageError(t, msg, "not_allowed")
+	}
+
+	require.NoError(client2.SetTransientData(sessionKey2, "bar", 0))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, sessionKey2, "bar", nil)
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, sessionKey2, "bar", nil)
+	}
+
+	client1.CloseWithBye()
+	assert.NoError(client1.WaitForClientRemoved(ctx))
+
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientRemove(t, msg, sessionKey1, "foo")
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		client2.checkMessageRoomLeaveSession(msg, hello1.Hello.SessionId)
+	}
+
+	client3, hello3 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"3")
+	roomMsg = MustSucceed2(t, client3.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	_, ignored, ok := client3.RunUntilJoinedAndReturn(ctx, hello2.Hello, hello3.Hello)
+	require.True(ok)
+
+	var msg *ServerMessage
+	if len(ignored) == 0 {
+		msg = MustSucceed1(t, client3.RunUntilMessage, ctx)
+	} else if len(ignored) == 1 {
+		msg = ignored[0]
+	} else {
+		require.LessOrEqual(len(ignored), 1, "Received too many messages: %+v", ignored)
+	}
+
+	checkMessageTransientInitial(t, msg, api.StringMap{
+		sessionKey2: "bar",
+	})
+
+	client2.CloseWithBye()
+	assert.NoError(client2.WaitForClientRemoved(ctx))
+
+	if msg, ok := client3.RunUntilMessage(ctx); ok {
+		checkMessageTransientRemove(t, msg, sessionKey2, "bar")
+	}
+	if msg, ok := client3.RunUntilMessage(ctx); ok {
+		client2.checkMessageRoomLeaveSession(msg, hello2.Hello.SessionId)
+	}
+}

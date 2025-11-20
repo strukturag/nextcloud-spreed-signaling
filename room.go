@@ -486,6 +486,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	delete(r.roomSessionData, sid)
 	if len(r.sessions) > 0 {
 		r.mu.Unlock()
+		r.transientData.Remove(TransientSessionDataPrefix + string(sid))
 		r.PublishSessionLeft(session)
 		return true
 	}
@@ -497,6 +498,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	r.unsubscribeBackend()
 	r.doClose()
 	r.mu.Unlock()
+	r.transientData.Remove(TransientSessionDataPrefix + string(sid))
 	// Still need to publish an event so sessions on other servers get notified.
 	r.PublishSessionLeft(session)
 	return false
