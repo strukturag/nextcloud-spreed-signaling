@@ -23,7 +23,6 @@ package signaling
 
 import (
 	"context"
-	"log"
 	"net"
 	"net/url"
 	"slices"
@@ -159,6 +158,7 @@ func (e *dnsMonitorEntry) runCallbacks(all []net.IP, add []net.IP, keep []net.IP
 }
 
 type DnsMonitor struct {
+	logger   Logger
 	interval time.Duration
 
 	stopCtx  context.Context
@@ -176,13 +176,14 @@ type DnsMonitor struct {
 	checkHostnames func()
 }
 
-func NewDnsMonitor(interval time.Duration) (*DnsMonitor, error) {
+func NewDnsMonitor(logger Logger, interval time.Duration) (*DnsMonitor, error) {
 	if interval < 0 {
 		interval = defaultDnsMonitorInterval
 	}
 
 	stopCtx, stopFunc := context.WithCancel(context.Background())
 	monitor := &DnsMonitor{
+		logger:   logger,
 		interval: interval,
 
 		stopCtx:  stopCtx,
@@ -348,7 +349,7 @@ func (m *DnsMonitor) checkHostname(entry *dnsMonitorEntry) {
 
 	ips, err := lookupDnsMonitorIP(entry.hostname)
 	if err != nil {
-		log.Printf("Could not lookup %s: %s", entry.hostname, err)
+		m.logger.Printf("Could not lookup %s: %s", entry.hostname, err)
 		return
 	}
 

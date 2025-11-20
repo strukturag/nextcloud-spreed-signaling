@@ -25,7 +25,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -46,14 +45,15 @@ type tokenCacheEntry struct {
 }
 
 type tokensEtcd struct {
+	logger signaling.Logger
 	client *signaling.EtcdClient
 
 	tokenFormats atomic.Value
 	tokenCache   *signaling.LruCache[*tokenCacheEntry]
 }
 
-func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
-	client, err := signaling.NewEtcdClient(config, "tokens")
+func NewProxyTokensEtcd(logger signaling.Logger, config *goconf.ConfigFile) (ProxyTokens, error) {
+	client, err := signaling.NewEtcdClient(logger, config, "tokens")
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +63,7 @@ func NewProxyTokensEtcd(config *goconf.ConfigFile) (ProxyTokens, error) {
 	}
 
 	result := &tokensEtcd{
+		logger:     logger,
 		client:     client,
 		tokenCache: signaling.NewLruCache[*tokenCacheEntry](tokenCacheSize),
 	}
@@ -94,7 +95,7 @@ func (t *tokensEtcd) getByKey(id string, key string) (*ProxyToken, error) {
 	if len(resp.Kvs) == 0 {
 		return nil, nil
 	} else if len(resp.Kvs) > 1 {
-		log.Printf("Received multiple keys for %s, using last", key)
+		t.logger.Printf("Received multiple keys for %s, using last", key)
 	}
 
 	keyValue := resp.Kvs[len(resp.Kvs)-1].Value
@@ -123,7 +124,7 @@ func (t *tokensEtcd) Get(id string) (*ProxyToken, error) {
 	for _, k := range t.getKeys(id) {
 		token, err := t.getByKey(id, k)
 		if err != nil {
-			log.Printf("Could not get public key from %s for %s: %s", k, id, err)
+			t.logger.Printf("Could not get public key from %s for %s: %s", k, id, err)
 			continue
 		} else if token == nil {
 			continue
@@ -151,18 +152,18 @@ func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 	}
 
 	t.tokenFormats.Store(tokenFormats)
-	log.Printf("Using %v as token formats", tokenFormats)
+	t.logger.Printf("Using %v as token formats", tokenFormats)
 	return nil
 }
 
 func (t *tokensEtcd) Reload(config *goconf.ConfigFile) {
 	if err := t.load(config, true); err != nil {
-		log.Printf("Error reloading etcd tokens: %s", err)
+		t.logger.Printf("Error reloading etcd tokens: %s", err)
 	}
 }
 
 func (t *tokensEtcd) Close() {
 	if err := t.client.Close(); err != nil {
-		log.Printf("Error while closing etcd client: %s", err)
+		t.logger.Printf("Error while closing etcd client: %s", err)
 	}
 }

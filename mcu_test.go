@@ -25,10 +25,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"maps"
 	"sync"
 	"sync/atomic"
+	"testing"
 
 	"github.com/dlintw/goconf"
 
@@ -41,6 +41,7 @@ var (
 )
 
 type TestMCU struct {
+	t  *testing.T
 	mu sync.Mutex
 	// +checklocks:mu
 	publishers map[PublicSessionId]*TestMCUPublisher
@@ -51,11 +52,13 @@ type TestMCU struct {
 	maxScreenBitrate api.AtomicBandwidth
 }
 
-func NewTestMCU() (*TestMCU, error) {
+func NewTestMCU(t *testing.T) *TestMCU {
 	return &TestMCU{
+		t: t,
+
 		publishers:  make(map[PublicSessionId]*TestMCUPublisher),
 		subscribers: make(map[string]*TestMCUSubscriber),
-	}, nil
+	}
 }
 
 func (m *TestMCU) GetBandwidthLimits() (api.Bandwidth, api.Bandwidth) {
@@ -105,6 +108,7 @@ func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id Pub
 	}
 	pub := &TestMCUPublisher{
 		TestMCUClient: TestMCUClient{
+			t:          m.t,
 			id:         string(id),
 			sid:        sid,
 			streamType: streamType,
@@ -147,6 +151,7 @@ func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publi
 	id := newRandomString(8)
 	sub := &TestMCUSubscriber{
 		TestMCUClient: TestMCUClient{
+			t:          m.t,
 			id:         id,
 			streamType: streamType,
 		},
@@ -157,6 +162,7 @@ func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publi
 }
 
 type TestMCUClient struct {
+	t      *testing.T
 	closed atomic.Bool
 
 	id         string
@@ -182,7 +188,8 @@ func (c *TestMCUClient) MaxBitrate() api.Bandwidth {
 
 func (c *TestMCUClient) Close(ctx context.Context) {
 	if c.closed.CompareAndSwap(false, true) {
-		log.Printf("Close MCU client %s", c.id)
+		logger := NewLoggerForTest(c.t)
+		logger.Printf("Close MCU client %s", c.id)
 	}
 }
 

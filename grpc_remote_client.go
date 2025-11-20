@@ -27,7 +27,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"sync/atomic"
 
 	"google.golang.org/grpc/codes"
@@ -49,6 +48,7 @@ func getMD(md metadata.MD, key string) string {
 
 // remoteGrpcClient is a remote client connecting from a GRPC proxy to a Hub.
 type remoteGrpcClient struct {
+	logger Logger
 	hub    *Hub
 	client RpcSessions_ProxySessionServer
 
@@ -73,6 +73,7 @@ func newRemoteGrpcClient(hub *Hub, request RpcSessions_ProxySessionServer) (*rem
 	closeCtx, closeFunc := context.WithCancelCause(context.Background())
 
 	result := &remoteGrpcClient{
+		logger: hub.logger,
 		hub:    hub,
 		client: request,
 
@@ -105,7 +106,7 @@ func (c *remoteGrpcClient) readPump() {
 			}
 
 			if status.Code(err) != codes.Canceled {
-				log.Printf("Error reading from remote client for session %s: %s", c.sessionId, err)
+				c.logger.Printf("Error reading from remote client for session %s: %s", c.sessionId, err)
 				closeError = err
 			}
 			break
@@ -193,7 +194,7 @@ func (c *remoteGrpcClient) SendMessage(message WritableClientMessage) bool {
 	case c.messages <- message:
 		return true
 	default:
-		log.Printf("Message queue for remote client of session %s is full, not sending %+v", c.sessionId, message)
+		c.logger.Printf("Message queue for remote client of session %s is full, not sending %+v", c.sessionId, message)
 		return false
 	}
 }
@@ -215,7 +216,7 @@ func (c *remoteGrpcClient) run() error {
 		case msg := <-c.messages:
 			data, err := json.Marshal(msg)
 			if err != nil {
-				log.Printf("Error marshalling %+v for remote client for session %s: %s", msg, c.sessionId, err)
+				c.logger.Printf("Error marshalling %+v for remote client for session %s: %s", msg, c.sessionId, err)
 				continue
 			}
 

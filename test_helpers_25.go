@@ -1,6 +1,8 @@
+//go:build go1.25
+
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2024 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -22,53 +24,10 @@
 package signaling
 
 import (
-	"bytes"
-	"fmt"
-	"log"
-	"sync"
 	"testing"
 )
 
-type testLogWriter struct {
-	mu sync.Mutex
-	t  testing.TB
-}
-
-func (w *testLogWriter) Write(b []byte) (int, error) {
-	w.t.Helper()
-	if !bytes.HasSuffix(b, []byte("\n")) {
-		b = append(b, '\n')
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return writeTestOutput(w.t, b)
-}
-
-var (
-	// +checklocks:testLoggersLock
-	testLoggers     = map[testing.TB]Logger{}
-	testLoggersLock sync.Mutex
-)
-
-func NewLoggerForTest(t testing.TB) Logger {
+func writeTestOutput(t testing.TB, p []byte) (int, error) {
 	t.Helper()
-	testLoggersLock.Lock()
-	defer testLoggersLock.Unlock()
-
-	logger, found := testLoggers[t]
-	if !found {
-		logger = log.New(&testLogWriter{
-			t: t,
-		}, fmt.Sprintf("%s: ", t.Name()), log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
-
-		t.Cleanup(func() {
-			testLoggersLock.Lock()
-			defer testLoggersLock.Unlock()
-
-			delete(testLoggers, t)
-		})
-
-		testLoggers[t] = logger
-	}
-	return logger
+	return t.Output().Write(p)
 }

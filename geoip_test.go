@@ -76,9 +76,9 @@ func GetGeoIpUrlForTest(t *testing.T) string {
 }
 
 func TestGeoLookup(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
-	reader, err := NewGeoLookupFromUrl(GetGeoIpUrlForTest(t))
+	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpUrlForTest(t))
 	require.NoError(err)
 	defer reader.Close()
 
@@ -88,9 +88,9 @@ func TestGeoLookup(t *testing.T) {
 }
 
 func TestGeoLookupCaching(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
-	reader, err := NewGeoLookupFromUrl(GetGeoIpUrlForTest(t))
+	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpUrlForTest(t))
 	require.NoError(err)
 	defer reader.Close()
 
@@ -126,14 +126,14 @@ func TestGeoLookupContinent(t *testing.T) {
 }
 
 func TestGeoLookupCloseEmpty(t *testing.T) {
-	CatchLogForTest(t)
-	reader, err := NewGeoLookupFromUrl("ignore-url")
+	logger := NewLoggerForTest(t)
+	reader, err := NewGeoLookupFromUrl(logger, "ignore-url")
 	require.NoError(t, err)
 	reader.Close()
 }
 
 func TestGeoLookupFromFile(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	geoIpUrl := GetGeoIpUrlForTest(t)
 
@@ -188,7 +188,7 @@ func TestGeoLookupFromFile(t *testing.T) {
 
 	require.True(foundDatabase, "Did not find GeoIP database in download from %s", geoIpUrl)
 
-	reader, err := NewGeoLookupFromFile(tmpfile.Name())
+	reader, err := NewGeoLookupFromFile(logger, tmpfile.Name())
 	require.NoError(err)
 	defer reader.Close()
 

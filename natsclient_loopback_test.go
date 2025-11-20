@@ -52,10 +52,13 @@ func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *t
 }
 
 func CreateLoopbackNatsClientForTest(t *testing.T) NatsClient {
-	result, err := NewLoopbackNatsClient()
+	logger := NewLoggerForTest(t)
+	result, err := NewLoopbackNatsClient(logger)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		result.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(t, result.Close(ctx))
 	})
 	return result
 }

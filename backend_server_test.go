@@ -99,9 +99,11 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
 	events := getAsyncEventsForTest(t)
-	hub, err := NewHub(config, events, nil, nil, nil, r, "no-version")
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
+	hub, err := NewHub(ctx, config, events, nil, nil, nil, r, "no-version")
 	require.NoError(err)
-	b, err := NewBackendServer(config, hub, "no-version")
+	b, err := NewBackendServer(ctx, config, hub, "no-version")
 	require.NoError(err)
 	require.NoError(b.Start(r))
 
@@ -123,6 +125,7 @@ func CreateBackendServerWithClusteringForTest(t *testing.T) (*BackendServer, *Ba
 
 func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *goconf.ConfigFile, config2 *goconf.ConfigFile) (*BackendServer, *BackendServer, *Hub, *Hub, *httptest.Server, *httptest.Server) {
 	require := require.New(t)
+	assert := assert.New(t)
 	r1 := mux.NewRouter()
 	registerBackendHandler(t, r1)
 
@@ -158,13 +161,18 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	config1.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config1.AddOption("geoip", "url", "none")
 
-	events1, err := NewAsyncEvents(nats.ClientURL())
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
+
+	events1, err := NewAsyncEvents(ctx, nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
-		events1.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(events1.Close(ctx))
 	})
 	client1, _ := NewGrpcClientsForTest(t, addr2)
-	hub1, err := NewHub(config1, events1, grpcServer1, client1, nil, r1, "no-version")
+	hub1, err := NewHub(ctx, config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	require.NoError(err)
 
 	if config2 == nil {
@@ -181,19 +189,21 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	config2.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config2.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config2.AddOption("geoip", "url", "none")
-	events2, err := NewAsyncEvents(nats.ClientURL())
+	events2, err := NewAsyncEvents(ctx, nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
-		events2.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(events2.Close(ctx))
 	})
 	client2, _ := NewGrpcClientsForTest(t, addr1)
-	hub2, err := NewHub(config2, events2, grpcServer2, client2, nil, r2, "no-version")
+	hub2, err := NewHub(ctx, config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	require.NoError(err)
 
-	b1, err := NewBackendServer(config1, hub1, "no-version")
+	b1, err := NewBackendServer(ctx, config1, hub1, "no-version")
 	require.NoError(err)
 	require.NoError(b1.Start(r1))
-	b2, err := NewBackendServer(config2, hub2, "no-version")
+	b2, err := NewBackendServer(ctx, config2, hub2, "no-version")
 	require.NoError(err)
 	require.NoError(b2.Start(r2))
 
@@ -258,7 +268,6 @@ func expectRoomlistEvent(t *testing.T, ch chan *AsyncMessage, msgType string) (*
 
 func TestBackendServer_NoAuth(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -280,7 +289,6 @@ func TestBackendServer_NoAuth(t *testing.T) {
 
 func TestBackendServer_InvalidAuth(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -304,7 +312,6 @@ func TestBackendServer_InvalidAuth(t *testing.T) {
 
 func TestBackendServer_OldCompatAuth(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -347,7 +354,6 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 
 func TestBackendServer_InvalidBody(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -364,7 +370,6 @@ func TestBackendServer_InvalidBody(t *testing.T) {
 
 func TestBackendServer_UnsupportedRequest(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
@@ -385,11 +390,12 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 }
 
 func TestBackendServer_RoomInvite(t *testing.T) {
-	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
-			RunTestBackendServer_RoomInvite(t)
+			logger := NewLoggerForTest(t)
+			ctx := NewLoggerContext(t.Context(), logger)
+			RunTestBackendServer_RoomInvite(ctx, t)
 		})
 	}
 }
@@ -402,7 +408,7 @@ func (l *channelEventListener) ProcessAsyncUserMessage(message *AsyncMessage) {
 	l.ch <- message
 }
 
-func RunTestBackendServer_RoomInvite(t *testing.T) {
+func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, events, hub, _, server := CreateBackendServerForTest(t)
@@ -451,16 +457,17 @@ func RunTestBackendServer_RoomInvite(t *testing.T) {
 }
 
 func TestBackendServer_RoomDisinvite(t *testing.T) {
-	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
-			RunTestBackendServer_RoomDisinvite(t)
+			logger := NewLoggerForTest(t)
+			ctx := NewLoggerContext(t.Context(), logger)
+			RunTestBackendServer_RoomDisinvite(ctx, t)
 		})
 	}
 }
 
-func RunTestBackendServer_RoomDisinvite(t *testing.T) {
+func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, events, hub, _, server := CreateBackendServerForTest(t)
@@ -470,7 +477,7 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 
 	backend := hub.backend.GetBackend(u)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
@@ -531,12 +538,13 @@ func RunTestBackendServer_RoomDisinvite(t *testing.T) {
 
 func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
@@ -607,16 +615,17 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 }
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
-	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
-			RunTestBackendServer_RoomUpdate(t)
+			logger := NewLoggerForTest(t)
+			ctx := NewLoggerContext(t.Context(), logger)
+			RunTestBackendServer_RoomUpdate(ctx, t)
 		})
 	}
 }
 
-func RunTestBackendServer_RoomUpdate(t *testing.T) {
+func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, events, hub, _, server := CreateBackendServerForTest(t)
@@ -675,16 +684,17 @@ func RunTestBackendServer_RoomUpdate(t *testing.T) {
 }
 
 func TestBackendServer_RoomDelete(t *testing.T) {
-	CatchLogForTest(t)
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
-			RunTestBackendServer_RoomDelete(t)
+			logger := NewLoggerForTest(t)
+			ctx := NewLoggerContext(t.Context(), logger)
+			RunTestBackendServer_RoomDelete(ctx, t)
 		})
 	}
 }
 
-func RunTestBackendServer_RoomDelete(t *testing.T) {
+func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, events, hub, _, server := CreateBackendServerForTest(t)
@@ -740,10 +750,11 @@ func RunTestBackendServer_RoomDelete(t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
-	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			logger := NewLoggerForTest(t)
+			ctx := NewLoggerContext(t.Context(), logger)
 			require := require.New(t)
 			assert := assert.New(t)
 			var hub1 *Hub
@@ -760,7 +771,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
 			defer cancel()
 
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
@@ -837,12 +848,13 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 
 func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
@@ -900,12 +912,13 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 
 func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
@@ -1056,10 +1069,11 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 }
 
 func TestBackendServer_InCallAll(t *testing.T) {
-	CatchLogForTest(t)
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
+			logger := NewLoggerForTest(t)
+			ctx := NewLoggerContext(t.Context(), logger)
 			require := require.New(t)
 			assert := assert.New(t)
 			var hub1 *Hub
@@ -1076,7 +1090,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
 			defer cancel()
 
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
@@ -1228,12 +1242,13 @@ func TestBackendServer_InCallAll(t *testing.T) {
 
 func TestBackendServer_RoomMessage(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	client, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
@@ -1271,7 +1286,6 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 
 func TestBackendServer_TurnCredentials(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTestWithTurn(t)
@@ -1301,7 +1315,6 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 }
 
 func TestBackendServer_StatsAllowedIps(t *testing.T) {
-	CatchLogForTest(t)
 	config := goconf.NewConfigFile()
 	config.AddOption("app", "trustedproxies", "1.2.3.4")
 	config.AddOption("stats", "allowed_ips", "127.0.0.1, 192.168.0.1, 192.168.1.1/24")
@@ -1397,7 +1410,8 @@ func Test_IsNumeric(t *testing.T) {
 
 func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1406,7 +1420,7 @@ func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 	defer client.CloseWithBye()
 	require.NoError(client.SendHelloInternal())
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	MustSucceed1(t, client.RunUntilHello, ctx)
@@ -1440,7 +1454,8 @@ func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 
 func TestBackendServer_DialoutAccepted(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1449,7 +1464,7 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 	defer client.CloseWithBye()
 	require.NoError(client.SendHelloInternalWithFeatures([]string{"start-dialout"}))
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	MustSucceed1(t, client.RunUntilHello, ctx)
@@ -1526,7 +1541,8 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 
 func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1535,7 +1551,7 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 	defer client.CloseWithBye()
 	require.NoError(client.SendHelloInternalWithFeatures([]string{"start-dialout"}))
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	MustSucceed1(t, client.RunUntilHello, ctx)
@@ -1612,7 +1628,8 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 
 func TestBackendServer_DialoutRejected(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1621,7 +1638,7 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 	defer client.CloseWithBye()
 	require.NoError(client.SendHelloInternalWithFeatures([]string{"start-dialout"}))
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	MustSucceed1(t, client.RunUntilHello, ctx)
@@ -1696,7 +1713,8 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 
 func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)
@@ -1709,7 +1727,7 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 	defer client2.CloseWithBye()
 	require.NoError(client2.SendHelloInternalWithFeatures([]string{"start-dialout"}))
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
 	MustSucceed1(t, client1.RunUntilHello, ctx)

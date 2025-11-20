@@ -24,7 +24,6 @@ package signaling
 import (
 	"context"
 	"errors"
-	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -51,6 +50,7 @@ func init() {
 type FileWatcherCallback func(filename string)
 
 type FileWatcher struct {
+	logger   Logger
 	filename string
 	target   string
 	callback FileWatcherCallback
@@ -60,7 +60,7 @@ type FileWatcher struct {
 	closeFunc context.CancelFunc
 }
 
-func NewFileWatcher(filename string, callback FileWatcherCallback) (*FileWatcher, error) {
+func NewFileWatcher(logger Logger, filename string, callback FileWatcherCallback) (*FileWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -74,6 +74,7 @@ func NewFileWatcher(filename string, callback FileWatcherCallback) (*FileWatcher
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 
 	w := &FileWatcher{
+		logger:   logger,
 		filename: filename,
 		callback: callback,
 		watcher:  watcher,
@@ -157,14 +158,14 @@ func (f *FileWatcher) run() {
 
 				triggerEvent(event)
 				if err := f.updateWatcher(); err != nil {
-					log.Printf("Error updating watcher after %s is deleted: %s", event.Name, err)
+					f.logger.Printf("Error updating watcher after %s is deleted: %s", event.Name, err)
 				}
 				continue
 			}
 
 			if stat, err := os.Lstat(event.Name); err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
-					log.Printf("Could not lstat %s: %s", event.Name, err)
+					f.logger.Printf("Could not lstat %s: %s", event.Name, err)
 				}
 			} else if stat.Mode()&os.ModeSymlink != 0 {
 				target, err := filepath.EvalSymlinks(event.Name)
@@ -183,7 +184,7 @@ func (f *FileWatcher) run() {
 				return
 			}
 
-			log.Printf("Error watching %s: %s", f.filename, err)
+			f.logger.Printf("Error watching %s: %s", f.filename, err)
 		case <-f.closeCtx.Done():
 			return
 		}

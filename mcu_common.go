@@ -24,7 +24,6 @@ package signaling
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync/atomic"
 	"time"
 
@@ -82,6 +81,8 @@ type McuSettings interface {
 }
 
 type mcuCommonSettings struct {
+	logger Logger
+
 	maxStreamBitrate api.AtomicBandwidth
 	maxScreenBitrate api.AtomicBandwidth
 
@@ -110,7 +111,7 @@ func (s *mcuCommonSettings) load(config *goconf.ConfigFile) error {
 		maxStreamBitrateValue = int(defaultMaxStreamBitrate.Bits())
 	}
 	maxStreamBitrate := api.BandwidthFromBits(uint64(maxStreamBitrateValue))
-	log.Printf("Maximum bandwidth %s per publishing stream", maxStreamBitrate)
+	s.logger.Printf("Maximum bandwidth %s per publishing stream", maxStreamBitrate)
 	s.maxStreamBitrate.Store(maxStreamBitrate)
 
 	maxScreenBitrateValue, _ := config.GetInt("mcu", "maxscreenbitrate")
@@ -118,7 +119,7 @@ func (s *mcuCommonSettings) load(config *goconf.ConfigFile) error {
 		maxScreenBitrateValue = int(defaultMaxScreenBitrate.Bits())
 	}
 	maxScreenBitrate := api.BandwidthFromBits(uint64(maxScreenBitrateValue))
-	log.Printf("Maximum bandwidth %s per screensharing stream", maxScreenBitrate)
+	s.logger.Printf("Maximum bandwidth %s per screensharing stream", maxScreenBitrate)
 	s.maxScreenBitrate.Store(maxScreenBitrate)
 	return nil
 }

@@ -27,7 +27,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"log"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -62,9 +61,10 @@ var (
 )
 
 type RemoteConnection struct {
-	mu  sync.Mutex
-	p   *ProxyServer
-	url *url.URL
+	logger signaling.Logger
+	mu     sync.Mutex
+	p      *ProxyServer
+	url    *url.URL
 	// +checklocks:mu
 	conn      *websocket.Conn
 	closeCtx  context.Context
@@ -102,6 +102,7 @@ func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenK
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 
 	result := &RemoteConnection{
+		logger:    p.logger,
 		p:         p,
 		url:       u,
 		closeCtx:  closeCtx,
@@ -135,7 +136,7 @@ func (c *RemoteConnection) SessionId() signaling.PublicSessionId {
 func (c *RemoteConnection) reconnect() {
 	u, err := c.url.Parse("proxy")
 	if err != nil {
-		log.Printf("Could not resolve url to proxy at %s: %s", c, err)
+		c.logger.Printf("Could not resolve url to proxy at %s: %s", c, err)
 		c.scheduleReconnect()
 		return
 	}
@@ -151,16 +152,24 @@ func (c *RemoteConnection) reconnect() {
 		TLSClientConfig: c.tlsConfig,
 	}
 
-	conn, _, err := dialer.DialContext(context.TODO(), u.String(), nil)
+	conn, _, err := dialer.DialContext(c.closeCtx, u.String(), nil)
 	if err != nil {
-		log.Printf("Error connecting to proxy at %s: %s", c, err)
+		c.logger.Printf("Error connecting to proxy at %s: %s", c, err)
 		c.scheduleReconnect()
 		return
 	}
 
-	log.Printf("Connected to %s", c)
+	c.logger.Printf("Connected to %s", c)
 
 	c.mu.Lock()
+	if c.closeCtx.Err() != nil {
+		// Closed while waiting for lock.
+		c.mu.Unlock()
+		if err := conn.Close(); err != nil {
+			c.logger.Printf("Error closing connection to %s: %s", c, err)
+		}
+		return
+	}
 	c.connectedSince = time.Now()
 	c.conn = conn
 	c.mu.Unlock()
@@ -180,7 +189,7 @@ func (c *RemoteConnection) sendReconnectHello() bool {
 	defer c.mu.Unlock()
 
 	if err := c.sendHello(c.closeCtx); err != nil {
-		log.Printf("Error sending hello request to proxy at %s: %s", c, err)
+		c.logger.Printf("Error sending hello request to proxy at %s: %s", c, err)
 		return false
 	}
 
@@ -197,7 +206,7 @@ func (c *RemoteConnection) scheduleReconnect() {
 // +checklocks:c.mu
 func (c *RemoteConnection) scheduleReconnectLocked() {
 	if err := c.sendCloseLocked(); err != nil && err != ErrNotConnected {
-		log.Printf("Could not send close message to %s: %s", c, err)
+		c.logger.Printf("Could not send close message to %s: %s", c, err)
 	}
 	c.closeLocked()
 
@@ -266,9 +275,6 @@ func (c *RemoteConnection) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.reconnectTimer.Stop()
-	if c.conn == nil {
-		return nil
-	}
 
 	if c.closeCtx.Err() != nil {
 		// Already closed
@@ -276,9 +282,13 @@ func (c *RemoteConnection) Close() error {
 	}
 
 	c.closeFunc()
-	err1 := c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{})
-	err2 := c.conn.Close()
-	c.conn = nil
+	var err1 error
+	var err2 error
+	if c.conn != nil {
+		err1 = c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{})
+		err2 = c.conn.Close()
+		c.conn = nil
+	}
 	c.connectedSince = time.Time{}
 	c.helloReceived = false
 	if err1 != nil {
@@ -366,20 +376,20 @@ func (c *RemoteConnection) readPump(conn *websocket.Conn) {
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
 				if !errors.Is(err, net.ErrClosed) || c.closeCtx.Err() == nil {
-					log.Printf("Error reading from %s: %v", c, err)
+					c.logger.Printf("Error reading from %s: %v", c, err)
 				}
 			}
 			break
 		}
 
 		if msgType != websocket.TextMessage {
-			log.Printf("unexpected message type %q (%s)", msgType, string(msg))
+			c.logger.Printf("unexpected message type %q (%s)", msgType, string(msg))
 			continue
 		}
 
 		var message signaling.ProxyServerMessage
 		if err := json.Unmarshal(msg, &message); err != nil {
-			log.Printf("could not decode message %s: %s", string(msg), err)
+			c.logger.Printf("could not decode message %s: %s", string(msg), err)
 			continue
 		}
 
@@ -406,7 +416,7 @@ func (c *RemoteConnection) sendPing() bool {
 	msg := strconv.FormatInt(now.UnixNano(), 10)
 	c.conn.SetWriteDeadline(now.Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
-		log.Printf("Could not send ping to proxy at %s: %v", c, err)
+		c.logger.Printf("Could not send ping to proxy at %s: %v", c, err)
 		go c.scheduleReconnect()
 		return false
 	}
@@ -441,16 +451,16 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 	switch msg.Type {
 	case "error":
 		if msg.Error.Code == "no_such_session" {
-			log.Printf("Session %s could not be resumed on %s, registering new", c.sessionId, c)
+			c.logger.Printf("Session %s could not be resumed on %s, registering new", c.sessionId, c)
 			c.sessionId = ""
 			if err := c.sendHello(c.closeCtx); err != nil {
-				log.Printf("Could not send hello request to %s: %s", c, err)
+				c.logger.Printf("Could not send hello request to %s: %s", c, err)
 				c.scheduleReconnectLocked()
 			}
 			return
 		}
 
-		log.Printf("Hello connection to %s failed with %+v, reconnecting", c, msg.Error)
+		c.logger.Printf("Hello connection to %s failed with %+v, reconnecting", c, msg.Error)
 		c.scheduleReconnectLocked()
 	case "hello":
 		resumed := c.sessionId == msg.Hello.SessionId
@@ -459,16 +469,16 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 		country := ""
 		if msg.Hello.Server != nil {
 			if country = msg.Hello.Server.Country; country != "" && !signaling.IsValidCountry(country) {
-				log.Printf("Proxy %s sent invalid country %s in hello response", c, country)
+				c.logger.Printf("Proxy %s sent invalid country %s in hello response", c, country)
 				country = ""
 			}
 		}
 		if resumed {
-			log.Printf("Resumed session %s on %s", c.sessionId, c)
+			c.logger.Printf("Resumed session %s on %s", c.sessionId, c)
 		} else if country != "" {
-			log.Printf("Received session %s from %s (in %s)", c.sessionId, c, country)
+			c.logger.Printf("Received session %s from %s (in %s)", c.sessionId, c, country)
 		} else {
-			log.Printf("Received session %s from %s", c.sessionId, c)
+			c.logger.Printf("Received session %s from %s", c.sessionId, c)
 		}
 
 		pending := c.pendingMessages
@@ -479,11 +489,11 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 			}
 
 			if err := c.sendMessageLocked(c.closeCtx, m); err != nil {
-				log.Printf("Could not send pending message %+v to %s: %s", m, c, err)
+				c.logger.Printf("Could not send pending message %+v to %s: %s", m, c, err)
 			}
 		}
 	default:
-		log.Printf("Received unsupported hello response %+v from %s, reconnecting", msg, c)
+		c.logger.Printf("Received unsupported hello response %+v from %s, reconnecting", msg, c)
 		c.scheduleReconnectLocked()
 	}
 }
@@ -516,7 +526,7 @@ func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
 	case "event":
 		c.processEvent(msg)
 	case "bye":
-		log.Printf("Connection to %s was closed: %s", c, msg.Bye.Reason)
+		c.logger.Printf("Connection to %s was closed: %s", c, msg.Bye.Reason)
 		if msg.Bye.Reason == "session_expired" {
 			// Don't try to resume expired session.
 			c.mu.Lock()
@@ -525,7 +535,7 @@ func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
 		}
 		c.scheduleReconnect()
 	default:
-		log.Printf("Received unsupported message %+v from %s", msg, c)
+		c.logger.Printf("Received unsupported message %+v from %s", msg, c)
 	}
 }
 
@@ -534,10 +544,10 @@ func (c *RemoteConnection) processEvent(msg *signaling.ProxyServerMessage) {
 	case "update-load":
 		// Ignore
 	case "publisher-closed":
-		log.Printf("Remote publisher %s was closed on %s", msg.Event.ClientId, c)
+		c.logger.Printf("Remote publisher %s was closed on %s", msg.Event.ClientId, c)
 		c.p.RemotePublisherDeleted(signaling.PublicSessionId(msg.Event.ClientId))
 	default:
-		log.Printf("Received unsupported event %+v from %s", msg, c)
+		c.logger.Printf("Received unsupported event %+v from %s", msg, c)
 	}
 }
 

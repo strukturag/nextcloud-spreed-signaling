@@ -25,7 +25,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"sync"
 	"time"
 
@@ -34,8 +33,9 @@ import (
 )
 
 type proxyConfigEtcd struct {
-	mu    sync.Mutex
-	proxy McuProxy // +checklocksignore: Only written to from constructor.
+	logger Logger
+	mu     sync.Mutex
+	proxy  McuProxy // +checklocksignore: Only written to from constructor.
 
 	client    *EtcdClient
 	keyPrefix string
@@ -48,7 +48,7 @@ type proxyConfigEtcd struct {
 	closeFunc context.CancelFunc
 }
 
-func NewProxyConfigEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient, proxy McuProxy) (ProxyConfig, error) {
+func NewProxyConfigEtcd(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, proxy McuProxy) (ProxyConfig, error) {
 	if !etcdClient.IsConfigured() {
 		return nil, errors.New("no etcd endpoints configured")
 	}
@@ -56,7 +56,8 @@ func NewProxyConfigEtcd(config *goconf.ConfigFile, etcdClient *EtcdClient, proxy
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 
 	result := &proxyConfigEtcd{
-		proxy: proxy,
+		logger: logger,
+		proxy:  proxy,
 
 		client:   etcdClient,
 		keyInfos: make(map[string]*ProxyInformationEtcd),
@@ -118,9 +119,9 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 				if errors.Is(err, context.Canceled) {
 					return
 				} else if errors.Is(err, context.DeadlineExceeded) {
-					log.Printf("Timeout getting initial list of proxy URLs, retry in %s", backoff.NextWait())
+					p.logger.Printf("Timeout getting initial list of proxy URLs, retry in %s", backoff.NextWait())
 				} else {
-					log.Printf("Could not get initial list of proxy URLs, retry in %s: %s", backoff.NextWait(), err)
+					p.logger.Printf("Could not get initial list of proxy URLs, retry in %s: %s", backoff.NextWait(), err)
 				}
 
 				backoff.Wait(p.closeCtx)
@@ -139,7 +140,7 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 		for p.closeCtx.Err() == nil {
 			var err error
 			if nextRevision, err = client.Watch(p.closeCtx, p.keyPrefix, nextRevision, p, clientv3.WithPrefix()); err != nil {
-				log.Printf("Error processing watch for %s (%s), retry in %s", p.keyPrefix, err, backoff.NextWait())
+				p.logger.Printf("Error processing watch for %s (%s), retry in %s", p.keyPrefix, err, backoff.NextWait())
 				backoff.Wait(p.closeCtx)
 				continue
 			}
@@ -148,7 +149,7 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 				backoff.Reset()
 				prevRevision = nextRevision
 			} else {
-				log.Printf("Processing watch for %s interrupted, retry in %s", p.keyPrefix, backoff.NextWait())
+				p.logger.Printf("Processing watch for %s interrupted, retry in %s", p.keyPrefix, backoff.NextWait())
 				backoff.Wait(p.closeCtx)
 			}
 		}
@@ -168,11 +169,11 @@ func (p *proxyConfigEtcd) getProxyUrls(ctx context.Context, client *EtcdClient, 
 func (p *proxyConfigEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
 	var info ProxyInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
-		log.Printf("Could not decode proxy information %s: %s", string(data), err)
+		p.logger.Printf("Could not decode proxy information %s: %s", string(data), err)
 		return
 	}
 	if err := info.CheckValid(); err != nil {
-		log.Printf("Received invalid proxy information %s: %s", string(data), err)
+		p.logger.Printf("Received invalid proxy information %s: %s", string(data), err)
 		return
 	}
 
@@ -187,7 +188,7 @@ func (p *proxyConfigEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []
 	}
 
 	if otherKey, otherFound := p.urlToKey[info.Address]; otherFound && otherKey != key {
-		log.Printf("Address %s is already registered for key %s, ignoring %s", info.Address, otherKey, key)
+		p.logger.Printf("Address %s is already registered for key %s, ignoring %s", info.Address, otherKey, key)
 		return
 	}
 
@@ -196,11 +197,11 @@ func (p *proxyConfigEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []
 		p.proxy.KeepConnection(info.Address)
 	} else {
 		if err := p.proxy.AddConnection(false, info.Address); err != nil {
-			log.Printf("Could not create proxy connection to %s: %s", info.Address, err)
+			p.logger.Printf("Could not create proxy connection to %s: %s", info.Address, err)
 			return
 		}
 
-		log.Printf("Added new connection to %s (from %s)", info.Address, key)
+		p.logger.Printf("Added new connection to %s (from %s)", info.Address, key)
 		p.keyInfos[key] = &info
 		p.urlToKey[info.Address] = key
 	}
@@ -223,6 +224,6 @@ func (p *proxyConfigEtcd) removeEtcdProxyLocked(key string) {
 	delete(p.keyInfos, key)
 	delete(p.urlToKey, info.Address)
 
-	log.Printf("Removing connection to %s (from %s)", info.Address, key)
+	p.logger.Printf("Removing connection to %s (from %s)", info.Address, key)
 	p.proxy.RemoveConnection(info.Address)
 }

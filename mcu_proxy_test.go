@@ -883,19 +883,21 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	etcdConfig.AddOption("etcd", "endpoints", options.etcd.Config().ListenClientUrls[0].String())
 	etcdConfig.AddOption("etcd", "loglevel", "error")
 
-	etcdClient, err := NewEtcdClient(etcdConfig, "")
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
+	etcdClient, err := NewEtcdClient(logger, etcdConfig, "")
 	require.NoError(err)
 	t.Cleanup(func() {
 		assert.NoError(t, etcdClient.Close())
 	})
 
-	mcu, err := NewMcuProxy(cfg, etcdClient, grpcClients, dnsMonitor)
+	mcu, err := NewMcuProxy(ctx, cfg, etcdClient, grpcClients, dnsMonitor)
 	require.NoError(err)
 	t.Cleanup(func() {
 		mcu.Stop()
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	require.NoError(mcu.Start(ctx))
@@ -942,11 +944,10 @@ func newMcuProxyForTest(t *testing.T, idx int) *mcuProxy {
 }
 
 func Test_ProxyAddRemoveConnections(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	assert := assert.New(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	server1 := NewProxyServerForTest(t, "DE")
@@ -1017,7 +1018,6 @@ func Test_ProxyAddRemoveConnections(t *testing.T) {
 }
 
 func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
-	CatchLogForTest(t)
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -1039,7 +1039,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 		ip1,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
@@ -1134,11 +1134,10 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 }
 
 func Test_ProxyPublisherSubscriber(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	mcu := newMcuProxyForTest(t, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -1170,11 +1169,10 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 }
 
 func Test_ProxyPublisherCodecs(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	mcu := newMcuProxyForTest(t, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -1197,11 +1195,10 @@ func Test_ProxyPublisherCodecs(t *testing.T) {
 }
 
 func Test_ProxyWaitForPublisher(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	mcu := newMcuProxyForTest(t, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -1247,7 +1244,6 @@ func Test_ProxyWaitForPublisher(t *testing.T) {
 }
 
 func Test_ProxyPublisherBandwidth(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
@@ -1256,7 +1252,7 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 		server2,
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pub1Id := PublicSessionId("the-publisher-1")
@@ -1317,7 +1313,6 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 }
 
 func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
@@ -1326,7 +1321,7 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 		server2,
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pub1Id := PublicSessionId("the-publisher-1")
@@ -1390,7 +1385,6 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 }
 
 func Test_ProxyPublisherLoad(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
@@ -1399,7 +1393,7 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 		server2,
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pub1Id := PublicSessionId("the-publisher-1")
@@ -1440,7 +1434,6 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 }
 
 func Test_ProxyPublisherCountry(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1449,7 +1442,7 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 		serverUS,
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubDEId := PublicSessionId("the-publisher-de")
@@ -1488,7 +1481,6 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 }
 
 func Test_ProxyPublisherContinent(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1497,7 +1489,7 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 		serverUS,
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubDEId := PublicSessionId("the-publisher-de")
@@ -1536,7 +1528,6 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 }
 
 func Test_ProxySubscriberCountry(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1545,7 +1536,7 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 		serverUS,
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -1580,7 +1571,6 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 }
 
 func Test_ProxySubscriberContinent(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1589,7 +1579,7 @@ func Test_ProxySubscriberContinent(t *testing.T) {
 		serverUS,
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -1624,7 +1614,6 @@ func Test_ProxySubscriberContinent(t *testing.T) {
 }
 
 func Test_ProxySubscriberBandwidth(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1633,7 +1622,7 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 		serverUS,
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -1688,7 +1677,6 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 }
 
 func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	serverDE := NewProxyServerForTest(t, "DE")
 	serverUS := NewProxyServerForTest(t, "US")
@@ -1697,7 +1685,7 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 		serverUS,
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -1806,7 +1794,6 @@ func (h *mockGrpcServerHub) CreateProxyToken(publisherId string) (string, error)
 }
 
 func Test_ProxyRemotePublisher(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 
 	etcd := NewEtcdForTest(t)
@@ -1842,7 +1829,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	}, 2)
 	hub2.proxy.Store(mcu2)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -1886,7 +1873,6 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 }
 
 func Test_ProxyMultipleRemotePublisher(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 
 	etcd := NewEtcdForTest(t)
@@ -1938,7 +1924,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	}, 3)
 	hub3.proxy.Store(mcu3)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -1993,7 +1979,6 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 }
 
 func Test_ProxyRemotePublisherWait(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 
 	etcd := NewEtcdForTest(t)
@@ -2029,7 +2014,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	}, 2)
 	hub2.proxy.Store(mcu2)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -2089,7 +2074,6 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 }
 
 func Test_ProxyRemotePublisherTemporary(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 
 	etcd := NewEtcdForTest(t)
@@ -2123,7 +2107,7 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	}, 2)
 	hub2.proxy.Store(mcu2)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -2198,7 +2182,6 @@ loop:
 }
 
 func Test_ProxyConnectToken(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 
 	etcd := NewEtcdForTest(t)
@@ -2235,7 +2218,7 @@ func Test_ProxyConnectToken(t *testing.T) {
 	}, 2)
 	hub2.proxy.Store(mcu2)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -2279,7 +2262,6 @@ func Test_ProxyConnectToken(t *testing.T) {
 }
 
 func Test_ProxyPublisherToken(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 
 	etcd := NewEtcdForTest(t)
@@ -2321,7 +2303,7 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	server1.servers = append(server1.servers, server2)
 	server2.servers = append(server2.servers, server1)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -2365,7 +2347,6 @@ func Test_ProxyPublisherToken(t *testing.T) {
 }
 
 func Test_ProxyPublisherTimeout(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -2374,7 +2355,7 @@ func Test_ProxyPublisherTimeout(t *testing.T) {
 		servers: []*TestProxyServerHandler{server},
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -2406,7 +2387,6 @@ func Test_ProxyPublisherTimeout(t *testing.T) {
 }
 
 func Test_ProxySubscriberTimeout(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -2415,7 +2395,7 @@ func Test_ProxySubscriberTimeout(t *testing.T) {
 		servers: []*TestProxyServerHandler{server},
 	}, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	pubId := PublicSessionId("the-publisher")
@@ -2466,7 +2446,6 @@ func Test_ProxyReconnectAfter(t *testing.T) {
 	}
 	for _, reason := range reasons {
 		t.Run(reason, func(t *testing.T) {
-			CatchLogForTest(t)
 			t.Parallel()
 			require := require.New(t)
 			assert := assert.New(t)
@@ -2479,7 +2458,7 @@ func Test_ProxyReconnectAfter(t *testing.T) {
 			require.Len(connections, 1)
 			sessionId := connections[0].SessionId()
 
-			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 			defer cancel()
 
 			client := server.GetSingleClient()
@@ -2507,7 +2486,6 @@ func Test_ProxyReconnectAfter(t *testing.T) {
 }
 
 func Test_ProxyReconnectAfterShutdown(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -2520,7 +2498,7 @@ func Test_ProxyReconnectAfterShutdown(t *testing.T) {
 	require.Len(connections, 1)
 	sessionId := connections[0].SessionId()
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	client := server.GetSingleClient()
@@ -2547,7 +2525,6 @@ func Test_ProxyReconnectAfterShutdown(t *testing.T) {
 }
 
 func Test_ProxyResume(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -2560,7 +2537,7 @@ func Test_ProxyResume(t *testing.T) {
 	require.Len(connections, 1)
 	sessionId := connections[0].SessionId()
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	client := server.GetSingleClient()
@@ -2580,7 +2557,6 @@ func Test_ProxyResume(t *testing.T) {
 }
 
 func Test_ProxyResumeFail(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -2593,7 +2569,7 @@ func Test_ProxyResumeFail(t *testing.T) {
 	require.Len(connections, 1)
 	sessionId := connections[0].SessionId()
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
 	client := server.GetSingleClient()

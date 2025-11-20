@@ -590,7 +590,9 @@ func newMcuJanusForTesting(t *testing.T) (*mcuJanus, *TestJanusGateway) {
 	if strings.Contains(t.Name(), "Filter") {
 		config.AddOption("mcu", "blockedcandidates", "192.0.0.0/24, 192.168.0.0/16")
 	}
-	mcu, err := NewMcuJanus(context.Background(), "", config)
+	logger := NewLoggerForTest(t)
+	ctx := NewLoggerContext(t.Context(), logger)
+	mcu, err := NewMcuJanus(ctx, "", config)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		mcu.Stop()
@@ -600,7 +602,7 @@ func newMcuJanusForTesting(t *testing.T) (*mcuJanus, *TestJanusGateway) {
 	mcuJanus.createJanusGateway = func(ctx context.Context, wsURL string, listener GatewayListener) (JanusGatewayInterface, error) {
 		return gateway, nil
 	}
-	require.NoError(t, mcu.Start(context.Background()))
+	require.NoError(t, mcu.Start(ctx))
 	return mcuJanus, gateway
 }
 
@@ -675,7 +677,6 @@ func (i *TestMcuInitiator) Country() string {
 }
 
 func Test_JanusPublisherFilterOffer(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -786,7 +787,6 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 }
 
 func Test_JanusSubscriberFilterAnswer(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -908,7 +908,6 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 }
 
 func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -992,7 +991,6 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 }
 
 func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -1086,7 +1084,6 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"))
 	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"))
 
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 
@@ -1166,7 +1163,6 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 }
 
 func Test_JanusSubscriberPublisher(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 
@@ -1215,7 +1211,6 @@ func Test_JanusSubscriberPublisher(t *testing.T) {
 }
 
 func Test_JanusSubscriberRequestOffer(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
@@ -1317,7 +1312,6 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 }
 
 func Test_JanusRemotePublisher(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
@@ -1409,7 +1403,6 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 		}
 	})
 
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 
@@ -1509,7 +1502,6 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 		}
 	})
 
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 
@@ -1619,7 +1611,6 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 		}
 	})
 
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 
@@ -1723,7 +1714,6 @@ func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
 		}
 	})
 
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 
@@ -1834,7 +1824,6 @@ func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
 		}
 	})
 
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 
@@ -1945,7 +1934,6 @@ func Test_JanusSubscriberUpdateOffer(t *testing.T) {
 		}
 	})
 
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 

@@ -90,7 +90,8 @@ func newDnsMonitorForTest(t *testing.T, interval time.Duration) *DnsMonitor {
 	t.Helper()
 	require := require.New(t)
 
-	monitor, err := NewDnsMonitor(interval)
+	logger := NewLoggerForTest(t)
+	monitor, err := NewDnsMonitor(logger, interval)
 	require.NoError(err)
 
 	t.Cleanup(func() {

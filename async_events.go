@@ -21,7 +21,10 @@
  */
 package signaling
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 type AsyncBackendRoomEventListener interface {
 	ProcessBackendRoomRequest(message *AsyncMessage)
@@ -40,7 +43,7 @@ type AsyncSessionEventListener interface {
 }
 
 type AsyncEvents interface {
-	Close()
+	Close(ctx context.Context) error
 
 	RegisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener) error
 	UnregisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener)
@@ -60,13 +63,13 @@ type AsyncEvents interface {
 	PublishSessionMessage(sessionId PublicSessionId, backend *Backend, message *AsyncMessage) error
 }
 
-func NewAsyncEvents(url string) (AsyncEvents, error) {
-	client, err := NewNatsClient(url)
+func NewAsyncEvents(ctx context.Context, url string) (AsyncEvents, error) {
+	client, err := NewNatsClient(ctx, url)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewAsyncEventsNats(client)
+	return NewAsyncEventsNats(LoggerFromContext(ctx), client)
 }
 
 type asyncBackendRoomSubscriber struct {

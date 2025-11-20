@@ -81,7 +81,7 @@ func testBackends(t *testing.T, config *BackendConfiguration, valid_urls [][]str
 }
 
 func TestIsUrlAllowed_Compat(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	// Old-style configuration
 	valid_urls := []string{
 		"http://domain.invalid",
@@ -96,13 +96,13 @@ func TestIsUrlAllowed_Compat(t *testing.T) {
 	config.AddOption("backend", "allowed", "domain.invalid")
 	config.AddOption("backend", "allowhttp", "true")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config, nil)
+	cfg, err := NewBackendConfiguration(logger, config, nil)
 	require.NoError(t, err)
 	testUrls(t, cfg, valid_urls, invalid_urls)
 }
 
 func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	// Old-style configuration, force HTTPS
 	valid_urls := []string{
 		"https://domain.invalid",
@@ -116,13 +116,13 @@ func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", "domain.invalid")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config, nil)
+	cfg, err := NewBackendConfiguration(logger, config, nil)
 	require.NoError(t, err)
 	testUrls(t, cfg, valid_urls, invalid_urls)
 }
 
 func TestIsUrlAllowed(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	valid_urls := [][]string{
 		{"https://domain.invalid/foo", string(testBackendSecret) + "-foo"},
 		{"https://domain.invalid/foo/", string(testBackendSecret) + "-foo"},
@@ -160,13 +160,13 @@ func TestIsUrlAllowed(t *testing.T) {
 	config.AddOption("baz", "secret", string(testBackendSecret)+"-baz")
 	config.AddOption("lala", "url", "https://otherdomain.invalid/")
 	config.AddOption("lala", "secret", string(testBackendSecret)+"-lala")
-	cfg, err := NewBackendConfiguration(config, nil)
+	cfg, err := NewBackendConfiguration(logger, config, nil)
 	require.NoError(t, err)
 	testBackends(t, cfg, valid_urls, invalid_urls)
 }
 
 func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	valid_urls := []string{}
 	invalid_urls := []string{
 		"http://domain.invalid",
@@ -176,13 +176,13 @@ func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "allowed", "")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config, nil)
+	cfg, err := NewBackendConfiguration(logger, config, nil)
 	require.NoError(t, err)
 	testUrls(t, cfg, valid_urls, invalid_urls)
 }
 
 func TestIsUrlAllowed_AllowAll(t *testing.T) {
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	valid_urls := []string{
 		"http://domain.invalid",
 		"https://domain.invalid",
@@ -195,7 +195,7 @@ func TestIsUrlAllowed_AllowAll(t *testing.T) {
 	config.AddOption("backend", "allowall", "true")
 	config.AddOption("backend", "allowed", "")
 	config.AddOption("backend", "secret", string(testBackendSecret))
-	cfg, err := NewBackendConfiguration(config, nil)
+	cfg, err := NewBackendConfiguration(logger, config, nil)
 	require.NoError(t, err)
 	testUrls(t, cfg, valid_urls, invalid_urls)
 }
@@ -206,7 +206,6 @@ type ParseBackendIdsTestcase struct {
 }
 
 func TestParseBackendIds(t *testing.T) {
-	CatchLogForTest(t)
 	testcases := []ParseBackendIdsTestcase{
 		{"", nil},
 		{"backend1", []string{"backend1"}},
@@ -227,7 +226,7 @@ func TestParseBackendIds(t *testing.T) {
 func TestBackendReloadNoChange(t *testing.T) {
 	ResetStatsValue(t, statsBackendsCurrent)
 
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -236,7 +235,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config, nil)
+	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
 	require.NoError(err)
 	checkStatsValue(t, statsBackendsCurrent, 2)
 
@@ -247,7 +246,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(new_config, nil)
+	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 4)
@@ -261,7 +260,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 func TestBackendReloadChangeExistingURL(t *testing.T) {
 	ResetStatsValue(t, statsBackendsCurrent)
 
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -270,7 +269,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config, nil)
+	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 2)
@@ -282,7 +281,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 	new_config.AddOption("backend1", "sessionlimit", "10")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(new_config, nil)
+	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 4)
@@ -300,7 +299,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 func TestBackendReloadChangeSecret(t *testing.T) {
 	ResetStatsValue(t, statsBackendsCurrent)
 
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -309,7 +308,7 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config, nil)
+	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 2)
@@ -320,7 +319,7 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend3")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(new_config, nil)
+	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 4)
@@ -335,14 +334,14 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 func TestBackendReloadAddBackend(t *testing.T) {
 	ResetStatsValue(t, statsBackendsCurrent)
 
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1")
 	original_config.AddOption("backend", "allowall", "false")
 	original_config.AddOption("backend1", "url", "http://domain1.invalid")
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	o_cfg, err := NewBackendConfiguration(original_config, nil)
+	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 1)
@@ -354,7 +353,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
 	new_config.AddOption("backend2", "sessionlimit", "10")
-	n_cfg, err := NewBackendConfiguration(new_config, nil)
+	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 3)
@@ -374,7 +373,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 func TestBackendReloadRemoveHost(t *testing.T) {
 	ResetStatsValue(t, statsBackendsCurrent)
 
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -383,7 +382,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config, nil)
+	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 2)
@@ -392,7 +391,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 	new_config.AddOption("backend", "allowall", "false")
 	new_config.AddOption("backend1", "url", "http://domain1.invalid")
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	n_cfg, err := NewBackendConfiguration(new_config, nil)
+	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 3)
@@ -410,7 +409,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	ResetStatsValue(t, statsBackendsCurrent)
 
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
@@ -419,7 +418,7 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain1.invalid/bar/")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(original_config, nil)
+	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 2)
@@ -428,7 +427,7 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	new_config.AddOption("backend", "allowall", "false")
 	new_config.AddOption("backend1", "url", "http://domain1.invalid/foo/")
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	n_cfg, err := NewBackendConfiguration(new_config, nil)
+	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 3)
@@ -462,7 +461,7 @@ func mustParse(s string) *url.URL {
 func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	ResetStatsValue(t, statsBackendsCurrent)
 
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
@@ -479,7 +478,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 
 	checkStatsValue(t, statsBackendsCurrent, 0)
 
-	cfg, err := NewBackendConfiguration(config, client)
+	cfg, err := NewBackendConfiguration(logger, config, client)
 	require.NoError(err)
 	defer cfg.Close()
 
@@ -581,7 +580,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 
 func TestBackendCommonSecret(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	u1, err := url.Parse("http://domain1.invalid")
@@ -594,7 +593,7 @@ func TestBackendCommonSecret(t *testing.T) {
 	original_config.AddOption("backend1", "url", u1.String())
 	original_config.AddOption("backend2", "url", u2.String())
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	cfg, err := NewBackendConfiguration(original_config, nil)
+	cfg, err := NewBackendConfiguration(logger, original_config, nil)
 	require.NoError(err)
 
 	if b1 := cfg.GetBackend(u1); assert.NotNil(b1) {
@@ -623,7 +622,7 @@ func TestBackendCommonSecret(t *testing.T) {
 func TestBackendChangeUrls(t *testing.T) {
 	ResetStatsValue(t, statsBackendsCurrent)
 
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	u1, err := url.Parse("http://domain1.invalid/")
@@ -638,7 +637,7 @@ func TestBackendChangeUrls(t *testing.T) {
 
 	checkStatsValue(t, statsBackendsCurrent, 0)
 
-	cfg, err := NewBackendConfiguration(original_config, nil)
+	cfg, err := NewBackendConfiguration(logger, original_config, nil)
 	require.NoError(err)
 
 	checkStatsValue(t, statsBackendsCurrent, 2)
@@ -714,7 +713,7 @@ func TestBackendChangeUrls(t *testing.T) {
 func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 	ResetStatsValue(t, statsBackendsCurrent)
 
-	CatchLogForTest(t)
+	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
@@ -731,7 +730,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 
 	checkStatsValue(t, statsBackendsCurrent, 0)
 
-	cfg, err := NewBackendConfiguration(config, client)
+	cfg, err := NewBackendConfiguration(logger, config, client)
 	require.NoError(err)
 	defer cfg.Close()
 

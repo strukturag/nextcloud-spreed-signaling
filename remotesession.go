@@ -26,12 +26,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"sync/atomic"
 	"time"
 )
 
 type RemoteSession struct {
+	logger       Logger
 	hub          *Hub
 	client       *Client
 	remoteClient *GrpcClient
@@ -42,6 +42,7 @@ type RemoteSession struct {
 
 func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessionId PublicSessionId) (*RemoteSession, error) {
 	remoteSession := &RemoteSession{
+		logger:       hub.logger,
 		hub:          hub,
 		client:       client,
 		remoteClient: remoteClient,
@@ -97,7 +98,7 @@ func (s *RemoteSession) OnProxyMessage(msg *ServerSessionMessage) error {
 
 func (s *RemoteSession) OnProxyClose(err error) {
 	if err != nil {
-		log.Printf("Proxy connection for session %s to %s was closed with error: %s", s.sessionId, s.remoteClient.Target(), err)
+		s.logger.Printf("Proxy connection for session %s to %s was closed with error: %s", s.sessionId, s.remoteClient.Target(), err)
 	}
 	s.Close()
 }
@@ -145,7 +146,7 @@ func (s *RemoteSession) OnClosed(client HandlerClient) {
 
 func (s *RemoteSession) OnMessageReceived(client HandlerClient, message []byte) {
 	if err := s.sendProxyMessage(message); err != nil {
-		log.Printf("Error sending %s to the proxy for session %s: %s", string(message), s.sessionId, err)
+		s.logger.Printf("Error sending %s to the proxy for session %s: %s", string(message), s.sessionId, err)
 		s.Close()
 	}
 }

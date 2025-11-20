@@ -37,7 +37,6 @@ import (
 
 func TestBandwidth_Client(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
@@ -45,8 +44,7 @@ func TestBandwidth_Client(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu, err := NewTestMCU()
-	require.NoError(err)
+	mcu := NewTestMCU(t)
 	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
@@ -86,7 +84,6 @@ func TestBandwidth_Client(t *testing.T) {
 
 func TestBandwidth_Backend(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
 
 	u, err := url.Parse(server.URL + "/one")
@@ -100,8 +97,7 @@ func TestBandwidth_Backend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu, err := NewTestMCU()
-	require.NoError(t, err)
+	mcu := NewTestMCU(t)
 	require.NoError(t, mcu.Start(ctx))
 	defer mcu.Stop()
 
@@ -167,7 +163,6 @@ func TestBandwidth_Backend(t *testing.T) {
 
 func TestFeatureChatRelay(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 
 	testFunc := func(feature bool) func(t *testing.T) {
 		return func(t *testing.T) {
@@ -253,11 +248,8 @@ func TestFeatureChatRelay(t *testing.T) {
 }
 
 func TestFeatureChatRelayFederation(t *testing.T) {
-	CatchLogForTest(t)
-
 	var testFunc = func(feature bool) func(t *testing.T) {
 		return func(t *testing.T) {
-			CatchLogForTest(t)
 			require := require.New(t)
 			assert := assert.New(t)
 
@@ -466,7 +458,6 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 
 func TestPermissionHideDisplayNames(t *testing.T) {
 	t.Parallel()
-	CatchLogForTest(t)
 
 	testFunc := func(permission bool) func(t *testing.T) {
 		return func(t *testing.T) {

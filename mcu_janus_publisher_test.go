@@ -102,7 +102,6 @@ func TestGetFmtpValueVP9(t *testing.T) {
 }
 
 func TestJanusPublisherRemote(t *testing.T) {
-	CatchLogForTest(t)
 	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)

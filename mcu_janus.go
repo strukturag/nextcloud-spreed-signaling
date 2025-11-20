@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -108,7 +107,7 @@ func convertIntValue(value any) (uint64, error) {
 	}
 }
 
-func getPluginIntValue(data janus.PluginData, pluginName string, key string) uint64 {
+func getPluginIntValue(logger Logger, data janus.PluginData, pluginName string, key string) uint64 {
 	val := getPluginValue(data, pluginName, key)
 	if val == nil {
 		return 0
@@ -116,7 +115,7 @@ func getPluginIntValue(data janus.PluginData, pluginName string, key string) uin
 
 	result, err := convertIntValue(val)
 	if err != nil {
-		log.Printf("Invalid value %+v for %s: %s", val, key, err)
+		logger.Printf("Invalid value %+v for %s: %s", val, key, err)
 		result = 0
 	}
 	return result
@@ -154,8 +153,12 @@ type mcuJanusSettings struct {
 	blockedCandidates atomic.Pointer[AllowedIps]
 }
 
-func newMcuJanusSettings(config *goconf.ConfigFile) (*mcuJanusSettings, error) {
-	settings := &mcuJanusSettings{}
+func newMcuJanusSettings(ctx context.Context, config *goconf.ConfigFile) (*mcuJanusSettings, error) {
+	settings := &mcuJanusSettings{
+		mcuCommonSettings: mcuCommonSettings{
+			logger: LoggerFromContext(ctx),
+		},
+	}
 	if err := settings.load(config); err != nil {
 		return nil, err
 	}
@@ -173,7 +176,7 @@ func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
 		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
 	}
 	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
-	log.Printf("Using a timeout of %s for MCU requests", mcuTimeout)
+	s.logger.Printf("Using a timeout of %s for MCU requests", mcuTimeout)
 	s.setTimeout(mcuTimeout)
 
 	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
@@ -182,10 +185,10 @@ func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
 			return fmt.Errorf("invalid allowedcandidates: %w", err)
 		}
 
-		log.Printf("Candidates allowlist: %s", allowed)
+		s.logger.Printf("Candidates allowlist: %s", allowed)
 		s.allowedCandidates.Store(allowed)
 	} else {
-		log.Printf("No candidates allowlist")
+		s.logger.Printf("No candidates allowlist")
 		s.allowedCandidates.Store(nil)
 	}
 	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
@@ -194,10 +197,10 @@ func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
 			return fmt.Errorf("invalid blockedcandidates: %w", err)
 		}
 
-		log.Printf("Candidates blocklist: %s", blocked)
+		s.logger.Printf("Candidates blocklist: %s", blocked)
 		s.blockedCandidates.Store(blocked)
 	} else {
-		log.Printf("No candidates blocklist")
+		s.logger.Printf("No candidates blocklist")
 		s.blockedCandidates.Store(nil)
 	}
 
@@ -206,11 +209,13 @@ func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
 
 func (s *mcuJanusSettings) Reload(config *goconf.ConfigFile) {
 	if err := s.load(config); err != nil {
-		log.Printf("Error reloading MCU settings: %s", err)
+		s.logger.Printf("Error reloading MCU settings: %s", err)
 	}
 }
 
 type mcuJanus struct {
+	logger Logger
+
 	url string
 	mu  sync.Mutex
 
@@ -251,12 +256,13 @@ func emptyOnConnected()    {}
 func emptyOnDisconnected() {}
 
 func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mcu, error) {
-	settings, err := newMcuJanusSettings(config)
+	settings, err := newMcuJanusSettings(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 
 	mcu := &mcuJanus{
+		logger:    LoggerFromContext(ctx),
 		url:       url,
 		settings:  settings,
 		closeChan: make(chan struct{}, 1),
@@ -290,18 +296,18 @@ func (m *mcuJanus) disconnect() {
 		m.handle = nil
 		m.closeChan <- struct{}{}
 		if _, err := handle.Detach(context.TODO()); err != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err)
+			m.logger.Printf("Error detaching handle %d: %s", handle.Id, err)
 		}
 	}
 	if m.session != nil {
 		if _, err := m.session.Destroy(context.TODO()); err != nil {
-			log.Printf("Error destroying session %d: %s", m.session.Id, err)
+			m.logger.Printf("Error destroying session %d: %s", m.session.Id, err)
 		}
 		m.session = nil
 	}
 	if m.gw != nil {
 		if err := m.gw.Close(); err != nil {
-			log.Println("Error while closing connection to MCU", err)
+			m.logger.Println("Error while closing connection to MCU", err)
 		}
 		m.gw = nil
 	}
@@ -371,7 +377,7 @@ func (m *mcuJanus) doReconnect(ctx context.Context) {
 		return
 	}
 
-	log.Println("Reconnection to Janus gateway successful")
+	m.logger.Println("Reconnection to Janus gateway successful")
 	m.mu.Lock()
 	clear(m.publishers)
 	m.publisherCreated.Reset()
@@ -407,9 +413,9 @@ func (m *mcuJanus) scheduleReconnect(err error) {
 	defer m.mu.Unlock()
 	m.reconnectTimer.Reset(m.reconnectInterval)
 	if err == nil {
-		log.Printf("Connection to Janus gateway was interrupted, reconnecting in %s", m.reconnectInterval)
+		m.logger.Printf("Connection to Janus gateway was interrupted, reconnecting in %s", m.reconnectInterval)
 	} else {
-		log.Printf("Reconnect to Janus gateway failed (%s), reconnecting in %s", err, m.reconnectInterval)
+		m.logger.Printf("Reconnect to Janus gateway failed (%s), reconnecting in %s", err, m.reconnectInterval)
 	}
 
 	m.reconnectInterval = min(m.reconnectInterval*2, maxReconnectInterval)
@@ -439,49 +445,49 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("Connected to %s %s by %s", info.Name, info.VersionString, info.Author)
+	m.logger.Printf("Connected to %s %s by %s", info.Name, info.VersionString, info.Author)
 	m.version = info.Version
 
 	if plugin, found := info.Plugins[pluginVideoRoom]; found {
-		log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
+		m.logger.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
 	} else {
 		return fmt.Errorf("plugin %s is not supported", pluginVideoRoom)
 	}
 
 	if plugin, found := info.Events[eventWebsocket]; found {
 		if !info.EventHandlers {
-			log.Printf("Found %s %s by %s but event handlers are disabled, realtime usage will not be available", plugin.Name, plugin.VersionString, plugin.Author)
+			m.logger.Printf("Found %s %s by %s but event handlers are disabled, realtime usage will not be available", plugin.Name, plugin.VersionString, plugin.Author)
 		} else {
-			log.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
+			m.logger.Printf("Found %s %s by %s", plugin.Name, plugin.VersionString, plugin.Author)
 		}
 	} else {
-		log.Printf("Plugin %s not found, realtime usage will not be available", eventWebsocket)
+		m.logger.Printf("Plugin %s not found, realtime usage will not be available", eventWebsocket)
 	}
 
-	log.Printf("Used dependencies: %+v", info.Dependencies)
+	m.logger.Printf("Used dependencies: %+v", info.Dependencies)
 	if !info.DataChannels {
 		return fmt.Errorf("data channels are not supported")
 	}
 
-	log.Println("Data channels are supported")
+	m.logger.Println("Data channels are supported")
 	if !info.FullTrickle {
-		log.Println("WARNING: Full-Trickle is NOT enabled in Janus!")
+		m.logger.Println("WARNING: Full-Trickle is NOT enabled in Janus!")
 	} else {
-		log.Println("Full-Trickle is enabled")
+		m.logger.Println("Full-Trickle is enabled")
 	}
 
 	if m.session, err = m.gw.Create(ctx); err != nil {
 		m.disconnect()
 		return err
 	}
-	log.Println("Created Janus session", m.session.Id)
+	m.logger.Println("Created Janus session", m.session.Id)
 	m.connectedSince = time.Now()
 
 	if m.handle, err = m.session.Attach(ctx, pluginVideoRoom); err != nil {
 		m.disconnect()
 		return err
 	}
-	log.Println("Created Janus handle", m.handle.Id)
+	m.logger.Println("Created Janus handle", m.handle.Id)
 
 	m.info.Store(info)
 
@@ -627,7 +633,7 @@ func (m *mcuJanus) GetStats() any {
 
 func (m *mcuJanus) sendKeepalive(ctx context.Context) {
 	if _, err := m.session.KeepAlive(ctx); err != nil {
-		log.Println("Could not send keepalive request", err)
+		m.logger.Println("Could not send keepalive request", err)
 		if e, ok := err.(*janus.ErrorMsg); ok {
 			switch e.Err.Code {
 			case JANUS_ERROR_SESSION_NOT_FOUND:
@@ -693,20 +699,20 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	create_response, err := handle.Request(ctx, create_msg)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.logger.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
 		return 0, 0, err
 	}
 
-	roomId := getPluginIntValue(create_response.PluginData, pluginVideoRoom, "room")
+	roomId := getPluginIntValue(m.logger, create_response.PluginData, pluginVideoRoom, "room")
 	if roomId == 0 {
 		if _, err := handle.Detach(ctx); err != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err)
+			m.logger.Printf("Error detaching handle %d: %s", handle.Id, err)
 		}
 		return 0, 0, fmt.Errorf("no room id received: %+v", create_response)
 	}
 
-	log.Println("Created room", roomId, create_response.PluginData)
+	m.logger.Println("Created room", roomId, create_response.PluginData)
 	return roomId, bitrate, nil
 }
 
@@ -720,12 +726,12 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id PublicSess
 		return nil, 0, 0, 0, err
 	}
 
-	log.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
+	m.logger.Printf("Attached %s as publisher %d to plugin %s in session %d", streamType, handle.Id, pluginVideoRoom, session.Id)
 
 	roomId, bitrate, err := m.createPublisherRoom(ctx, handle, id, streamType, settings)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.logger.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
 		return nil, 0, 0, 0, err
 	}
@@ -740,7 +746,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id PublicSess
 	response, err := handle.Message(ctx, msg, nil)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.logger.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
 		return nil, 0, 0, 0, err
 	}
@@ -760,6 +766,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id Pu
 
 	client := &mcuJanusPublisher{
 		mcuJanusClient: mcuJanusClient{
+			logger:   m.logger,
 			mcu:      m,
 			listener: listener,
 
@@ -787,7 +794,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id Pu
 	client.mcuJanusClient.handleMedia = client.handleMedia
 
 	m.registerClient(client)
-	log.Printf("Publisher %s is using handle %d", client.id, handle.Id)
+	m.logger.Printf("Publisher %s is using handle %d", client.id, handle.Id)
 	go client.run(handle, client.closeChan)
 	m.mu.Lock()
 	m.publishers[getStreamId(id, streamType)] = client
@@ -842,7 +849,7 @@ func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher Pu
 		return nil, nil, err
 	}
 
-	log.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, publisher, pluginVideoRoom, session.Id, handle.Id)
+	m.logger.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, publisher, pluginVideoRoom, session.Id, handle.Id)
 	return handle, pub, nil
 }
 
@@ -858,6 +865,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 
 	client := &mcuJanusSubscriber{
 		mcuJanusClient: mcuJanusClient{
+			logger:   m.logger,
 			mcu:      m,
 			listener: listener,
 
@@ -917,7 +925,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 	roomId, maxBitrate, err := m.createPublisherRoom(ctx, handle, controller.PublisherId(), streamType, settings)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.logger.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
 		return nil, err
 	}
@@ -930,19 +938,20 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 	})
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {
-			log.Printf("Error detaching handle %d: %s", handle.Id, err2)
+			m.logger.Printf("Error detaching handle %d: %s", handle.Id, err2)
 		}
 		return nil, err
 	}
 
-	id := getPluginIntValue(response.PluginData, pluginVideoRoom, "id")
-	port := getPluginIntValue(response.PluginData, pluginVideoRoom, "port")
-	rtcp_port := getPluginIntValue(response.PluginData, pluginVideoRoom, "rtcp_port")
+	id := getPluginIntValue(m.logger, response.PluginData, pluginVideoRoom, "id")
+	port := getPluginIntValue(m.logger, response.PluginData, pluginVideoRoom, "port")
+	rtcp_port := getPluginIntValue(m.logger, response.PluginData, pluginVideoRoom, "rtcp_port")
 
 	pub = &mcuJanusRemotePublisher{
 		mcuJanusPublisher: mcuJanusPublisher{
 			mcuJanusClient: mcuJanusClient{
-				mcu: m,
+				logger: m.logger,
+				mcu:    m,
 
 				id:         id,
 				session:    response.Session,
@@ -1018,11 +1027,12 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 		return nil, err
 	}
 
-	log.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, pub.id, pluginVideoRoom, session.Id, handle.Id)
+	m.logger.Printf("Attached subscriber to room %d of publisher %s in plugin %s in session %d as %d", pub.roomId, pub.id, pluginVideoRoom, session.Id, handle.Id)
 
 	client := &mcuJanusRemoteSubscriber{
 		mcuJanusSubscriber: mcuJanusSubscriber{
 			mcuJanusClient: mcuJanusClient{
+				logger:   m.logger,
 				mcu:      m,
 				listener: listener,
 

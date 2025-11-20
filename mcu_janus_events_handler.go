@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"net"
 	"strconv"
@@ -621,8 +620,9 @@ func (h *handleStats) LostRemote(media string, lost uint64) {
 type JanusEventsHandler struct {
 	mu sync.Mutex
 
-	ctx context.Context
-	mcu McuEventHandler
+	logger Logger
+	ctx    context.Context
+	mcu    McuEventHandler
 	// +checklocks:mu
 	conn  *websocket.Conn
 	addr  string
@@ -654,7 +654,8 @@ func RunJanusEventsHandler(ctx context.Context, mcu Mcu, conn *websocket.Conn, a
 
 	client, err := NewJanusEventsHandler(ctx, m, conn, addr, agent)
 	if err != nil {
-		log.Printf("Could not create Janus events handler for %s: %s", addr, err)
+		logger := LoggerFromContext(ctx)
+		logger.Printf("Could not create Janus events handler for %s: %s", addr, err)
 		conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "error creating handler"), deadline) // nolint
 		return
 	}
@@ -664,11 +665,12 @@ func RunJanusEventsHandler(ctx context.Context, mcu Mcu, conn *websocket.Conn, a
 
 func NewJanusEventsHandler(ctx context.Context, mcu McuEventHandler, conn *websocket.Conn, addr string, agent string) (*JanusEventsHandler, error) {
 	handler := &JanusEventsHandler{
-		ctx:   ctx,
-		mcu:   mcu,
-		conn:  conn,
-		addr:  addr,
-		agent: agent,
+		logger: LoggerFromContext(ctx),
+		ctx:    ctx,
+		mcu:    mcu,
+		conn:   conn,
+		addr:   addr,
+		agent:  agent,
 
 		events: make(chan JanusEvent, 1),
 	}
@@ -677,7 +679,7 @@ func NewJanusEventsHandler(ctx context.Context, mcu McuEventHandler, conn *webso
 }
 
 func (h *JanusEventsHandler) Run() {
-	log.Printf("Processing Janus events from %s", h.addr)
+	h.logger.Printf("Processing Janus events from %s", h.addr)
 	go h.writePump()
 	go h.processEvents()
 
@@ -692,7 +694,7 @@ func (h *JanusEventsHandler) close() {
 
 	if conn != nil {
 		if err := conn.Close(); err != nil {
-			log.Printf("Error closing %s", err)
+			h.logger.Printf("Error closing %s", err)
 		}
 	}
 }
@@ -702,7 +704,7 @@ func (h *JanusEventsHandler) readPump() {
 	conn := h.conn
 	h.mu.Unlock()
 	if conn == nil {
-		log.Printf("Connection from %s closed while starting readPump", h.addr)
+		h.logger.Printf("Connection from %s closed while starting readPump", h.addr)
 		return
 	}
 
@@ -724,24 +726,24 @@ func (h *JanusEventsHandler) readPump() {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived) {
-				log.Printf("Error reading from %s: %v", h.addr, err)
+				h.logger.Printf("Error reading from %s: %v", h.addr, err)
 			}
 			break
 		}
 
 		if messageType != websocket.TextMessage {
-			log.Printf("Unsupported message type %v from %s", messageType, h.addr)
+			h.logger.Printf("Unsupported message type %v from %s", messageType, h.addr)
 			continue
 		}
 
 		decodeBuffer, err := bufferPool.ReadAll(reader)
 		if err != nil {
-			log.Printf("Error reading message from %s: %v", h.addr, err)
+			h.logger.Printf("Error reading message from %s: %v", h.addr, err)
 			break
 		}
 
 		if decodeBuffer.Len() == 0 {
-			log.Printf("Received empty message from %s", h.addr)
+			h.logger.Printf("Received empty message from %s", h.addr)
 			bufferPool.Put(decodeBuffer)
 			break
 		}
@@ -750,7 +752,7 @@ func (h *JanusEventsHandler) readPump() {
 		if data := decodeBuffer.Bytes(); data[0] != '[' {
 			var event JanusEvent
 			if err := json.Unmarshal(data, &event); err != nil {
-				log.Printf("Error decoding message %s from %s: %v", decodeBuffer.String(), h.addr, err)
+				h.logger.Printf("Error decoding message %s from %s: %v", decodeBuffer.String(), h.addr, err)
 				bufferPool.Put(decodeBuffer)
 				break
 			}
@@ -758,7 +760,7 @@ func (h *JanusEventsHandler) readPump() {
 			events = append(events, event)
 		} else {
 			if err := json.Unmarshal(data, &events); err != nil {
-				log.Printf("Error decoding message %s from %s: %v", decodeBuffer.String(), h.addr, err)
+				h.logger.Printf("Error decoding message %s from %s: %v", decodeBuffer.String(), h.addr, err)
 				bufferPool.Put(decodeBuffer)
 				break
 			}
@@ -782,7 +784,7 @@ func (h *JanusEventsHandler) sendPing() bool {
 	msg := strconv.FormatInt(now, 10)
 	h.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := h.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
-		log.Printf("Could not send ping to %s: %v", h.addr, err)
+		h.logger.Printf("Could not send ping to %s: %v", h.addr, err)
 		return false
 	}
 
@@ -848,7 +850,7 @@ func (h *JanusEventsHandler) getHandleStats(event JanusEvent) *handleStats {
 func (h *JanusEventsHandler) processEvent(event JanusEvent) {
 	evt, err := event.Decode()
 	if err != nil {
-		log.Printf("Error decoding event %s (%s)", event, err)
+		h.logger.Printf("Error decoding event %s (%s)", event, err)
 		return
 	}
 

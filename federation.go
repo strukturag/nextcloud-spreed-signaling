@@ -27,7 +27,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -78,6 +77,7 @@ func getCloudUrl(s string) string {
 }
 
 type FederationClient struct {
+	logger  Logger
 	hub     *Hub
 	session *ClientSession
 	message atomic.Pointer[ClientMessage]
@@ -144,6 +144,7 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 	}
 
 	result := &FederationClient{
+		logger:  hub.logger,
 		hub:     hub,
 		session: session,
 
@@ -203,7 +204,7 @@ func (c *FederationClient) CanReuse(federation *RoomFederationMessage) bool {
 }
 
 func (c *FederationClient) connect(ctx context.Context) error {
-	log.Printf("Creating federation connection to %s for %s", c.URL(), c.session.PublicId())
+	c.logger.Printf("Creating federation connection to %s for %s", c.URL(), c.session.PublicId())
 	conn, response, err := c.dialer.DialContext(ctx, c.url, nil)
 	if err != nil {
 		return err
@@ -220,13 +221,13 @@ func (c *FederationClient) connect(ctx context.Context) error {
 	}
 	if !supportsFederation {
 		if err := conn.Close(); err != nil {
-			log.Printf("Error closing federation connection to %s: %s", c.URL(), err)
+			c.logger.Printf("Error closing federation connection to %s: %s", c.URL(), err)
 		}
 
 		return ErrFederationNotSupported
 	}
 
-	log.Printf("Federation connection established to %s for %s", c.URL(), c.session.PublicId())
+	c.logger.Printf("Federation connection established to %s for %s", c.URL(), c.session.PublicId())
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -303,18 +304,18 @@ func (c *FederationClient) closeConnection(withBye bool) {
 		if err := c.sendMessageLocked(&ClientMessage{
 			Type: "bye",
 		}); err != nil && !isClosedError(err) {
-			log.Printf("Error sending bye on federation connection to %s: %s", c.URL(), err)
+			c.logger.Printf("Error sending bye on federation connection to %s: %s", c.URL(), err)
 		}
 	}
 
 	closeMessage := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
 	deadline := time.Now().Add(writeWait)
 	if err := c.conn.WriteControl(websocket.CloseMessage, closeMessage, deadline); err != nil && !isClosedError(err) {
-		log.Printf("Error sending close message on federation connection to %s: %s", c.URL(), err)
+		c.logger.Printf("Error sending close message on federation connection to %s: %s", c.URL(), err)
 	}
 
 	if err := c.conn.Close(); err != nil && !isClosedError(err) {
-		log.Printf("Error closing federation connection to %s: %s", c.URL(), err)
+		c.logger.Printf("Error closing federation connection to %s: %s", c.URL(), err)
 	}
 
 	c.conn = nil
@@ -362,11 +363,12 @@ func (c *FederationClient) reconnect() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.hub.federationTimeout))
+	ctx := NewLoggerContext(context.Background(), c.logger)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.hub.federationTimeout))
 	defer cancel()
 
 	if err := c.connect(ctx); err != nil {
-		log.Printf("Error connecting to federation server %s for %s: %s", c.URL(), c.session.PublicId(), err)
+		c.logger.Printf("Error connecting to federation server %s for %s: %s", c.URL(), c.session.PublicId(), err)
 		c.scheduleReconnect()
 		return
 	}
@@ -390,7 +392,7 @@ func (c *FederationClient) readPump(conn *websocket.Conn) {
 			}
 
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-				log.Printf("Error reading from %s for %s: %s", c.URL(), c.session.PublicId(), err)
+				c.logger.Printf("Error reading from %s for %s: %s", c.URL(), c.session.PublicId(), err)
 			}
 
 			c.scheduleReconnect()
@@ -403,7 +405,7 @@ func (c *FederationClient) readPump(conn *websocket.Conn) {
 
 		var msg ServerMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
-			log.Printf("Error unmarshalling %s from %s: %s", string(data), c.URL(), err)
+			c.logger.Printf("Error unmarshalling %s from %s: %s", string(data), c.URL(), err)
 			continue
 		}
 
@@ -432,7 +434,7 @@ func (c *FederationClient) sendPing() {
 	msg := strconv.FormatInt(now, 10)
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
-		log.Printf("Could not send ping to federated client %s for %s: %v", c.URL(), c.session.PublicId(), err)
+		c.logger.Printf("Could not send ping to federated client %s for %s: %v", c.URL(), c.session.PublicId(), err)
 		c.scheduleReconnectLocked()
 	}
 }
@@ -517,7 +519,7 @@ func (c *FederationClient) processWelcome(msg *ServerMessage) {
 		Token: c.federation.Load().Token,
 	}
 	if err := c.sendHello(federationParams); err != nil {
-		log.Printf("Error sending hello message to %s for %s: %s", c.URL(), c.session.PublicId(), err)
+		c.logger.Printf("Error sending hello message to %s for %s: %s", c.URL(), c.session.PublicId(), err)
 		c.closeWithError(err)
 	}
 }
@@ -529,7 +531,7 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 	defer c.helloMu.Unlock()
 
 	if msg.Id != c.helloMsgId {
-		log.Printf("Received hello response %+v for unknown request, expected %s", msg, c.helloMsgId)
+		c.logger.Printf("Received hello response %+v for unknown request, expected %s", msg, c.helloMsgId)
 		if err := c.sendHelloLocked(c.helloAuth); err != nil {
 			c.closeWithError(err)
 		}
@@ -548,12 +550,12 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 				c.closeWithError(err)
 			}
 		default:
-			log.Printf("Received hello error from federated client for %s to %s: %+v", c.session.PublicId(), c.URL(), msg)
+			c.logger.Printf("Received hello error from federated client for %s to %s: %+v", c.session.PublicId(), c.URL(), msg)
 			c.closeWithError(msg.Error)
 		}
 		return
 	} else if msg.Type != "hello" {
-		log.Printf("Received unknown hello response from federated client for %s to %s: %+v", c.session.PublicId(), c.URL(), msg)
+		c.logger.Printf("Received unknown hello response from federated client for %s to %s: %+v", c.session.PublicId(), c.URL(), msg)
 		if err := c.sendHelloLocked(c.helloAuth); err != nil {
 			c.closeWithError(err)
 		}
@@ -594,7 +596,7 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 			messages := c.pendingMessages
 			c.pendingMessages = nil
 
-			log.Printf("Sending %d pending messages to %s for %s", count, c.URL(), c.session.PublicId())
+			c.logger.Printf("Sending %d pending messages to %s for %s", count, c.URL(), c.session.PublicId())
 
 			c.helloMu.Unlock()
 			defer c.helloMu.Lock()
@@ -603,7 +605,7 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 			defer c.mu.Unlock()
 			for _, msg := range messages {
 				if err := c.sendMessageLocked(msg); err != nil {
-					log.Printf("Error sending pending message %+v on federation connection to %s: %s", msg, c.URL(), err)
+					c.logger.Printf("Error sending pending message %+v on federation connection to %s: %s", msg, c.URL(), err)
 					break
 				}
 			}
@@ -966,7 +968,7 @@ func (c *FederationClient) deferMessage(message *ClientMessage) {
 
 	c.pendingMessages = append(c.pendingMessages, message)
 	if len(c.pendingMessages) >= warnPendingMessagesCount {
-		log.Printf("Session %s has %d pending federated messages", c.session.PublicId(), len(c.pendingMessages))
+		c.logger.Printf("Session %s has %d pending federated messages", c.session.PublicId(), len(c.pendingMessages))
 	}
 }
 
@@ -999,7 +1001,7 @@ func (c *FederationClient) sendMessageLocked(message *ClientMessage) error {
 			return err
 		}
 
-		log.Printf("Could not send message %+v for %s to federated client %s: %v", message, c.session.PublicId(), c.URL(), err)
+		c.logger.Printf("Could not send message %+v for %s to federated client %s: %v", message, c.session.PublicId(), c.URL(), err)
 		c.deferMessage(message)
 		c.scheduleReconnectLocked()
 	}

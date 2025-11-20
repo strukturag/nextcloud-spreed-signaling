@@ -23,7 +23,6 @@ package signaling
 
 import (
 	"context"
-	"log"
 	"sync/atomic"
 
 	"github.com/notedit/janus-go"
@@ -63,38 +62,38 @@ func (p *mcuJanusRemotePublisher) handleEvent(event *janus.EventMsg) {
 		ctx := context.TODO()
 		switch videoroom {
 		case "destroyed":
-			log.Printf("Remote publisher %d: associated room has been destroyed, closing", p.handleId.Load())
+			p.logger.Printf("Remote publisher %d: associated room has been destroyed, closing", p.handleId.Load())
 			go p.Close(ctx)
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.
 		default:
-			log.Printf("Unsupported videoroom remote publisher event in %d: %+v", p.handleId.Load(), event)
+			p.logger.Printf("Unsupported videoroom remote publisher event in %d: %+v", p.handleId.Load(), event)
 		}
 	} else {
-		log.Printf("Unsupported remote publisher event in %d: %+v", p.handleId.Load(), event)
+		p.logger.Printf("Unsupported remote publisher event in %d: %+v", p.handleId.Load(), event)
 	}
 }
 
 func (p *mcuJanusRemotePublisher) handleHangup(event *janus.HangupMsg) {
-	log.Printf("Remote publisher %d received hangup (%s), closing", p.handleId.Load(), event.Reason)
+	p.logger.Printf("Remote publisher %d received hangup (%s), closing", p.handleId.Load(), event.Reason)
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusRemotePublisher) handleDetached(event *janus.DetachedMsg) {
-	log.Printf("Remote publisher %d received detached, closing", p.handleId.Load())
+	p.logger.Printf("Remote publisher %d received detached, closing", p.handleId.Load())
 	go p.Close(context.Background())
 }
 
 func (p *mcuJanusRemotePublisher) handleConnected(event *janus.WebRTCUpMsg) {
-	log.Printf("Remote publisher %d received connected", p.handleId.Load())
+	p.logger.Printf("Remote publisher %d received connected", p.handleId.Load())
 	p.mcu.publisherConnected.Notify(string(getStreamId(p.id, p.streamType)))
 }
 
 func (p *mcuJanusRemotePublisher) handleSlowLink(event *janus.SlowLinkMsg) {
 	if event.Uplink {
-		log.Printf("Remote publisher %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
+		p.logger.Printf("Remote publisher %s (%d) is reporting %d lost packets on the uplink (Janus -> client)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	} else {
-		log.Printf("Remote publisher %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
+		p.logger.Printf("Remote publisher %s (%d) is reporting %d lost packets on the downlink (client -> Janus)", p.listener.PublicId(), p.handleId.Load(), event.Lost)
 	}
 }
 
@@ -102,21 +101,21 @@ func (p *mcuJanusRemotePublisher) NotifyReconnected() {
 	ctx := context.TODO()
 	handle, session, roomId, _, err := p.mcu.getOrCreatePublisherHandle(ctx, p.id, p.streamType, p.settings)
 	if err != nil {
-		log.Printf("Could not reconnect remote publisher %s: %s", p.id, err)
+		p.logger.Printf("Could not reconnect remote publisher %s: %s", p.id, err)
 		// TODO(jojo): Retry
 		return
 	}
 
 	if prev := p.handle.Swap(handle); prev != nil {
 		if _, err := prev.Detach(context.Background()); err != nil {
-			log.Printf("Error detaching old remote publisher handle %d: %s", prev.Id, err)
+			p.logger.Printf("Error detaching old remote publisher handle %d: %s", prev.Id, err)
 		}
 	}
 	p.handleId.Store(handle.Id)
 	p.session = session
 	p.roomId = roomId
 
-	log.Printf("Remote publisher %s reconnected on handle %d", p.id, p.handleId.Load())
+	p.logger.Printf("Remote publisher %s reconnected on handle %d", p.id, p.handleId.Load())
 }
 
 func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
@@ -125,7 +124,7 @@ func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
 	}
 
 	if err := p.controller.StopPublishing(ctx, p); err != nil {
-		log.Printf("Error stopping remote publisher %s in room %d: %s", p.id, p.roomId, err)
+		p.logger.Printf("Error stopping remote publisher %s in room %d: %s", p.id, p.roomId, err)
 	}
 
 	p.mu.Lock()
@@ -138,9 +137,9 @@ func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
 			"id":      streamTypeUserIds[p.streamType],
 		})
 		if err != nil {
-			log.Printf("Error removing remote publisher %s in room %d: %s", p.id, p.roomId, err)
+			p.logger.Printf("Error removing remote publisher %s in room %d: %s", p.id, p.roomId, err)
 		} else {
-			log.Printf("Removed remote publisher: %+v", response)
+			p.logger.Printf("Removed remote publisher: %+v", response)
 		}
 		if p.roomId != 0 {
 			destroy_msg := api.StringMap{
@@ -148,9 +147,9 @@ func (p *mcuJanusRemotePublisher) Close(ctx context.Context) {
 				"room":    p.roomId,
 			}
 			if _, err := handle.Request(ctx, destroy_msg); err != nil {
-				log.Printf("Error destroying room %d: %s", p.roomId, err)
+				p.logger.Printf("Error destroying room %d: %s", p.roomId, err)
 			} else {
-				log.Printf("Room %d destroyed", p.roomId)
+				p.logger.Printf("Room %d destroyed", p.roomId)
 			}
 			p.mcu.mu.Lock()
 			delete(p.mcu.remotePublishers, getStreamId(p.id, p.streamType))

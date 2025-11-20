@@ -23,8 +23,8 @@ package signaling
 
 import (
 	"container/list"
+	"context"
 	"encoding/json"
-	"log"
 	"strings"
 	"sync"
 
@@ -32,7 +32,11 @@ import (
 )
 
 type LoopbackNatsClient struct {
-	mu sync.Mutex
+	logger Logger
+
+	mu     sync.Mutex
+	closed chan struct{}
+
 	// +checklocks:mu
 	subscriptions map[string]map[*loopbackNatsSubscription]bool
 
@@ -42,8 +46,11 @@ type LoopbackNatsClient struct {
 	incoming list.List
 }
 
-func NewLoopbackNatsClient() (NatsClient, error) {
+func NewLoopbackNatsClient(logger Logger) (NatsClient, error) {
 	client := &LoopbackNatsClient{
+		logger: logger,
+		closed: make(chan struct{}),
+
 		subscriptions: make(map[string]map[*loopbackNatsSubscription]bool),
 	}
 	client.wakeup.L = &client.mu
@@ -52,6 +59,8 @@ func NewLoopbackNatsClient() (NatsClient, error) {
 }
 
 func (c *LoopbackNatsClient) processMessages() {
+	defer close(c.closed)
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for {
@@ -85,18 +94,28 @@ func (c *LoopbackNatsClient) processMessage(msg *nats.Msg) {
 		select {
 		case ch <- msg:
 		default:
-			log.Printf("Slow consumer %s, dropping message", msg.Subject)
+			c.logger.Printf("Slow consumer %s, dropping message", msg.Subject)
 		}
 	}
 }
 
-func (c *LoopbackNatsClient) Close() {
+func (c *LoopbackNatsClient) doClose() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.subscriptions = nil
 	c.incoming.Init()
 	c.wakeup.Signal()
+}
+
+func (c *LoopbackNatsClient) Close(ctx context.Context) error {
+	c.doClose()
+	select {
+	case <-c.closed:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 type loopbackNatsSubscription struct {

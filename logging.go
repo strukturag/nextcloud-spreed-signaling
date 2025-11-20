@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2024 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -22,53 +22,39 @@
 package signaling
 
 import (
-	"bytes"
-	"fmt"
+	"context"
 	"log"
-	"sync"
 	"testing"
 )
 
-type testLogWriter struct {
-	mu sync.Mutex
-	t  testing.TB
-}
-
-func (w *testLogWriter) Write(b []byte) (int, error) {
-	w.t.Helper()
-	if !bytes.HasSuffix(b, []byte("\n")) {
-		b = append(b, '\n')
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return writeTestOutput(w.t, b)
-}
+type loggerKey struct{}
 
 var (
-	// +checklocks:testLoggersLock
-	testLoggers     = map[testing.TB]Logger{}
-	testLoggersLock sync.Mutex
+	ctxLogger loggerKey = struct{}{}
 )
 
-func NewLoggerForTest(t testing.TB) Logger {
-	t.Helper()
-	testLoggersLock.Lock()
-	defer testLoggersLock.Unlock()
+type Logger interface {
+	Printf(format string, v ...any)
+	Println(...any)
+}
 
-	logger, found := testLoggers[t]
-	if !found {
-		logger = log.New(&testLogWriter{
-			t: t,
-		}, fmt.Sprintf("%s: ", t.Name()), log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
-
-		t.Cleanup(func() {
-			testLoggersLock.Lock()
-			defer testLoggersLock.Unlock()
-
-			delete(testLoggers, t)
-		})
-
-		testLoggers[t] = logger
+// NewLoggerContext returns a derieved context that stores the passed logger.
+func NewLoggerContext(ctx context.Context, logger Logger) context.Context {
+	if logger == nil {
+		panic("logger is nil")
 	}
-	return logger
+	return context.WithValue(ctx, ctxLogger, logger)
+}
+
+// LoggerFromContext returns the logger to use for the passed context.
+func LoggerFromContext(ctx context.Context) Logger {
+	logger := ctx.Value(ctxLogger)
+	if logger == nil {
+		if testing.Testing() {
+			panic("accessed global logger")
+		}
+		return log.Default()
+	}
+
+	return logger.(Logger)
 }
