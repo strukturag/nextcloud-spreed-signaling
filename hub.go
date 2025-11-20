@@ -2660,6 +2660,20 @@ func isAllowedToUpdateTransientData(session Session) bool {
 	return false
 }
 
+func isAllowedToUpdateTransientDataKey(session Session, key string) bool {
+	if session.ClientType() == HelloClientTypeInternal {
+		// Internal clients may update all transient keys.
+		return true
+	}
+
+	if sid, found := strings.CutPrefix(key, TransientSessionDataPrefix); found {
+		// Session data may only be modified by the session itself.
+		return sid == string(session.PublicId())
+	}
+
+	return true
+}
+
 func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
 	room := session.GetRoom()
 	if room == nil {
@@ -2674,6 +2688,9 @@ func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
 		if !isAllowedToUpdateTransientData(session) {
 			sendNotAllowed(session, message, "Not allowed to update transient data.")
 			return
+		} else if !isAllowedToUpdateTransientDataKey(session, msg.Key) {
+			sendNotAllowed(session, message, "Not allowed to update this transient data entry.")
+			return
 		}
 
 		if err := room.SetTransientDataTTL(msg.Key, msg.Value, msg.TTL); err != nil {
@@ -2684,6 +2701,9 @@ func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
 	case "remove":
 		if !isAllowedToUpdateTransientData(session) {
 			sendNotAllowed(session, message, "Not allowed to update transient data.")
+			return
+		} else if !isAllowedToUpdateTransientDataKey(session, msg.Key) {
+			sendNotAllowed(session, message, "Not allowed to update this transient data entry.")
 			return
 		}
 

@@ -31,6 +31,10 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
+const (
+	TransientSessionDataPrefix = "sd:"
+)
+
 type TransientListener interface {
 	SendMessage(message *ServerMessage) bool
 }
