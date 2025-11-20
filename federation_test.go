@@ -1115,6 +1115,7 @@ func Test_FederationTransientData(t *testing.T) {
 	// The client2 will see its own session id, not the one from the remote server.
 	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 
+	// Regular transient data.
 	require.NoError(client1.SetTransientData("foo", "bar", 0))
 	if msg, ok := client1.RunUntilMessage(ctx); ok {
 		checkMessageTransientSet(t, msg, "foo", "bar", nil)
@@ -1129,5 +1130,24 @@ func Test_FederationTransientData(t *testing.T) {
 	}
 	if msg, ok := client2.RunUntilMessage(ctx); ok {
 		checkMessageTransientSet(t, msg, "bar", "baz", nil)
+	}
+
+	// Transient session data
+	sessionKey1 := "sd:" + string(hello1.Hello.SessionId)
+	require.NoError(client1.SetTransientData(sessionKey1, "12345", 0))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, sessionKey1, "12345", nil)
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, sessionKey1, "12345", nil)
+	}
+
+	sessionKey2 := "sd:" + string(hello2.Hello.SessionId)
+	require.NoError(client2.SetTransientData(sessionKey2, "54321", 0))
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, "sd:"+string(remoteSessionId), "54321", nil)
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		checkMessageTransientSet(t, msg, sessionKey2, "54321", nil)
 	}
 }

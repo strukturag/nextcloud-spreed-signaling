@@ -544,6 +544,7 @@ const (
 	ServerFeatureOfferCodecs           = "offer-codecs"
 	ServerFeatureServerInfo            = "serverinfo"
 	ServerFeatureChatRelay             = "chat-relay"
+	ServerFeatureTransientSessionData  = "transient-sessiondata"
 
 	// Features to send to internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -569,6 +570,7 @@ var (
 		ServerFeatureOfferCodecs,
 		ServerFeatureServerInfo,
 		ServerFeatureChatRelay,
+		ServerFeatureTransientSessionData,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
@@ -584,6 +586,7 @@ var (
 		ServerFeatureOfferCodecs,
 		ServerFeatureServerInfo,
 		ServerFeatureChatRelay,
+		ServerFeatureTransientSessionData,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -600,6 +603,7 @@ var (
 		ServerFeatureOfferCodecs,
 		ServerFeatureServerInfo,
 		ServerFeatureChatRelay,
+		ServerFeatureTransientSessionData,
 	}
 )
 
