@@ -37,7 +37,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RpcInternal_GetServerId_FullMethodName = "/signaling.RpcInternal/GetServerId"
+	RpcInternal_GetServerId_FullMethodName      = "/signaling.RpcInternal/GetServerId"
+	RpcInternal_GetTransientData_FullMethodName = "/signaling.RpcInternal/GetTransientData"
 )
 
 // RpcInternalClient is the client API for RpcInternal service.
@@ -45,6 +46,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RpcInternalClient interface {
 	GetServerId(ctx context.Context, in *GetServerIdRequest, opts ...grpc.CallOption) (*GetServerIdReply, error)
+	GetTransientData(ctx context.Context, in *GetTransientDataRequest, opts ...grpc.CallOption) (*GetTransientDataReply, error)
 }
 
 type rpcInternalClient struct {
@@ -65,11 +67,22 @@ func (c *rpcInternalClient) GetServerId(ctx context.Context, in *GetServerIdRequ
 	return out, nil
 }
 
+func (c *rpcInternalClient) GetTransientData(ctx context.Context, in *GetTransientDataRequest, opts ...grpc.CallOption) (*GetTransientDataReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetTransientDataReply)
+	err := c.cc.Invoke(ctx, RpcInternal_GetTransientData_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RpcInternalServer is the server API for RpcInternal service.
 // All implementations must embed UnimplementedRpcInternalServer
 // for forward compatibility.
 type RpcInternalServer interface {
 	GetServerId(context.Context, *GetServerIdRequest) (*GetServerIdReply, error)
+	GetTransientData(context.Context, *GetTransientDataRequest) (*GetTransientDataReply, error)
 	mustEmbedUnimplementedRpcInternalServer()
 }
 
@@ -82,6 +95,9 @@ type UnimplementedRpcInternalServer struct{}
 
 func (UnimplementedRpcInternalServer) GetServerId(context.Context, *GetServerIdRequest) (*GetServerIdReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetServerId not implemented")
+}
+func (UnimplementedRpcInternalServer) GetTransientData(context.Context, *GetTransientDataRequest) (*GetTransientDataReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTransientData not implemented")
 }
 func (UnimplementedRpcInternalServer) mustEmbedUnimplementedRpcInternalServer() {}
 func (UnimplementedRpcInternalServer) testEmbeddedByValue()                     {}
@@ -122,6 +138,24 @@ func _RpcInternal_GetServerId_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RpcInternal_GetTransientData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTransientDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RpcInternalServer).GetTransientData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RpcInternal_GetTransientData_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RpcInternalServer).GetTransientData(ctx, req.(*GetTransientDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RpcInternal_ServiceDesc is the grpc.ServiceDesc for RpcInternal service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -132,6 +166,10 @@ var RpcInternal_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetServerId",
 			Handler:    _RpcInternal_GetServerId_Handler,
+		},
+		{
+			MethodName: "GetTransientData",
+			Handler:    _RpcInternal_GetTransientData_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
