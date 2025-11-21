@@ -25,6 +25,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -302,6 +303,67 @@ func (s *GrpcServer) GetServerId(ctx context.Context, request *GetServerIdReques
 		ServerId: s.serverId,
 		Version:  s.version,
 	}, nil
+}
+
+func (s *GrpcServer) GetTransientData(ctx context.Context, request *GetTransientDataRequest) (*GetTransientDataReply, error) {
+	statsGrpcServerCalls.WithLabelValues("GetTransientData").Inc()
+
+	backendUrls := request.BackendUrls
+	if len(backendUrls) == 0 {
+		// Only compat backend.
+		backendUrls = []string{""}
+	}
+
+	result := &GetTransientDataReply{}
+	processed := make(map[string]bool)
+	for _, bu := range backendUrls {
+		var parsed *url.URL
+		if bu != "" {
+			var err error
+			parsed, err = url.Parse(bu)
+			if err != nil {
+				return nil, status.Error(codes.InvalidArgument, "invalid url")
+			}
+		}
+
+		backend := s.hub.GetBackend(parsed)
+		if backend == nil {
+			return nil, status.Error(codes.NotFound, "no such backend")
+		}
+
+		// Only process each backend once.
+		if processed[backend.Id()] {
+			continue
+		}
+		processed[backend.Id()] = true
+
+		room := s.hub.GetRoomForBackend(request.RoomId, backend)
+		if room == nil {
+			return nil, status.Error(codes.NotFound, "no such room")
+		}
+
+		entries := room.transientData.GetEntries()
+		if len(entries) == 0 {
+			return nil, status.Error(codes.NotFound, "room has no transient data")
+		}
+
+		if result.Entries == nil {
+			result.Entries = make(map[string]*GrpcTransientDataEntry)
+		}
+		for k, v := range entries {
+			e := &GrpcTransientDataEntry{}
+			var err error
+			if e.Value, err = json.Marshal(v.Value); err != nil {
+				return nil, status.Errorf(codes.Internal, "error marshalling data: %s", err)
+			}
+			if !v.Expires.IsZero() {
+				e.Expires = v.Expires.UnixMicro()
+			}
+			result.Entries[k] = e
+		}
+	}
+
+	return result, nil
 }
 
 func (s *GrpcServer) GetSessionCount(ctx context.Context, request *GetSessionCountRequest) (*GetSessionCountReply, error) {

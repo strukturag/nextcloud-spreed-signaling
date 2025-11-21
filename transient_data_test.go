@@ -143,6 +143,7 @@ func Test_TransientMessages(t *testing.T) {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
 			require := require.New(t)
+			assert := assert.New(t)
 			var hub1 *Hub
 			var hub2 *Hub
 			var server1 *httptest.Server
@@ -245,13 +246,24 @@ func Test_TransientMessages(t *testing.T) {
 
 			client1.RunUntilErrorIs(ctx3, context.DeadlineExceeded)
 
-			require.NoError(client1.SetTransientData("abc", data, 10*time.Millisecond))
+			ttl := 200 * time.Millisecond
+			require.NoError(client1.SetTransientData("abc", data, ttl))
+			setAt := time.Now()
+			if msg, ok := client2.RunUntilMessage(ctx); ok {
+				checkMessageTransientSet(t, msg, "abc", data, nil)
+			}
+
+			client1.CloseWithBye()
+			require.NoError(client1.WaitForClientRemoved(ctx))
+			client2.RunUntilLeft(ctx, hello1.Hello)
 
 			client3, hello3 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"3")
 			roomMsg = MustSucceed2(t, client3.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
-			_, ignored, ok := client3.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello, hello3.Hello)
+			client2.RunUntilJoined(ctx, hello3.Hello)
+
+			_, ignored, ok := client3.RunUntilJoinedAndReturn(ctx, hello2.Hello, hello3.Hello)
 			require.True(ok)
 
 			var msg *ServerMessage
@@ -263,13 +275,16 @@ func Test_TransientMessages(t *testing.T) {
 				require.LessOrEqual(len(ignored), 1, "Received too many messages: %+v", ignored)
 			}
 
-			checkMessageTransientInitial(t, msg, api.StringMap{
-				"abc": data,
-			})
+			delta := time.Until(setAt.Add(ttl))
+			if assert.Greater(delta, time.Duration(0), "test runner too slow?") {
+				checkMessageTransientInitial(t, msg, api.StringMap{
+					"abc": data,
+				})
 
-			time.Sleep(10 * time.Millisecond)
-			if msg, ok = client3.RunUntilMessage(ctx); ok {
-				checkMessageTransientRemove(t, msg, "abc", data)
+				time.Sleep(delta)
+				if msg, ok = client2.RunUntilMessage(ctx); ok {
+					checkMessageTransientRemove(t, msg, "abc", data)
+				}
 			}
 		})
 	}
