@@ -1178,8 +1178,8 @@ func (s *ClientSession) storePendingMessage(message *ServerMessage) {
 	}
 }
 
-func filterDisplayNames(events []*EventServerMessageSessionEntry) []*EventServerMessageSessionEntry {
-	result := make([]*EventServerMessageSessionEntry, 0, len(events))
+func filterDisplayNames(events []EventServerMessageSessionEntry) []EventServerMessageSessionEntry {
+	result := make([]EventServerMessageSessionEntry, 0, len(events))
 	for _, event := range events {
 		if len(event.User) == 0 {
 			result = append(result, event)
@@ -1219,14 +1219,14 @@ func filterDisplayNames(events []*EventServerMessageSessionEntry) []*EventServer
 	return result
 }
 
-func (s *ClientSession) filterDuplicateJoin(entries []*EventServerMessageSessionEntry) []*EventServerMessageSessionEntry {
+func (s *ClientSession) filterDuplicateJoin(entries []EventServerMessageSessionEntry) []EventServerMessageSessionEntry {
 	s.seenJoinedLock.Lock()
 	defer s.seenJoinedLock.Unlock()
 
 	// Due to the asynchronous events, a session might received a "Joined" event
 	// for the same (other) session twice, so filter these out on a per-session
 	// level.
-	result := make([]*EventServerMessageSessionEntry, 0, len(entries))
+	result := make([]EventServerMessageSessionEntry, 0, len(entries))
 	for _, e := range entries {
 		if s.seenJoinedEvents[e.SessionId] {
 			s.logger.Printf("Session %s got duplicate joined event for %s, ignoring", s.publicId, e.SessionId)

@@ -847,8 +847,8 @@ func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId
 	return !failed
 }
 
-func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*HelloServerMessage) ([]*EventServerMessageSessionEntry, []*ServerMessage, bool) {
-	received := make([]*EventServerMessageSessionEntry, len(hello))
+func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*HelloServerMessage) ([]EventServerMessageSessionEntry, []*ServerMessage, bool) {
+	received := make([]EventServerMessageSessionEntry, len(hello))
 	var ignored []*ServerMessage
 	hellos := make(map[*HelloServerMessage]int, len(hello))
 	for idx, h := range hello {
@@ -886,7 +886,9 @@ func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*Hell
 					}
 				}
 			}
-			c.assert.True(found, "expected one of the passed hello sessions, got %+v", message.Event.Join)
+			if !c.assert.True(found, "expected one of the passed hello sessions, got %+v", message.Event.Join) {
+				break
+			}
 		}
 	}
 	return received, ignored, true
