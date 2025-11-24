@@ -383,9 +383,9 @@ func (r *Room) notifySessionJoined(sessionId PublicSessionId) {
 		session = nil
 	}
 
-	events := make([]*EventServerMessageSessionEntry, 0, len(sessions))
+	events := make([]EventServerMessageSessionEntry, 0, len(sessions))
 	for _, s := range sessions {
-		entry := &EventServerMessageSessionEntry{
+		entry := EventServerMessageSessionEntry{
 			SessionId: s.PublicId(),
 			UserId:    s.UserId(),
 			User:      s.UserData(),
@@ -561,7 +561,7 @@ func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionDat
 		Event: &EventServerMessage{
 			Target: "room",
 			Type:   "join",
-			Join: []*EventServerMessageSessionEntry{
+			Join: []EventServerMessageSessionEntry{
 				{
 					SessionId: sessionId,
 					UserId:    userid,

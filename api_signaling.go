@@ -724,6 +724,9 @@ type MessageClientMessage struct {
 }
 
 type MessageClientMessageData struct {
+	json.Marshaler
+	json.Unmarshaler
+
 	Type     string        `json:"type"`
 	Sid      string        `json:"sid"`
 	RoomType string        `json:"roomType"`
@@ -1196,11 +1199,11 @@ type EventServerMessage struct {
 	Type   string `json:"type"`
 
 	// Used for target "room"
-	Join     []*EventServerMessageSessionEntry `json:"join,omitempty"`
-	Leave    []PublicSessionId                 `json:"leave,omitempty"`
-	Change   []*EventServerMessageSessionEntry `json:"change,omitempty"`
-	SwitchTo *EventServerMessageSwitchTo       `json:"switchto,omitempty"`
-	Resumed  *bool                             `json:"resumed,omitempty"`
+	Join     []EventServerMessageSessionEntry `json:"join,omitempty"`
+	Leave    []PublicSessionId                `json:"leave,omitempty"`
+	Change   []EventServerMessageSessionEntry `json:"change,omitempty"`
+	SwitchTo *EventServerMessageSwitchTo      `json:"switchto,omitempty"`
+	Resumed  *bool                            `json:"resumed,omitempty"`
 
 	// Used for target "roomlist" / "participants"
 	Invite    *RoomEventServerMessage          `json:"invite,omitempty"`
@@ -1229,8 +1232,8 @@ type EventServerMessageSessionEntry struct {
 	Federated     bool            `json:"federated,omitempty"`
 }
 
-func (e *EventServerMessageSessionEntry) Clone() *EventServerMessageSessionEntry {
-	return &EventServerMessageSessionEntry{
+func (e EventServerMessageSessionEntry) Clone() EventServerMessageSessionEntry {
+	return EventServerMessageSessionEntry{
 		SessionId:     e.SessionId,
 		UserId:        e.UserId,
 		Features:      e.Features,

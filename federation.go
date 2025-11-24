@@ -803,9 +803,10 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 			switch msg.Event.Type {
 			case "join":
 				if remoteSessionId != "" {
-					for _, j := range msg.Event.Join {
+					for idx, j := range msg.Event.Join {
 						if j.SessionId == remoteSessionId {
 							j.SessionId = localSessionId
+							msg.Event.Join[idx] = j
 							break
 						}
 					}
