@@ -275,12 +275,34 @@ func Test_TransientMessages(t *testing.T) {
 				require.LessOrEqual(len(ignored), 1, "Received too many messages: %+v", ignored)
 			}
 
+			checkMessageTransientInitial(t, msg, api.StringMap{
+				"abc": data,
+			})
+
+			client4, hello4 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"4")
+			roomMsg = MustSucceed2(t, client4.JoinRoom, ctx, roomId)
+			require.Equal(roomId, roomMsg.Room.RoomId)
+
+			client2.RunUntilJoined(ctx, hello4.Hello)
+			client3.RunUntilJoined(ctx, hello4.Hello)
+
+			_, ignored, ok = client4.RunUntilJoinedAndReturn(ctx, hello2.Hello, hello3.Hello, hello4.Hello)
+			require.True(ok)
+
+			if len(ignored) == 0 {
+				msg = MustSucceed1(t, client4.RunUntilMessage, ctx)
+			} else if len(ignored) == 1 {
+				msg = ignored[0]
+			} else {
+				require.LessOrEqual(len(ignored), 1, "Received too many messages: %+v", ignored)
+			}
+
+			checkMessageTransientInitial(t, msg, api.StringMap{
+				"abc": data,
+			})
+
 			delta := time.Until(setAt.Add(ttl))
 			if assert.Greater(delta, time.Duration(0), "test runner too slow?") {
-				checkMessageTransientInitial(t, msg, api.StringMap{
-					"abc": data,
-				})
-
 				time.Sleep(delta)
 				if msg, ok = client2.RunUntilMessage(ctx); ok {
 					checkMessageTransientRemove(t, msg, "abc", data)
