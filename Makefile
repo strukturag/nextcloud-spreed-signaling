@@ -51,6 +51,10 @@ ifeq ($(TIMEOUT),)
 TIMEOUT := 60s
 endif
 
+ifeq ($(BENCHMARK),)
+BENCHMARK := .
+endif
+
 ifneq ($(TEST),)
 TESTARGS := $(TESTARGS) -run "$(TEST)"
 endif
@@ -110,6 +114,9 @@ vet:
 
 test: vet
 	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) $(TESTARGS) ./...
+
+benchmark:
+	GOEXPERIMENT=synctest $(GO) test -bench=$(BENCHMARK) -benchmem -run=^$$ -timeout $(TIMEOUT) $(TESTARGS) ./...
 
 checklocks: $(GOPATHBIN)/checklocks
 	GOEXPERIMENT=synctest go vet -vettool=$(GOPATHBIN)/checklocks ./...
