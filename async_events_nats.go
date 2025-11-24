@@ -23,7 +23,6 @@ package signaling
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -55,7 +54,7 @@ func GetSubjectForUserId(userId string, backend *Backend) string {
 }
 
 func GetSubjectForSessionId(sessionId PublicSessionId, backend *Backend) string {
-	return fmt.Sprintf("session.%s", sessionId)
+	return string("session." + sessionId)
 }
 
 type asyncSubscriberNats struct {

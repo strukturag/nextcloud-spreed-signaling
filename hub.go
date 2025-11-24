@@ -663,7 +663,7 @@ func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
 		return nil
 	}
 
-	cache_key := fmt.Sprintf("%s|%s", id, privateSessionName)
+	cache_key := string(id + "|" + privateSessionName)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result
@@ -683,7 +683,7 @@ func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
 		return nil
 	}
 
-	cache_key := fmt.Sprintf("%s|%s", id, publicSessionName)
+	cache_key := string(id + "|" + publicSessionName)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result
@@ -2072,7 +2072,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 		if h.mcu != nil {
 			// Maybe this is a message to be processed by the MCU.
 			var data MessageClientMessageData
-			if err := json.Unmarshal(msg.Data, &data); err == nil {
+			if err := data.UnmarshalJSON(msg.Data); err == nil {
 				if err := data.CheckValid(); err != nil {
 					h.logger.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
 					if err, ok := err.(*Error); ok {
@@ -2189,7 +2189,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 
 				if h.mcu != nil {
 					var data MessageClientMessageData
-					if err := json.Unmarshal(msg.Data, &data); err == nil {
+					if err := data.UnmarshalJSON(msg.Data); err == nil {
 						if err := data.CheckValid(); err != nil {
 							h.logger.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
 							if err, ok := err.(*Error); ok {
