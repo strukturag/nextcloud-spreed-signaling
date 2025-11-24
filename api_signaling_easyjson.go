@@ -4425,27 +4425,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				in.Delim('[')
 				if out.Join == nil {
 					if !in.IsDelim(']') {
-						out.Join = make([]*EventServerMessageSessionEntry, 0, 8)
+						out.Join = make([]EventServerMessageSessionEntry, 0, 0)
 					} else {
-						out.Join = []*EventServerMessageSessionEntry{}
+						out.Join = []EventServerMessageSessionEntry{}
 					}
 				} else {
 					out.Join = (out.Join)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v34 *EventServerMessageSessionEntry
+					var v34 EventServerMessageSessionEntry
 					if in.IsNull() {
 						in.Skip()
-						v34 = nil
 					} else {
-						if v34 == nil {
-							v34 = new(EventServerMessageSessionEntry)
-						}
-						if in.IsNull() {
-							in.Skip()
-						} else {
-							(*v34).UnmarshalEasyJSON(in)
-						}
+						(v34).UnmarshalEasyJSON(in)
 					}
 					out.Join = append(out.Join, v34)
 					in.WantComma()
@@ -4487,27 +4479,19 @@ func easyjson29f189fbDecodeGithubComStrukturagNextcloudSpreedSignaling36(in *jle
 				in.Delim('[')
 				if out.Change == nil {
 					if !in.IsDelim(']') {
-						out.Change = make([]*EventServerMessageSessionEntry, 0, 8)
+						out.Change = make([]EventServerMessageSessionEntry, 0, 0)
 					} else {
-						out.Change = []*EventServerMessageSessionEntry{}
+						out.Change = []EventServerMessageSessionEntry{}
 					}
 				} else {
 					out.Change = (out.Change)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v36 *EventServerMessageSessionEntry
+					var v36 EventServerMessageSessionEntry
 					if in.IsNull() {
 						in.Skip()
-						v36 = nil
 					} else {
-						if v36 == nil {
-							v36 = new(EventServerMessageSessionEntry)
-						}
-						if in.IsNull() {
-							in.Skip()
-						} else {
-							(*v36).UnmarshalEasyJSON(in)
-						}
+						(v36).UnmarshalEasyJSON(in)
 					}
 					out.Change = append(out.Change, v36)
 					in.WantComma()
@@ -4645,11 +4629,7 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling36(out *jw
 				if v37 > 0 {
 					out.RawByte(',')
 				}
-				if v38 == nil {
-					out.RawString("null")
-				} else {
-					(*v38).MarshalEasyJSON(out)
-				}
+				(v38).MarshalEasyJSON(out)
 			}
 			out.RawByte(']')
 		}
@@ -4677,11 +4657,7 @@ func easyjson29f189fbEncodeGithubComStrukturagNextcloudSpreedSignaling36(out *jw
 				if v41 > 0 {
 					out.RawByte(',')
 				}
-				if v42 == nil {
-					out.RawString("null")
-				} else {
-					(*v42).MarshalEasyJSON(out)
-				}
+				(v42).MarshalEasyJSON(out)
 			}
 			out.RawByte(']')
 		}
