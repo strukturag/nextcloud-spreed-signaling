@@ -886,7 +886,9 @@ func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*Hell
 					}
 				}
 			}
-			c.assert.True(found, "expected one of the passed hello sessions, got %+v", message.Event.Join)
+			if !c.assert.True(found, "expected one of the passed hello sessions, got %+v", message.Event.Join) {
+				break
+			}
 		}
 	}
 	return received, ignored, true
