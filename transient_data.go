@@ -380,6 +380,7 @@ func (t *TransientData) SetInitial(data TransientDataEntries) {
 		}
 
 		msgData[k] = v.Value
+		t.data[k] = v
 	}
 	if len(msgData) == 0 {
 		return
