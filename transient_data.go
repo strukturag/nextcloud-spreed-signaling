@@ -22,7 +22,8 @@
 package signaling
 
 import (
-	"maps"
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"sync"
 	"time"
@@ -34,10 +35,58 @@ type TransientListener interface {
 	SendMessage(message *ServerMessage) bool
 }
 
+type TransientDataEntry struct {
+	Value   any       `json:"value"`
+	Expires time.Time `json:"expires,omitzero"`
+}
+
+func NewTransientDataEntry(value any, ttl time.Duration) *TransientDataEntry {
+	entry := &TransientDataEntry{
+		Value: value,
+	}
+	if ttl > 0 {
+		entry.Expires = time.Now().Add(ttl)
+	}
+	return entry
+}
+
+func NewTransientDataEntryWithExpires(value any, expires time.Time) *TransientDataEntry {
+	entry := &TransientDataEntry{
+		Value:   value,
+		Expires: expires,
+	}
+	return entry
+}
+
+func (e *TransientDataEntry) clone() *TransientDataEntry {
+	result := *e
+	return &result
+}
+
+func (e *TransientDataEntry) update(value any, ttl time.Duration) {
+	e.Value = value
+	if ttl > 0 {
+		e.Expires = time.Now().Add(ttl)
+	} else {
+		e.Expires = time.Time{}
+	}
+}
+
+type TransientDataEntries map[string]*TransientDataEntry
+
+func (e TransientDataEntries) String() string {
+	data, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Sprintf("Could not serialize %#v: %s", e, err)
+	}
+
+	return string(data)
+}
+
 type TransientData struct {
 	mu sync.Mutex
 	// +checklocks:mu
-	data api.StringMap
+	data TransientDataEntries
 	// +checklocks:mu
 	listeners map[TransientListener]bool
 	// +checklocks:mu
@@ -66,8 +115,8 @@ func (t *TransientData) notifySet(key string, prev, value any) {
 		TransientData: &TransientDataServerMessage{
 			Type:     "set",
 			Key:      key,
-			OldValue: prev,
 			Value:    value,
+			OldValue: prev,
 		},
 	}
 	for listener := range t.listeners {
@@ -76,14 +125,16 @@ func (t *TransientData) notifySet(key string, prev, value any) {
 }
 
 // +checklocks:t.mu
-func (t *TransientData) notifyDeleted(key string, prev any) {
+func (t *TransientData) notifyDeleted(key string, prev *TransientDataEntry) {
 	msg := &ServerMessage{
 		Type: "transient",
 		TransientData: &TransientDataServerMessage{
-			Type:     "remove",
-			Key:      key,
-			OldValue: prev,
+			Type: "remove",
+			Key:  key,
 		},
+	}
+	if prev != nil {
+		msg.TransientData.OldValue = prev.Value
 	}
 	for listener := range t.listeners {
 		t.sendMessageToListener(listener, msg)
@@ -100,11 +151,15 @@ func (t *TransientData) AddListener(listener TransientListener) {
 	}
 	t.listeners[listener] = true
 	if len(t.data) > 0 {
+		data := make(api.StringMap, len(t.data))
+		for k, v := range t.data {
+			data[k] = v.Value
+		}
 		msg := &ServerMessage{
 			Type: "transient",
 			TransientData: &TransientDataServerMessage{
 				Type: "initial",
-				Data: t.data,
+				Data: data,
 			},
 		}
 		t.sendMessageToListener(listener, msg)
@@ -157,12 +212,19 @@ func (t *TransientData) removeAfterTTL(key string, value any, ttl time.Duration)
 }
 
 // +checklocks:t.mu
-func (t *TransientData) doSet(key string, value any, prev any, ttl time.Duration) {
+func (t *TransientData) doSet(key string, value any, prev *TransientDataEntry, ttl time.Duration) {
 	if t.data == nil {
-		t.data = make(api.StringMap)
+		t.data = make(TransientDataEntries)
 	}
-	t.data[key] = value
-	t.notifySet(key, prev, value)
+	var oldValue any
+	if prev == nil {
+		entry := NewTransientDataEntry(value, ttl)
+		t.data[key] = entry
+	} else {
+		oldValue = prev.Value
+		prev.update(value, ttl)
+	}
+	t.notifySet(key, oldValue, value)
 	t.removeAfterTTL(key, value, ttl)
 }
 
@@ -183,7 +245,7 @@ func (t *TransientData) SetTTL(key string, value any, ttl time.Duration) bool {
 	defer t.mu.Unlock()
 
 	prev, found := t.data[key]
-	if found && reflect.DeepEqual(prev, value) {
+	if found && reflect.DeepEqual(prev.Value, value) {
 		t.updateTTL(key, value, ttl)
 		return false
 	}
@@ -210,7 +272,7 @@ func (t *TransientData) CompareAndSetTTL(key string, old, value any, ttl time.Du
 	defer t.mu.Unlock()
 
 	prev, found := t.data[key]
-	if old != nil && (!found || !reflect.DeepEqual(prev, old)) {
+	if old != nil && (!found || !reflect.DeepEqual(prev.Value, old)) {
 		return false
 	} else if old == nil && found {
 		return false
@@ -221,7 +283,7 @@ func (t *TransientData) CompareAndSetTTL(key string, old, value any, ttl time.Du
 }
 
 // +checklocks:t.mu
-func (t *TransientData) doRemove(key string, prev any) {
+func (t *TransientData) doRemove(key string, prev *TransientDataEntry) {
 	delete(t.data, key)
 	if old, found := t.timers[key]; found {
 		old.Stop()
@@ -257,7 +319,7 @@ func (t *TransientData) CompareAndRemove(key string, old any) bool {
 // +checklocks:t.mu
 func (t *TransientData) compareAndRemove(key string, old any) bool {
 	prev, found := t.data[key]
-	if !found || !reflect.DeepEqual(prev, old) {
+	if !found || !reflect.DeepEqual(prev.Value, old) {
 		return false
 	}
 
@@ -270,7 +332,66 @@ func (t *TransientData) GetData() api.StringMap {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	result := make(api.StringMap)
-	maps.Copy(result, t.data)
+	if len(t.data) == 0 {
+		return nil
+	}
+
+	result := make(api.StringMap, len(t.data))
+	for k, entry := range t.data {
+		result[k] = entry.Value
+	}
 	return result
+}
+
+// GetEntries returns a copy of the internal data entries.
+func (t *TransientData) GetEntries() TransientDataEntries {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if len(t.data) == 0 {
+		return nil
+	}
+
+	result := make(TransientDataEntries, len(t.data))
+	for k, e := range t.data {
+		result[k] = e.clone()
+	}
+	return result
+}
+
+// SetInitial sets the initial data and notifies listeners.
+func (t *TransientData) SetInitial(data TransientDataEntries) {
+	if len(data) == 0 {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.data == nil {
+		t.data = make(TransientDataEntries)
+	}
+
+	msgData := make(api.StringMap, len(data))
+	for k, v := range data {
+		if _, found := t.data[k]; found {
+			// Entry already present (i.e. was set by regular event).
+			continue
+		}
+
+		msgData[k] = v.Value
+	}
+	if len(msgData) == 0 {
+		return
+	}
+	msg := &ServerMessage{
+		Type: "transient",
+		TransientData: &TransientDataServerMessage{
+			Type: "initial",
+			Data: msgData,
+		},
+	}
+	for listener := range t.listeners {
+		t.sendMessageToListener(listener, msg)
+	}
 }

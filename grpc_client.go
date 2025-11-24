@@ -326,6 +326,40 @@ func (c *GrpcClient) GetSessionCount(ctx context.Context, url string) (uint32, e
 	return response.GetCount(), nil
 }
 
+func (c *GrpcClient) GetTransientData(ctx context.Context, room *Room) (TransientDataEntries, error) {
+	statsGrpcClientCalls.WithLabelValues("GetTransientData").Inc()
+	// TODO: Remove debug logging
+	c.logger.Printf("Get transient data for %s@%s on %s", room.Id(), room.Backend().Id(), c.Target())
+	response, err := c.impl.GetTransientData(ctx, &GetTransientDataRequest{
+		RoomId:      room.Id(),
+		BackendUrls: room.Backend().Urls(),
+	}, grpc.WaitForReady(true))
+	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	entries := response.GetEntries()
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	result := make(TransientDataEntries, len(entries))
+	for k, v := range entries {
+		var value any
+		if err := json.Unmarshal(v.Value, &value); err != nil {
+			return nil, err
+		}
+		if v.Expires > 0 {
+			result[k] = NewTransientDataEntryWithExpires(value, time.UnixMicro(v.Expires))
+		} else {
+			result[k] = NewTransientDataEntry(value, 0)
+		}
+	}
+	return result, nil
+}
+
 type ProxySessionReceiver interface {
 	RemoteAddr() string
 	Country() string

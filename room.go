@@ -258,9 +258,13 @@ func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) 
 	case "transient":
 		switch message.Transient.Action {
 		case TransientActionSet:
-			r.SetTransientDataTTL(message.Transient.Key, message.Transient.Value, message.Transient.TTL)
+			if message.Transient.TTL == 0 {
+				r.doSetTransientData(message.Transient.Key, message.Transient.Value)
+			} else {
+				r.doSetTransientDataTTL(message.Transient.Key, message.Transient.Value, message.Transient.TTL)
+			}
 		case TransientActionDelete:
-			r.RemoveTransientData(message.Transient.Key)
+			r.doRemoveTransientData(message.Transient.Key)
 		default:
 			r.logger.Printf("Unsupported transient action in room %s: %+v", r.Id(), message.Transient)
 		}
@@ -293,6 +297,7 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 
 	sid := session.PublicId()
 	r.mu.Lock()
+	isFirst := len(r.sessions) == 0
 	_, found := r.sessions[sid]
 	r.sessions[sid] = session
 	if !found {
@@ -333,6 +338,9 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 		}
 		if clientSession, ok := session.(*ClientSession); ok {
 			r.transientData.AddListener(clientSession)
+		}
+		if isFirst {
+			r.fetchInitialTransientData()
 		}
 	}
 
@@ -1202,14 +1210,108 @@ func (r *Room) notifyInternalRoomDeleted() {
 	}
 }
 
-func (r *Room) SetTransientData(key string, value any) {
+func (r *Room) SetTransientData(key string, value any) error {
+	if value == nil {
+		return r.RemoveTransientData(key)
+	}
+
+	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &AsyncMessage{
+		Type: "room",
+		Room: &BackendServerRoomRequest{
+			Type: "transient",
+			Transient: &BackendRoomTransientRequest{
+				Action: TransientActionSet,
+				Key:    key,
+				Value:  value,
+			},
+		},
+	})
+}
+
+func (r *Room) doSetTransientData(key string, value any) {
 	r.transientData.Set(key, value)
 }
 
-func (r *Room) SetTransientDataTTL(key string, value any, ttl time.Duration) {
+func (r *Room) SetTransientDataTTL(key string, value any, ttl time.Duration) error {
+	if value == nil {
+		return r.RemoveTransientData(key)
+	} else if ttl == 0 {
+		return r.SetTransientData(key, value)
+	}
+
+	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &AsyncMessage{
+		Type: "room",
+		Room: &BackendServerRoomRequest{
+			Type: "transient",
+			Transient: &BackendRoomTransientRequest{
+				Action: TransientActionSet,
+				Key:    key,
+				Value:  value,
+				TTL:    ttl,
+			},
+		},
+	})
+}
+
+func (r *Room) doSetTransientDataTTL(key string, value any, ttl time.Duration) {
 	r.transientData.SetTTL(key, value, ttl)
 }
 
-func (r *Room) RemoveTransientData(key string) {
+func (r *Room) RemoveTransientData(key string) error {
+	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &AsyncMessage{
+		Type: "room",
+		Room: &BackendServerRoomRequest{
+			Type: "transient",
+			Transient: &BackendRoomTransientRequest{
+				Action: TransientActionDelete,
+				Key:    key,
+			},
+		},
+	})
+}
+
+func (r *Room) doRemoveTransientData(key string) {
 	r.transientData.Remove(key)
+}
+
+func (r *Room) fetchInitialTransientData() {
+	if r.hub.rpcClients == nil {
+		return
+	}
+
+	ctx := NewLoggerContext(context.Background(), r.logger)
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	// +checklocks:mu
+	var initial TransientDataEntries
+	for _, client := range r.hub.rpcClients.GetClients() {
+		wg.Add(1)
+		go func(c *GrpcClient) {
+			defer wg.Done()
+
+			data, err := c.GetTransientData(ctx, r)
+			if err != nil {
+				r.logger.Printf("Received error while getting transient data for %s@%s from %s: %s", r.Id(), r.Backend().Id(), c.Target(), err)
+				return
+			}
+
+			r.logger.Printf("Received initial transient data %+v from %s", data, c.Target())
+			mu.Lock()
+			defer mu.Unlock()
+			if initial == nil {
+				initial = make(TransientDataEntries)
+			}
+			maps.Copy(initial, data)
+		}(client)
+	}
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(initial) > 0 {
+		r.transientData.SetInitial(initial)
+	}
 }

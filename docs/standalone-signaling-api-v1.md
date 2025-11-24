@@ -1342,7 +1342,9 @@ Message format (Server -> Client):
 ### Initial data
 
 When sessions initially join a room, they receive the current state of the
-transient data.
+transient data. Please note that the initial data can be sent in multiple
+events of type `initial` which must be combined to generate the total initial
+data.
 
 Message format (Server -> Client):
 

@@ -2676,33 +2676,7 @@ func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
 			return
 		}
 
-		var err error
-		if msg.Value == nil {
-			err = h.events.PublishBackendRoomMessage(room.Id(), room.Backend(), &AsyncMessage{
-				Type: "room",
-				Room: &BackendServerRoomRequest{
-					Type: "transient",
-					Transient: &BackendRoomTransientRequest{
-						Action: TransientActionDelete,
-						Key:    msg.Key,
-					},
-				},
-			})
-		} else {
-			err = h.events.PublishBackendRoomMessage(room.Id(), room.Backend(), &AsyncMessage{
-				Type: "room",
-				Room: &BackendServerRoomRequest{
-					Type: "transient",
-					Transient: &BackendRoomTransientRequest{
-						Action: TransientActionSet,
-						Key:    msg.Key,
-						Value:  msg.Value,
-						TTL:    msg.TTL,
-					},
-				},
-			})
-		}
-		if err != nil {
+		if err := room.SetTransientDataTTL(msg.Key, msg.Value, msg.TTL); err != nil {
 			response := message.NewWrappedErrorServerMessage(err)
 			session.SendMessage(response)
 			return
@@ -2713,16 +2687,7 @@ func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
 			return
 		}
 
-		if err := h.events.PublishBackendRoomMessage(room.Id(), room.Backend(), &AsyncMessage{
-			Type: "room",
-			Room: &BackendServerRoomRequest{
-				Type: "transient",
-				Transient: &BackendRoomTransientRequest{
-					Action: TransientActionDelete,
-					Key:    msg.Key,
-				},
-			},
-		}); err != nil {
+		if err := room.RemoveTransientData(msg.Key); err != nil {
 			response := message.NewWrappedErrorServerMessage(err)
 			session.SendMessage(response)
 			return

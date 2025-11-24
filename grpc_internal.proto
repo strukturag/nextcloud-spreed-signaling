@@ -27,6 +27,7 @@ package signaling;
 
 service RpcInternal {
   rpc GetServerId(GetServerIdRequest) returns (GetServerIdReply) {}
+  rpc GetTransientData(GetTransientDataRequest) returns (GetTransientDataReply) {}
 }
 
 message GetServerIdRequest {
@@ -35,4 +36,18 @@ message GetServerIdRequest {
 message GetServerIdReply {
   string serverId = 1;
   string version = 2;
+}
+
+message GetTransientDataRequest {
+  string roomId = 1;
+  repeated string backendUrls = 2;
+}
+
+message GrpcTransientDataEntry {
+  bytes value = 1;
+  int64 expires = 2;
+}
+
+message GetTransientDataReply {
+  map<string, GrpcTransientDataEntry> entries = 1;
 }
