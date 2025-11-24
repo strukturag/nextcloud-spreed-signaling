@@ -134,6 +134,10 @@ func (c *SignalingClient) Close() {
 	c.lock.Lock()
 	c.publicSessionId = ""
 	c.privateSessionId = ""
+	c.writeInternal(&signaling.ClientMessage{
+		Type: "bye",
+		Bye:  &signaling.ByeClientMessage{},
+	})
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait))                                                          // nolint
 	c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) // nolint
 	c.conn.Close()
