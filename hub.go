@@ -663,7 +663,7 @@ func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
 		return nil
 	}
 
-	cache_key := fmt.Sprintf("%s|%s", id, privateSessionName)
+	cache_key := string(id + "|" + privateSessionName)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result
@@ -683,7 +683,7 @@ func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
 		return nil
 	}
 
-	cache_key := fmt.Sprintf("%s|%s", id, publicSessionName)
+	cache_key := string(id + "|" + publicSessionName)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result
