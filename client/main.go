@@ -25,7 +25,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	pseudorand "math/rand"
@@ -75,10 +74,10 @@ const (
 )
 
 type Stats struct {
-	numRecvMessages   atomic.Uint64
-	numSentMessages   atomic.Uint64
-	resetRecvMessages uint64
-	resetSentMessages uint64
+	numRecvMessages   atomic.Int64
+	numSentMessages   atomic.Int64
+	resetRecvMessages int64
+	resetSentMessages int64
 
 	start time.Time
 }
@@ -92,7 +91,7 @@ func (s *Stats) reset(start time.Time) {
 func (s *Stats) Log() {
 	now := time.Now()
 	duration := now.Sub(s.start)
-	perSec := uint64(duration / time.Second)
+	perSec := int64(duration / time.Second)
 	if perSec == 0 {
 		return
 	}
@@ -114,7 +113,6 @@ type MessagePayload struct {
 
 type SignalingClient struct {
 	readyWg *sync.WaitGroup // +checklocksignore: Only written to from constructor.
-	cookie  *signaling.SessionIdCodec
 
 	conn *websocket.Conn
 
@@ -132,7 +130,7 @@ type SignalingClient struct {
 	userId string
 }
 
-func NewSignalingClient(cookie *signaling.SessionIdCodec, url string, stats *Stats, readyWg *sync.WaitGroup, doneWg *sync.WaitGroup) (*SignalingClient, error) {
+func NewSignalingClient(url string, stats *Stats, readyWg *sync.WaitGroup, doneWg *sync.WaitGroup) (*SignalingClient, error) {
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		return nil, err
@@ -140,7 +138,6 @@ func NewSignalingClient(cookie *signaling.SessionIdCodec, url string, stats *Sta
 
 	client := &SignalingClient{
 		readyWg: readyWg,
-		cookie:  cookie,
 
 		conn: conn,
 
@@ -196,6 +193,8 @@ func (c *SignalingClient) Send(message *signaling.ClientMessage) {
 func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
 	c.stats.numRecvMessages.Add(1)
 	switch message.Type {
+	case "welcome":
+		// Ignore welcome message.
 	case "hello":
 		c.processHelloMessage(message)
 	case "message":
@@ -211,23 +210,11 @@ func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
 	}
 }
 
-func (c *SignalingClient) privateToPublicSessionId(privateId signaling.PrivateSessionId) signaling.PublicSessionId {
-	data, err := c.cookie.DecodePrivate(privateId)
-	if err != nil {
-		panic(fmt.Sprintf("could not decode private session id: %s", err))
-	}
-	publicId, err := c.cookie.EncodePublic(data)
-	if err != nil {
-		panic(fmt.Sprintf("could not encode public id: %s", err))
-	}
-	return publicId
-}
-
 func (c *SignalingClient) processHelloMessage(message *signaling.ServerMessage) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.privateSessionId = message.Hello.ResumeId
-	c.publicSessionId = c.privateToPublicSessionId(c.privateSessionId)
+	c.publicSessionId = message.Hello.SessionId
 	c.userId = message.Hello.UserId
 	log.Printf("Registered as %s (userid %s)", c.privateSessionId, c.userId)
 	c.readyWg.Done()
@@ -407,7 +394,7 @@ func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
 }
 
 func registerAuthHandler(router *mux.Router) {
-	router.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
+	router.HandleFunc("/ocs/v2.php/apps/spreed/api/v1/signaling/backend", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Println("Error reading body:", err)
@@ -498,27 +485,6 @@ func main() {
 	secret, _ := signaling.GetStringOptionWithEnv(config, "backend", "secret")
 	backendSecret = []byte(secret)
 
-	hashKey, _ := signaling.GetStringOptionWithEnv(config, "sessions", "hashkey")
-	switch len(hashKey) {
-	case 32:
-	case 64:
-	default:
-		log.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
-	}
-
-	blockKey, _ := signaling.GetStringOptionWithEnv(config, "sessions", "blockkey")
-	blockBytes := []byte(blockKey)
-	switch len(blockKey) {
-	case 0:
-		blockBytes = nil
-	case 16:
-	case 24:
-	case 32:
-	default:
-		log.Fatalf("The sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
-	}
-	cookie := signaling.NewSessionIdCodec([]byte(hashKey), blockBytes)
-
 	log.Printf("Using a maximum of %d CPUs", runtime.GOMAXPROCS(0))
 
 	interrupt := make(chan os.Signal, 1)
@@ -568,7 +534,7 @@ func main() {
 	var readyWg sync.WaitGroup
 
 	for i := 0; i < *maxClients; i++ {
-		client, err := NewSignalingClient(cookie, urls[i%len(urls)].String(), stats, &readyWg, &doneWg)
+		client, err := NewSignalingClient(urls[i%len(urls)].String(), stats, &readyWg, &doneWg)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -580,7 +546,7 @@ func main() {
 			Hello: &signaling.HelloClientMessage{
 				Version: signaling.HelloVersionV1,
 				Auth: &signaling.HelloClientMessageAuth{
-					Url:    backendUrl + "/auth",
+					Url:    backendUrl,
 					Params: json.RawMessage("{}"),
 				},
 			},
