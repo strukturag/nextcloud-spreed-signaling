@@ -493,9 +493,11 @@ Message format (Server -> Client if already joined before):
         "code": "already_joined",
         "message": "Human readable error message",
         "details": {
-          "roomid": "the-room-id",
-          "properties": {
-            ...additional room properties...
+          "room": {
+            "roomid": "the-room-id",
+            "properties": {
+              ...additional room properties...
+            }
           }
         }
       }
