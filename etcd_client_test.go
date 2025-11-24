@@ -79,6 +79,7 @@ func NewEtcdForTestWithTls(t *testing.T, withTLS bool) (*embed.Etcd, string, str
 	os.Chmod(cfg.Dir, 0700) // nolint
 	cfg.LogLevel = "warn"
 	cfg.Name = "signalingtest"
+	cfg.ZapLoggerBuilder = embed.NewZapLoggerBuilder(zaptest.NewLogger(t, zaptest.Level(zap.WarnLevel)))
 
 	u, err := url.Parse(etcdListenUrl)
 	require.NoError(err)
@@ -119,7 +120,6 @@ func NewEtcdForTestWithTls(t *testing.T, withTLS bool) (*embed.Etcd, string, str
 		cfg.ListenPeerUrls = []url.URL{*peerListener}
 		cfg.AdvertisePeerUrls = []url.URL{*peerListener}
 		cfg.InitialCluster = "signalingtest=" + peerListener.String()
-		cfg.ZapLoggerBuilder = embed.NewZapLoggerBuilder(zaptest.NewLogger(t, zaptest.Level(zap.WarnLevel)))
 		etcd, err = embed.StartEtcd(cfg)
 		if isErrorAddressAlreadyInUse(err) {
 			continue

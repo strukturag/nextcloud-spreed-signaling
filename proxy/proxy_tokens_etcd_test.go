@@ -41,6 +41,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 	"go.etcd.io/etcd/server/v3/lease"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
@@ -73,6 +75,7 @@ func newEtcdForTesting(t *testing.T) *embed.Etcd {
 	cfg.Dir = t.TempDir()
 	os.Chmod(cfg.Dir, 0700) // nolint
 	cfg.LogLevel = "warn"
+	cfg.ZapLoggerBuilder = embed.NewZapLoggerBuilder(zaptest.NewLogger(t, zaptest.Level(zap.WarnLevel)))
 
 	u, err := url.Parse(etcdListenUrl)
 	require.NoError(t, err)
