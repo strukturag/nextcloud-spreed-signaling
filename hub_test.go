@@ -51,6 +51,7 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
@@ -825,6 +826,64 @@ func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {
 		wg.Done()
 	}()
 	return &wg
+}
+
+func Benchmark_DecodePrivateSessionId(b *testing.B) {
+	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
+	for range numDecodeCaches {
+		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
+	}
+	backend := &Backend{
+		id: "compat",
+	}
+	data := &SessionIdData{
+		Sid:       1,
+		Created:   timestamppb.Now(),
+		BackendId: backend.Id(),
+	}
+	codec := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	sid, err := codec.EncodePrivate(data)
+	if err != nil {
+		b.Fatalf("could not create session id: %s", err)
+	}
+	hub := &Hub{
+		cookie:       codec,
+		decodeCaches: decodeCaches,
+	}
+	// Decode once to populate cache.
+	hub.decodePrivateSessionId(sid)
+	for b.Loop() {
+		hub.decodePrivateSessionId(sid)
+	}
+}
+
+func Benchmark_DecodePublicSessionId(b *testing.B) {
+	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
+	for range numDecodeCaches {
+		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
+	}
+	backend := &Backend{
+		id: "compat",
+	}
+	data := &SessionIdData{
+		Sid:       1,
+		Created:   timestamppb.Now(),
+		BackendId: backend.Id(),
+	}
+	codec := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	sid, err := codec.EncodePublic(data)
+	if err != nil {
+		b.Fatalf("could not create session id: %s", err)
+	}
+	hub := &Hub{
+		cookie:       codec,
+		decodeCaches: decodeCaches,
+	}
+	// Decode once to populate cache.
+	hub.decodePublicSessionId(sid)
+	for b.Loop() {
+		hub.decodePublicSessionId(sid)
+	}
 }
 
 func TestWebsocketFeatures(t *testing.T) {
