@@ -72,3 +72,5 @@ The following metrics are available:
 | `signaling_mcu_media_retransmissions_total`       | Counter   | 2.0.5     | The total number of received retransmissions                              | `media`                           |
 | `signaling_mcu_media_bytes_total`                 | Counter   | 2.0.5     | The total number of media bytes sent / received                           | `media`, `direction`              |
 | `signaling_mcu_media_lost_total`                  | Counter   | 2.0.5     | The total number of lost media packets                                    | `media`, `origin`                 |
+| `signaling_client_bytes_total`                    | Counter   | 2.0.5     | The total number of bytes sent to or received by clients                  | `direction`                       |
+| `signaling_client_messages_total`                 | Counter   | 2.0.5     | The total number of messages sent to or received by clients               | `direction`                       |

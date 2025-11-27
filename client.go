@@ -26,6 +26,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -344,6 +345,7 @@ func (c *Client) ReadPump() {
 		if msg == "" {
 			return nil
 		}
+		statsClientBytesTotal.WithLabelValues("incoming").Add(float64(len(msg)))
 		if ts, err := strconv.ParseInt(msg, 10, 64); err == nil {
 			rtt := now.Sub(time.Unix(0, ts))
 			if c.logRTT {
@@ -406,6 +408,8 @@ func (c *Client) ReadPump() {
 			break
 		}
 
+		statsClientBytesTotal.WithLabelValues("incoming").Add(float64(decodeBuffer.Len()))
+		statsClientMessagesTotal.WithLabelValues("incoming").Inc()
 		c.messageChan <- decodeBuffer
 	}
 }
@@ -425,16 +429,33 @@ func (c *Client) processMessages() {
 	c.doClose()
 }
 
+type counterWriter struct {
+	w       io.Writer
+	counter *int
+}
+
+func (w *counterWriter) Write(p []byte) (int, error) {
+	written, err := w.w.Write(p)
+	if written > 0 {
+		*w.counter += written
+	}
+	return written, err
+}
+
 func (c *Client) writeInternal(message json.Marshaler) bool {
 	var closeData []byte
 
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
 	writer, err := c.conn.NextWriter(websocket.TextMessage)
+	var written int
 	if err == nil {
 		if m, ok := (any(message)).(easyjson.Marshaler); ok {
-			_, err = easyjson.MarshalToWriter(m, writer)
+			written, err = easyjson.MarshalToWriter(m, writer)
 		} else {
-			err = json.NewEncoder(writer).Encode(message)
+			err = json.NewEncoder(&counterWriter{
+				w:       writer,
+				counter: &written,
+			}).Encode(message)
 		}
 	}
 	if err == nil {
@@ -454,6 +475,9 @@ func (c *Client) writeInternal(message json.Marshaler) bool {
 		closeData = websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "")
 		goto close
 	}
+
+	statsClientBytesTotal.WithLabelValues("outgoing").Add(float64(written))
+	statsClientMessagesTotal.WithLabelValues("outgoing").Inc()
 	return true
 
 close:
@@ -542,6 +566,7 @@ func (c *Client) sendPing() bool {
 		return false
 	}
 
+	statsClientBytesTotal.WithLabelValues("outgoing").Add(float64(len(msg)))
 	return true
 }
 
