@@ -136,19 +136,19 @@ type RpcSessionsServer interface {
 type UnimplementedRpcSessionsServer struct{}
 
 func (UnimplementedRpcSessionsServer) LookupResumeId(context.Context, *LookupResumeIdRequest) (*LookupResumeIdReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method LookupResumeId not implemented")
+	return nil, status.Error(codes.Unimplemented, "method LookupResumeId not implemented")
 }
 func (UnimplementedRpcSessionsServer) LookupSessionId(context.Context, *LookupSessionIdRequest) (*LookupSessionIdReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method LookupSessionId not implemented")
+	return nil, status.Error(codes.Unimplemented, "method LookupSessionId not implemented")
 }
 func (UnimplementedRpcSessionsServer) IsSessionInCall(context.Context, *IsSessionInCallRequest) (*IsSessionInCallReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method IsSessionInCall not implemented")
+	return nil, status.Error(codes.Unimplemented, "method IsSessionInCall not implemented")
 }
 func (UnimplementedRpcSessionsServer) GetInternalSessions(context.Context, *GetInternalSessionsRequest) (*GetInternalSessionsReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetInternalSessions not implemented")
+	return nil, status.Error(codes.Unimplemented, "method GetInternalSessions not implemented")
 }
 func (UnimplementedRpcSessionsServer) ProxySession(grpc.BidiStreamingServer[ClientSessionMessage, ServerSessionMessage]) error {
-	return status.Errorf(codes.Unimplemented, "method ProxySession not implemented")
+	return status.Error(codes.Unimplemented, "method ProxySession not implemented")
 }
 func (UnimplementedRpcSessionsServer) mustEmbedUnimplementedRpcSessionsServer() {}
 func (UnimplementedRpcSessionsServer) testEmbeddedByValue()                     {}
@@ -161,7 +161,7 @@ type UnsafeRpcSessionsServer interface {
 }
 
 func RegisterRpcSessionsServer(s grpc.ServiceRegistrar, srv RpcSessionsServer) {
-	// If the following call pancis, it indicates UnimplementedRpcSessionsServer was
+	// If the following call panics, it indicates UnimplementedRpcSessionsServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.

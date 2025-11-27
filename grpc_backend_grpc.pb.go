@@ -81,7 +81,7 @@ type RpcBackendServer interface {
 type UnimplementedRpcBackendServer struct{}
 
 func (UnimplementedRpcBackendServer) GetSessionCount(context.Context, *GetSessionCountRequest) (*GetSessionCountReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetSessionCount not implemented")
+	return nil, status.Error(codes.Unimplemented, "method GetSessionCount not implemented")
 }
 func (UnimplementedRpcBackendServer) mustEmbedUnimplementedRpcBackendServer() {}
 func (UnimplementedRpcBackendServer) testEmbeddedByValue()                    {}
@@ -94,7 +94,7 @@ type UnsafeRpcBackendServer interface {
 }
 
 func RegisterRpcBackendServer(s grpc.ServiceRegistrar, srv RpcBackendServer) {
-	// If the following call pancis, it indicates UnimplementedRpcBackendServer was
+	// If the following call panics, it indicates UnimplementedRpcBackendServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.

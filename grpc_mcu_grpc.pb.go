@@ -81,7 +81,7 @@ type RpcMcuServer interface {
 type UnimplementedRpcMcuServer struct{}
 
 func (UnimplementedRpcMcuServer) GetPublisherId(context.Context, *GetPublisherIdRequest) (*GetPublisherIdReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetPublisherId not implemented")
+	return nil, status.Error(codes.Unimplemented, "method GetPublisherId not implemented")
 }
 func (UnimplementedRpcMcuServer) mustEmbedUnimplementedRpcMcuServer() {}
 func (UnimplementedRpcMcuServer) testEmbeddedByValue()                {}
@@ -94,7 +94,7 @@ type UnsafeRpcMcuServer interface {
 }
 
 func RegisterRpcMcuServer(s grpc.ServiceRegistrar, srv RpcMcuServer) {
-	// If the following call pancis, it indicates UnimplementedRpcMcuServer was
+	// If the following call panics, it indicates UnimplementedRpcMcuServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
