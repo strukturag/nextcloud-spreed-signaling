@@ -934,6 +934,10 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 				}
 			}
 		}
+	case "transient":
+		if remoteSessionId != "" && msg.TransientData != nil && msg.TransientData.Key == TransientSessionDataPrefix+string(remoteSessionId) {
+			msg.TransientData.Key = TransientSessionDataPrefix + string(localSessionId)
+		}
 	}
 	c.session.SendMessage(msg)
 
@@ -947,6 +951,12 @@ func (c *FederationClient) ProxyMessage(message *ClientMessage) error {
 	case "message":
 		if hello := c.hello.Load(); hello != nil {
 			c.updateSessionRecipient(&message.Message.Recipient, hello.SessionId, c.session.PublicId())
+		}
+	case "transient":
+		if hello := c.hello.Load(); hello != nil {
+			if message.TransientData != nil && message.TransientData.Key == TransientSessionDataPrefix+string(c.session.PublicId()) {
+				message.TransientData.Key = TransientSessionDataPrefix + string(hello.SessionId)
+			}
 		}
 	}
 
