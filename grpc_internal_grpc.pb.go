@@ -94,10 +94,10 @@ type RpcInternalServer interface {
 type UnimplementedRpcInternalServer struct{}
 
 func (UnimplementedRpcInternalServer) GetServerId(context.Context, *GetServerIdRequest) (*GetServerIdReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetServerId not implemented")
+	return nil, status.Error(codes.Unimplemented, "method GetServerId not implemented")
 }
 func (UnimplementedRpcInternalServer) GetTransientData(context.Context, *GetTransientDataRequest) (*GetTransientDataReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetTransientData not implemented")
+	return nil, status.Error(codes.Unimplemented, "method GetTransientData not implemented")
 }
 func (UnimplementedRpcInternalServer) mustEmbedUnimplementedRpcInternalServer() {}
 func (UnimplementedRpcInternalServer) testEmbeddedByValue()                     {}
@@ -110,7 +110,7 @@ type UnsafeRpcInternalServer interface {
 }
 
 func RegisterRpcInternalServer(s grpc.ServiceRegistrar, srv RpcInternalServer) {
-	// If the following call pancis, it indicates UnimplementedRpcInternalServer was
+	// If the following call panics, it indicates UnimplementedRpcInternalServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
