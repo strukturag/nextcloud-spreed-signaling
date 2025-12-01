@@ -73,40 +73,6 @@ const (
 	maxMessageSize = 64 * 1024
 )
 
-type Stats struct {
-	numRecvMessages   atomic.Int64
-	numSentMessages   atomic.Int64
-	resetRecvMessages int64
-	resetSentMessages int64
-
-	start time.Time
-}
-
-func (s *Stats) reset(start time.Time) {
-	s.resetRecvMessages = s.numRecvMessages.Load()
-	s.resetSentMessages = s.numSentMessages.Load()
-	s.start = start
-}
-
-func (s *Stats) Log() {
-	now := time.Now()
-	duration := now.Sub(s.start)
-	perSec := int64(duration / time.Second)
-	if perSec == 0 {
-		return
-	}
-
-	totalSentMessages := s.numSentMessages.Load()
-	sentMessages := totalSentMessages - s.resetSentMessages
-	totalRecvMessages := s.numRecvMessages.Load()
-	recvMessages := totalRecvMessages - s.resetRecvMessages
-	log.Printf("Stats: sent=%d (%d/sec), recv=%d (%d/sec), delta=%d",
-		totalSentMessages, sentMessages/perSec,
-		totalRecvMessages, recvMessages/perSec,
-		totalSentMessages-totalRecvMessages)
-	s.reset(now)
-}
-
 type MessagePayload struct {
 	Now time.Time `json:"now"`
 }
@@ -168,6 +134,10 @@ func (c *SignalingClient) Close() {
 	c.lock.Lock()
 	c.publicSessionId = ""
 	c.privateSessionId = ""
+	c.writeInternal(&signaling.ClientMessage{
+		Type: "bye",
+		Bye:  &signaling.ByeClientMessage{},
+	})
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait))                                                          // nolint
 	c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) // nolint
 	c.conn.Close()
@@ -283,6 +253,8 @@ func (c *SignalingClient) readPump() {
 			break
 		}
 
+		c.stats.numRecvBytes.Add(uint64(decodeBuffer.Len()))
+
 		var message signaling.ServerMessage
 		if err := message.UnmarshalJSON(decodeBuffer.Bytes()); err != nil {
 			log.Printf("Error: %v", err)
@@ -297,9 +269,10 @@ func (c *SignalingClient) writeInternal(message *signaling.ClientMessage) bool {
 	var closeData []byte
 
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	var written int
 	writer, err := c.conn.NextWriter(websocket.TextMessage)
 	if err == nil {
-		_, err = easyjson.MarshalToWriter(message, writer)
+		written, err = easyjson.MarshalToWriter(message, writer)
 	}
 	if err != nil {
 		if err == websocket.ErrCloseSent {
@@ -315,6 +288,9 @@ func (c *SignalingClient) writeInternal(message *signaling.ClientMessage) bool {
 
 	writer.Close()
 	c.stats.numSentMessages.Add(1)
+	if written > 0 {
+		c.stats.numSentBytes.Add(uint64(written))
+	}
 	return true
 
 close:

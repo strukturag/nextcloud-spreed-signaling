@@ -39,10 +39,24 @@ var (
 		Help:      "The roundtrip time of WebSocket ping messages in milliseconds",
 		Buckets:   prometheus.ExponentialBucketsRange(1, 30000, 50),
 	})
+	statsClientBytesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "client",
+		Name:      "bytes_total",
+		Help:      "The total number of bytes sent to or received by clients",
+	}, []string{"direction"})
+	statsClientMessagesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "client",
+		Name:      "messages_total",
+		Help:      "The total number of messages sent to or received by clients",
+	}, []string{"direction"})
 
 	clientStats = []prometheus.Collector{
 		statsClientCountries,
 		statsClientRTT,
+		statsClientBytesTotal,
+		statsClientMessagesTotal,
 	}
 )
 
