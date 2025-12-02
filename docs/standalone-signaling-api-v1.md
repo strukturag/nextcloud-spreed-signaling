@@ -1274,6 +1274,23 @@ Transient data is supported if the server returns the `transient-data` feature
 id in the [hello response](#establish-connection).
 
 
+### Transient session data
+
+Sessions can set data for a special key in the format `sd:<sessionid>` where
+`<sessionid>` is the public id of the session updating the key. A session can
+only set its own session data and the entry is removed automatically once the
+session leaves the room (either explicitly or because it is expired).
+
+This can be used to publish local information on a given session to all other
+sessions in a room (e.g. the display name of guest users) without having to
+manually keep track of which other session that information would have to be
+sent to and who already got it.
+
+Transient session data is supported if the server returns the
+`transient-sessiondata` feature id in the
+[hello response](#establish-connection).
+
+
 ### Set value
 
 Message format (Client -> Server):
