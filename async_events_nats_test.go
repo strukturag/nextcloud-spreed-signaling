@@ -24,9 +24,12 @@ package signaling
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func Benchmark_GetSubjectForSessionId(b *testing.B) {
+	require := require.New(b)
 	backend := &Backend{
 		id: "compat",
 	}
@@ -35,11 +38,10 @@ func Benchmark_GetSubjectForSessionId(b *testing.B) {
 		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
-	codec := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	require.NoError(err)
 	sid, err := codec.EncodePublic(data)
-	if err != nil {
-		b.Fatalf("could not create session id: %s", err)
-	}
+	require.NoError(err, "could not create session id")
 	for b.Loop() {
 		GetSubjectForSessionId(sid, backend)
 	}

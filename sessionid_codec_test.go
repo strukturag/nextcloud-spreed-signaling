@@ -22,7 +22,6 @@
 package signaling
 
 import (
-	"encoding/base64"
 	"testing"
 	"time"
 
@@ -33,24 +32,97 @@ import (
 func TestReverseSessionId(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
-	a := base64.URLEncoding.EncodeToString([]byte("12345"))
-	ar, err := reverseSessionId(a)
+	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
 	require.NoError(err)
-	require.NotEqual(a, ar)
-	b := base64.URLEncoding.EncodeToString([]byte("54321"))
-	br, err := reverseSessionId(b)
-	require.NoError(err)
-	require.NotEqual(b, br)
-	assert.Equal(b, ar)
-	assert.Equal(a, br)
+	a := []byte("12345")
+	codec.reverseSessionId(a)
+	assert.Equal([]byte("54321"), a)
+	b := []byte("4321")
+	codec.reverseSessionId(b)
+	assert.Equal([]byte("1234"), b)
+}
 
-	// Invalid base64.
-	if s, err := reverseSessionId("hello world!"); !assert.Error(err) {
-		assert.Fail("should have failed", "received %s", s)
+func Benchmark_EncodePrivateSessionId(b *testing.B) {
+	require := require.New(b)
+	backend := &Backend{
+		id: "compat",
 	}
-	// Invalid base64 length.
-	if s, err := reverseSessionId("123"); !assert.Error(err) {
-		assert.Fail("should have failed", "received %s", s)
+	data := &SessionIdData{
+		Sid:       1,
+		Created:   time.Now().UnixMicro(),
+		BackendId: backend.Id(),
+	}
+	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	require.NoError(err)
+	for b.Loop() {
+		if _, err := codec.EncodePrivate(data); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func Benchmark_DecodePrivateSessionId(b *testing.B) {
+	require := require.New(b)
+	backend := &Backend{
+		id: "compat",
+	}
+	data := &SessionIdData{
+		Sid:       1,
+		Created:   time.Now().UnixMicro(),
+		BackendId: backend.Id(),
+	}
+	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	require.NoError(err)
+	sid, err := codec.EncodePrivate(data)
+	require.NoError(err)
+	for b.Loop() {
+		if decoded, err := codec.DecodePrivate(sid); err != nil {
+			b.Fatal(err)
+		} else {
+			codec.Put(decoded)
+		}
+	}
+}
+
+func Benchmark_EncodePublicSessionId(b *testing.B) {
+	require := require.New(b)
+	backend := &Backend{
+		id: "compat",
+	}
+	data := &SessionIdData{
+		Sid:       1,
+		Created:   time.Now().UnixMicro(),
+		BackendId: backend.Id(),
+	}
+	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	require.NoError(err)
+	for b.Loop() {
+		if _, err := codec.EncodePublic(data); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func Benchmark_DecodePublicSessionId(b *testing.B) {
+	require := require.New(b)
+	backend := &Backend{
+		id: "compat",
+	}
+	data := &SessionIdData{
+		Sid:       1,
+		Created:   time.Now().UnixMicro(),
+		BackendId: backend.Id(),
+	}
+	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	require.NoError(err)
+	sid, err := codec.EncodePublic(data)
+	require.NoError(err)
+	for b.Loop() {
+		if decoded, err := codec.DecodePublic(sid); err != nil {
+			b.Fatal(err)
+		} else {
+			codec.Put(decoded)
+		}
 	}
 }
 
@@ -63,17 +135,33 @@ func TestPublicPrivate(t *testing.T) {
 		BackendId: "foo",
 	}
 
-	codec := NewSessionIdCodec([]byte("0123456789012345"), []byte("0123456789012345"))
+	codec, err := NewSessionIdCodec([]byte("0123456789012345"), []byte("0123456789012345"))
+	require.NoError(err)
 	private, err := codec.EncodePrivate(sd)
 	require.NoError(err)
 	public, err := codec.EncodePublic(sd)
 	require.NoError(err)
 	assert.NotEqual(private, public)
 
+	if data, err := codec.DecodePublic(public); assert.NoError(err) {
+		assert.Equal(sd.Sid, data.Sid)
+		assert.Equal(sd.Created, data.Created)
+		assert.Equal(sd.BackendId, data.BackendId)
+		codec.Put(data)
+	}
+	if data, err := codec.DecodePrivate(private); assert.NoError(err) {
+		assert.Equal(sd.Sid, data.Sid)
+		assert.Equal(sd.Created, data.Created)
+		assert.Equal(sd.BackendId, data.BackendId)
+		codec.Put(data)
+	}
+
 	if data, err := codec.DecodePublic(PublicSessionId(private)); !assert.Error(err) {
 		assert.Fail("should have failed", "received %+v", data)
+		codec.Put(data)
 	}
 	if data, err := codec.DecodePrivate(PrivateSessionId(public)); !assert.Error(err) {
 		assert.Fail("should have failed", "received %+v", data)
+		codec.Put(data)
 	}
 }

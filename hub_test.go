@@ -827,7 +827,8 @@ func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {
 	return &wg
 }
 
-func Benchmark_DecodePrivateSessionId(b *testing.B) {
+func Benchmark_DecodePrivateSessionIdCached(b *testing.B) {
+	require := require.New(b)
 	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
 		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
@@ -840,23 +841,23 @@ func Benchmark_DecodePrivateSessionId(b *testing.B) {
 		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
-	codec := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	require.NoError(err)
 	sid, err := codec.EncodePrivate(data)
-	if err != nil {
-		b.Fatalf("could not create session id: %s", err)
-	}
+	require.NoError(err, "could not create session id")
 	hub := &Hub{
-		cookie:       codec,
+		sessionIds:   codec,
 		decodeCaches: decodeCaches,
 	}
 	// Decode once to populate cache.
-	hub.decodePrivateSessionId(sid)
+	require.NotNil(hub.decodePrivateSessionId(sid))
 	for b.Loop() {
 		hub.decodePrivateSessionId(sid)
 	}
 }
 
-func Benchmark_DecodePublicSessionId(b *testing.B) {
+func Benchmark_DecodePublicSessionIdCached(b *testing.B) {
+	require := require.New(b)
 	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
 		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
@@ -869,17 +870,16 @@ func Benchmark_DecodePublicSessionId(b *testing.B) {
 		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
-	codec := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	require.NoError(err)
 	sid, err := codec.EncodePublic(data)
-	if err != nil {
-		b.Fatalf("could not create session id: %s", err)
-	}
+	require.NoError(err, "could not create session id")
 	hub := &Hub{
-		cookie:       codec,
+		sessionIds:   codec,
 		decodeCaches: decodeCaches,
 	}
 	// Decode once to populate cache.
-	hub.decodePublicSessionId(sid)
+	require.NotNil(hub.decodePublicSessionId(sid))
 	for b.Loop() {
 		hub.decodePublicSessionId(sid)
 	}

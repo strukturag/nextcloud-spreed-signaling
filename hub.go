@@ -141,7 +141,7 @@ type Hub struct {
 	logger       Logger
 	events       AsyncEvents
 	upgrader     websocket.Upgrader
-	cookie       *SessionIdCodec
+	sessionIds   *SessionIdCodec
 	info         *WelcomeServerMessage
 	infoInternal *WelcomeServerMessage
 	welcome      atomic.Value // *ServerMessage
@@ -238,6 +238,11 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 	case 32:
 	default:
 		return nil, fmt.Errorf("the sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
+	}
+
+	sessionIds, err := NewSessionIdCodec([]byte(hashKey), blockBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error creating session id codec: %w", err)
 	}
 
 	internalClientsSecret, _ := GetStringOptionWithEnv(config, "clients", "internalsecret")
@@ -360,7 +365,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 				JanusEventsSubprotocol,
 			},
 		},
-		cookie:       NewSessionIdCodec([]byte(hashKey), blockBytes),
+		sessionIds:   sessionIds,
 		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
 		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
 
@@ -668,7 +673,7 @@ func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
 		return result
 	}
 
-	data, err := h.cookie.DecodePrivate(id)
+	data, err := h.sessionIds.DecodePrivate(id)
 	if err != nil {
 		return nil
 	}
@@ -688,7 +693,7 @@ func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
 		return result
 	}
 
-	data, err := h.cookie.DecodePublic(id)
+	data, err := h.sessionIds.DecodePublic(id)
 	if err != nil {
 		return nil
 	}
@@ -968,12 +973,12 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 	}
 
 	sessionIdData := h.newSessionIdData(backend)
-	privateSessionId, err := h.cookie.EncodePrivate(sessionIdData)
+	privateSessionId, err := h.sessionIds.EncodePrivate(sessionIdData)
 	if err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		return
 	}
-	publicSessionId, err := h.cookie.EncodePublic(sessionIdData)
+	publicSessionId, err := h.sessionIds.EncodePublic(sessionIdData)
 	if err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		return
@@ -2467,12 +2472,12 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		}
 
 		sessionIdData := h.newSessionIdData(session.Backend())
-		privateSessionId, err := h.cookie.EncodePrivate(sessionIdData)
+		privateSessionId, err := h.sessionIds.EncodePrivate(sessionIdData)
 		if err != nil {
 			h.logger.Printf("Could not encode private virtual session id: %s", err)
 			return
 		}
-		publicSessionId, err := h.cookie.EncodePublic(sessionIdData)
+		publicSessionId, err := h.sessionIds.EncodePublic(sessionIdData)
 		if err != nil {
 			h.logger.Printf("Could not encode public virtual session id: %s", err)
 			return

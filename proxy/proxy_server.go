@@ -226,8 +226,12 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		return nil, fmt.Errorf("could not generate random block key: %s", err)
 	}
 
+	sessionIds, err := signaling.NewSessionIdCodec(hashKey, blockKey)
+	if err != nil {
+		return nil, fmt.Errorf("error creating session id codec: %w", err)
+	}
+
 	var tokens ProxyTokens
-	var err error
 	tokenType, _ := config.GetString("app", "tokentype")
 	if tokenType == "" {
 		tokenType = TokenTypeDefault
@@ -367,7 +371,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 
 		tokens: tokens,
 
-		cookie:   signaling.NewSessionIdCodec(hashKey, blockKey),
+		cookie:   sessionIds,
 		sessions: make(map[uint64]*ProxySession),
 
 		clients:   make(map[string]signaling.McuClient),
