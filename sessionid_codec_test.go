@@ -24,10 +24,10 @@ package signaling
 import (
 	"encoding/base64"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestReverseSessionId(t *testing.T) {
@@ -59,7 +59,7 @@ func TestPublicPrivate(t *testing.T) {
 	require := require.New(t)
 	sd := &SessionIdData{
 		Sid:       1,
-		Created:   timestamppb.Now(),
+		Created:   time.Now().UnixMicro(),
 		BackendId: "foo",
 	}
 

@@ -51,7 +51,6 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
@@ -838,7 +837,7 @@ func Benchmark_DecodePrivateSessionId(b *testing.B) {
 	}
 	data := &SessionIdData{
 		Sid:       1,
-		Created:   timestamppb.Now(),
+		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
 	codec := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
@@ -867,7 +866,7 @@ func Benchmark_DecodePublicSessionId(b *testing.B) {
 	}
 	data := &SessionIdData{
 		Sid:       1,
-		Created:   timestamppb.Now(),
+		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
 	codec := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))

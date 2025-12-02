@@ -27,7 +27,6 @@ package signaling
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -43,7 +42,7 @@ const (
 type SessionIdData struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Sid           uint64                 `protobuf:"varint,1,opt,name=Sid,proto3" json:"Sid,omitempty"`
-	Created       *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=Created,proto3" json:"Created,omitempty"`
+	Created       int64                  `protobuf:"varint,2,opt,name=Created,proto3" json:"Created,omitempty"`
 	BackendId     string                 `protobuf:"bytes,3,opt,name=BackendId,proto3" json:"BackendId,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -86,11 +85,11 @@ func (x *SessionIdData) GetSid() uint64 {
 	return 0
 }
 
-func (x *SessionIdData) GetCreated() *timestamppb.Timestamp {
+func (x *SessionIdData) GetCreated() int64 {
 	if x != nil {
 		return x.Created
 	}
-	return nil
+	return 0
 }
 
 func (x *SessionIdData) GetBackendId() string {
@@ -104,10 +103,10 @@ var File_session_proto protoreflect.FileDescriptor
 
 const file_session_proto_rawDesc = "" +
 	"\n" +
-	"\rsession.proto\x12\tsignaling\x1a\x1fgoogle/protobuf/timestamp.proto\"u\n" +
+	"\rsession.proto\x12\tsignaling\"Y\n" +
 	"\rSessionIdData\x12\x10\n" +
-	"\x03Sid\x18\x01 \x01(\x04R\x03Sid\x124\n" +
-	"\aCreated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\aCreated\x12\x1c\n" +
+	"\x03Sid\x18\x01 \x01(\x04R\x03Sid\x12\x18\n" +
+	"\aCreated\x18\x02 \x01(\x03R\aCreated\x12\x1c\n" +
 	"\tBackendId\x18\x03 \x01(\tR\tBackendIdB<Z:github.com/strukturag/nextcloud-spreed-signaling;signalingb\x06proto3"
 
 var (
@@ -124,16 +123,14 @@ func file_session_proto_rawDescGZIP() []byte {
 
 var file_session_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_session_proto_goTypes = []any{
-	(*SessionIdData)(nil),         // 0: signaling.SessionIdData
-	(*timestamppb.Timestamp)(nil), // 1: google.protobuf.Timestamp
+	(*SessionIdData)(nil), // 0: signaling.SessionIdData
 }
 var file_session_proto_depIdxs = []int32{
-	1, // 0: signaling.SessionIdData.Created:type_name -> google.protobuf.Timestamp
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // [0:0] is the sub-list for method output_type
+	0, // [0:0] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_session_proto_init() }

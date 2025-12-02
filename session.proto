@@ -21,14 +21,12 @@
  */
 syntax = "proto3";
 
-import "google/protobuf/timestamp.proto";
-
 option go_package = "github.com/strukturag/nextcloud-spreed-signaling;signaling";
 
 package signaling;
 
 message SessionIdData {
 	uint64 Sid = 1;
-	google.protobuf.Timestamp Created = 2;
+	int64 Created = 2;
 	string BackendId = 3;
 }

@@ -23,8 +23,7 @@ package signaling
 
 import (
 	"testing"
-
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"time"
 )
 
 func Benchmark_GetSubjectForSessionId(b *testing.B) {
@@ -33,7 +32,7 @@ func Benchmark_GetSubjectForSessionId(b *testing.B) {
 	}
 	data := &SessionIdData{
 		Sid:       1,
-		Created:   timestamppb.Now(),
+		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
 	codec := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))

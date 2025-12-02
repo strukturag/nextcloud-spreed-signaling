@@ -49,7 +49,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
@@ -941,7 +940,7 @@ func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
 	}
 	sessionIdData := &SessionIdData{
 		Sid:       sid,
-		Created:   timestamppb.Now(),
+		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
 	return sessionIdData
