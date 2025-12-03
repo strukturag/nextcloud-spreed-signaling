@@ -72,13 +72,18 @@ jobs:
     - name: Build
       run: |
         echo "Building with $(nproc) threads"
-        make -C tmp build -j$(nproc)
+        make -C tmp build client -j$(nproc)
         UNKNOWN=$(./tmp/bin/signaling -version | grep unknown || true)
         if [ -n "$UNKNOWN" ]; then \
           echo "Found unknown version: $UNKNOWN"; \
           exit 1; \
         fi
         UNKNOWN=$(./tmp/bin/proxy -version | grep unknown || true)
+        if [ -n "$UNKNOWN" ]; then \
+          echo "Found unknown version: $UNKNOWN"; \
+          exit 1; \
+        fi
+        UNKNOWN=$(./tmp/bin/client -version | grep unknown || true)
         if [ -n "$UNKNOWN" ]; then \
           echo "Found unknown version: $UNKNOWN"; \
           exit 1; \
