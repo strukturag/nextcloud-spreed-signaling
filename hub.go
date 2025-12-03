@@ -44,6 +44,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	unsafe "unsafe"
 
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v5"
@@ -621,45 +622,44 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 
 func (h *Hub) getDecodeCache(cache_key string) *LruCache[*SessionIdData] {
 	hash := fnv.New32a()
-	hash.Write([]byte(cache_key)) // nolint
+	// Make sure we don't have a temporary allocation for the string -> []byte conversion.
+	hash.Write(unsafe.Slice(unsafe.StringData(cache_key), len(cache_key))) // nolint
 	idx := hash.Sum32() % uint32(len(h.decodeCaches))
 	return h.decodeCaches[idx]
 }
 
 func (h *Hub) invalidatePublicSessionId(id PublicSessionId) {
-	h.invalidateSessionId(string(id), publicSessionName)
+	h.invalidateSessionId(string(id))
 }
 
 func (h *Hub) invalidatePrivateSessionId(id PrivateSessionId) {
-	h.invalidateSessionId(string(id), privateSessionName)
+	h.invalidateSessionId(string(id))
 }
 
-func (h *Hub) invalidateSessionId(id string, sessionType string) {
+func (h *Hub) invalidateSessionId(id string) {
 	if len(id) == 0 {
 		return
 	}
 
-	cache_key := id + "|" + sessionType
-	cache := h.getDecodeCache(cache_key)
-	cache.Remove(cache_key)
+	cache := h.getDecodeCache(id)
+	cache.Remove(id)
 }
 
 func (h *Hub) setDecodedPublicSessionId(id PublicSessionId, data *SessionIdData) {
-	h.setDecodedSessionId(string(id), publicSessionName, data)
+	h.setDecodedSessionId(string(id), data)
 }
 
 func (h *Hub) setDecodedPrivateSessionId(id PrivateSessionId, data *SessionIdData) {
-	h.setDecodedSessionId(string(id), privateSessionName, data)
+	h.setDecodedSessionId(string(id), data)
 }
 
-func (h *Hub) setDecodedSessionId(id string, sessionType string, data *SessionIdData) {
+func (h *Hub) setDecodedSessionId(id string, data *SessionIdData) {
 	if len(id) == 0 {
 		return
 	}
 
-	cache_key := id + "|" + sessionType
-	cache := h.getDecodeCache(cache_key)
-	cache.Set(cache_key, data)
+	cache := h.getDecodeCache(id)
+	cache.Set(id, data)
 }
 
 func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
@@ -667,7 +667,7 @@ func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
 		return nil
 	}
 
-	cache_key := string(id + "|" + privateSessionName)
+	cache_key := string(id)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result
@@ -687,7 +687,7 @@ func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
 		return nil
 	}
 
-	cache_key := string(id + "|" + publicSessionName)
+	cache_key := string(id)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result
