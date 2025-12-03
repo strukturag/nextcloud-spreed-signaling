@@ -194,7 +194,7 @@ vendor: go.mod go.sum
 	rm -rf $(VENDORDIR)
 	$(GO) mod vendor
 
-tarball: vendor
+tarball: vendor | $(TMPDIR)
 	git archive \
 		--prefix=nextcloud-spreed-signaling-$(TARVERSION)/ \
 		-o nextcloud-spreed-signaling-$(TARVERSION).tar \
@@ -204,6 +204,12 @@ tarball: vendor
 		--mtime="$(shell git log -1 --date=iso8601-strict --format=%cd HEAD)" \
 		--transform "s//nextcloud-spreed-signaling-$(TARVERSION)\//" \
 		vendor
+	echo "$(TARVERSION)" > "$(TMPDIR)/version.txt"
+	tar rf nextcloud-spreed-signaling-$(TARVERSION).tar \
+		-C "$(TMPDIR)" \
+		--mtime="$(shell git log -1 --date=iso8601-strict --format=%cd HEAD)" \
+		--transform "s//nextcloud-spreed-signaling-$(TARVERSION)\//" \
+		version.txt
 	gzip --force nextcloud-spreed-signaling-$(TARVERSION).tar
 
 dist: tarball

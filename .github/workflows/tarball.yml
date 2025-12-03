@@ -67,11 +67,22 @@ jobs:
         mkdir -p tmp
         tar xvf nextcloud-spreed-signaling*.tar.gz --strip-components=1 -C tmp
         [ -d "tmp/vendor" ] || exit 1
+        [ -f "tmp/version.txt" ] || exit 1
 
     - name: Build
       run: |
         echo "Building with $(nproc) threads"
         make -C tmp build -j$(nproc)
+        UNKNOWN=$(./tmp/bin/signaling -version | grep unknown || true)
+        if [ -n "$UNKNOWN" ]; then \
+          echo "Found unknown version: $UNKNOWN"; \
+          exit 1; \
+        fi
+        UNKNOWN=$(./tmp/bin/proxy -version | grep unknown || true)
+        if [ -n "$UNKNOWN" ]; then \
+          echo "Found unknown version: $UNKNOWN"; \
+          exit 1; \
+        fi
 
   test:
     strategy:
