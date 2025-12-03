@@ -44,12 +44,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	unsafe "unsafe"
 
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
@@ -142,7 +142,7 @@ type Hub struct {
 	logger       Logger
 	events       AsyncEvents
 	upgrader     websocket.Upgrader
-	cookie       *SessionIdCodec
+	sessionIds   *SessionIdCodec
 	info         *WelcomeServerMessage
 	infoInternal *WelcomeServerMessage
 	welcome      atomic.Value // *ServerMessage
@@ -239,6 +239,11 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 	case 32:
 	default:
 		return nil, fmt.Errorf("the sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
+	}
+
+	sessionIds, err := NewSessionIdCodec([]byte(hashKey), blockBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error creating session id codec: %w", err)
 	}
 
 	internalClientsSecret, _ := GetStringOptionWithEnv(config, "clients", "internalsecret")
@@ -361,7 +366,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 				JanusEventsSubprotocol,
 			},
 		},
-		cookie:       NewSessionIdCodec([]byte(hashKey), blockBytes),
+		sessionIds:   sessionIds,
 		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
 		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
 
@@ -617,45 +622,44 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 
 func (h *Hub) getDecodeCache(cache_key string) *LruCache[*SessionIdData] {
 	hash := fnv.New32a()
-	hash.Write([]byte(cache_key)) // nolint
+	// Make sure we don't have a temporary allocation for the string -> []byte conversion.
+	hash.Write(unsafe.Slice(unsafe.StringData(cache_key), len(cache_key))) // nolint
 	idx := hash.Sum32() % uint32(len(h.decodeCaches))
 	return h.decodeCaches[idx]
 }
 
 func (h *Hub) invalidatePublicSessionId(id PublicSessionId) {
-	h.invalidateSessionId(string(id), publicSessionName)
+	h.invalidateSessionId(string(id))
 }
 
 func (h *Hub) invalidatePrivateSessionId(id PrivateSessionId) {
-	h.invalidateSessionId(string(id), privateSessionName)
+	h.invalidateSessionId(string(id))
 }
 
-func (h *Hub) invalidateSessionId(id string, sessionType string) {
+func (h *Hub) invalidateSessionId(id string) {
 	if len(id) == 0 {
 		return
 	}
 
-	cache_key := id + "|" + sessionType
-	cache := h.getDecodeCache(cache_key)
-	cache.Remove(cache_key)
+	cache := h.getDecodeCache(id)
+	cache.Remove(id)
 }
 
 func (h *Hub) setDecodedPublicSessionId(id PublicSessionId, data *SessionIdData) {
-	h.setDecodedSessionId(string(id), publicSessionName, data)
+	h.setDecodedSessionId(string(id), data)
 }
 
 func (h *Hub) setDecodedPrivateSessionId(id PrivateSessionId, data *SessionIdData) {
-	h.setDecodedSessionId(string(id), privateSessionName, data)
+	h.setDecodedSessionId(string(id), data)
 }
 
-func (h *Hub) setDecodedSessionId(id string, sessionType string, data *SessionIdData) {
+func (h *Hub) setDecodedSessionId(id string, data *SessionIdData) {
 	if len(id) == 0 {
 		return
 	}
 
-	cache_key := id + "|" + sessionType
-	cache := h.getDecodeCache(cache_key)
-	cache.Set(cache_key, data)
+	cache := h.getDecodeCache(id)
+	cache.Set(id, data)
 }
 
 func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
@@ -663,13 +667,13 @@ func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
 		return nil
 	}
 
-	cache_key := string(id + "|" + privateSessionName)
+	cache_key := string(id)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result
 	}
 
-	data, err := h.cookie.DecodePrivate(id)
+	data, err := h.sessionIds.DecodePrivate(id)
 	if err != nil {
 		return nil
 	}
@@ -683,13 +687,13 @@ func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
 		return nil
 	}
 
-	cache_key := string(id + "|" + publicSessionName)
+	cache_key := string(id)
 	cache := h.getDecodeCache(cache_key)
 	if result := cache.Get(cache_key); result != nil {
 		return result
 	}
 
-	data, err := h.cookie.DecodePublic(id)
+	data, err := h.sessionIds.DecodePublic(id)
 	if err != nil {
 		return nil
 	}
@@ -941,7 +945,7 @@ func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
 	}
 	sessionIdData := &SessionIdData{
 		Sid:       sid,
-		Created:   timestamppb.Now(),
+		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
 	return sessionIdData
@@ -969,12 +973,12 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 	}
 
 	sessionIdData := h.newSessionIdData(backend)
-	privateSessionId, err := h.cookie.EncodePrivate(sessionIdData)
+	privateSessionId, err := h.sessionIds.EncodePrivate(sessionIdData)
 	if err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		return
 	}
-	publicSessionId, err := h.cookie.EncodePublic(sessionIdData)
+	publicSessionId, err := h.sessionIds.EncodePublic(sessionIdData)
 	if err != nil {
 		client.SendMessage(message.NewWrappedErrorServerMessage(err))
 		return
@@ -2468,12 +2472,12 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		}
 
 		sessionIdData := h.newSessionIdData(session.Backend())
-		privateSessionId, err := h.cookie.EncodePrivate(sessionIdData)
+		privateSessionId, err := h.sessionIds.EncodePrivate(sessionIdData)
 		if err != nil {
 			h.logger.Printf("Could not encode private virtual session id: %s", err)
 			return
 		}
-		publicSessionId, err := h.cookie.EncodePublic(sessionIdData)
+		publicSessionId, err := h.sessionIds.EncodePublic(sessionIdData)
 		if err != nil {
 			h.logger.Printf("Could not encode public virtual session id: %s", err)
 			return

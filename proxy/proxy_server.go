@@ -48,7 +48,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/notedit/janus-go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
@@ -227,8 +226,12 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		return nil, fmt.Errorf("could not generate random block key: %s", err)
 	}
 
+	sessionIds, err := signaling.NewSessionIdCodec(hashKey, blockKey)
+	if err != nil {
+		return nil, fmt.Errorf("error creating session id codec: %w", err)
+	}
+
 	var tokens ProxyTokens
-	var err error
 	tokenType, _ := config.GetString("app", "tokentype")
 	if tokenType == "" {
 		tokenType = TokenTypeDefault
@@ -368,7 +371,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 
 		tokens: tokens,
 
-		cookie:   signaling.NewSessionIdCodec(hashKey, blockKey),
+		cookie:   sessionIds,
 		sessions: make(map[uint64]*ProxySession),
 
 		clients:   make(map[string]signaling.McuClient),
@@ -1494,7 +1497,7 @@ func (s *ProxyServer) NewSession(hello *signaling.HelloProxyClientMessage) (*Pro
 
 	sessionIdData := &signaling.SessionIdData{
 		Sid:     sid,
-		Created: timestamppb.Now(),
+		Created: time.Now().UnixMicro(),
 	}
 
 	encoded, err := s.cookie.EncodePublic(sessionIdData)
