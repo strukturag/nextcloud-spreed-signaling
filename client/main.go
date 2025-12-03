@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	pseudorand "math/rand"
@@ -34,6 +35,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/pprof"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,14 +44,24 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
+	"github.com/mailru/easyjson/jlexer"
+	"github.com/mailru/easyjson/jwriter"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 )
 
 var (
+	version = "unreleased"
+
+	showVersion = flag.Bool("version", false, "show version and quit")
+
 	addr = flag.String("addr", "localhost:28080", "http service address")
 
 	config = flag.String("config", "server.conf", "config file to use")
+
+	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+
+	memprofile = flag.String("memprofile", "", "write memory profile to file")
 
 	maxClients = flag.Int("maxClients", 100, "number of client connections")
 
@@ -75,6 +87,41 @@ const (
 
 type MessagePayload struct {
 	Now time.Time `json:"now"`
+}
+
+func (m *MessagePayload) MarshalJSON() ([]byte, error) {
+	w := jwriter.Writer{}
+	w.RawByte('{')
+	w.RawString("\"now\":")
+	w.Raw(m.Now.MarshalJSON())
+	w.RawByte('}')
+	return w.Buffer.BuildBytes(), w.Error
+}
+
+func (m *MessagePayload) UnmarshalJSON(data []byte) error {
+	r := jlexer.Lexer{Data: data}
+	r.Delim('{')
+	for !r.IsDelim('}') {
+		key := r.UnsafeFieldName(false)
+		r.WantColon()
+		switch key {
+		case "now":
+			if r.IsNull() {
+				r.Skip()
+			} else {
+				if data := r.Raw(); r.Ok() {
+					r.AddError((m.Now).UnmarshalJSON(data))
+				}
+			}
+		default:
+			r.SkipRecursive()
+		}
+		r.WantComma()
+	}
+	r.Delim('}')
+	r.Consumed()
+
+	return r.Error()
 }
 
 type SignalingClient struct {
@@ -198,7 +245,7 @@ func (c *SignalingClient) PublicSessionId() signaling.PublicSessionId {
 
 func (c *SignalingClient) processMessageMessage(message *signaling.ServerMessage) {
 	var msg MessagePayload
-	if err := json.Unmarshal(message.Message.Data, &msg); err != nil {
+	if err := msg.UnmarshalJSON(message.Message.Data); err != nil {
 		log.Println("Error in unmarshal", err)
 		return
 	}
@@ -352,7 +399,7 @@ func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
 		msgdata := MessagePayload{
 			Now: now,
 		}
-		data, _ := json.Marshal(msgdata)
+		data, _ := msgdata.MarshalJSON()
 		msg := &signaling.ClientMessage{
 			Type: "message",
 			Message: &signaling.MessageClientMessage{
@@ -453,6 +500,11 @@ func main() {
 	flag.Parse()
 	log.SetFlags(0)
 
+	if *showVersion {
+		fmt.Printf("nextcloud-spreed-signaling-client version %s/%s\n", version, runtime.Version())
+		os.Exit(0)
+	}
+
 	config, err := goconf.ReadConfigFile(*config)
 	if err != nil {
 		log.Fatal("Could not read configuration: ", err)
@@ -462,6 +514,34 @@ func main() {
 	backendSecret = []byte(secret)
 
 	log.Printf("Using a maximum of %d CPUs", runtime.GOMAXPROCS(0))
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatalf("Error writing CPU profile to %s: %s", *cpuprofile, err)
+		}
+		log.Printf("Writing CPU profile to %s ...", *cpuprofile)
+		defer pprof.StopCPUProfile()
+	}
+
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		defer func() {
+			log.Printf("Writing Memory profile to %s ...", *memprofile)
+			runtime.GC()
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				log.Printf("Error writing Memory profile to %s: %s", *memprofile, err)
+			}
+		}()
+	}
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
