@@ -75,10 +75,11 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 		config := api.StringMap{
 			"signaling": signaling,
 		}
-		spreedCapa, _ := json.Marshal(api.StringMap{
+		spreedCapa, err := json.Marshal(api.StringMap{
 			"features": features,
 			"config":   config,
 		})
+		require.NoError(err)
 		emptyArray := []byte("[]")
 		response := &CapabilitiesResponse{
 			Version: CapabilitiesVersion{

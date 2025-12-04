@@ -414,8 +414,7 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	userdata := map[string]string{
 		"displayname": "Displayname " + params.UserId,
 	}
-	data, err := json.Marshal(userdata)
-	require.NoError(err)
+	data, _ := json.Marshal(userdata)
 	response.Auth.User = data
 	return response
 }
@@ -476,8 +475,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		data := map[string]string{
 			"userid": "userid-from-sessiondata",
 		}
-		tmp, err := json.Marshal(data)
-		require.NoError(err)
+		tmp, _ := json.Marshal(data)
 		response.Room.Session = tmp
 	case "test-room-initial-permissions":
 		permissions := []Permission{PERMISSION_MAY_PUBLISH_AUDIO}
@@ -777,10 +775,11 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 				signaling[ConfigKeyHelloV2TokenKey] = string(public)
 			}
 		}
-		spreedCapa, _ := json.Marshal(api.StringMap{
+		spreedCapa, err := json.Marshal(api.StringMap{
 			"features": features,
 			"config":   config,
 		})
+		assert.NoError(t, err)
 		response := &CapabilitiesResponse{
 			Version: CapabilitiesVersion{
 				Major: 20,

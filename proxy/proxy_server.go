@@ -289,11 +289,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		"nextcloud-spreed-signaling-proxy": "Welcome",
 		"version":                          version,
 	}
-	welcomeMessage, err := json.Marshal(welcome)
-	if err != nil {
-		// Should never happen.
-		return nil, err
-	}
+	welcomeMessage, _ := json.Marshal(welcome)
 
 	tokenId, _ := config.GetString("app", "token_id")
 	var tokenKey *rsa.PrivateKey

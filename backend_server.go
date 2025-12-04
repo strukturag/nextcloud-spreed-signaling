@@ -167,12 +167,7 @@ func (b *BackendServer) Start(r *mux.Router) error {
 		"nextcloud-spreed-signaling": "Welcome",
 		"version":                    b.version,
 	}
-	welcomeMessage, err := json.Marshal(welcome)
-	if err != nil {
-		// Should never happen.
-		return err
-	}
-
+	welcomeMessage, _ := json.Marshal(welcome)
 	b.welcomeMessage = string(welcomeMessage) + "\n"
 
 	if b.debug {
