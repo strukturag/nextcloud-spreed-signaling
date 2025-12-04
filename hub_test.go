@@ -537,30 +537,22 @@ func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request,
 	return response
 }
 
-var pingRequests map[*testing.T][]*BackendClientRequest
+var (
+	pingRequests testStorage[[]*BackendClientRequest]
+)
 
 func getPingRequests(t *testing.T) []*BackendClientRequest {
-	return pingRequests[t]
+	entries, _ := pingRequests.Get(t)
+	return entries
 }
 
 func clearPingRequests(t *testing.T) {
-	delete(pingRequests, t)
+	pingRequests.Del(t)
 }
 
 func storePingRequest(t *testing.T, request *BackendClientRequest) {
-	if entries, found := pingRequests[t]; !found {
-		if pingRequests == nil {
-			pingRequests = make(map[*testing.T][]*BackendClientRequest)
-		}
-		pingRequests[t] = []*BackendClientRequest{
-			request,
-		}
-		t.Cleanup(func() {
-			clearPingRequests(t)
-		})
-	} else {
-		pingRequests[t] = append(entries, request)
-	}
+	entries, _ := pingRequests.Get(t)
+	pingRequests.Set(t, append(entries, request))
 }
 
 func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {

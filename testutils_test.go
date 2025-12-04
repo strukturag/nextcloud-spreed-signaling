@@ -196,3 +196,8 @@ func (s *testStorage[T]) Get(t *testing.T) (T, bool) {
 	var defaultValue T
 	return defaultValue, false
 }
+
+func (s *testStorage[T]) Del(t *testing.T) {
+	key := t.Name()
+	s.cleanup(key)
+}
