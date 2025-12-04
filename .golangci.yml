@@ -5,6 +5,8 @@ linters:
     - revive
   settings:
     govet:
+      enable:
+        - nilness
       disable:
         - stdversion
     revive:
