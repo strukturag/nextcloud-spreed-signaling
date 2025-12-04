@@ -159,6 +159,7 @@ func generateAndSaveKey(t *testing.T, etcd *embed.Etcd, name string) *rsa.Privat
 }
 
 func TestProxyTokensEtcd(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	tokens, etcd := newTokensEtcdForTesting(t)
 

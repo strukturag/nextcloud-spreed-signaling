@@ -29,6 +29,7 @@ import (
 )
 
 func TestLruUnbound(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	lru := NewLruCache[int](0)
 	count := 10
@@ -95,6 +96,7 @@ func TestLruUnbound(t *testing.T) {
 }
 
 func TestLruBound(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	size := 2
 	lru := NewLruCache[int](size)

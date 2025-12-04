@@ -40,6 +40,7 @@ import (
 )
 
 func TestMcuJanusStats(t *testing.T) {
+	t.Parallel()
 	collectAndLint(t, janusMcuStats...)
 }
 
@@ -1080,7 +1081,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	}
 }
 
-func Test_JanusPublisherSubscriber(t *testing.T) {
+func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"))
 	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"))
 
@@ -1395,7 +1396,7 @@ func Test_JanusRemotePublisher(t *testing.T) {
 	assert.EqualValues(1, removed.Load())
 }
 
-func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
+func Test_JanusSubscriberNoSuchRoom(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1494,7 +1495,7 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
-func test_JanusSubscriberAlreadyJoined(t *testing.T) {
+func test_JanusSubscriberAlreadyJoined(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1595,15 +1596,15 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
-func Test_JanusSubscriberAlreadyJoined(t *testing.T) {
+func Test_JanusSubscriberAlreadyJoined(t *testing.T) { // nolint:paralleltest
 	test_JanusSubscriberAlreadyJoined(t)
 }
 
-func Test_JanusSubscriberAlreadyJoinedAttachError(t *testing.T) {
+func Test_JanusSubscriberAlreadyJoinedAttachError(t *testing.T) { // nolint:paralleltest
 	test_JanusSubscriberAlreadyJoined(t)
 }
 
-func Test_JanusSubscriberTimeout(t *testing.T) {
+func Test_JanusSubscriberTimeout(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1706,7 +1707,7 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
-func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
+func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1816,7 +1817,7 @@ func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
 	assert.Nil(handle, "subscriber should have been closed")
 }
 
-func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
+func Test_JanusSubscriberRoomDestroyed(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1926,7 +1927,7 @@ func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
 	assert.Nil(handle, "subscriber should have been closed")
 }
 
-func Test_JanusSubscriberUpdateOffer(t *testing.T) {
+func Test_JanusSubscriberUpdateOffer(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {

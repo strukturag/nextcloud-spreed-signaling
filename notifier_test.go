@@ -32,6 +32,7 @@ import (
 )
 
 func TestNotifierNoWaiter(t *testing.T) {
+	t.Parallel()
 	var notifier Notifier
 
 	// Notifications can be sent even if no waiter exists.
@@ -39,6 +40,7 @@ func TestNotifierNoWaiter(t *testing.T) {
 }
 
 func TestNotifierSimple(t *testing.T) {
+	t.Parallel()
 	var notifier Notifier
 
 	var wg sync.WaitGroup
@@ -59,6 +61,7 @@ func TestNotifierSimple(t *testing.T) {
 }
 
 func TestNotifierMultiNotify(t *testing.T) {
+	t.Parallel()
 	var notifier Notifier
 
 	waiter := notifier.NewWaiter("foo")
@@ -70,6 +73,7 @@ func TestNotifierMultiNotify(t *testing.T) {
 }
 
 func TestNotifierWaitClosed(t *testing.T) {
+	t.Parallel()
 	var notifier Notifier
 
 	waiter := notifier.NewWaiter("foo")
@@ -79,6 +83,7 @@ func TestNotifierWaitClosed(t *testing.T) {
 }
 
 func TestNotifierWaitClosedMulti(t *testing.T) {
+	t.Parallel()
 	var notifier Notifier
 
 	waiter1 := notifier.NewWaiter("foo")
@@ -91,6 +96,7 @@ func TestNotifierWaitClosedMulti(t *testing.T) {
 }
 
 func TestNotifierResetWillNotify(t *testing.T) {
+	t.Parallel()
 	var notifier Notifier
 
 	var wg sync.WaitGroup
@@ -111,6 +117,7 @@ func TestNotifierResetWillNotify(t *testing.T) {
 }
 
 func TestNotifierDuplicate(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		var notifier Notifier
 		var done sync.WaitGroup

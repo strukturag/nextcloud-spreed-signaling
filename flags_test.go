@@ -30,6 +30,7 @@ import (
 )
 
 func TestFlags(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	var f Flags
 	assert.EqualValues(0, f.Get())

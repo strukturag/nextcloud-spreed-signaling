@@ -28,6 +28,7 @@ import (
 )
 
 func TestConvertStringMap(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	d := map[string]any{
 		"foo": "bar",
@@ -56,6 +57,7 @@ func TestConvertStringMap(t *testing.T) {
 }
 
 func TestGetStringMapString(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 
 	type StringMapTestString string
@@ -90,6 +92,7 @@ func TestGetStringMapString(t *testing.T) {
 }
 
 func TestGetStringMapStringMap(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 
 	m := StringMap{

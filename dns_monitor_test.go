@@ -223,7 +223,7 @@ func (r *dnsMonitorReceiver) ExpectNone() {
 	r.expected = expectNone
 }
 
-func TestDnsMonitor(t *testing.T) {
+func TestDnsMonitor(t *testing.T) { // nolint:paralleltest
 	lookup := newMockDnsLookupForTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -292,6 +292,7 @@ func TestDnsMonitor(t *testing.T) {
 }
 
 func TestDnsMonitorIP(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -316,7 +317,7 @@ func TestDnsMonitorIP(t *testing.T) {
 	time.Sleep(5 * interval)
 }
 
-func TestDnsMonitorNoLookupIfEmpty(t *testing.T) {
+func TestDnsMonitorNoLookupIfEmpty(t *testing.T) { // nolint:paralleltest
 	interval := time.Millisecond
 	monitor := newDnsMonitorForTest(t, interval)
 
@@ -401,7 +402,7 @@ func (r *deadlockMonitorReceiver) Close() {
 	r.wg.Wait()
 }
 
-func TestDnsMonitorDeadlock(t *testing.T) {
+func TestDnsMonitorDeadlock(t *testing.T) { // nolint:paralleltest
 	lookup := newMockDnsLookupForTest(t)
 	ip1 := net.ParseIP("192.168.0.1")
 	ip2 := net.ParseIP("192.168.0.2")

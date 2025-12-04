@@ -28,6 +28,7 @@ import (
 )
 
 func TestChannelWaiters(t *testing.T) {
+	t.Parallel()
 	var waiters ChannelWaiters
 
 	ch1 := make(chan struct{}, 1)

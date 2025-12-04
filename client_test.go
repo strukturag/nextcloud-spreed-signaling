@@ -29,6 +29,7 @@ import (
 )
 
 func TestCounterWriter(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 
 	var b bytes.Buffer

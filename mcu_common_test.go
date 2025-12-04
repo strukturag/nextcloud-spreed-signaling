@@ -28,6 +28,7 @@ import (
 )
 
 func TestCommonMcuStats(t *testing.T) {
+	t.Parallel()
 	collectAndLint(t, commonMcuStats...)
 }
 

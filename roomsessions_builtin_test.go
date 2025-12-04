@@ -28,6 +28,7 @@ import (
 )
 
 func TestBuiltinRoomSessions(t *testing.T) {
+	t.Parallel()
 	sessions, err := NewBuiltinRoomSessions(nil)
 	require.NoError(t, err)
 

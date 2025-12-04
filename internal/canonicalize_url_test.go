@@ -30,6 +30,7 @@ import (
 )
 
 func TestCanonicalizeUrl(t *testing.T) {
+	t.Parallel()
 	mustParse := func(s string) *url.URL {
 		t.Helper()
 		u, err := url.Parse(s)
@@ -79,6 +80,7 @@ func TestCanonicalizeUrl(t *testing.T) {
 }
 
 func TestCanonicalizeUrlString(t *testing.T) {
+	t.Parallel()
 	testcases := []struct {
 		s        string
 		expected string

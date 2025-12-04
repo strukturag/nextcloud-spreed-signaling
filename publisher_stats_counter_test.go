@@ -25,7 +25,7 @@ import (
 	"testing"
 )
 
-func TestPublisherStatsCounter(t *testing.T) {
+func TestPublisherStatsCounter(t *testing.T) { // nolint:paralleltest
 	RegisterJanusMcuStats()
 
 	var c publisherStatsCounter

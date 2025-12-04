@@ -1000,8 +1000,10 @@ func TestClientHelloV1(t *testing.T) {
 }
 
 func TestClientHelloV2(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
@@ -1036,8 +1038,10 @@ func TestClientHelloV2(t *testing.T) {
 }
 
 func TestClientHelloV2_IssuedInFuture(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
@@ -1061,8 +1065,10 @@ func TestClientHelloV2_IssuedInFuture(t *testing.T) {
 }
 
 func TestClientHelloV2_IssuedFarInFuture(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
@@ -1082,8 +1088,10 @@ func TestClientHelloV2_IssuedFarInFuture(t *testing.T) {
 }
 
 func TestClientHelloV2_Expired(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
@@ -1103,8 +1111,10 @@ func TestClientHelloV2_Expired(t *testing.T) {
 }
 
 func TestClientHelloV2_IssuedAtMissing(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
@@ -1124,8 +1134,10 @@ func TestClientHelloV2_IssuedAtMissing(t *testing.T) {
 }
 
 func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
@@ -1145,8 +1157,10 @@ func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
 }
 
 func TestClientHelloV2_CachedCapabilities(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
@@ -1219,6 +1233,7 @@ func TestClientHelloAllowAll(t *testing.T) {
 }
 
 func TestClientHelloSessionLimit(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -1752,7 +1767,7 @@ func runGrpcProxyTest(t *testing.T, f func(hub1, hub2 *Hub, server1, server2 *ht
 	f(hub1, hub2, server1, server2)
 }
 
-func TestClientHelloResumeProxy(t *testing.T) {
+func TestClientHelloResumeProxy(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
@@ -1802,7 +1817,7 @@ func TestClientHelloResumeProxy(t *testing.T) {
 	})
 }
 
-func TestClientHelloResumeProxy_Takeover(t *testing.T) {
+func TestClientHelloResumeProxy_Takeover(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
@@ -1856,7 +1871,7 @@ func TestClientHelloResumeProxy_Takeover(t *testing.T) {
 	})
 }
 
-func TestClientHelloResumeProxy_Disconnect(t *testing.T) {
+func TestClientHelloResumeProxy_Disconnect(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
@@ -1951,6 +1966,7 @@ func TestClientHelloInternal(t *testing.T) {
 }
 
 func TestClientMessageToSessionId(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2015,6 +2031,7 @@ func TestClientMessageToSessionId(t *testing.T) {
 }
 
 func TestClientControlToSessionId(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2237,6 +2254,7 @@ func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
 }
 
 func TestClientMessageToRoom(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2299,6 +2317,7 @@ func TestClientMessageToRoom(t *testing.T) {
 }
 
 func TestClientControlToRoom(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2361,6 +2380,7 @@ func TestClientControlToRoom(t *testing.T) {
 }
 
 func TestClientMessageToCall(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2465,6 +2485,7 @@ func TestClientMessageToCall(t *testing.T) {
 }
 
 func TestClientControlToCall(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -3049,6 +3070,7 @@ func TestJoinRoomSwitchClient(t *testing.T) {
 }
 
 func TestGetRealUserIP(t *testing.T) {
+	t.Parallel()
 	testcases := []struct {
 		expected string
 		headers  http.Header
@@ -3473,6 +3495,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 }
 
 func TestClientTakeoverRoomSession(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -3902,6 +3925,7 @@ loop:
 }
 
 func TestClientRequestOfferNotInRoom(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -4300,6 +4324,7 @@ func TestSameRoomOnDifferentUrls(t *testing.T) {
 }
 
 func TestClientSendOffer(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -4442,6 +4467,7 @@ func TestClientUnshareScreen(t *testing.T) {
 }
 
 func TestVirtualClientSessions(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -4682,6 +4708,7 @@ func TestVirtualClientSessions(t *testing.T) {
 }
 
 func TestDuplicateVirtualSessions(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -5041,12 +5068,14 @@ func DoTestSwitchToOne(t *testing.T, details api.StringMap) {
 }
 
 func TestSwitchToOneMap(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToOne(t, api.StringMap{
 		"foo": "bar",
 	})
 }
 
 func TestSwitchToOneList(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToOne(t, nil)
 }
 
@@ -5139,6 +5168,7 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 }
 
 func TestSwitchToMultipleMap(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToMultiple(t, api.StringMap{
 		"foo": "bar",
 	}, api.StringMap{
@@ -5147,10 +5177,12 @@ func TestSwitchToMultipleMap(t *testing.T) {
 }
 
 func TestSwitchToMultipleList(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToMultiple(t, nil, nil)
 }
 
 func TestSwitchToMultipleMixed(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToMultiple(t, api.StringMap{
 		"foo": "bar",
 	}, nil)

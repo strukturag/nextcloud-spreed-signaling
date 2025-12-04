@@ -97,7 +97,7 @@ func NewGrpcServerForTest(t *testing.T) (server *GrpcServer, addr string) {
 	return NewGrpcServerForTestWithConfig(t, config)
 }
 
-func Test_GrpcServer_ReloadCerts(t *testing.T) {
+func Test_GrpcServer_ReloadCerts(t *testing.T) { // nolint:paralleltest
 	require := require.New(t)
 	assert := assert.New(t)
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
@@ -167,7 +167,7 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	}
 }
 
-func Test_GrpcServer_ReloadCA(t *testing.T) {
+func Test_GrpcServer_ReloadCA(t *testing.T) { // nolint:paralleltest
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)

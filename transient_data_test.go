@@ -42,6 +42,7 @@ func (t *TransientData) SetTTLChannel(ch chan<- struct{}) {
 }
 
 func Test_TransientData(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	data := NewTransientData()
 	assert.False(data.Set("foo", nil))
@@ -119,6 +120,7 @@ func (l *MockTransientListener) Close() {
 }
 
 func Test_TransientDataDeadlock(t *testing.T) {
+	t.Parallel()
 	data := NewTransientData()
 
 	listener := &MockTransientListener{
@@ -139,6 +141,7 @@ func Test_TransientDataDeadlock(t *testing.T) {
 }
 
 func Test_TransientMessages(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -313,6 +316,7 @@ func Test_TransientMessages(t *testing.T) {
 }
 
 func Test_TransientSessionData(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()

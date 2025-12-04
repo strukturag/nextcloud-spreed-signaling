@@ -54,6 +54,7 @@ const (
 )
 
 func TestMcuProxyStats(t *testing.T) {
+	t.Parallel()
 	collectAndLint(t, proxyMcuStats...)
 }
 
@@ -64,6 +65,7 @@ func newProxyConnectionWithCountry(country string) *mcuProxyConnection {
 }
 
 func Test_sortConnectionsForCountry(t *testing.T) {
+	t.Parallel()
 	conn_de := newProxyConnectionWithCountry("DE")
 	conn_at := newProxyConnectionWithCountry("AT")
 	conn_jp := newProxyConnectionWithCountry("JP")
@@ -109,6 +111,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 
 	for country, test := range testcases {
 		t.Run(country, func(t *testing.T) {
+			t.Parallel()
 			sorted := sortConnectionsForCountry(test[0], country, nil)
 			for idx, conn := range sorted {
 				assert.Equal(t, test[1][idx], conn, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
@@ -118,6 +121,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 }
 
 func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
+	t.Parallel()
 	conn_de := newProxyConnectionWithCountry("DE")
 	conn_at := newProxyConnectionWithCountry("AT")
 	conn_jp := newProxyConnectionWithCountry("JP")
@@ -179,6 +183,7 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 	}
 	for country, test := range testcases {
 		t.Run(country, func(t *testing.T) {
+			t.Parallel()
 			sorted := sortConnectionsForCountry(test[0], country, continentMap)
 			for idx, conn := range sorted {
 				assert.Equal(t, test[1][idx], conn, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
@@ -1017,7 +1022,7 @@ func Test_ProxyAddRemoveConnections(t *testing.T) {
 	assert.NoError(waitCtx.Err(), "error while waiting for connection to be removed")
 }
 
-func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
+func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) { // nolint:paralleltest
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -2438,6 +2443,7 @@ func Test_ProxySubscriberTimeout(t *testing.T) {
 }
 
 func Test_ProxyReconnectAfter(t *testing.T) {
+	t.Parallel()
 	reasons := []string{
 		"session_resumed",
 		"session_expired",

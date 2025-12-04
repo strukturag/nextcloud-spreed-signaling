@@ -37,6 +37,7 @@ import (
 )
 
 func TestRoom_InCall(t *testing.T) {
+	t.Parallel()
 	type Testcase struct {
 		Value  any
 		InCall bool

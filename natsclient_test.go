@@ -110,7 +110,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	require.EqualValues(maxPublish, received.Load(), "Received wrong # of messages")
 }
 
-func TestNatsClient_Subscribe(t *testing.T) {
+func TestNatsClient_Subscribe(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
@@ -124,7 +124,7 @@ func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
 	assert.ErrorIs(t, client.Publish("foo", "bar"), nats.ErrConnectionClosed)
 }
 
-func TestNatsClient_PublishAfterClose(t *testing.T) {
+func TestNatsClient_PublishAfterClose(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
@@ -140,7 +140,7 @@ func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
 	assert.ErrorIs(t, err, nats.ErrConnectionClosed)
 }
 
-func TestNatsClient_SubscribeAfterClose(t *testing.T) {
+func TestNatsClient_SubscribeAfterClose(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
@@ -162,7 +162,7 @@ func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
 	}
 }
 
-func TestNatsClient_BadSubjects(t *testing.T) {
+func TestNatsClient_BadSubjects(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
@@ -170,7 +170,7 @@ func TestNatsClient_BadSubjects(t *testing.T) {
 	})
 }
 
-func TestNatsClient_MaxReconnects(t *testing.T) {
+func TestNatsClient_MaxReconnects(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)

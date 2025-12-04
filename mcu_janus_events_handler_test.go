@@ -498,6 +498,7 @@ func TestJanusEventsHandlerDifferentTypes(t *testing.T) {
 }
 
 func TestJanusEventsHandlerNotGrouped(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 

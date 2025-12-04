@@ -110,7 +110,7 @@ func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 	}
 }
 
-func Test_GrpcClients_EtcdInitial(t *testing.T) {
+func Test_GrpcClients_EtcdInitial(t *testing.T) { // nolint:paralleltest
 	logger := NewLoggerForTest(t)
 	ctx := NewLoggerContext(t.Context(), logger)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
@@ -219,7 +219,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	}
 }
 
-func Test_GrpcClients_DnsDiscovery(t *testing.T) {
+func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 	logger := NewLoggerForTest(t)
 	ctx := NewLoggerContext(t.Context(), logger)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
@@ -274,7 +274,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) {
 	})
 }
 
-func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
+func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) { // nolint:paralleltest
 	assert := assert.New(t)
 	lookup := newMockDnsLookupForTest(t)
 	target := "testgrpc:12345"
@@ -303,7 +303,7 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 	}
 }
 
-func Test_GrpcClients_Encryption(t *testing.T) {
+func Test_GrpcClients_Encryption(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		require := require.New(t)
 		serverKey, err := rsa.GenerateKey(rand.Reader, 1024)

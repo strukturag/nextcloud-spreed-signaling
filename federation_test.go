@@ -36,6 +36,7 @@ import (
 )
 
 func Test_FederationInvalidToken(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -73,6 +74,7 @@ func Test_FederationInvalidToken(t *testing.T) {
 }
 
 func Test_Federation(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -488,6 +490,7 @@ func Test_Federation(t *testing.T) {
 }
 
 func Test_FederationJoinRoomTwice(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -593,6 +596,7 @@ func Test_FederationJoinRoomTwice(t *testing.T) {
 }
 
 func Test_FederationChangeRoom(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -700,6 +704,7 @@ func Test_FederationChangeRoom(t *testing.T) {
 }
 
 func Test_FederationMedia(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -803,6 +808,7 @@ func Test_FederationMedia(t *testing.T) {
 }
 
 func Test_FederationResume(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -922,6 +928,7 @@ func Test_FederationResume(t *testing.T) {
 }
 
 func Test_FederationResumeNewSession(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -1044,6 +1051,7 @@ func Test_FederationResumeNewSession(t *testing.T) {
 }
 
 func Test_FederationTransientData(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 

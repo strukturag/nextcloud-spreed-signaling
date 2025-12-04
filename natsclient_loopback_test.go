@@ -63,7 +63,7 @@ func CreateLoopbackNatsClientForTest(t *testing.T) NatsClient {
 	return result
 }
 
-func TestLoopbackNatsClient_Subscribe(t *testing.T) {
+func TestLoopbackNatsClient_Subscribe(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		client := CreateLoopbackNatsClientForTest(t)
 
@@ -71,7 +71,7 @@ func TestLoopbackNatsClient_Subscribe(t *testing.T) {
 	})
 }
 
-func TestLoopbackClient_PublishAfterClose(t *testing.T) {
+func TestLoopbackClient_PublishAfterClose(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		client := CreateLoopbackNatsClientForTest(t)
 
@@ -79,7 +79,7 @@ func TestLoopbackClient_PublishAfterClose(t *testing.T) {
 	})
 }
 
-func TestLoopbackClient_SubscribeAfterClose(t *testing.T) {
+func TestLoopbackClient_SubscribeAfterClose(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		client := CreateLoopbackNatsClientForTest(t)
 
@@ -87,7 +87,7 @@ func TestLoopbackClient_SubscribeAfterClose(t *testing.T) {
 	})
 }
 
-func TestLoopbackClient_BadSubjects(t *testing.T) {
+func TestLoopbackClient_BadSubjects(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		client := CreateLoopbackNatsClientForTest(t)
 

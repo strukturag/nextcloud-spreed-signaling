@@ -30,6 +30,7 @@ import (
 )
 
 func TestConcurrentStringStringMap(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	var m ConcurrentMap[string, string]
 	assert.Equal(0, m.Len())

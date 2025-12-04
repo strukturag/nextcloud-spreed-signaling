@@ -34,6 +34,7 @@ import (
 )
 
 func TestGetFmtpValueH264(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	testcases := []struct {
 		fmtp    string
@@ -70,6 +71,7 @@ func TestGetFmtpValueH264(t *testing.T) {
 }
 
 func TestGetFmtpValueVP9(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	testcases := []struct {
 		fmtp    string

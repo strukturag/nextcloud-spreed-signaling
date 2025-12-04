@@ -390,6 +390,7 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 }
 
 func TestBackendServer_RoomInvite(t *testing.T) {
+	t.Parallel()
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -457,6 +458,7 @@ func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 }
 
 func TestBackendServer_RoomDisinvite(t *testing.T) {
+	t.Parallel()
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -615,6 +617,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 }
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
+	t.Parallel()
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -684,6 +687,7 @@ func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 }
 
 func TestBackendServer_RoomDelete(t *testing.T) {
+	t.Parallel()
 	for _, backend := range eventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
@@ -750,6 +754,7 @@ func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 }
 
 func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -1069,6 +1074,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 }
 
 func TestBackendServer_InCallAll(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -1315,6 +1321,7 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 }
 
 func TestBackendServer_StatsAllowedIps(t *testing.T) {
+	t.Parallel()
 	config := goconf.NewConfigFile()
 	config.AddOption("app", "trustedproxies", "1.2.3.4")
 	config.AddOption("stats", "allowed_ips", "127.0.0.1, 192.168.0.1, 192.168.1.1/24")
