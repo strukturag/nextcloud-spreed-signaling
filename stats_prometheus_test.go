@@ -77,18 +77,18 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 
 		pc = pc[:n]
 		frames := runtime.CallersFrames(pc)
-		stack := ""
+		var stack strings.Builder
 		for {
 			frame, more := frames.Next()
 			if !strings.Contains(frame.File, "nextcloud-spreed-signaling") {
 				break
 			}
-			stack += fmt.Sprintf("%s:%d\n", frame.File, frame.Line)
+			fmt.Fprintf(&stack, "%s:%d\n", frame.File, frame.Line)
 			if !more {
 				break
 			}
 		}
-		assert.EqualValues(value, v, "Unexpected value for %s at\n%s", desc, stack)
+		assert.EqualValues(value, v, "Unexpected value for %s at\n%s", desc, stack.String())
 	}
 }
 
