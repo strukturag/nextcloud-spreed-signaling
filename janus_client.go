@@ -719,7 +719,7 @@ type JanusHandle struct {
 	// Type   // pub  or sub
 	Type string
 
-	//User   // Userid
+	// User   // Userid
 	User string
 
 	// Events is a receive only channel that can be used to receive events

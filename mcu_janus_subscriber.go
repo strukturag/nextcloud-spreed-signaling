@@ -261,7 +261,7 @@ retry:
 			return
 		}
 	}
-	//p.logger.Println("Joined as listener", join_response)
+	// p.logger.Println("Joined as listener", join_response)
 
 	p.session = join_response.Session
 	callback(nil, join_response.Jsep)

@@ -66,7 +66,7 @@ func TestCanonicalizeUrl(t *testing.T) {
 	for idx, tc := range testcases {
 		expectChanged := tc.url.String() != tc.expected.String()
 		canonicalized, changed := CanonicalizeUrl(tc.url)
-		assert.Equal(tc.url, canonicalized) //urls will be changed inplace
+		assert.Equal(tc.url, canonicalized) // urls will be changed inplace
 		if !expectChanged {
 			assert.False(changed, "testcase %d should not have changed the url", idx)
 			continue
