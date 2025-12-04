@@ -6,6 +6,7 @@ linters:
     - gocritic
     - misspell
     - modernize
+    - paralleltest
     - revive
   settings:
     errchkjson:
