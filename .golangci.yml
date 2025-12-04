@@ -5,6 +5,7 @@ linters:
     - exptostd
     - gocritic
     - misspell
+    - modernize
     - revive
   settings:
     errchkjson:
