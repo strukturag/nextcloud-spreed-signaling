@@ -103,11 +103,11 @@ func TestGeoLookupCaching(t *testing.T) {
 
 func TestGeoLookupContinent(t *testing.T) {
 	tests := map[string][]string{
-		"AU":       {"OC"},
-		"DE":       {"EU"},
-		"RU":       {"EU"},
-		"":         nil,
-		"INVALID ": nil,
+		"AU":      {"OC"},
+		"DE":      {"EU"},
+		"RU":      {"EU"},
+		"":        nil,
+		"INVALID": nil,
 	}
 
 	for country, expected := range tests {
