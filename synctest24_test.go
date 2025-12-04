@@ -33,9 +33,8 @@ func SynctestTest(t *testing.T, f func(t *testing.T)) {
 
 	synctest.Run(func() {
 		t.Run("synctest", func(t *testing.T) {
-			// synctest doesn't support t.Parallel
-			t.Setenv("PARALLEL_CHECK", "1")
-
+			// synctest of Go 1.25 doesn't support "t.Parallel()" but we can't prevent
+			// this here. Invalid calls will be detected when running with Go 1.25.
 			f(t)
 		})
 	})
