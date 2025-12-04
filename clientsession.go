@@ -835,22 +835,23 @@ func (s *ClientSession) IsAllowedToSend(data *MessageClientMessageData) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if data != nil && data.RoomType == "screen" {
+	switch {
+	case data != nil && data.RoomType == "screen":
 		if s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
 			return nil
 		}
 		return &PermissionError{PERMISSION_MAY_PUBLISH_SCREEN}
-	} else if s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA) {
+	case s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA):
 		// Client is allowed to publish any media (audio / video).
 		return nil
-	} else if data != nil && data.Type == "offer" {
+	case data != nil && data.Type == "offer":
 		// Check what user is trying to publish and check permissions accordingly.
 		if _, err := s.isSdpAllowedToSendLocked(data.offerSdp); err != nil {
 			return err
 		}
 
 		return nil
-	} else {
+	default:
 		// Candidate or unknown event, check if client is allowed to publish any media.
 		if s.hasAnyPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO) {
 			return nil

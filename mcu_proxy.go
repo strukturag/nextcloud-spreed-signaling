@@ -2086,18 +2086,20 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id Pu
 				incoming_b = bw.Incoming
 			}
 
-			if incoming_a == nil && incoming_b == nil {
+			switch {
+			case incoming_a == nil && incoming_b == nil:
 				return 0
-			} else if incoming_a == nil && incoming_b != nil {
+			case incoming_a == nil && incoming_b != nil:
 				return -1
-			} else if incoming_a != nil && incoming_b == nil {
+			case incoming_a != nil && incoming_b == nil:
 				return -1
-			} else if *incoming_a < *incoming_b {
+			case *incoming_a < *incoming_b:
 				return -1
-			} else if *incoming_a > *incoming_b {
+			case *incoming_a > *incoming_b:
 				return 1
+			default:
+				return 0
 			}
-			return 0
 		})
 		publisher = m.createPublisher(ctx, listener, id, sid, streamType, settings, initiator, connections2, func(c *mcuProxyConnection) bool {
 			return true
@@ -2349,18 +2351,20 @@ func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publ
 						outgoing_b = bw.Outgoing
 					}
 
-					if outgoing_a == nil && outgoing_b == nil {
+					switch {
+					case outgoing_a == nil && outgoing_b == nil:
 						return 0
-					} else if outgoing_a == nil && outgoing_b != nil {
+					case outgoing_a == nil && outgoing_b != nil:
 						return -1
-					} else if outgoing_a != nil && outgoing_b == nil {
+					case outgoing_a != nil && outgoing_b == nil:
 						return -1
-					} else if *outgoing_a < *outgoing_b {
+					case *outgoing_a < *outgoing_b:
 						return -1
-					} else if *outgoing_a > *outgoing_b {
+					case *outgoing_a > *outgoing_b:
 						return 1
+					default:
+						return 0
 					}
-					return 0
 				})
 				subscriber = m.createSubscriber(ctx, listener, publisherInfo, publisher, streamType, connections2, func(c *mcuProxyConnection) bool {
 					return true

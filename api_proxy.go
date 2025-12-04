@@ -329,13 +329,14 @@ type EventProxyServerBandwidth struct {
 }
 
 func (b *EventProxyServerBandwidth) String() string {
-	if b.Incoming != nil && b.Outgoing != nil {
+	switch {
+	case b.Incoming != nil && b.Outgoing != nil:
 		return fmt.Sprintf("bandwidth: incoming=%.3f%%, outgoing=%.3f%%", *b.Incoming, *b.Outgoing)
-	} else if b.Incoming != nil {
+	case b.Incoming != nil:
 		return fmt.Sprintf("bandwidth: incoming=%.3f%%, outgoing=unlimited", *b.Incoming)
-	} else if b.Outgoing != nil {
+	case b.Outgoing != nil:
 		return fmt.Sprintf("bandwidth: incoming=unlimited, outgoing=%.3f%%", *b.Outgoing)
-	} else {
+	default:
 		return "bandwidth: incoming=unlimited, outgoing=unlimited"
 	}
 }

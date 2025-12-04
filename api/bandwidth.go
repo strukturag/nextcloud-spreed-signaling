@@ -50,13 +50,14 @@ func formatWithRemainder(value uint64, divisor uint64, format string) string {
 
 // String returns the formatted bandwidth.
 func (b Bandwidth) String() string {
-	if b >= Gigabit {
+	switch {
+	case b >= Gigabit:
 		return formatWithRemainder(b.Bits(), Gigabit.Bits(), "Gbps")
-	} else if b >= Megabit {
+	case b >= Megabit:
 		return formatWithRemainder(b.Bits(), Megabit.Bits(), "Mbps")
-	} else if b >= Kilobit {
+	case b >= Kilobit:
 		return formatWithRemainder(b.Bits(), Kilobit.Bits(), "Kbps")
-	} else {
+	default:
 		return fmt.Sprintf("%d bps", b)
 	}
 }
