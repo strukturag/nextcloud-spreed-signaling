@@ -153,11 +153,11 @@ type ProxyServer struct {
 	remotePublishers map[string]map[*proxyRemotePublisher]bool
 }
 
-func IsPublicIP(IP net.IP) bool {
-	if IP.IsLoopback() || IP.IsLinkLocalMulticast() || IP.IsLinkLocalUnicast() {
+func IsPublicIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() {
 		return false
 	}
-	if ip4 := IP.To4(); ip4 != nil {
+	if ip4 := ip.To4(); ip4 != nil {
 		switch {
 		case ip4[0] == 10:
 			return false
