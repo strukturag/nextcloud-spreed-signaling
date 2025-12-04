@@ -247,9 +247,7 @@ func (c *mcuJanusClient) selectStream(ctx context.Context, stream *streamSelecti
 	configure_msg := api.StringMap{
 		"request": "configure",
 	}
-	if stream != nil {
-		stream.AddToMessage(configure_msg)
-	}
+	stream.AddToMessage(configure_msg)
 	_, err := handle.Message(ctx, configure_msg, nil)
 	if err != nil {
 		callback(err, nil)
