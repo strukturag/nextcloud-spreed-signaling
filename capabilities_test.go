@@ -354,7 +354,7 @@ func TestCapabilitiesShortCache(t *testing.T) {
 	value = called.Load()
 	assert.EqualValues(1, value)
 
-	// The capabilities are cached for a minumum duration.
+	// The capabilities are cached for a minimum duration.
 	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
 		return time.Now().Add(minCapabilitiesCacheDuration / 2)
 	})

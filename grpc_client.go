@@ -619,7 +619,7 @@ loop:
 				c.closeClient(client)
 				client.SetSelf(true)
 			} else if version != c.version {
-				c.logger.Printf("WARNING: Node %s is runing different version %s than local node (%s)", client.Target(), version, c.version)
+				c.logger.Printf("WARNING: Node %s is running different version %s than local node (%s)", client.Target(), version, c.version)
 			} else {
 				c.logger.Printf("Checked GRPC server id of %s running version %s", client.Target(), version)
 			}
