@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"os"
 	"sync/atomic"
+	"testing"
 )
 
 type CertificateReloader struct {
@@ -49,17 +50,22 @@ func NewCertificateReloader(logger Logger, certFile string, keyFile string) (*Ce
 		return nil, fmt.Errorf("could not load certificate / key: %w", err)
 	}
 
+	deduplicate := defaultDeduplicateWatchEvents
+	if testing.Testing() {
+		deduplicate = 0
+	}
+
 	reloader := &CertificateReloader{
 		logger:   logger,
 		certFile: certFile,
 		keyFile:  keyFile,
 	}
 	reloader.certificate.Store(&pair)
-	reloader.certWatcher, err = NewFileWatcher(reloader.logger, certFile, reloader.reload)
+	reloader.certWatcher, err = NewFileWatcher(reloader.logger, certFile, reloader.reload, deduplicate)
 	if err != nil {
 		return nil, err
 	}
-	reloader.keyWatcher, err = NewFileWatcher(reloader.logger, keyFile, reloader.reload)
+	reloader.keyWatcher, err = NewFileWatcher(reloader.logger, keyFile, reloader.reload, deduplicate)
 	if err != nil {
 		reloader.certWatcher.Close() // nolint
 		return nil, err
@@ -132,12 +138,17 @@ func NewCertPoolReloader(logger Logger, certFile string) (*CertPoolReloader, err
 		return nil, err
 	}
 
+	deduplicate := defaultDeduplicateWatchEvents
+	if testing.Testing() {
+		deduplicate = 0
+	}
+
 	reloader := &CertPoolReloader{
 		logger:   logger,
 		certFile: certFile,
 	}
 	reloader.pool.Store(pool)
-	reloader.certWatcher, err = NewFileWatcher(reloader.logger, certFile, reloader.reload)
+	reloader.certWatcher, err = NewFileWatcher(reloader.logger, certFile, reloader.reload, deduplicate)
 	if err != nil {
 		return nil, err
 	}

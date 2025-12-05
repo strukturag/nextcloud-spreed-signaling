@@ -97,7 +97,8 @@ func NewGrpcServerForTest(t *testing.T) (server *GrpcServer, addr string) {
 	return NewGrpcServerForTestWithConfig(t, config)
 }
 
-func Test_GrpcServer_ReloadCerts(t *testing.T) { // nolint:paralleltest
+func Test_GrpcServer_ReloadCerts(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
@@ -118,7 +119,6 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) { // nolint:paralleltest
 	config.AddOption("grpc", "servercertificate", certFile)
 	config.AddOption("grpc", "serverkey", privkeyFile)
 
-	UpdateCertificateCheckIntervalForTest(t, 0)
 	server, addr := NewGrpcServerForTestWithConfig(t, config)
 
 	cp1 := x509.NewCertPool()
@@ -167,7 +167,8 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) { // nolint:paralleltest
 	}
 }
 
-func Test_GrpcServer_ReloadCA(t *testing.T) { // nolint:paralleltest
+func Test_GrpcServer_ReloadCA(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
@@ -194,7 +195,6 @@ func Test_GrpcServer_ReloadCA(t *testing.T) { // nolint:paralleltest
 	config.AddOption("grpc", "serverkey", privkeyFile)
 	config.AddOption("grpc", "clientca", caFile)
 
-	UpdateCertificateCheckIntervalForTest(t, 0)
 	server, addr := NewGrpcServerForTestWithConfig(t, config)
 
 	pool := x509.NewCertPool()
