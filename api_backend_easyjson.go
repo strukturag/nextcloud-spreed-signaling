@@ -4030,6 +4030,24 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling29(in *jle
 			} else {
 				out.MaxScreenBitrate = api.Bandwidth(in.Uint64())
 			}
+		case "bitrateperroom":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.BandwidthPerRoom = api.Bandwidth(in.Uint64())
+			}
+		case "minpublisherbitrate":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.MinPublisherBandwidth = api.Bandwidth(in.Uint64())
+			}
+		case "maxpublisherbitrate":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.MaxPublisherBandwidth = api.Bandwidth(in.Uint64())
+			}
 		case "sessionlimit":
 			if in.IsNull() {
 				in.Skip()
@@ -4094,6 +4112,21 @@ func easyjson4354c623EncodeGithubComStrukturagNextcloudSpreedSignaling29(out *jw
 		const prefix string = ",\"maxscreenbitrate\":"
 		out.RawString(prefix)
 		out.Uint64(uint64(in.MaxScreenBitrate))
+	}
+	if in.BandwidthPerRoom != 0 {
+		const prefix string = ",\"bitrateperroom\":"
+		out.RawString(prefix)
+		out.Uint64(uint64(in.BandwidthPerRoom))
+	}
+	if in.MinPublisherBandwidth != 0 {
+		const prefix string = ",\"minpublisherbitrate\":"
+		out.RawString(prefix)
+		out.Uint64(uint64(in.MinPublisherBandwidth))
+	}
+	if in.MaxPublisherBandwidth != 0 {
+		const prefix string = ",\"maxpublisherbitrate\":"
+		out.RawString(prefix)
+		out.Uint64(uint64(in.MaxPublisherBandwidth))
 	}
 	if in.SessionLimit != 0 {
 		const prefix string = ",\"sessionlimit\":"

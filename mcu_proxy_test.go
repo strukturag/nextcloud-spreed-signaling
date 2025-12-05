@@ -48,6 +48,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -196,7 +198,8 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 type proxyServerClientHandler func(msg *ProxyClientMessage) (*ProxyServerMessage, error)
 
 type testProxyServerPublisher struct {
-	id PublicSessionId
+	id        PublicSessionId
+	bandwidth api.AtomicBandwidth
 }
 
 type testProxyServerSubscriber struct {
@@ -296,6 +299,8 @@ func (c *testProxyServerClient) processRegularMessage(msg *ProxyClientMessage) (
 	switch msg.Type {
 	case "command":
 		handler = c.processCommandMessage
+	case "payload":
+		handler = c.processPayloadMessage
 	}
 
 	if handler == nil {
@@ -429,9 +434,54 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 			}
 			c.server.updateLoad(-1)
 		}
+	case "update-bandwidth":
+		pub := c.server.getPublisher(PublicSessionId(msg.Command.ClientId))
+		if pub == nil {
+			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("publisher %s not found", msg.Command.ClientId))
+			return response, nil
+		}
+
+		pub.bandwidth.Store(msg.Command.Bandwidth)
+		response = &ProxyServerMessage{
+			Id:   msg.Id,
+			Type: "command",
+			Command: &CommandProxyServerMessage{
+				Id: string(pub.id),
+			},
+		}
 	}
 	if response == nil {
 		response = msg.NewWrappedErrorServerMessage(fmt.Errorf("command \"%s\" is not implemented", msg.Command.Type))
+	}
+
+	return response, nil
+}
+
+func (c *testProxyServerClient) processPayloadMessage(msg *ProxyClientMessage) (*ProxyServerMessage, error) {
+	var response *ProxyServerMessage
+	switch msg.Payload.Type {
+	case "offer":
+		pub := c.server.getPublisher(PublicSessionId(msg.Payload.ClientId))
+		if pub == nil {
+			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("no such publisher: %s", msg.Payload.ClientId))
+			return response, nil
+		}
+
+		assert.Equal(c.t, MockSdpOfferAudioAndVideo, msg.Payload.Payload["sdp"])
+		response = &ProxyServerMessage{
+			Id:   msg.Id,
+			Type: "payload",
+			Payload: &PayloadProxyServerMessage{
+				ClientId: string(pub.id),
+				Type:     "answer",
+				Payload: api.StringMap{
+					"type": "answer",
+					"sdp":  MockSdpAnswerAudioAndVideo,
+				},
+			},
+		}
+	default:
+		response = msg.NewWrappedErrorServerMessage(fmt.Errorf("payload type \"%s\" is not implemented", msg.Payload.Type))
 	}
 
 	return response, nil
@@ -2594,4 +2644,113 @@ func Test_ProxyResumeFail(t *testing.T) {
 	if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
 		assert.NotEqual(sessionId, connections[0].SessionId())
 	}
+}
+
+func Test_ProxySetBandwidth(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := NewProxyServerForTest(t, "DE")
+	mcu, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
+		servers: []*TestProxyServerHandler{server},
+	}, 0)
+
+	hub, _, _, hubserver := CreateHubForTestWithConfig(t, func(s *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(s)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("backend", "maxstreambitrate", "700000")
+		config.AddOption("backend", "maxscreenbitrate", "800000")
+
+		config.AddOption("backend", "bitrateperroom", "1000000")
+		config.AddOption("backend", "minpublisherbitrate", "10000")
+		config.AddOption("backend", "maxpublisherbitrate", "500000")
+		return config, err
+	})
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, hubserver, hub, testDefaultUserId+"1")
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	require.NoError(client.SendMessage(MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello.Hello.SessionId,
+	}, MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": MockSdpOfferAudioAndVideo,
+		},
+	}))
+
+	client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+
+	pub := mcu.getPublisherConnection(hello.Hello.SessionId, StreamTypeVideo)
+	require.NotNil(pub)
+
+	var publisherId string
+	var publisher *mcuProxyPublisher
+	pub.publishersLock.RLock()
+	if assert.Len(pub.publishers, 1) {
+		for id, mcuPub := range pub.publishers {
+			publisherId = id
+			publisher = mcuPub
+			break
+		}
+	}
+	pub.publishersLock.RUnlock()
+	require.NotEmpty(publisherId)
+	require.NotNil(publisher)
+
+	proxyclient := server.GetSingleClient()
+	proxyclient.sendMessage(&ProxyServerMessage{
+		Type: "event",
+		Event: &EventProxyServerMessage{
+			Type: "update-load",
+			Load: 1,
+			ClientBandwidths: map[string]EventProxyServerBandwidth{
+				publisherId: {
+					Sent:     api.BandwidthFromBits(0),
+					Received: api.BandwidthFromBits(100000),
+				},
+			},
+		},
+	})
+
+	for publisher.Bandwidth() == nil {
+		if !assert.NoError(ctx.Err()) {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+	if bw := publisher.Bandwidth(); assert.NotNil(bw) {
+		assert.EqualValues(0, bw.Sent)
+		assert.EqualValues(100000, bw.Received)
+	}
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+	room.updateBandwidth().Wait()
+
+	proxyPub := server.getPublisher(PublicSessionId(publisherId))
+	require.NotNil(proxyPub)
+	for proxyPub.bandwidth.Load() == 0 {
+		if !assert.NoError(ctx.Err()) {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+	assert.EqualValues(500000, proxyPub.bandwidth.Load())
 }
