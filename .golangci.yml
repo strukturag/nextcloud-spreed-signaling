@@ -9,6 +9,7 @@ linters:
     - paralleltest
     - perfsprint
     - revive
+    - testifylint
   settings:
     errchkjson:
       check-error-free-encoding: true
@@ -54,6 +55,9 @@ linters:
         - name: unreachable-code
         - name: use-any
         - name: redefines-builtin-id
+    testifylint:
+      disable:
+        - require-error
   exclusions:
     generated: lax
     presets:
