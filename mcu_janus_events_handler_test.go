@@ -51,9 +51,9 @@ type TestJanusEventsServerHandler struct {
 
 func (h *TestJanusEventsServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.t.Helper()
-	require := require.New(h.t)
+	assert := assert.New(h.t)
 	conn, err := h.upgrader.Upgrade(w, r, nil)
-	require.NoError(err)
+	assert.NoError(err)
 
 	if conn.Subprotocol() == JanusEventsSubprotocol {
 		addr := h.addr
@@ -70,10 +70,10 @@ func (h *TestJanusEventsServerHandler) ServeHTTP(w http.ResponseWriter, r *http.
 	}
 
 	deadline := time.Now().Add(time.Second)
-	require.NoError(conn.SetWriteDeadline(deadline))
-	require.NoError(conn.WriteJSON(map[string]string{"error": "invalid_subprotocol"}))
-	require.NoError(conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseProtocolError, "invalid_subprotocol"), deadline))
-	require.NoError(conn.Close())
+	assert.NoError(conn.SetWriteDeadline(deadline))
+	assert.NoError(conn.WriteJSON(map[string]string{"error": "invalid_subprotocol"}))
+	assert.NoError(conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseProtocolError, "invalid_subprotocol"), deadline))
+	assert.NoError(conn.Close())
 }
 
 func NewTestJanusEventsHandlerServer(t *testing.T) (*httptest.Server, string, *TestJanusEventsServerHandler) {
@@ -121,7 +121,7 @@ func TestJanusEventsHandlerNoMcu(t *testing.T) {
 	if mt, msg, err := conn.ReadMessage(); err == nil {
 		assert.Fail("connection was not closed", "expected close error, got message %s with type %d", string(msg), mt)
 	} else if assert.ErrorAs(err, &ce) {
-		assert.EqualValues(websocket.CloseInternalServerErr, ce.Code)
+		assert.Equal(websocket.CloseInternalServerErr, ce.Code)
 		assert.Equal("no mcu configured", ce.Text)
 	}
 }
@@ -153,7 +153,7 @@ func TestJanusEventsHandlerInvalidMcu(t *testing.T) {
 	if mt, msg, err := conn.ReadMessage(); err == nil {
 		assert.Fail("connection was not closed", "expected close error, got message %s with type %d", string(msg), mt)
 	} else if assert.ErrorAs(err, &ce) {
-		assert.EqualValues(websocket.CloseInternalServerErr, ce.Code)
+		assert.Equal(websocket.CloseInternalServerErr, ce.Code)
 		assert.Equal("mcu does not support events", ce.Text)
 	}
 }
@@ -186,7 +186,7 @@ func TestJanusEventsHandlerPublicIP(t *testing.T) {
 	if mt, msg, err := conn.ReadMessage(); err == nil {
 		assert.Fail("connection was not closed", "expected close error, got message %s with type %d", string(msg), mt)
 	} else if assert.ErrorAs(err, &ce) {
-		assert.EqualValues(websocket.ClosePolicyViolation, ce.Code)
+		assert.Equal(websocket.ClosePolicyViolation, ce.Code)
 		assert.Equal("only loopback and private connections allowed", ce.Text)
 	}
 }
@@ -210,14 +210,14 @@ func (m *TestMcuWithEvents) UpdateBandwidth(handle uint64, media string, sent ap
 	switch m.idx {
 	case 1:
 		assert.EqualValues(1, handle)
-		assert.EqualValues("audio", media)
-		assert.EqualValues(api.BandwidthFromBytes(100), sent)
-		assert.EqualValues(api.BandwidthFromBytes(200), received)
+		assert.Equal("audio", media)
+		assert.Equal(api.BandwidthFromBytes(100), sent)
+		assert.Equal(api.BandwidthFromBytes(200), received)
 	case 2:
 		assert.EqualValues(1, handle)
-		assert.EqualValues("video", media)
-		assert.EqualValues(api.BandwidthFromBytes(200), sent)
-		assert.EqualValues(api.BandwidthFromBytes(300), received)
+		assert.Equal("video", media)
+		assert.Equal(api.BandwidthFromBytes(200), sent)
+		assert.Equal(api.BandwidthFromBytes(300), received)
 	default:
 		assert.Fail("too many updates", "received update %d (handle=%d, media=%s, sent=%d, received=%d)", m.idx, handle, media, sent, received)
 	}
@@ -638,6 +638,6 @@ func TestValueCounter(t *testing.T) {
 	assert.EqualValues(1, c.Update("foo", 11))
 	assert.EqualValues(10, c.Update("bar", 10))
 	assert.EqualValues(1, c.Update("bar", 11))
-	assert.EqualValues(uint64(math.MaxUint64-10), c.Update("baz", math.MaxUint64-10))
+	assert.Equal(uint64(math.MaxUint64-10), c.Update("baz", math.MaxUint64-10))
 	assert.EqualValues(20, c.Update("baz", 10))
 }

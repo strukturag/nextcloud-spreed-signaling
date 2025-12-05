@@ -41,7 +41,7 @@ func TestLruUnbound(t *testing.T) {
 	for i := range count {
 		key := strconv.Itoa(i)
 		value := lru.Get(key)
-		assert.EqualValues(i, value, "Failed for %s", key)
+		assert.Equal(i, value, "Failed for %s", key)
 	}
 	// The first key ("0") is now the oldest.
 	lru.RemoveOldest()
@@ -49,7 +49,7 @@ func TestLruUnbound(t *testing.T) {
 	for i := range count {
 		key := strconv.Itoa(i)
 		value := lru.Get(key)
-		assert.EqualValues(i, value, "Failed for %s", key)
+		assert.Equal(i, value, "Failed for %s", key)
 	}
 
 	// NOTE: Key "0" no longer exists below, so make sure to not set it again.
@@ -64,7 +64,7 @@ func TestLruUnbound(t *testing.T) {
 	for i := count - 1; i >= 1; i-- {
 		key := strconv.Itoa(i)
 		value := lru.Get(key)
-		assert.EqualValues(i, value, "Failed for %s", key)
+		assert.Equal(i, value, "Failed for %s", key)
 	}
 
 	// The last key ("9") is now the oldest.
@@ -74,9 +74,9 @@ func TestLruUnbound(t *testing.T) {
 		key := strconv.Itoa(i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 {
-			assert.EqualValues(0, value, "The value for key %s should have been removed", key)
+			assert.Equal(0, value, "The value for key %s should have been removed", key)
 		} else {
-			assert.EqualValues(i, value, "Failed for %s", key)
+			assert.Equal(i, value, "Failed for %s", key)
 		}
 	}
 
@@ -88,9 +88,9 @@ func TestLruUnbound(t *testing.T) {
 		key := strconv.Itoa(i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 || i == count/2 {
-			assert.EqualValues(0, value, "The value for key %s should have been removed", key)
+			assert.Equal(0, value, "The value for key %s should have been removed", key)
 		} else {
-			assert.EqualValues(i, value, "Failed for %s", key)
+			assert.Equal(i, value, "Failed for %s", key)
 		}
 	}
 }
@@ -111,9 +111,9 @@ func TestLruBound(t *testing.T) {
 		key := strconv.Itoa(i)
 		value := lru.Get(key)
 		if i < count-size {
-			assert.EqualValues(0, value, "The value for key %s should have been removed", key)
+			assert.Equal(0, value, "The value for key %s should have been removed", key)
 		} else {
-			assert.EqualValues(i, value, "Failed for %s", key)
+			assert.Equal(i, value, "Failed for %s", key)
 		}
 	}
 }

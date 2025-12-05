@@ -537,10 +537,10 @@ func TestProxyPublisherBandwidth(t *testing.T) {
 			assert.EqualValues(1, message.Event.Load)
 			if bw := message.Event.Bandwidth; assert.NotNil(bw) {
 				if assert.NotNil(bw.Incoming) {
-					assert.EqualValues(20, *bw.Incoming)
+					assert.InEpsilon(20, *bw.Incoming, 0.0001)
 				}
 				if assert.NotNil(bw.Outgoing) {
-					assert.EqualValues(10, *bw.Outgoing)
+					assert.InEpsilon(10, *bw.Outgoing, 0.0001)
 				}
 			}
 		}
@@ -893,7 +893,7 @@ func (p *TestRemotePublisher) MaxBitrate() api.Bandwidth {
 }
 
 func (p *TestRemotePublisher) Close(ctx context.Context) {
-	if count := p.refcnt.Add(-1); assert.True(p.t, count >= 0) && count == 0 {
+	if count := p.refcnt.Add(-1); assert.GreaterOrEqual(p.t, int(count), 0) && count == 0 {
 		p.closeFunc()
 		shortCtx, cancel := context.WithTimeout(ctx, time.Millisecond)
 		defer cancel()
@@ -1244,8 +1244,8 @@ func (p *UnpublishRemoteTestPublisher) UnpublishRemote(ctx context.Context, remo
 	assert.Equal(p.t, remoteId, p.remoteId)
 	if remoteData := p.remoteData; assert.NotNil(p.t, remoteData) &&
 		assert.Equal(p.t, remoteData.hostname, hostname) &&
-		assert.EqualValues(p.t, remoteData.port, port) &&
-		assert.EqualValues(p.t, remoteData.rtcpPort, rtcpPort) {
+		assert.Equal(p.t, remoteData.port, port) &&
+		assert.Equal(p.t, remoteData.rtcpPort, rtcpPort) {
 		p.remoteId = ""
 		p.remoteData = nil
 	}
@@ -1338,8 +1338,8 @@ func TestProxyUnpublishRemote(t *testing.T) {
 		assert.Equal(hello2.Hello.SessionId, publisher.getRemoteId())
 		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
 			assert.Equal("remote-host", remoteData.hostname)
-			assert.EqualValues(10001, remoteData.port)
-			assert.EqualValues(10002, remoteData.rtcpPort)
+			assert.Equal(10001, remoteData.port)
+			assert.Equal(10002, remoteData.rtcpPort)
 		}
 	}
 
@@ -1455,8 +1455,8 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 		assert.Equal(hello2.Hello.SessionId, publisher.getRemoteId())
 		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
 			assert.Equal("remote-host", remoteData.hostname)
-			assert.EqualValues(10001, remoteData.port)
-			assert.EqualValues(10002, remoteData.rtcpPort)
+			assert.Equal(10001, remoteData.port)
+			assert.Equal(10002, remoteData.rtcpPort)
 		}
 	}
 
@@ -1481,8 +1481,8 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 		assert.Equal(hello2.Hello.SessionId, publisher.getRemoteId())
 		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
 			assert.Equal("remote-host", remoteData.hostname)
-			assert.EqualValues(10001, remoteData.port)
-			assert.EqualValues(10002, remoteData.rtcpPort)
+			assert.Equal(10001, remoteData.port)
+			assert.Equal(10002, remoteData.rtcpPort)
 		}
 	}
 
@@ -1587,8 +1587,8 @@ func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
 		assert.Equal(hello2.Hello.SessionId, publisher.getRemoteId())
 		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
 			assert.Equal("remote-host", remoteData.hostname)
-			assert.EqualValues(10001, remoteData.port)
-			assert.EqualValues(10002, remoteData.rtcpPort)
+			assert.Equal(10001, remoteData.port)
+			assert.Equal(10002, remoteData.rtcpPort)
 		}
 	}
 

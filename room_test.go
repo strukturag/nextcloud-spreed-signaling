@@ -71,7 +71,7 @@ func TestRoom_InCall(t *testing.T) {
 		} else {
 			assert.False(t, ok, "%+v should not be valid", test.Value)
 		}
-		assert.EqualValues(t, test.InCall, inCall, "conversion failed for %+v", test.Value)
+		assert.Equal(t, test.InCall, inCall, "conversion failed for %+v", test.Value)
 	}
 }
 

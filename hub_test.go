@@ -341,22 +341,22 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 
 func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Request, *BackendClientRequest) *BackendClientResponse) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		require := require.New(t)
+		assert := assert.New(t)
 		body, err := io.ReadAll(r.Body)
-		require.NoError(err)
+		assert.NoError(err)
 
 		rnd := r.Header.Get(HeaderBackendSignalingRandom)
 		checksum := r.Header.Get(HeaderBackendSignalingChecksum)
 		if rnd == "" || checksum == "" {
-			require.Fail("No checksum headers found", "request to %s", r.URL)
+			assert.Fail("No checksum headers found", "request to %s", r.URL)
 		}
 
 		if verify := CalculateBackendChecksum(rnd, body, testBackendSecret); verify != checksum {
-			require.Fail("Backend checksum verification failed", "request to %s", r.URL)
+			assert.Fail("Backend checksum verification failed", "request to %s", r.URL)
 		}
 
 		var request BackendClientRequest
-		require.NoError(json.Unmarshal(body, &request))
+		assert.NoError(json.Unmarshal(body, &request))
 
 		response := f(w, r, &request)
 		if response == nil {
@@ -365,7 +365,7 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 		}
 
 		data, err := json.Marshal(response)
-		require.NoError(err)
+		assert.NoError(err)
 
 		if r.Header.Get("OCS-APIRequest") != "" {
 			var ocs OcsResponse
@@ -378,7 +378,7 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 				Data: data,
 			}
 			data, err = json.Marshal(ocs)
-			require.NoError(err)
+			assert.NoError(err)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -745,7 +745,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if (strings.Contains(t.Name(), "V2") && !skipV2) || strings.Contains(t.Name(), "Federation") {
 			key := getPublicAuthToken(t)
 			public, err := x509.MarshalPKIXPublicKey(key)
-			require.NoError(t, err)
+			assert.NoError(t, err)
 			var pemType string
 			if strings.Contains(t.Name(), "ECDSA") {
 				pemType = "ECDSA PUBLIC KEY"
@@ -794,7 +794,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			Data: data,
 		}
 		data, err = json.Marshal(ocs)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(data) // nolint
@@ -1370,7 +1370,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
-			_, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+			_, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId) // nolint:testifylint
 			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
 			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 
@@ -2603,7 +2603,7 @@ func TestJoinRoom(t *testing.T) {
 
 	// Leave room.
 	roomMsg = MustSucceed2(t, client.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 }
 
 func TestJoinRoomBackendBandwidth(t *testing.T) {
@@ -2849,7 +2849,7 @@ func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
 
 	// Leave room
 	roomMsg = MustSucceed2(t, client.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 
 	// Perform housekeeping in the future, this will cause the connection to
 	// be terminated because the anonymous client didn't join a room.
@@ -2894,7 +2894,7 @@ func TestJoinRoomChange(t *testing.T) {
 
 	// Leave room.
 	roomMsg = MustSucceed2(t, client.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 }
 
 func TestJoinMultiple(t *testing.T) {
@@ -2928,13 +2928,13 @@ func TestJoinMultiple(t *testing.T) {
 
 	// Leave room.
 	roomMsg = MustSucceed2(t, client1.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 
 	// The second client will now receive a "left" event
 	client2.RunUntilLeft(ctx, hello1.Hello)
 
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 }
 
 func TestJoinDisplaynamesPermission(t *testing.T) {
@@ -3058,7 +3058,7 @@ func TestJoinRoomSwitchClient(t *testing.T) {
 
 	// Leave room.
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 }
 
 func TestGetRealUserIP(t *testing.T) {

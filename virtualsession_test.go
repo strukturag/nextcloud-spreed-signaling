@@ -135,7 +135,7 @@ func TestVirtualSession(t *testing.T) {
 	if flagsMsg, ok := checkMessageParticipantFlags(t, msg4); ok {
 		assert.Equal(roomId, flagsMsg.RoomId)
 		assert.Equal(sessionId, flagsMsg.SessionId)
-		assert.EqualValues(newFlags, flagsMsg.Flags)
+		assert.Equal(newFlags, flagsMsg.Flags)
 	}
 
 	// A new client will receive the initial flags of the virtual session.
@@ -162,7 +162,7 @@ func TestVirtualSession(t *testing.T) {
 
 			if assert.Equal(roomId, msg.Event.Flags.RoomId) &&
 				assert.Equal(sessionId, msg.Event.Flags.SessionId) &&
-				assert.EqualValues(newFlags, msg.Event.Flags.Flags) {
+				assert.Equal(newFlags, msg.Event.Flags.Flags) {
 				gotFlags = true
 				break
 			}
@@ -322,7 +322,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	if flagsMsg, ok := checkMessageParticipantFlags(t, msg4); ok {
 		assert.Equal(roomId, flagsMsg.RoomId)
 		assert.Equal(sessionId, flagsMsg.SessionId)
-		assert.EqualValues(newFlags, flagsMsg.Flags)
+		assert.Equal(newFlags, flagsMsg.Flags)
 	}
 
 	// A new client will receive the initial flags of the virtual session.
@@ -349,7 +349,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 
 			if assert.Equal(roomId, msg.Event.Flags.RoomId) &&
 				assert.Equal(sessionId, msg.Event.Flags.SessionId) &&
-				assert.EqualValues(newFlags, msg.Event.Flags.Flags) {
+				assert.Equal(newFlags, msg.Event.Flags.Flags) {
 				gotFlags = true
 				break
 			}
@@ -414,7 +414,7 @@ func checkHasEntryWithInCall(t *testing.T, message *RoomEventServerMessage, sess
 			}
 
 			if value, found := api.GetStringMapEntry[float64](entry, "inCall"); !assert.True(found, "inCall not found or invalid in %+v", entry) ||
-				!assert.EqualValues(value, inCall, "invalid inCall") {
+				!assert.InDelta(value, inCall, 0.0001, "invalid inCall") {
 				return false
 			}
 			found = true

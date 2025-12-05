@@ -1316,7 +1316,7 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 	m.Write([]byte(cred.Username)) // nolint
 	password := base64.StdEncoding.EncodeToString(m.Sum(nil))
 	assert.Equal(password, cred.Password)
-	assert.EqualValues((24 * time.Hour).Seconds(), cred.TTL)
+	assert.InEpsilon((24 * time.Hour).Seconds(), cred.TTL, 0.0001)
 	assert.Equal(turnServers, cred.URIs)
 }
 

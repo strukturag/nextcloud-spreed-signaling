@@ -524,7 +524,7 @@ func TestFilterSDPCandidates(t *testing.T) {
 			}
 		}
 
-		assert.EqualValues(expectedBefore[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
+		assert.Equal(expectedBefore[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
 	}
 
 	blocked, err := ParseAllowedIps("192.0.0.0/24, 192.168.0.0/16")
@@ -542,7 +542,7 @@ func TestFilterSDPCandidates(t *testing.T) {
 				}
 			}
 
-			assert.EqualValues(expectedAfter[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
+			assert.Equal(expectedAfter[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
 		}
 	}
 
@@ -574,7 +574,7 @@ func TestNoFilterSDPCandidates(t *testing.T) {
 			}
 		}
 
-		assert.EqualValues(expectedBefore[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
+		assert.Equal(expectedBefore[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
 	}
 
 	blocked, err := ParseAllowedIps("192.0.0.0/24, 192.168.0.0/16")
@@ -592,7 +592,7 @@ func TestNoFilterSDPCandidates(t *testing.T) {
 				}
 			}
 
-			assert.EqualValues(expectedAfter[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
+			assert.Equal(expectedAfter[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
 		}
 	}
 

@@ -107,7 +107,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	}
 	<-ch
 
-	require.EqualValues(maxPublish, received.Load(), "Received wrong # of messages")
+	require.Equal(maxPublish, received.Load(), "Received wrong # of messages")
 }
 
 func TestNatsClient_Subscribe(t *testing.T) { // nolint:paralleltest

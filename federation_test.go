@@ -208,7 +208,7 @@ func Test_Federation(t *testing.T) {
 
 	// Leaving and re-joining a room as "direct" session will trigger correct events.
 	if room, ok := client1.JoinRoom(ctx, ""); ok {
-		assert.Equal("", room.Room.RoomId)
+		assert.Empty(room.Room.RoomId)
 	}
 
 	client2.RunUntilLeft(ctx, hello1.Hello)
@@ -225,7 +225,7 @@ func Test_Federation(t *testing.T) {
 
 	// Leaving and re-joining a room as "federated" session will trigger correct events.
 	if room, ok := client2.JoinRoom(ctx, ""); ok {
-		assert.Equal("", room.Room.RoomId)
+		assert.Empty(room.Room.RoomId)
 	}
 
 	client1.RunUntilLeft(ctx, &HelloServerMessage{
@@ -485,7 +485,7 @@ func Test_Federation(t *testing.T) {
 	}, hello3.Hello, hello4.Hello)
 
 	if room3, ok := client2.JoinRoom(ctx, ""); ok {
-		assert.Equal("", room3.Room.RoomId)
+		assert.Empty(room3.Room.RoomId)
 	}
 }
 
@@ -1043,7 +1043,7 @@ func Test_FederationResumeNewSession(t *testing.T) {
 	// session and get "joined" events for all sessions in the room (including
 	// its own).
 	if message, ok := client2.RunUntilMessage(ctx); ok {
-		assert.Equal("", message.Id)
+		assert.Empty(message.Id)
 		require.Equal("room", message.Type)
 		require.Equal(federatedRoomId, message.Room.RoomId)
 	}

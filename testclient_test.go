@@ -1110,7 +1110,7 @@ func checkMessageTransientInitial(t *testing.T, message *ServerMessage, data api
 	assert := assert.New(t)
 	return checkMessageType(t, message, "transient") &&
 		assert.Equal("initial", message.TransientData.Type, "invalid message type in %+v", message) &&
-		assert.EqualValues(data, message.TransientData.Data, "invalid initial data in %+v", message)
+		assert.Equal(data, message.TransientData.Data, "invalid initial data in %+v", message)
 }
 
 func checkMessageInCallAll(t *testing.T, message *ServerMessage, roomId string, inCall int) bool {

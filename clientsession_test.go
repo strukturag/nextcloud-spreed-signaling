@@ -101,7 +101,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			u, err := url.Parse(server.URL + "/one")
 			require.NoError(err)
 			backend := hub.backend.GetBackend(u)
-			require.NotNil(t, backend, "Could not get backend")
+			require.NotNil(backend, "Could not get backend")
 
 			backend.maxScreenBitrate = 1000
 			backend.maxStreamBitrate = 2000

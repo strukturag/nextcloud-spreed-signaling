@@ -117,7 +117,7 @@ func TestGeoLookupContinent(t *testing.T) {
 		t.Run(country, func(t *testing.T) {
 			t.Parallel()
 			continents := LookupContinents(country)
-			if !assert.Equal(t, len(expected), len(continents), "Continents didn't match for %s: got %s, expected %s", country, continents, expected) {
+			if !assert.Len(t, continents, len(expected), "Continents didn't match for %s: got %s, expected %s", country, continents, expected) {
 				return
 			}
 			for idx, c := range expected {

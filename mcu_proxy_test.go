@@ -318,9 +318,9 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 
 		if assert.NotNil(c.t, msg.Command.PublisherSettings) {
 			if assert.NotEqualValues(c.t, 0, msg.Command.PublisherSettings.Bitrate) {
-				assert.EqualValues(c.t, msg.Command.Bitrate, msg.Command.PublisherSettings.Bitrate)
+				assert.Equal(c.t, msg.Command.Bitrate, msg.Command.PublisherSettings.Bitrate)
 			}
-			assert.EqualValues(c.t, msg.Command.MediaTypes, msg.Command.PublisherSettings.MediaTypes)
+			assert.Equal(c.t, msg.Command.MediaTypes, msg.Command.PublisherSettings.MediaTypes)
 			if strings.Contains(c.t.Name(), "Codecs") {
 				assert.Equal(c.t, "opus,g722", msg.Command.PublisherSettings.AudioCodec)
 				assert.Equal(c.t, "vp9,vp8,av1", msg.Command.PublisherSettings.VideoCodec)
