@@ -93,10 +93,10 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 	turnserverslist := slices.Collect(SplitEntries(turnservers, ","))
 	if len(turnserverslist) != 0 {
 		if turnapikey == "" {
-			return nil, fmt.Errorf("need a TURN API key if TURN servers are configured")
+			return nil, errors.New("need a TURN API key if TURN servers are configured")
 		}
 		if turnsecret == "" {
-			return nil, fmt.Errorf("need a shared TURN secret if TURN servers are configured")
+			return nil, errors.New("need a shared TURN secret if TURN servers are configured")
 		}
 
 		logger.Printf("Using configured TURN API key")

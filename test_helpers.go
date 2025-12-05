@@ -23,7 +23,6 @@ package signaling
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"sync"
 	"testing"
@@ -59,7 +58,7 @@ func NewLoggerForTest(t testing.TB) Logger {
 	if !found {
 		logger = log.New(&testLogWriter{
 			t: t,
-		}, fmt.Sprintf("%s: ", t.Name()), log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
+		}, t.Name()+": ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
 
 		t.Cleanup(func() {
 			testLoggersLock.Lock()

@@ -22,7 +22,7 @@
 package signaling
 
 import (
-	"fmt"
+	"errors"
 )
 
 // Information on a GRPC target in the etcd cluster.
@@ -33,7 +33,7 @@ type GrpcTargetInformationEtcd struct {
 
 func (p *GrpcTargetInformationEtcd) CheckValid() error {
 	if l := len(p.Address); l == 0 {
-		return fmt.Errorf("address missing")
+		return errors.New("address missing")
 	} else if p.Address[l-1] == '/' {
 		p.Address = p.Address[:l-1]
 	}

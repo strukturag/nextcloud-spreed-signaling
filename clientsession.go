@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -857,7 +858,7 @@ func (s *ClientSession) IsAllowedToSend(data *MessageClientMessageData) error {
 			return nil
 		}
 
-		return fmt.Errorf("permission check failed")
+		return errors.New("permission check failed")
 	}
 }
 

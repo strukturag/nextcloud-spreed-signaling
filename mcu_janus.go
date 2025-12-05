@@ -466,7 +466,7 @@ func (m *mcuJanus) Start(ctx context.Context) error {
 
 	m.logger.Printf("Used dependencies: %+v", info.Dependencies)
 	if !info.DataChannels {
-		return fmt.Errorf("data channels are not supported")
+		return errors.New("data channels are not supported")
 	}
 
 	m.logger.Println("Data channels are supported")

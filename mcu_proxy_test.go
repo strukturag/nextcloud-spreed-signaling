@@ -35,6 +35,7 @@ import (
 	"net/url"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -262,7 +263,7 @@ func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxySer
 
 		key, found := c.server.tokens[claims.Issuer]
 		if !assert.True(c.t, found) {
-			return nil, fmt.Errorf("no key found for issuer")
+			return nil, errors.New("no key found for issuer")
 		}
 
 		return key, nil
@@ -371,7 +372,7 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 
 					key, found := server.tokens[claims.Issuer]
 					if !assert.True(c.t, found) {
-						return nil, fmt.Errorf("no key found for issuer")
+						return nil, errors.New("no key found for issuer")
 					}
 
 					return key, nil
@@ -865,7 +866,7 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	if strings.Contains(t.Name(), "DnsDiscovery") {
 		cfg.AddOption("mcu", "dnsdiscovery", "true")
 	}
-	cfg.AddOption("mcu", "proxytimeout", fmt.Sprintf("%d", int(testTimeout.Seconds())))
+	cfg.AddOption("mcu", "proxytimeout", strconv.Itoa(int(testTimeout.Seconds())))
 	var urls []string
 	waitingMap := make(map[string]bool)
 	if len(options.servers) == 0 {
@@ -1061,7 +1062,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) { // nolint:parall
 	require.NotNil(dnsMonitor)
 
 	server2 := NewProxyServerForTest(t, "DE")
-	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.2:%s", port))
+	l, err := net.Listen("tcp", "127.0.0.2:"+port)
 	require.NoError(err)
 	assert.NoError(server2.server.Listener.Close())
 	server2.server.Listener = l

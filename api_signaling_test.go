@@ -23,7 +23,7 @@ package signaling
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -360,7 +360,7 @@ func TestErrorMessages(t *testing.T) {
 	assert.Equal("error", err1.Type, "%+v", err1)
 	assert.NotNil(err1.Error, "%+v", err1)
 
-	err2 := msg.NewWrappedErrorServerMessage(fmt.Errorf("test-error"))
+	err2 := msg.NewWrappedErrorServerMessage(errors.New("test-error"))
 	assert.Equal(id, err2.Id, "%+v", err2)
 	assert.Equal("error", err2.Type, "%+v", err2)
 	if assert.NotNil(err2.Error, "%+v", err2) {

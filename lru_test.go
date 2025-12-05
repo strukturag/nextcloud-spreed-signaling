@@ -22,7 +22,7 @@
 package signaling
 
 import (
-	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,12 +34,12 @@ func TestLruUnbound(t *testing.T) {
 	lru := NewLruCache[int](0)
 	count := 10
 	for i := range count {
-		key := fmt.Sprintf("%d", i)
+		key := strconv.Itoa(i)
 		lru.Set(key, i)
 	}
 	assert.Equal(count, lru.Len())
 	for i := range count {
-		key := fmt.Sprintf("%d", i)
+		key := strconv.Itoa(i)
 		value := lru.Get(key)
 		assert.EqualValues(i, value, "Failed for %s", key)
 	}
@@ -47,7 +47,7 @@ func TestLruUnbound(t *testing.T) {
 	lru.RemoveOldest()
 	assert.Equal(count-1, lru.Len())
 	for i := range count {
-		key := fmt.Sprintf("%d", i)
+		key := strconv.Itoa(i)
 		value := lru.Get(key)
 		assert.EqualValues(i, value, "Failed for %s", key)
 	}
@@ -56,13 +56,13 @@ func TestLruUnbound(t *testing.T) {
 
 	// Using the same keys will update the ordering.
 	for i := count - 1; i >= 1; i-- {
-		key := fmt.Sprintf("%d", i)
+		key := strconv.Itoa(i)
 		lru.Set(key, i)
 	}
 	assert.Equal(count-1, lru.Len())
 	// NOTE: The same ordering as the Set calls above.
 	for i := count - 1; i >= 1; i-- {
-		key := fmt.Sprintf("%d", i)
+		key := strconv.Itoa(i)
 		value := lru.Get(key)
 		assert.EqualValues(i, value, "Failed for %s", key)
 	}
@@ -71,7 +71,7 @@ func TestLruUnbound(t *testing.T) {
 	lru.RemoveOldest()
 	assert.Equal(count-2, lru.Len())
 	for i := range count {
-		key := fmt.Sprintf("%d", i)
+		key := strconv.Itoa(i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 {
 			assert.EqualValues(0, value, "The value for key %s should have been removed", key)
@@ -81,11 +81,11 @@ func TestLruUnbound(t *testing.T) {
 	}
 
 	// Remove an arbitrary key from the cache
-	key := fmt.Sprintf("%d", count/2)
+	key := strconv.Itoa(count / 2)
 	lru.Remove(key)
 	assert.Equal(count-3, lru.Len())
 	for i := range count {
-		key := fmt.Sprintf("%d", i)
+		key := strconv.Itoa(i)
 		value := lru.Get(key)
 		if i == 0 || i == count-1 || i == count/2 {
 			assert.EqualValues(0, value, "The value for key %s should have been removed", key)
@@ -102,13 +102,13 @@ func TestLruBound(t *testing.T) {
 	lru := NewLruCache[int](size)
 	count := 10
 	for i := range count {
-		key := fmt.Sprintf("%d", i)
+		key := strconv.Itoa(i)
 		lru.Set(key, i)
 	}
 	assert.Equal(size, lru.Len())
 	// Only the last "size" entries have been stored.
 	for i := range count {
-		key := fmt.Sprintf("%d", i)
+		key := strconv.Itoa(i)
 		value := lru.Get(key)
 		if i < count-size {
 			assert.EqualValues(0, value, "The value for key %s should have been removed", key)

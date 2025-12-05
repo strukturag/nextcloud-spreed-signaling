@@ -52,7 +52,7 @@ const (
 )
 
 var (
-	ErrNoSuchResumeId = fmt.Errorf("unknown resume id")
+	ErrNoSuchResumeId = errors.New("unknown resume id")
 
 	customResolverPrefix atomic.Uint64
 )
@@ -802,12 +802,12 @@ func (c *GrpcClients) loadTargetsEtcd(config *goconf.ConfigFile, fromReload bool
 	defer c.mu.Unlock()
 
 	if !c.etcdClient.IsConfigured() {
-		return fmt.Errorf("no etcd endpoints configured")
+		return errors.New("no etcd endpoints configured")
 	}
 
 	targetPrefix, _ := config.GetString("grpc", "targetprefix")
 	if targetPrefix == "" {
-		return fmt.Errorf("no GRPC target prefix configured")
+		return errors.New("no GRPC target prefix configured")
 	}
 	c.targetPrefix = targetPrefix
 	if c.targetInformation == nil {

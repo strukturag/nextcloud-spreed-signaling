@@ -32,6 +32,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -372,7 +373,7 @@ func (gateway *JanusGateway) send(msg api.StringMap, t *transaction) (uint64, er
 	if gateway.conn == nil {
 		gateway.writeMu.Unlock()
 		gateway.removeTransaction(id)
-		return 0, fmt.Errorf("not connected")
+		return 0, errors.New("not connected")
 	}
 
 	err = gateway.conn.WriteMessage(websocket.TextMessage, data)

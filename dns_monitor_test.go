@@ -77,7 +77,7 @@ func (m *mockDnsLookup) lookup(host string) ([]net.IP, error) {
 	ips, found := m.ips[host]
 	if !found {
 		return nil, &net.DNSError{
-			Err:        fmt.Sprintf("could not resolve %s", host),
+			Err:        "could not resolve " + host,
 			Name:       host,
 			IsNotFound: true,
 		}

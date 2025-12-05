@@ -298,7 +298,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 	if tokenId != "" {
 		tokenKeyFilename, _ := config.GetString("app", "token_key")
 		if tokenKeyFilename == "" {
-			return nil, fmt.Errorf("no token key configured")
+			return nil, errors.New("no token key configured")
 		}
 		tokenKeyData, err := os.ReadFile(tokenKeyFilename)
 		if err != nil {
@@ -424,7 +424,7 @@ func (s *ProxyServer) checkOrigin(r *http.Request) bool {
 func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 	s.url, _ = signaling.GetStringOptionWithEnv(config, "mcu", "url")
 	if s.url == "" {
-		return fmt.Errorf("no MCU server url configured")
+		return errors.New("no MCU server url configured")
 	}
 
 	mcuType, _ := config.GetString("mcu", "type")
@@ -466,7 +466,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 		s.logger.Printf("Could not initialize %s MCU at %s (%s) will retry in %s", mcuType, s.url, err, backoff.NextWait())
 		backoff.Wait(ctx)
 		if ctx.Err() != nil {
-			return fmt.Errorf("cancelled")
+			return errors.New("cancelled")
 		}
 	}
 
@@ -1429,7 +1429,7 @@ func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, str
 		if !ok {
 			s.logger.Printf("Unsupported claims type: %+v", token.Claims)
 			reason = "unsupported-claims"
-			return nil, fmt.Errorf("unsupported claims type")
+			return nil, errors.New("unsupported claims type")
 		}
 
 		tokenKey, err := s.tokens.Get(claims.Issuer)
@@ -1442,7 +1442,7 @@ func (s *ProxyServer) parseToken(tokenValue string) (*signaling.TokenClaims, str
 		if tokenKey == nil || tokenKey.key == nil {
 			s.logger.Printf("Issuer %s is not supported", claims.Issuer)
 			reason = "unsupported-issuer"
-			return nil, fmt.Errorf("no key found for issuer")
+			return nil, errors.New("no key found for issuer")
 		}
 
 		return tokenKey.key, nil

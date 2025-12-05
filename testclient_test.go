@@ -49,7 +49,7 @@ var (
 	testBackendSecret  = []byte("secret")
 	testInternalSecret = []byte("internal-secret")
 
-	ErrNoMessageReceived = fmt.Errorf("no message was received by the server")
+	ErrNoMessageReceived = errors.New("no message was received by the server")
 
 	testClientDialer = websocket.Dialer{
 		WriteBufferPool: &sync.Pool{},
@@ -337,7 +337,7 @@ func (c *TestClient) WaitForClientRemoved(ctx context.Context) error {
 func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId PublicSessionId) error {
 	data := c.hub.decodePublicSessionId(sessionId)
 	if data == nil {
-		return fmt.Errorf("Invalid session id passed")
+		return errors.New("Invalid session id passed")
 	}
 
 	c.hub.mu.Lock()

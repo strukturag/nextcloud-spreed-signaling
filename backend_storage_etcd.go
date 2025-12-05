@@ -25,7 +25,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"slices"
 	"time"
@@ -52,12 +51,12 @@ type backendStorageEtcd struct {
 
 func NewBackendStorageEtcd(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient) (BackendStorage, error) {
 	if etcdClient == nil || !etcdClient.IsConfigured() {
-		return nil, fmt.Errorf("no etcd endpoints configured")
+		return nil, errors.New("no etcd endpoints configured")
 	}
 
 	keyPrefix, _ := config.GetString("backend", "backendprefix")
 	if keyPrefix == "" {
-		return nil, fmt.Errorf("no backend prefix configured")
+		return nil, errors.New("no backend prefix configured")
 	}
 
 	initializedCtx, initializedFunc := context.WithCancel(context.Background())

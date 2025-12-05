@@ -28,6 +28,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -461,7 +462,7 @@ type BackendInformationEtcd struct {
 
 func (p *BackendInformationEtcd) CheckValid() (err error) {
 	if p.Secret == "" {
-		return fmt.Errorf("secret missing")
+		return errors.New("secret missing")
 	}
 
 	if len(p.Urls) > 0 {
@@ -504,7 +505,7 @@ func (p *BackendInformationEtcd) CheckValid() (err error) {
 		p.Urls = append(p.Urls, p.Url)
 		p.parsedUrls = append(p.parsedUrls, parsedUrl)
 	} else {
-		return fmt.Errorf("urls missing")
+		return errors.New("urls missing")
 	}
 
 	return nil

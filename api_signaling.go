@@ -105,10 +105,10 @@ type ClientMessage struct {
 func (m *ClientMessage) CheckValid() error {
 	switch m.Type {
 	case "":
-		return fmt.Errorf("type missing")
+		return errors.New("type missing")
 	case "hello":
 		if m.Hello == nil {
-			return fmt.Errorf("hello missing")
+			return errors.New("hello missing")
 		} else if err := m.Hello.CheckValid(); err != nil {
 			return err
 		}
@@ -116,31 +116,31 @@ func (m *ClientMessage) CheckValid() error {
 		// No additional check required.
 	case "room":
 		if m.Room == nil {
-			return fmt.Errorf("room missing")
+			return errors.New("room missing")
 		} else if err := m.Room.CheckValid(); err != nil {
 			return err
 		}
 	case "message":
 		if m.Message == nil {
-			return fmt.Errorf("message missing")
+			return errors.New("message missing")
 		} else if err := m.Message.CheckValid(); err != nil {
 			return err
 		}
 	case "control":
 		if m.Control == nil {
-			return fmt.Errorf("control missing")
+			return errors.New("control missing")
 		} else if err := m.Control.CheckValid(); err != nil {
 			return err
 		}
 	case "internal":
 		if m.Internal == nil {
-			return fmt.Errorf("internal missing")
+			return errors.New("internal missing")
 		} else if err := m.Internal.CheckValid(); err != nil {
 			return err
 		}
 	case "transient":
 		if m.TransientData == nil {
-			return fmt.Errorf("transient missing")
+			return errors.New("transient missing")
 		} else if err := m.TransientData.CheckValid(); err != nil {
 			return err
 		}
@@ -362,7 +362,7 @@ type ClientTypeInternalAuthParams struct {
 
 func (p *ClientTypeInternalAuthParams) CheckValid() error {
 	if p.Backend == "" {
-		return fmt.Errorf("backend missing")
+		return errors.New("backend missing")
 	}
 
 	if p.Backend[len(p.Backend)-1] != '/' {
@@ -387,7 +387,7 @@ type HelloV2AuthParams struct {
 
 func (p *HelloV2AuthParams) CheckValid() error {
 	if p.Token == "" {
-		return fmt.Errorf("token missing")
+		return errors.New("token missing")
 	}
 	return nil
 }
@@ -414,7 +414,7 @@ type FederationAuthParams struct {
 
 func (p *FederationAuthParams) CheckValid() error {
 	if p.Token == "" {
-		return fmt.Errorf("token missing")
+		return errors.New("token missing")
 	}
 	return nil
 }
@@ -463,7 +463,7 @@ func (m *HelloClientMessage) CheckValid() error {
 	}
 	if m.ResumeId == "" {
 		if m.Auth == nil || len(m.Auth.Params) == 0 {
-			return fmt.Errorf("params missing")
+			return errors.New("params missing")
 		}
 		if m.Auth.Type == "" {
 			m.Auth.Type = HelloClientTypeClient
@@ -473,7 +473,7 @@ func (m *HelloClientMessage) CheckValid() error {
 			fallthrough
 		case HelloClientTypeFederation:
 			if m.Auth.Url == "" {
-				return fmt.Errorf("url missing")
+				return errors.New("url missing")
 			}
 
 			if m.Auth.Url[len(m.Auth.Url)-1] != '/' {
@@ -520,7 +520,7 @@ func (m *HelloClientMessage) CheckValid() error {
 				return err
 			}
 		default:
-			return fmt.Errorf("unsupported auth type")
+			return errors.New("unsupported auth type")
 		}
 	}
 	return nil
@@ -891,7 +891,7 @@ func FilterSDPCandidates(s *sdp.SessionDescription, allowed *AllowedIps, blocked
 
 func (m *MessageClientMessage) CheckValid() error {
 	if len(m.Data) == 0 {
-		return fmt.Errorf("message empty")
+		return errors.New("message empty")
 	}
 	switch m.Recipient.Type {
 	case RecipientTypeRoom:
@@ -900,11 +900,11 @@ func (m *MessageClientMessage) CheckValid() error {
 		// No additional checks required.
 	case RecipientTypeSession:
 		if m.Recipient.SessionId == "" {
-			return fmt.Errorf("session id missing")
+			return errors.New("session id missing")
 		}
 	case RecipientTypeUser:
 		if m.Recipient.UserId == "" {
-			return fmt.Errorf("user id missing")
+			return errors.New("user id missing")
 		}
 	default:
 		return fmt.Errorf("unsupported recipient type %v", m.Recipient.Type)
@@ -957,10 +957,10 @@ type CommonSessionInternalClientMessage struct {
 
 func (m *CommonSessionInternalClientMessage) CheckValid() error {
 	if m.SessionId == "" {
-		return fmt.Errorf("sessionid missing")
+		return errors.New("sessionid missing")
 	}
 	if m.RoomId == "" {
-		return fmt.Errorf("roomid missing")
+		return errors.New("roomid missing")
 	}
 	return nil
 }
@@ -1080,31 +1080,31 @@ func (m *InternalClientMessage) CheckValid() error {
 		return errors.New("type missing")
 	case "addsession":
 		if m.AddSession == nil {
-			return fmt.Errorf("addsession missing")
+			return errors.New("addsession missing")
 		} else if err := m.AddSession.CheckValid(); err != nil {
 			return err
 		}
 	case "updatesession":
 		if m.UpdateSession == nil {
-			return fmt.Errorf("updatesession missing")
+			return errors.New("updatesession missing")
 		} else if err := m.UpdateSession.CheckValid(); err != nil {
 			return err
 		}
 	case "removesession":
 		if m.RemoveSession == nil {
-			return fmt.Errorf("removesession missing")
+			return errors.New("removesession missing")
 		} else if err := m.RemoveSession.CheckValid(); err != nil {
 			return err
 		}
 	case "incall":
 		if m.InCall == nil {
-			return fmt.Errorf("incall missing")
+			return errors.New("incall missing")
 		} else if err := m.InCall.CheckValid(); err != nil {
 			return err
 		}
 	case "dialout":
 		if m.Dialout == nil {
-			return fmt.Errorf("dialout missing")
+			return errors.New("dialout missing")
 		} else if err := m.Dialout.CheckValid(); err != nil {
 			return err
 		}
@@ -1277,12 +1277,12 @@ func (m *TransientDataClientMessage) CheckValid() error {
 	switch m.Type {
 	case "set":
 		if m.Key == "" {
-			return fmt.Errorf("key missing")
+			return errors.New("key missing")
 		}
 		// A "nil" value is allowed and will remove the key.
 	case "remove":
 		if m.Key == "" {
-			return fmt.Errorf("key missing")
+			return errors.New("key missing")
 		}
 	}
 	return nil

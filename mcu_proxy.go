@@ -1518,11 +1518,11 @@ func NewMcuProxy(ctx context.Context, config *goconf.ConfigFile, etcdClient *Etc
 
 	tokenId, _ := config.GetString("mcu", "token_id")
 	if tokenId == "" {
-		return nil, fmt.Errorf("no token id configured")
+		return nil, errors.New("no token id configured")
 	}
 	tokenKeyFilename, _ := config.GetString("mcu", "token_key")
 	if tokenKeyFilename == "" {
-		return nil, fmt.Errorf("no token key configured")
+		return nil, errors.New("no token key configured")
 	}
 	tokenKeyData, err := os.ReadFile(tokenKeyFilename)
 	if err != nil {
@@ -2108,7 +2108,7 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id Pu
 
 	if publisher == nil {
 		statsProxyNobackendAvailableTotal.WithLabelValues(string(streamType)).Inc()
-		return nil, fmt.Errorf("no MCU connection available")
+		return nil, errors.New("no MCU connection available")
 	}
 
 	return publisher, nil
