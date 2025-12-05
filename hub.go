@@ -1460,7 +1460,7 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 				keyData, _, found = h.backend.capabilities.GetStringConfig(backendCtx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
 			}
 			if !found {
-				return nil, fmt.Errorf("no key found for issuer")
+				return nil, errors.New("no key found for issuer")
 			}
 		}
 

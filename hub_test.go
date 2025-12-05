@@ -53,6 +53,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -341,22 +342,22 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 
 func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Request, *BackendClientRequest) *BackendClientResponse) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		require := require.New(t)
+		assert := assert.New(t)
 		body, err := io.ReadAll(r.Body)
-		require.NoError(err)
+		assert.NoError(err)
 
 		rnd := r.Header.Get(HeaderBackendSignalingRandom)
 		checksum := r.Header.Get(HeaderBackendSignalingChecksum)
 		if rnd == "" || checksum == "" {
-			require.Fail("No checksum headers found", "request to %s", r.URL)
+			assert.Fail("No checksum headers found", "request to %s", r.URL)
 		}
 
 		if verify := CalculateBackendChecksum(rnd, body, testBackendSecret); verify != checksum {
-			require.Fail("Backend checksum verification failed", "request to %s", r.URL)
+			assert.Fail("Backend checksum verification failed", "request to %s", r.URL)
 		}
 
 		var request BackendClientRequest
-		require.NoError(json.Unmarshal(body, &request))
+		assert.NoError(json.Unmarshal(body, &request))
 
 		response := f(w, r, &request)
 		if response == nil {
@@ -365,7 +366,7 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 		}
 
 		data, err := json.Marshal(response)
-		require.NoError(err)
+		assert.NoError(err)
 
 		if r.Header.Get("OCS-APIRequest") != "" {
 			var ocs OcsResponse
@@ -378,7 +379,7 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 				Data: data,
 			}
 			data, err = json.Marshal(ocs)
-			require.NoError(err)
+			assert.NoError(err)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -414,8 +415,7 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	userdata := map[string]string{
 		"displayname": "Displayname " + params.UserId,
 	}
-	data, err := json.Marshal(userdata)
-	require.NoError(err)
+	data, _ := json.Marshal(userdata)
 	response.Auth.User = data
 	return response
 }
@@ -476,8 +476,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		data := map[string]string{
 			"userid": "userid-from-sessiondata",
 		}
-		tmp, err := json.Marshal(data)
-		require.NoError(err)
+		tmp, _ := json.Marshal(data)
 		response.Room.Session = tmp
 	case "test-room-initial-permissions":
 		permissions := []Permission{PERMISSION_MAY_PUBLISH_AUDIO}
@@ -539,30 +538,22 @@ func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request,
 	return response
 }
 
-var pingRequests map[*testing.T][]*BackendClientRequest
+var (
+	pingRequests internal.TestStorage[[]*BackendClientRequest]
+)
 
 func getPingRequests(t *testing.T) []*BackendClientRequest {
-	return pingRequests[t]
+	entries, _ := pingRequests.Get(t)
+	return entries
 }
 
 func clearPingRequests(t *testing.T) {
-	delete(pingRequests, t)
+	pingRequests.Del(t)
 }
 
 func storePingRequest(t *testing.T, request *BackendClientRequest) {
-	if entries, found := pingRequests[t]; !found {
-		if pingRequests == nil {
-			pingRequests = make(map[*testing.T][]*BackendClientRequest)
-		}
-		pingRequests[t] = []*BackendClientRequest{
-			request,
-		}
-		t.Cleanup(func() {
-			clearPingRequests(t)
-		})
-	} else {
-		pingRequests[t] = append(entries, request)
-	}
+	entries, _ := pingRequests.Get(t)
+	pingRequests.Set(t, append(entries, request))
 }
 
 func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
@@ -594,7 +585,7 @@ type testAuthToken struct {
 }
 
 var (
-	authTokens testStorage[testAuthToken]
+	authTokens internal.TestStorage[testAuthToken]
 )
 
 func ensureAuthTokens(t *testing.T) (string, string) {
@@ -703,7 +694,7 @@ func registerBackendHandler(t *testing.T, router *mux.Router) {
 }
 
 var (
-	skipV2Capabilities testStorage[bool]
+	skipV2Capabilities internal.TestStorage[bool]
 )
 
 func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
@@ -755,7 +746,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if (strings.Contains(t.Name(), "V2") && !skipV2) || strings.Contains(t.Name(), "Federation") {
 			key := getPublicAuthToken(t)
 			public, err := x509.MarshalPKIXPublicKey(key)
-			require.NoError(t, err)
+			assert.NoError(t, err)
 			var pemType string
 			if strings.Contains(t.Name(), "ECDSA") {
 				pemType = "ECDSA PUBLIC KEY"
@@ -777,10 +768,11 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 				signaling[ConfigKeyHelloV2TokenKey] = string(public)
 			}
 		}
-		spreedCapa, _ := json.Marshal(api.StringMap{
+		spreedCapa, err := json.Marshal(api.StringMap{
 			"features": features,
 			"config":   config,
 		})
+		assert.NoError(t, err)
 		response := &CapabilitiesResponse{
 			Version: CapabilitiesVersion{
 				Major: 20,
@@ -803,7 +795,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			Data: data,
 		}
 		data, err = json.Marshal(ocs)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(data) // nolint
@@ -1001,8 +993,10 @@ func TestClientHelloV1(t *testing.T) {
 }
 
 func TestClientHelloV2(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
@@ -1037,8 +1031,10 @@ func TestClientHelloV2(t *testing.T) {
 }
 
 func TestClientHelloV2_IssuedInFuture(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
@@ -1062,8 +1058,10 @@ func TestClientHelloV2_IssuedInFuture(t *testing.T) {
 }
 
 func TestClientHelloV2_IssuedFarInFuture(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
@@ -1083,8 +1081,10 @@ func TestClientHelloV2_IssuedFarInFuture(t *testing.T) {
 }
 
 func TestClientHelloV2_Expired(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
@@ -1104,8 +1104,10 @@ func TestClientHelloV2_Expired(t *testing.T) {
 }
 
 func TestClientHelloV2_IssuedAtMissing(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
@@ -1125,8 +1127,10 @@ func TestClientHelloV2_IssuedAtMissing(t *testing.T) {
 }
 
 func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			hub, _, _, server := CreateHubForTest(t)
 
@@ -1146,8 +1150,10 @@ func TestClientHelloV2_ExpiresAtMissing(t *testing.T) {
 }
 
 func TestClientHelloV2_CachedCapabilities(t *testing.T) {
+	t.Parallel()
 	for _, algo := range testHelloV2Algorithms {
 		t.Run(algo, func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			assert := assert.New(t)
 			hub, _, _, server := CreateHubForTest(t)
@@ -1220,6 +1226,7 @@ func TestClientHelloAllowAll(t *testing.T) {
 }
 
 func TestClientHelloSessionLimit(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -1364,7 +1371,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
-			_, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+			_, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId) // nolint:testifylint
 			assert.Equal(testDefaultUserId, hello.Hello.UserId, "%+v", hello.Hello)
 			assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 
@@ -1753,7 +1760,7 @@ func runGrpcProxyTest(t *testing.T, f func(hub1, hub2 *Hub, server1, server2 *ht
 	f(hub1, hub2, server1, server2)
 }
 
-func TestClientHelloResumeProxy(t *testing.T) {
+func TestClientHelloResumeProxy(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
@@ -1803,7 +1810,7 @@ func TestClientHelloResumeProxy(t *testing.T) {
 	})
 }
 
-func TestClientHelloResumeProxy_Takeover(t *testing.T) {
+func TestClientHelloResumeProxy_Takeover(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
@@ -1857,7 +1864,7 @@ func TestClientHelloResumeProxy_Takeover(t *testing.T) {
 	})
 }
 
-func TestClientHelloResumeProxy_Disconnect(t *testing.T) {
+func TestClientHelloResumeProxy_Disconnect(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
@@ -1952,6 +1959,7 @@ func TestClientHelloInternal(t *testing.T) {
 }
 
 func TestClientMessageToSessionId(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2016,6 +2024,7 @@ func TestClientMessageToSessionId(t *testing.T) {
 }
 
 func TestClientControlToSessionId(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2238,6 +2247,7 @@ func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
 }
 
 func TestClientMessageToRoom(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2300,6 +2310,7 @@ func TestClientMessageToRoom(t *testing.T) {
 }
 
 func TestClientControlToRoom(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2362,6 +2373,7 @@ func TestClientControlToRoom(t *testing.T) {
 }
 
 func TestClientMessageToCall(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2466,6 +2478,7 @@ func TestClientMessageToCall(t *testing.T) {
 }
 
 func TestClientControlToCall(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -2591,7 +2604,7 @@ func TestJoinRoom(t *testing.T) {
 
 	// Leave room.
 	roomMsg = MustSucceed2(t, client.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 }
 
 func TestJoinRoomBackendBandwidth(t *testing.T) {
@@ -2837,7 +2850,7 @@ func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
 
 	// Leave room
 	roomMsg = MustSucceed2(t, client.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 
 	// Perform housekeeping in the future, this will cause the connection to
 	// be terminated because the anonymous client didn't join a room.
@@ -2882,7 +2895,7 @@ func TestJoinRoomChange(t *testing.T) {
 
 	// Leave room.
 	roomMsg = MustSucceed2(t, client.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 }
 
 func TestJoinMultiple(t *testing.T) {
@@ -2916,13 +2929,13 @@ func TestJoinMultiple(t *testing.T) {
 
 	// Leave room.
 	roomMsg = MustSucceed2(t, client1.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 
 	// The second client will now receive a "left" event
 	client2.RunUntilLeft(ctx, hello1.Hello)
 
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 }
 
 func TestJoinDisplaynamesPermission(t *testing.T) {
@@ -3046,10 +3059,11 @@ func TestJoinRoomSwitchClient(t *testing.T) {
 
 	// Leave room.
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, "")
-	require.Equal("", roomMsg.Room.RoomId)
+	require.Empty(roomMsg.Room.RoomId)
 }
 
 func TestGetRealUserIP(t *testing.T) {
+	t.Parallel()
 	testcases := []struct {
 		expected string
 		headers  http.Header
@@ -3474,6 +3488,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 }
 
 func TestClientTakeoverRoomSession(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -3903,6 +3918,7 @@ loop:
 }
 
 func TestClientRequestOfferNotInRoom(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -4301,6 +4317,7 @@ func TestSameRoomOnDifferentUrls(t *testing.T) {
 }
 
 func TestClientSendOffer(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -4443,6 +4460,7 @@ func TestClientUnshareScreen(t *testing.T) {
 }
 
 func TestVirtualClientSessions(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -4683,6 +4701,7 @@ func TestVirtualClientSessions(t *testing.T) {
 }
 
 func TestDuplicateVirtualSessions(t *testing.T) {
+	t.Parallel()
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
@@ -5042,12 +5061,14 @@ func DoTestSwitchToOne(t *testing.T, details api.StringMap) {
 }
 
 func TestSwitchToOneMap(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToOne(t, api.StringMap{
 		"foo": "bar",
 	})
 }
 
 func TestSwitchToOneList(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToOne(t, nil)
 }
 
@@ -5140,6 +5161,7 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 }
 
 func TestSwitchToMultipleMap(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToMultiple(t, api.StringMap{
 		"foo": "bar",
 	}, api.StringMap{
@@ -5148,10 +5170,12 @@ func TestSwitchToMultipleMap(t *testing.T) {
 }
 
 func TestSwitchToMultipleList(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToMultiple(t, nil, nil)
 }
 
 func TestSwitchToMultipleMixed(t *testing.T) {
+	t.Parallel()
 	DoTestSwitchToMultiple(t, api.StringMap{
 		"foo": "bar",
 	}, nil)

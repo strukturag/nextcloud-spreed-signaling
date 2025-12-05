@@ -36,6 +36,7 @@ var (
 )
 
 func TestFileWatcher_NotExist(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
 	logger := NewLoggerForTest(t)
@@ -46,7 +47,7 @@ func TestFileWatcher_NotExist(t *testing.T) {
 	}
 }
 
-func TestFileWatcher_File(t *testing.T) {
+func TestFileWatcher_File(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		require := require.New(t)
 		assert := assert.New(t)
@@ -88,7 +89,7 @@ func TestFileWatcher_File(t *testing.T) {
 	})
 }
 
-func TestFileWatcher_CurrentDir(t *testing.T) {
+func TestFileWatcher_CurrentDir(t *testing.T) { // nolint:paralleltest
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		require := require.New(t)
 		assert := assert.New(t)
@@ -132,6 +133,7 @@ func TestFileWatcher_CurrentDir(t *testing.T) {
 }
 
 func TestFileWatcher_Rename(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
@@ -172,6 +174,7 @@ func TestFileWatcher_Rename(t *testing.T) {
 }
 
 func TestFileWatcher_Symlink(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
@@ -203,6 +206,7 @@ func TestFileWatcher_Symlink(t *testing.T) {
 }
 
 func TestFileWatcher_ChangeSymlinkTarget(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
@@ -239,6 +243,7 @@ func TestFileWatcher_ChangeSymlinkTarget(t *testing.T) {
 }
 
 func TestFileWatcher_OtherSymlink(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
@@ -272,6 +277,7 @@ func TestFileWatcher_OtherSymlink(t *testing.T) {
 }
 
 func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
@@ -315,6 +321,7 @@ func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
 }
 
 func TestFileWatcher_UpdateSymlinkFolder(t *testing.T) {
+	t.Parallel()
 	// This mimics what k8s is doing with configmaps / secrets.
 	require := require.New(t)
 	assert := assert.New(t)

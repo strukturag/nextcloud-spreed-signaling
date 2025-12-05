@@ -52,7 +52,7 @@ func (tl *testListener) EtcdClientCreated(client *EtcdClient) {
 	close(tl.closed)
 }
 
-func Test_BackendStorageEtcdNoLeak(t *testing.T) {
+func Test_BackendStorageEtcdNoLeak(t *testing.T) { // nolint:paralleltest
 	logger := NewLoggerForTest(t)
 	ensureNoGoroutinesLeak(t, func(t *testing.T) {
 		etcd, client := NewEtcdClientForTest(t)

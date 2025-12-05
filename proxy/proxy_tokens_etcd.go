@@ -24,6 +24,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -59,7 +60,7 @@ func NewProxyTokensEtcd(logger signaling.Logger, config *goconf.ConfigFile) (Pro
 	}
 
 	if !client.IsConfigured() {
-		return nil, fmt.Errorf("no etcd endpoints configured")
+		return nil, errors.New("no etcd endpoints configured")
 	}
 
 	result := &tokensEtcd{

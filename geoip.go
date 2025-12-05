@@ -25,6 +25,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -40,7 +41,7 @@ import (
 )
 
 var (
-	ErrDatabaseNotInitialized = fmt.Errorf("GeoIP database not initialized yet")
+	ErrDatabaseNotInitialized = errors.New("GeoIP database not initialized yet")
 )
 
 func GetGeoIpDownloadUrl(license string) string {

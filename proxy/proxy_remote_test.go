@@ -74,6 +74,7 @@ func (c *RemoteConnection) WaitForDisconnect(ctx context.Context) error {
 }
 
 func Test_ProxyRemoteConnectionReconnect(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -101,6 +102,7 @@ func Test_ProxyRemoteConnectionReconnect(t *testing.T) {
 }
 
 func Test_ProxyRemoteConnectionReconnectUnknownSession(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -143,6 +145,7 @@ func Test_ProxyRemoteConnectionReconnectUnknownSession(t *testing.T) {
 }
 
 func Test_ProxyRemoteConnectionReconnectExpiredSession(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -178,6 +181,7 @@ func Test_ProxyRemoteConnectionReconnectExpiredSession(t *testing.T) {
 }
 
 func Test_ProxyRemoteConnectionCreatePublisher(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 

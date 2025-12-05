@@ -29,6 +29,7 @@ import (
 )
 
 func TestCloserMulti(t *testing.T) {
+	t.Parallel()
 	closer := NewCloser()
 
 	var wg sync.WaitGroup
@@ -48,6 +49,7 @@ func TestCloserMulti(t *testing.T) {
 }
 
 func TestCloserCloseBeforeWait(t *testing.T) {
+	t.Parallel()
 	closer := NewCloser()
 	closer.Close()
 	assert.True(t, closer.IsClosed())

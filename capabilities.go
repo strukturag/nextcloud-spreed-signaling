@@ -131,7 +131,7 @@ func (e *capabilitiesEntry) update(ctx context.Context, u *url.URL, now time.Tim
 		if !strings.HasSuffix(capUrl.Path, "/") {
 			capUrl.Path += "/"
 		}
-		capUrl.Path = capUrl.Path + "ocs/v2.php/cloud/capabilities"
+		capUrl.Path += "ocs/v2.php/cloud/capabilities"
 	} else if pos := strings.Index(capUrl.Path, "/ocs/v2.php/"); pos >= 0 {
 		capUrl.Path = capUrl.Path[:pos+11] + "/cloud/capabilities"
 	}

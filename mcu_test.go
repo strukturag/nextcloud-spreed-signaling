@@ -145,7 +145,7 @@ func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publi
 
 	pub := m.publishers[publisher]
 	if pub == nil {
-		return nil, fmt.Errorf("Waiting for publisher not implemented yet")
+		return nil, errors.New("Waiting for publisher not implemented yet")
 	}
 
 	id := newRandomString(8)
@@ -220,7 +220,7 @@ func (p *TestMCUPublisher) SetMedia(mt MediaType) {
 func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 	go func() {
 		if p.isClosed() {
-			callback(fmt.Errorf("Already closed"), nil)
+			callback(errors.New("Already closed"), nil)
 			return
 		}
 
@@ -276,7 +276,7 @@ func (s *TestMCUSubscriber) Publisher() PublicSessionId {
 func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
 	go func() {
 		if s.isClosed() {
-			callback(fmt.Errorf("Already closed"), nil)
+			callback(errors.New("Already closed"), nil)
 			return
 		}
 
@@ -286,7 +286,7 @@ func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageCli
 		case "sendoffer":
 			sdp := s.publisher.sdp
 			if sdp == "" {
-				callback(fmt.Errorf("Publisher not sending (no SDP)"), nil)
+				callback(errors.New("Publisher not sending (no SDP)"), nil)
 				return
 			}
 

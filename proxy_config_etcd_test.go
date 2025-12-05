@@ -54,8 +54,7 @@ func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*embed.Etcd, ProxyConfig)
 
 func SetEtcdProxy(t *testing.T, etcd *embed.Etcd, path string, proxy *TestProxyInformationEtcd) {
 	t.Helper()
-	data, err := json.Marshal(proxy)
-	require.NoError(t, err)
+	data, _ := json.Marshal(proxy)
 	SetEtcdValue(etcd, path, data)
 }
 

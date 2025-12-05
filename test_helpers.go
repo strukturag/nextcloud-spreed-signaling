@@ -23,10 +23,11 @@ package signaling
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"sync"
 	"testing"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 type testLogWriter struct {
@@ -45,30 +46,19 @@ func (w *testLogWriter) Write(b []byte) (int, error) {
 }
 
 var (
-	// +checklocks:testLoggersLock
-	testLoggers     = map[testing.TB]Logger{}
-	testLoggersLock sync.Mutex
+	testLoggers internal.TestStorage[Logger]
 )
 
 func NewLoggerForTest(t testing.TB) Logger {
 	t.Helper()
-	testLoggersLock.Lock()
-	defer testLoggersLock.Unlock()
 
-	logger, found := testLoggers[t]
+	logger, found := testLoggers.Get(t)
 	if !found {
 		logger = log.New(&testLogWriter{
 			t: t,
-		}, fmt.Sprintf("%s: ", t.Name()), log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
+		}, t.Name()+": ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
 
-		t.Cleanup(func() {
-			testLoggersLock.Lock()
-			defer testLoggersLock.Unlock()
-
-			delete(testLoggers, t)
-		})
-
-		testLoggers[t] = logger
+		testLoggers.Set(t, logger)
 	}
 	return logger
 }

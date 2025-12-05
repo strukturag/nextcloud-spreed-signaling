@@ -1,9 +1,30 @@
 version: "2"
 linters:
   enable:
+    - errchkjson
+    - exptostd
+    - gocritic
+    - misspell
+    - modernize
+    - paralleltest
+    - perfsprint
     - revive
+    - testifylint
   settings:
+    errchkjson:
+      check-error-free-encoding: true
+      report-no-exported: true
+    gocritic:
+      disabled-checks:
+        - singleCaseSwitch
+      settings:
+        ifElseChain:
+          # Min number of if-else blocks that makes the warning trigger.
+          # Default: 2
+          minThreshold: 3
     govet:
+      enable:
+        - nilness
       disable:
         - stdversion
     revive:
@@ -34,6 +55,9 @@ linters:
         - name: unreachable-code
         - name: use-any
         - name: redefines-builtin-id
+    testifylint:
+      disable:
+        - require-error
   exclusions:
     generated: lax
     presets:

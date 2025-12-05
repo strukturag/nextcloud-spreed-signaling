@@ -30,6 +30,7 @@ import (
 )
 
 func TestAllowedIps(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	a, err := ParseAllowedIps("127.0.0.1, 192.168.0.1, 192.168.1.1/24")
 	require.NoError(err)
@@ -49,6 +50,7 @@ func TestAllowedIps(t *testing.T) {
 
 	for _, addr := range allowed {
 		t.Run(addr, func(t *testing.T) {
+			t.Parallel()
 			assert := assert.New(t)
 			if ip := net.ParseIP(addr); assert.NotNil(ip, "error parsing %s", addr) {
 				assert.True(a.Allowed(ip), "should allow %s", addr)
@@ -58,6 +60,7 @@ func TestAllowedIps(t *testing.T) {
 
 	for _, addr := range notAllowed {
 		t.Run(addr, func(t *testing.T) {
+			t.Parallel()
 			assert := assert.New(t)
 			if ip := net.ParseIP(addr); assert.NotNil(ip, "error parsing %s", addr) {
 				assert.False(a.Allowed(ip), "should not allow %s", addr)

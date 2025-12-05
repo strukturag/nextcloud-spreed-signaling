@@ -152,6 +152,7 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httpte
 }
 
 func TestTokenValid(t *testing.T) {
+	t.Parallel()
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -174,6 +175,7 @@ func TestTokenValid(t *testing.T) {
 }
 
 func TestTokenNotSigned(t *testing.T) {
+	t.Parallel()
 	proxy, _, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -198,6 +200,7 @@ func TestTokenNotSigned(t *testing.T) {
 }
 
 func TestTokenUnknown(t *testing.T) {
+	t.Parallel()
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -222,6 +225,7 @@ func TestTokenUnknown(t *testing.T) {
 }
 
 func TestTokenInFuture(t *testing.T) {
+	t.Parallel()
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -246,6 +250,7 @@ func TestTokenInFuture(t *testing.T) {
 }
 
 func TestTokenExpired(t *testing.T) {
+	t.Parallel()
 	proxy, key, _ := newProxyServerForTest(t)
 
 	claims := &signaling.TokenClaims{
@@ -270,6 +275,7 @@ func TestTokenExpired(t *testing.T) {
 }
 
 func TestPublicIPs(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	public := []string{
 		"8.8.8.8",
@@ -302,6 +308,7 @@ func TestPublicIPs(t *testing.T) {
 }
 
 func TestWebsocketFeatures(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	_, _, server := newProxyServerForTest(t)
 
@@ -329,6 +336,7 @@ func TestWebsocketFeatures(t *testing.T) {
 }
 
 func TestProxyCreateSession(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	_, key, server := newProxyServerForTest(t)
@@ -480,6 +488,7 @@ func NewPublisherTestMCU(t *testing.T) *PublisherTestMCU {
 }
 
 func TestProxyPublisherBandwidth(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -528,10 +537,10 @@ func TestProxyPublisherBandwidth(t *testing.T) {
 			assert.EqualValues(1, message.Event.Load)
 			if bw := message.Event.Bandwidth; assert.NotNil(bw) {
 				if assert.NotNil(bw.Incoming) {
-					assert.EqualValues(20, *bw.Incoming)
+					assert.InEpsilon(20, *bw.Incoming, 0.0001)
 				}
 				if assert.NotNil(bw.Outgoing) {
-					assert.EqualValues(10, *bw.Outgoing)
+					assert.InEpsilon(10, *bw.Outgoing, 0.0001)
 				}
 			}
 		}
@@ -599,6 +608,7 @@ func (m *HangingTestMCU) NewSubscriber(ctx context.Context, listener signaling.M
 }
 
 func TestProxyCancelOnClose(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -677,6 +687,7 @@ func (m *CodecsTestMCU) NewPublisher(ctx context.Context, listener signaling.Mcu
 }
 
 func TestProxyCodecs(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -759,6 +770,7 @@ func NewStreamTestMCU(t *testing.T, streams []signaling.PublisherStream) *Stream
 }
 
 func TestProxyStreams(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -881,7 +893,7 @@ func (p *TestRemotePublisher) MaxBitrate() api.Bandwidth {
 }
 
 func (p *TestRemotePublisher) Close(ctx context.Context) {
-	if count := p.refcnt.Add(-1); assert.True(p.t, count >= 0) && count == 0 {
+	if count := p.refcnt.Add(-1); assert.GreaterOrEqual(p.t, int(count), 0) && count == 0 {
 		p.closeFunc()
 		shortCtx, cancel := context.WithTimeout(ctx, time.Millisecond)
 		defer cancel()
@@ -983,6 +995,7 @@ func (m *RemoteSubscriberTestMCU) NewRemoteSubscriber(ctx context.Context, liste
 }
 
 func TestProxyRemoteSubscriber(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -1077,6 +1090,7 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 }
 
 func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -1230,8 +1244,8 @@ func (p *UnpublishRemoteTestPublisher) UnpublishRemote(ctx context.Context, remo
 	assert.Equal(p.t, remoteId, p.remoteId)
 	if remoteData := p.remoteData; assert.NotNil(p.t, remoteData) &&
 		assert.Equal(p.t, remoteData.hostname, hostname) &&
-		assert.EqualValues(p.t, remoteData.port, port) &&
-		assert.EqualValues(p.t, remoteData.rtcpPort, rtcpPort) {
+		assert.Equal(p.t, remoteData.port, port) &&
+		assert.Equal(p.t, remoteData.rtcpPort, rtcpPort) {
 		p.remoteId = ""
 		p.remoteData = nil
 	}
@@ -1239,6 +1253,7 @@ func (p *UnpublishRemoteTestPublisher) UnpublishRemote(ctx context.Context, remo
 }
 
 func TestProxyUnpublishRemote(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -1323,8 +1338,8 @@ func TestProxyUnpublishRemote(t *testing.T) {
 		assert.Equal(hello2.Hello.SessionId, publisher.getRemoteId())
 		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
 			assert.Equal("remote-host", remoteData.hostname)
-			assert.EqualValues(10001, remoteData.port)
-			assert.EqualValues(10002, remoteData.rtcpPort)
+			assert.Equal(10001, remoteData.port)
+			assert.Equal(10002, remoteData.rtcpPort)
 		}
 	}
 
@@ -1355,6 +1370,7 @@ func TestProxyUnpublishRemote(t *testing.T) {
 }
 
 func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -1439,8 +1455,8 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 		assert.Equal(hello2.Hello.SessionId, publisher.getRemoteId())
 		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
 			assert.Equal("remote-host", remoteData.hostname)
-			assert.EqualValues(10001, remoteData.port)
-			assert.EqualValues(10002, remoteData.rtcpPort)
+			assert.Equal(10001, remoteData.port)
+			assert.Equal(10002, remoteData.rtcpPort)
 		}
 	}
 
@@ -1465,8 +1481,8 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 		assert.Equal(hello2.Hello.SessionId, publisher.getRemoteId())
 		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
 			assert.Equal("remote-host", remoteData.hostname)
-			assert.EqualValues(10001, remoteData.port)
-			assert.EqualValues(10002, remoteData.rtcpPort)
+			assert.Equal(10001, remoteData.port)
+			assert.Equal(10002, remoteData.rtcpPort)
 		}
 	}
 
@@ -1486,6 +1502,7 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 }
 
 func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	proxy, key, server := newProxyServerForTest(t)
@@ -1570,8 +1587,8 @@ func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
 		assert.Equal(hello2.Hello.SessionId, publisher.getRemoteId())
 		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
 			assert.Equal("remote-host", remoteData.hostname)
-			assert.EqualValues(10001, remoteData.port)
-			assert.EqualValues(10002, remoteData.rtcpPort)
+			assert.Equal(10001, remoteData.port)
+			assert.Equal(10002, remoteData.rtcpPort)
 		}
 	}
 

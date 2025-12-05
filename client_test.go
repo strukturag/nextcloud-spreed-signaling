@@ -29,6 +29,7 @@ import (
 )
 
 func TestCounterWriter(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 
 	var b bytes.Buffer
@@ -37,10 +38,10 @@ func TestCounterWriter(t *testing.T) {
 		w:       &b,
 		counter: &written,
 	}
-	if count, err := w.Write(nil); assert.NoError(err) && assert.EqualValues(0, count) {
-		assert.EqualValues(0, written)
+	if count, err := w.Write(nil); assert.NoError(err) && assert.Equal(0, count) {
+		assert.Equal(0, written)
 	}
-	if count, err := w.Write([]byte("foo")); assert.NoError(err) && assert.EqualValues(3, count) {
-		assert.EqualValues(3, written)
+	if count, err := w.Write([]byte("foo")); assert.NoError(err) && assert.Equal(3, count) {
+		assert.Equal(3, written)
 	}
 }

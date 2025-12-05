@@ -49,7 +49,7 @@ var (
 	testBackendSecret  = []byte("secret")
 	testInternalSecret = []byte("internal-secret")
 
-	ErrNoMessageReceived = fmt.Errorf("no message was received by the server")
+	ErrNoMessageReceived = errors.New("no message was received by the server")
 
 	testClientDialer = websocket.Dialer{
 		WriteBufferPool: &sync.Pool{},
@@ -337,7 +337,7 @@ func (c *TestClient) WaitForClientRemoved(ctx context.Context) error {
 func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId PublicSessionId) error {
 	data := c.hub.decodePublicSessionId(sessionId)
 	if data == nil {
-		return fmt.Errorf("Invalid session id passed")
+		return errors.New("Invalid session id passed")
 	}
 
 	c.hub.mu.Lock()
@@ -1110,7 +1110,7 @@ func checkMessageTransientInitial(t *testing.T, message *ServerMessage, data api
 	assert := assert.New(t)
 	return checkMessageType(t, message, "transient") &&
 		assert.Equal("initial", message.TransientData.Type, "invalid message type in %+v", message) &&
-		assert.EqualValues(data, message.TransientData.Data, "invalid initial data in %+v", message)
+		assert.Equal(data, message.TransientData.Data, "invalid initial data in %+v", message)
 }
 
 func checkMessageInCallAll(t *testing.T, message *ServerMessage, roomId string, inCall int) bool {

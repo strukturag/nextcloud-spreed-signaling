@@ -28,6 +28,7 @@ import (
 )
 
 func TestIsLoopbackIP(t *testing.T) {
+	t.Parallel()
 	loopback := []string{
 		"127.0.0.1",
 		"127.1.0.1",
@@ -51,6 +52,7 @@ func TestIsLoopbackIP(t *testing.T) {
 }
 
 func TestIsPrivateIP(t *testing.T) {
+	t.Parallel()
 	private := []string{
 		"10.1.2.3",
 		"172.20.21.22",

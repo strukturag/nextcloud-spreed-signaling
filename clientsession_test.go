@@ -84,24 +84,6 @@ func TestBandwidth_Client(t *testing.T) {
 
 func TestBandwidth_Backend(t *testing.T) {
 	t.Parallel()
-	hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
-
-	u, err := url.Parse(server.URL + "/one")
-	require.NoError(t, err)
-	backend := hub.backend.GetBackend(u)
-	require.NotNil(t, backend, "Could not get backend")
-
-	backend.maxScreenBitrate = 1000
-	backend.maxStreamBitrate = 2000
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-
-	mcu := NewTestMCU(t)
-	require.NoError(t, mcu.Start(ctx))
-	defer mcu.Stop()
-
-	hub.SetMcu(mcu)
 
 	streamTypes := []StreamType{
 		StreamTypeVideo,
@@ -110,8 +92,29 @@ func TestBandwidth_Backend(t *testing.T) {
 
 	for _, streamType := range streamTypes {
 		t.Run(string(streamType), func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			assert := assert.New(t)
+
+			hub, _, _, server := CreateHubWithMultipleBackendsForTest(t)
+
+			u, err := url.Parse(server.URL + "/one")
+			require.NoError(err)
+			backend := hub.backend.GetBackend(u)
+			require.NotNil(backend, "Could not get backend")
+
+			backend.maxScreenBitrate = 1000
+			backend.maxStreamBitrate = 2000
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			mcu := NewTestMCU(t)
+			require.NoError(mcu.Start(ctx))
+			defer mcu.Stop()
+
+			hub.SetMcu(mcu)
+
 			client := NewTestClient(t, server, hub)
 			defer client.CloseWithBye()
 
@@ -243,13 +246,16 @@ func TestFeatureChatRelay(t *testing.T) {
 		}
 	}
 
-	t.Run("without-chat-relay", testFunc(false))
-	t.Run("with-chat-relay", testFunc(true))
+	t.Run("without-chat-relay", testFunc(false)) // nolint:paralleltest
+	t.Run("with-chat-relay", testFunc(true))     // nolint:paralleltest
 }
 
 func TestFeatureChatRelayFederation(t *testing.T) {
+	t.Parallel()
+
 	var testFunc = func(feature bool) func(t *testing.T) {
 		return func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 			assert := assert.New(t)
 
@@ -452,8 +458,8 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 		}
 	}
 
-	t.Run("without-chat-relay", testFunc(false))
-	t.Run("with-chat-relay", testFunc(true))
+	t.Run("without-chat-relay", testFunc(false)) // nolint:paralleltest
+	t.Run("with-chat-relay", testFunc(true))     // nolint:paralleltest
 }
 
 func TestPermissionHideDisplayNames(t *testing.T) {
@@ -566,6 +572,6 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 		}
 	}
 
-	t.Run("without-hide-displaynames", testFunc(false))
-	t.Run("with-hide-displaynames", testFunc(true))
+	t.Run("without-hide-displaynames", testFunc(false)) // nolint:paralleltest
+	t.Run("with-hide-displaynames", testFunc(true))     // nolint:paralleltest
 }

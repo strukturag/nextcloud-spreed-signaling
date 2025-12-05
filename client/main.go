@@ -531,7 +531,7 @@ func main() {
 	if *memprofile != "" {
 		f, err := os.Create(*memprofile)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal(err) // nolint (defer pprof.StopCPUProfile() will not run which is ok in case of errors)
 		}
 
 		defer func() {

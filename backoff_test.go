@@ -31,6 +31,7 @@ import (
 )
 
 func TestBackoff_Exponential(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		minWait := 100 * time.Millisecond

@@ -23,6 +23,7 @@ package signaling
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -62,10 +63,10 @@ func (m *ProxyClientMessage) String() string {
 func (m *ProxyClientMessage) CheckValid() error {
 	switch m.Type {
 	case "":
-		return fmt.Errorf("type missing")
+		return errors.New("type missing")
 	case "hello":
 		if m.Hello == nil {
-			return fmt.Errorf("hello missing")
+			return errors.New("hello missing")
 		} else if err := m.Hello.CheckValid(); err != nil {
 			return err
 		}
@@ -78,13 +79,13 @@ func (m *ProxyClientMessage) CheckValid() error {
 		}
 	case "command":
 		if m.Command == nil {
-			return fmt.Errorf("command missing")
+			return errors.New("command missing")
 		} else if err := m.Command.CheckValid(); err != nil {
 			return err
 		}
 	case "payload":
 		if m.Payload == nil {
-			return fmt.Errorf("payload missing")
+			return errors.New("payload missing")
 		} else if err := m.Payload.CheckValid(); err != nil {
 			return err
 		}
@@ -166,7 +167,7 @@ func (m *HelloProxyClientMessage) CheckValid() error {
 	}
 	if m.ResumeId == "" {
 		if m.Token == "" {
-			return fmt.Errorf("token missing")
+			return errors.New("token missing")
 		}
 	}
 	return nil
@@ -232,21 +233,21 @@ type CommandProxyClientMessage struct {
 func (m *CommandProxyClientMessage) CheckValid() error {
 	switch m.Type {
 	case "":
-		return fmt.Errorf("type missing")
+		return errors.New("type missing")
 	case "create-publisher":
 		if m.StreamType == "" {
-			return fmt.Errorf("stream type missing")
+			return errors.New("stream type missing")
 		}
 	case "create-subscriber":
 		if m.PublisherId == "" {
-			return fmt.Errorf("publisher id missing")
+			return errors.New("publisher id missing")
 		}
 		if m.StreamType == "" {
-			return fmt.Errorf("stream type missing")
+			return errors.New("stream type missing")
 		}
 		if m.RemoteUrl != "" {
 			if m.RemoteToken == "" {
-				return fmt.Errorf("remote token missing")
+				return errors.New("remote token missing")
 			}
 
 			remoteUrl, err := url.Parse(m.RemoteUrl)
@@ -259,7 +260,7 @@ func (m *CommandProxyClientMessage) CheckValid() error {
 		fallthrough
 	case "delete-subscriber":
 		if m.ClientId == "" {
-			return fmt.Errorf("client id missing")
+			return errors.New("client id missing")
 		}
 	}
 	return nil
@@ -287,14 +288,14 @@ type PayloadProxyClientMessage struct {
 func (m *PayloadProxyClientMessage) CheckValid() error {
 	switch m.Type {
 	case "":
-		return fmt.Errorf("type missing")
+		return errors.New("type missing")
 	case "offer":
 		fallthrough
 	case "answer":
 		fallthrough
 	case "candidate":
 		if len(m.Payload) == 0 {
-			return fmt.Errorf("payload missing")
+			return errors.New("payload missing")
 		}
 	case "endOfCandidates":
 		fallthrough
@@ -302,7 +303,7 @@ func (m *PayloadProxyClientMessage) CheckValid() error {
 		// No payload required.
 	}
 	if m.ClientId == "" {
-		return fmt.Errorf("client id missing")
+		return errors.New("client id missing")
 	}
 	return nil
 }
@@ -329,13 +330,14 @@ type EventProxyServerBandwidth struct {
 }
 
 func (b *EventProxyServerBandwidth) String() string {
-	if b.Incoming != nil && b.Outgoing != nil {
+	switch {
+	case b.Incoming != nil && b.Outgoing != nil:
 		return fmt.Sprintf("bandwidth: incoming=%.3f%%, outgoing=%.3f%%", *b.Incoming, *b.Outgoing)
-	} else if b.Incoming != nil {
+	case b.Incoming != nil:
 		return fmt.Sprintf("bandwidth: incoming=%.3f%%, outgoing=unlimited", *b.Incoming)
-	} else if b.Outgoing != nil {
+	case b.Outgoing != nil:
 		return fmt.Sprintf("bandwidth: incoming=unlimited, outgoing=%.3f%%", *b.Outgoing)
-	} else {
+	default:
 		return "bandwidth: incoming=unlimited, outgoing=unlimited"
 	}
 }
@@ -366,7 +368,7 @@ type ProxyInformationEtcd struct {
 
 func (p *ProxyInformationEtcd) CheckValid() error {
 	if p.Address == "" {
-		return fmt.Errorf("address missing")
+		return errors.New("address missing")
 	}
 	if p.Address[len(p.Address)-1] != '/' {
 		p.Address += "/"

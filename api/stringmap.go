@@ -68,10 +68,10 @@ func GetStringMapString[T ~string](m StringMap, key string) (T, bool) {
 	}
 
 	switch v := v.(type) {
-	case T:
-		return v, true
 	case string:
 		return T(v), true
+	case T:
+		return v, true
 	default:
 		return defaultValue, false
 	}

@@ -25,7 +25,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync/atomic"
 	"time"
 )
@@ -90,7 +89,7 @@ func (s *RemoteSession) OnProxyMessage(msg *ServerSessionMessage) error {
 	}
 
 	if !s.client.SendMessage(message) {
-		return fmt.Errorf("could not send message to client")
+		return errors.New("could not send message to client")
 	}
 
 	return nil

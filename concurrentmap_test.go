@@ -30,6 +30,7 @@ import (
 )
 
 func TestConcurrentStringStringMap(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	var m ConcurrentMap[string, string]
 	assert.Equal(0, m.Len())
@@ -83,7 +84,7 @@ func TestConcurrentStringStringMap(t *testing.T) {
 
 			key := "key-" + strconv.Itoa(x)
 			rnd := newRandomString(32)
-			for y := 0; y < count; y = y + 1 {
+			for y := range count {
 				value := rnd + "-" + strconv.Itoa(y)
 				m.Set(key, value)
 				if v, found := m.Get(key); !found {

@@ -34,6 +34,7 @@ import (
 )
 
 func TestGetFmtpValueH264(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	testcases := []struct {
 		fmtp    string
@@ -70,6 +71,7 @@ func TestGetFmtpValueH264(t *testing.T) {
 }
 
 func TestGetFmtpValueVP9(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	testcases := []struct {
 		fmtp    string
@@ -120,10 +122,10 @@ func TestJanusPublisherRemote(t *testing.T) {
 				assert.Equal(hostname, value)
 			}
 			if value, found := api.GetStringMapEntry[float64](body, "port"); assert.True(found) {
-				assert.EqualValues(port, value)
+				assert.InEpsilon(port, value, 0.0001)
 			}
 			if value, found := api.GetStringMapEntry[float64](body, "rtcp_port"); assert.True(found) {
-				assert.EqualValues(rtcpPort, value)
+				assert.InEpsilon(rtcpPort, value, 0.0001)
 			}
 			if value, found := api.GetStringMapString[string](body, "remote_id"); assert.True(found) {
 				prev := remotePublishId.Swap(value)

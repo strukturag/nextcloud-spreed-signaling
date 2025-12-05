@@ -319,7 +319,8 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 			continue
 		}
 
-		if strings.EqualFold(s.Type, "audio") {
+		switch {
+		case strings.EqualFold(s.Type, "audio"):
 			s.Codec = answerCodec.Name
 			if value, found := getFmtpValue(answerCodec.Fmtp, "useinbandfec"); found && value == "1" {
 				s.Fec = true
@@ -330,7 +331,7 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 			if value, found := getFmtpValue(answerCodec.Fmtp, "stereo"); found && value == "1" {
 				s.Stereo = true
 			}
-		} else if strings.EqualFold(s.Type, "video") {
+		case strings.EqualFold(s.Type, "video"):
 			s.Codec = answerCodec.Name
 			// TODO: Determine if SVC is used.
 			s.Svc = false
@@ -384,9 +385,9 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 				}
 			}
 
-		} else if strings.EqualFold(s.Type, "data") { // nolint
+		case strings.EqualFold(s.Type, "data"):
 			// Already handled above.
-		} else {
+		default:
 			p.logger.Printf("Skip type %s", s.Type)
 			continue
 		}

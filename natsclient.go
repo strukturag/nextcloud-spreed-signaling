@@ -25,7 +25,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/url"
 	"os"
 	"os/signal"
@@ -105,7 +105,7 @@ func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (Nat
 		logger.Printf("Could not create connection (%s), will retry in %s", err, backoff.NextWait())
 		backoff.Wait(ctx)
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("interrupted")
+			return nil, errors.New("interrupted")
 		}
 
 		client.conn, err = nats.Connect(url)

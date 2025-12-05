@@ -23,11 +23,11 @@ package signaling
 
 import (
 	"context"
-	"fmt"
+	"errors"
 )
 
 var (
-	ErrNoSuchRoomSession = fmt.Errorf("unknown room session id")
+	ErrNoSuchRoomSession = errors.New("unknown room session id")
 )
 
 type RoomSessions interface {

@@ -37,6 +37,7 @@ import (
 func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, invalid_urls []string) {
 	for _, u := range valid_urls {
 		t.Run(u, func(t *testing.T) {
+			t.Parallel()
 			assert := assert.New(t)
 			parsed, err := url.ParseRequestURI(u)
 			if !assert.NoError(err, "The url %s should be valid", u) {
@@ -49,6 +50,7 @@ func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, i
 	}
 	for _, u := range invalid_urls {
 		t.Run(u, func(t *testing.T) {
+			t.Parallel()
 			assert := assert.New(t)
 			parsed, _ := url.ParseRequestURI(u)
 			assert.False(config.IsUrlAllowed(parsed), "The url %s should not be allowed", u)
@@ -59,6 +61,7 @@ func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, i
 func testBackends(t *testing.T, config *BackendConfiguration, valid_urls [][]string, invalid_urls []string) {
 	for _, entry := range valid_urls {
 		t.Run(entry[0], func(t *testing.T) {
+			t.Parallel()
 			assert := assert.New(t)
 			u := entry[0]
 			parsed, err := url.ParseRequestURI(u)
@@ -73,6 +76,7 @@ func testBackends(t *testing.T, config *BackendConfiguration, valid_urls [][]str
 	}
 	for _, u := range invalid_urls {
 		t.Run(u, func(t *testing.T) {
+			t.Parallel()
 			assert := assert.New(t)
 			parsed, _ := url.ParseRequestURI(u)
 			assert.False(config.IsUrlAllowed(parsed), "The url %s should not be allowed", u)
@@ -81,6 +85,7 @@ func testBackends(t *testing.T, config *BackendConfiguration, valid_urls [][]str
 }
 
 func TestIsUrlAllowed_Compat(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	// Old-style configuration
 	valid_urls := []string{
@@ -102,6 +107,7 @@ func TestIsUrlAllowed_Compat(t *testing.T) {
 }
 
 func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	// Old-style configuration, force HTTPS
 	valid_urls := []string{
@@ -122,6 +128,7 @@ func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
 }
 
 func TestIsUrlAllowed(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	valid_urls := [][]string{
 		{"https://domain.invalid/foo", string(testBackendSecret) + "-foo"},
@@ -166,6 +173,7 @@ func TestIsUrlAllowed(t *testing.T) {
 }
 
 func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	valid_urls := []string{}
 	invalid_urls := []string{
@@ -182,6 +190,7 @@ func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
 }
 
 func TestIsUrlAllowed_AllowAll(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	valid_urls := []string{
 		"http://domain.invalid",
@@ -206,6 +215,7 @@ type ParseBackendIdsTestcase struct {
 }
 
 func TestParseBackendIds(t *testing.T) {
+	t.Parallel()
 	testcases := []ParseBackendIdsTestcase{
 		{"", nil},
 		{"backend1", []string{"backend1"}},
@@ -223,7 +233,7 @@ func TestParseBackendIds(t *testing.T) {
 	}
 }
 
-func TestBackendReloadNoChange(t *testing.T) {
+func TestBackendReloadNoChange(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsBackendsCurrent)
 
 	logger := NewLoggerForTest(t)
@@ -257,7 +267,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 	}
 }
 
-func TestBackendReloadChangeExistingURL(t *testing.T) {
+func TestBackendReloadChangeExistingURL(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsBackendsCurrent)
 
 	logger := NewLoggerForTest(t)
@@ -296,7 +306,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 	}
 }
 
-func TestBackendReloadChangeSecret(t *testing.T) {
+func TestBackendReloadChangeSecret(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsBackendsCurrent)
 
 	logger := NewLoggerForTest(t)
@@ -331,7 +341,7 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 	assert.Equal(t, n_cfg, o_cfg, "BackendConfiguration should be equal after Reload")
 }
 
-func TestBackendReloadAddBackend(t *testing.T) {
+func TestBackendReloadAddBackend(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsBackendsCurrent)
 
 	logger := NewLoggerForTest(t)
@@ -370,7 +380,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	}
 }
 
-func TestBackendReloadRemoveHost(t *testing.T) {
+func TestBackendReloadRemoveHost(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsBackendsCurrent)
 
 	logger := NewLoggerForTest(t)
@@ -406,7 +416,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 	}
 }
 
-func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
+func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsBackendsCurrent)
 
 	logger := NewLoggerForTest(t)
@@ -458,7 +468,7 @@ func mustParse(s string) *url.URL {
 	return p
 }
 
-func TestBackendConfiguration_EtcdCompat(t *testing.T) {
+func TestBackendConfiguration_EtcdCompat(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsBackendsCurrent)
 
 	logger := NewLoggerForTest(t)
@@ -619,7 +629,7 @@ func TestBackendCommonSecret(t *testing.T) {
 	}
 }
 
-func TestBackendChangeUrls(t *testing.T) {
+func TestBackendChangeUrls(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsBackendsCurrent)
 
 	logger := NewLoggerForTest(t)
@@ -710,7 +720,7 @@ func TestBackendChangeUrls(t *testing.T) {
 	assert.Nil(b1)
 }
 
-func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
+func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsBackendsCurrent)
 
 	logger := NewLoggerForTest(t)

@@ -67,6 +67,7 @@ func expectDelay(t *testing.T, f func(), delay time.Duration) {
 }
 
 func TestThrottler(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
@@ -101,6 +102,7 @@ func TestThrottler(t *testing.T) {
 }
 
 func TestThrottlerIPv6(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
@@ -138,6 +140,7 @@ func TestThrottlerIPv6(t *testing.T) {
 }
 
 func TestThrottler_Bruteforce(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
@@ -164,6 +167,7 @@ func TestThrottler_Bruteforce(t *testing.T) {
 }
 
 func TestThrottler_Cleanup(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		throttler := newMemoryThrottlerForTest(t)
@@ -220,6 +224,7 @@ func TestThrottler_Cleanup(t *testing.T) {
 }
 
 func TestThrottler_ExpirePartial(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
@@ -252,6 +257,7 @@ func TestThrottler_ExpirePartial(t *testing.T) {
 }
 
 func TestThrottler_ExpireAll(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
@@ -284,6 +290,7 @@ func TestThrottler_ExpireAll(t *testing.T) {
 }
 
 func TestThrottler_Negative(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)

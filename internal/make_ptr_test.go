@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2019 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,18 +19,23 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package internal
 
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestBuiltinRoomSessions(t *testing.T) {
+func Test_MakePtr(t *testing.T) {
 	t.Parallel()
-	sessions, err := NewBuiltinRoomSessions(nil)
-	require.NoError(t, err)
+	assert := assert.New(t)
 
-	testRoomSessions(t, sessions)
+	if v := MakePtr(10); assert.NotNil(v) {
+		assert.Equal(10, *v)
+	}
+
+	if v := MakePtr("foo"); assert.NotNil(v) {
+		assert.Equal("foo", *v)
+	}
 }

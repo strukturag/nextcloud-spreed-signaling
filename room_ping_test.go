@@ -58,6 +58,7 @@ func NewRoomPingForTest(ctx context.Context, t *testing.T) (*url.URL, *RoomPing)
 }
 
 func TestSingleRoomPing(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
@@ -101,6 +102,7 @@ func TestSingleRoomPing(t *testing.T) {
 }
 
 func TestMultiRoomPing(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
@@ -140,6 +142,7 @@ func TestMultiRoomPing(t *testing.T) {
 }
 
 func TestMultiRoomPing_Separate(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
@@ -175,6 +178,7 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 }
 
 func TestMultiRoomPing_DeleteRoom(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)

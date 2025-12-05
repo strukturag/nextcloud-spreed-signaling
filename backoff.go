@@ -23,7 +23,7 @@ package signaling
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 )
 
@@ -41,10 +41,10 @@ type exponentialBackoff struct {
 
 func NewExponentialBackoff(initial time.Duration, maxWait time.Duration) (Backoff, error) {
 	if initial <= 0 {
-		return nil, fmt.Errorf("initial must be larger than 0")
+		return nil, errors.New("initial must be larger than 0")
 	}
 	if maxWait < initial {
-		return nil, fmt.Errorf("maxWait must be larger or equal to initial")
+		return nil, errors.New("maxWait must be larger or equal to initial")
 	}
 
 	return &exponentialBackoff{

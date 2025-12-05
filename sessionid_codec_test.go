@@ -30,6 +30,7 @@ import (
 )
 
 func TestReverseSessionId(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
@@ -127,6 +128,7 @@ func Benchmark_DecodePublicSessionId(b *testing.B) {
 }
 
 func TestPublicPrivate(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 	sd := &SessionIdData{

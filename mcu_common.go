@@ -23,7 +23,7 @@ package signaling
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"sync/atomic"
 	"time"
 
@@ -43,7 +43,7 @@ var (
 	defaultMaxStreamBitrate = api.BandwidthFromMegabits(1)
 	defaultMaxScreenBitrate = api.BandwidthFromMegabits(2)
 
-	ErrNotConnected = fmt.Errorf("not connected")
+	ErrNotConnected = errors.New("not connected")
 )
 
 type MediaType int

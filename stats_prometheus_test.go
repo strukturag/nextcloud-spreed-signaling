@@ -54,7 +54,7 @@ func assertCollectorChangeBy(t *testing.T, collector prometheus.Collector, delta
 		t.Helper()
 
 		after := testutil.ToFloat64(collector)
-		assert.EqualValues(t, delta, after-before, "failed for %s", desc)
+		assert.InEpsilon(t, delta, after-before, 0.0001, "failed for %s", desc)
 	})
 }
 
@@ -71,24 +71,24 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 		pc := make([]uintptr, 10)
 		n := runtime.Callers(2, pc)
 		if n == 0 {
-			assert.EqualValues(value, v, "failed for %s", desc)
+			assert.InEpsilon(value, v, 0.0001, "failed for %s", desc)
 			return
 		}
 
 		pc = pc[:n]
 		frames := runtime.CallersFrames(pc)
-		stack := ""
+		var stack strings.Builder
 		for {
 			frame, more := frames.Next()
 			if !strings.Contains(frame.File, "nextcloud-spreed-signaling") {
 				break
 			}
-			stack += fmt.Sprintf("%s:%d\n", frame.File, frame.Line)
+			fmt.Fprintf(&stack, "%s:%d\n", frame.File, frame.Line)
 			if !more {
 				break
 			}
 		}
-		assert.EqualValues(value, v, "Unexpected value for %s at\n%s", desc, stack)
+		assert.InEpsilon(value, v, 0.0001, "Unexpected value for %s at\n%s", desc, stack.String())
 	}
 }
 

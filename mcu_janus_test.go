@@ -40,6 +40,7 @@ import (
 )
 
 func TestMcuJanusStats(t *testing.T) {
+	t.Parallel()
 	collectAndLint(t, janusMcuStats...)
 }
 
@@ -103,11 +104,11 @@ func NewTestJanusGateway(t *testing.T) *TestJanusGateway {
 		assert := assert.New(t)
 		gateway.mu.Lock()
 		defer gateway.mu.Unlock()
-		assert.Len(gateway.sessions, 0)
-		assert.Len(gateway.transactions, 0)
-		assert.Len(gateway.handles, 0)
-		assert.Len(gateway.rooms, 0)
-		assert.Len(gateway.handleRooms, 0)
+		assert.Empty(gateway.sessions)
+		assert.Empty(gateway.transactions)
+		assert.Empty(gateway.handles)
+		assert.Empty(gateway.rooms)
+		assert.Empty(gateway.handleRooms)
 	})
 
 	return gateway
@@ -351,7 +352,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 			}
 		}
 
-		assert.EqualValues(g.t, room.id, uint64(rid))
+		assert.Equal(g.t, room.id, uint64(rid))
 		delete(g.rooms, uint64(rid))
 		for h, r := range g.handleRooms {
 			if r.id == room.id {
@@ -979,7 +980,7 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 				stream := streams[0]
 				assert.Equal("audio", stream.Type)
 				assert.Equal("audio", stream.Mid)
-				assert.EqualValues(0, stream.Mindex)
+				assert.Equal(0, stream.Mindex)
 				assert.False(stream.Disabled)
 				assert.Equal("opus", stream.Codec)
 				assert.False(stream.Stereo)
@@ -1061,7 +1062,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 				stream := streams[0]
 				assert.Equal("audio", stream.Type)
 				assert.Equal("audio", stream.Mid)
-				assert.EqualValues(0, stream.Mindex)
+				assert.Equal(0, stream.Mindex)
 				assert.False(stream.Disabled)
 				assert.Equal("opus", stream.Codec)
 				assert.False(stream.Stereo)
@@ -1071,7 +1072,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 				stream = streams[1]
 				assert.Equal("video", stream.Type)
 				assert.Equal("video", stream.Mid)
-				assert.EqualValues(1, stream.Mindex)
+				assert.Equal(1, stream.Mindex)
 				assert.False(stream.Disabled)
 				assert.Equal("H264", stream.Codec)
 				assert.Equal("4d0028", stream.ProfileH264)
@@ -1080,7 +1081,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	}
 }
 
-func Test_JanusPublisherSubscriber(t *testing.T) {
+func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"))
 	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"))
 
@@ -1120,12 +1121,12 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	assert.Nil(janusPub.Bandwidth())
 	mcu.UpdateBandwidth(janusPub.Handle(), "video", api.BandwidthFromBytes(1000), api.BandwidthFromBytes(2000))
 	if bw := janusPub.Bandwidth(); assert.NotNil(bw) {
-		assert.EqualValues(api.BandwidthFromBytes(1000), bw.Sent)
-		assert.EqualValues(api.BandwidthFromBytes(2000), bw.Received)
+		assert.Equal(api.BandwidthFromBytes(1000), bw.Sent)
+		assert.Equal(api.BandwidthFromBytes(2000), bw.Received)
 	}
 	if bw := mcu.Bandwidth(); assert.NotNil(bw) {
-		assert.EqualValues(api.BandwidthFromBytes(1000), bw.Sent)
-		assert.EqualValues(api.BandwidthFromBytes(2000), bw.Received)
+		assert.Equal(api.BandwidthFromBytes(1000), bw.Sent)
+		assert.Equal(api.BandwidthFromBytes(2000), bw.Received)
 	}
 	mcu.updateBandwidthStats()
 	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
@@ -1148,12 +1149,12 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	assert.Nil(janusSub.Bandwidth())
 	mcu.UpdateBandwidth(janusSub.Handle(), "video", api.BandwidthFromBytes(3000), api.BandwidthFromBytes(4000))
 	if bw := janusSub.Bandwidth(); assert.NotNil(bw) {
-		assert.EqualValues(api.BandwidthFromBytes(3000), bw.Sent)
-		assert.EqualValues(api.BandwidthFromBytes(4000), bw.Received)
+		assert.Equal(api.BandwidthFromBytes(3000), bw.Sent)
+		assert.Equal(api.BandwidthFromBytes(4000), bw.Received)
 	}
 	if bw := mcu.Bandwidth(); assert.NotNil(bw) {
-		assert.EqualValues(api.BandwidthFromBytes(4000), bw.Sent)
-		assert.EqualValues(api.BandwidthFromBytes(6000), bw.Received)
+		assert.Equal(api.BandwidthFromBytes(4000), bw.Sent)
+		assert.Equal(api.BandwidthFromBytes(6000), bw.Received)
 	}
 	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
 	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 1000)
@@ -1165,6 +1166,7 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 func Test_JanusSubscriberPublisher(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
+	assert := assert.New(t)
 
 	mcu, gateway := newMcuJanusForTesting(t)
 	gateway.registerHandlers(map[string]TestJanusHandler{})
@@ -1189,7 +1191,10 @@ func Test_JanusSubscriberPublisher(t *testing.T) {
 		defer close(done)
 		time.Sleep(100 * time.Millisecond)
 		pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", StreamTypeVideo, settings1, initiator1)
-		require.NoError(err)
+		if !assert.NoError(err) {
+			return
+		}
+
 		defer func() {
 			<-ready
 			pub.Close(context.Background())
@@ -1270,7 +1275,9 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 				"sdp": MockSdpOfferAudioAndVideo,
 			},
 		}
-		require.NoError(data.CheckValid())
+		if !assert.NoError(data.CheckValid()) {
+			return
+		}
 
 		done := make(chan struct{})
 		pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
@@ -1395,7 +1402,7 @@ func Test_JanusRemotePublisher(t *testing.T) {
 	assert.EqualValues(1, removed.Load())
 }
 
-func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
+func Test_JanusSubscriberNoSuchRoom(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1494,7 +1501,7 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
-func test_JanusSubscriberAlreadyJoined(t *testing.T) {
+func test_JanusSubscriberAlreadyJoined(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1595,15 +1602,15 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
-func Test_JanusSubscriberAlreadyJoined(t *testing.T) {
+func Test_JanusSubscriberAlreadyJoined(t *testing.T) { // nolint:paralleltest
 	test_JanusSubscriberAlreadyJoined(t)
 }
 
-func Test_JanusSubscriberAlreadyJoinedAttachError(t *testing.T) {
+func Test_JanusSubscriberAlreadyJoinedAttachError(t *testing.T) { // nolint:paralleltest
 	test_JanusSubscriberAlreadyJoined(t)
 }
 
-func Test_JanusSubscriberTimeout(t *testing.T) {
+func Test_JanusSubscriberTimeout(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1706,7 +1713,7 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
-func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
+func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1816,7 +1823,7 @@ func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
 	assert.Nil(handle, "subscriber should have been closed")
 }
 
-func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
+func Test_JanusSubscriberRoomDestroyed(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -1926,7 +1933,7 @@ func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
 	assert.Nil(handle, "subscriber should have been closed")
 }
 
-func Test_JanusSubscriberUpdateOffer(t *testing.T) {
+func Test_JanusSubscriberUpdateOffer(t *testing.T) { // nolint:paralleltest
 	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
 	t.Cleanup(func() {
 		if !t.Failed() {

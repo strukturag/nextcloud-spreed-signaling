@@ -25,7 +25,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"sync"
@@ -60,7 +59,7 @@ func (p *Pool) Put(c *http.Client) {
 
 func newPool(host string, constructor func() *http.Client, size int) (*Pool, error) {
 	if size <= 0 {
-		return nil, fmt.Errorf("can't create empty pool")
+		return nil, errors.New("can't create empty pool")
 	}
 
 	p := &Pool{
@@ -87,7 +86,7 @@ type HttpClientPool struct {
 
 func NewHttpClientPool(maxConcurrentRequestsPerHost int, skipVerify bool) (*HttpClientPool, error) {
 	if maxConcurrentRequestsPerHost <= 0 {
-		return nil, fmt.Errorf("can't create empty pool")
+		return nil, errors.New("can't create empty pool")
 	}
 
 	tlsconfig := &tls.Config{

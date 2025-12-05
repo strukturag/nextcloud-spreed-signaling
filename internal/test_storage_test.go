@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2019 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,18 +19,46 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package internal
 
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestBuiltinRoomSessions(t *testing.T) {
+func Test_TestStorage(t *testing.T) {
 	t.Parallel()
-	sessions, err := NewBuiltinRoomSessions(nil)
-	require.NoError(t, err)
+	assert := assert.New(t)
+	var storage TestStorage[int]
 
-	testRoomSessions(t, sessions)
+	t.Cleanup(func() {
+		storage.mu.Lock()
+		defer storage.mu.Unlock()
+
+		assert.Nil(storage.entries)
+	})
+
+	v, found := storage.Get(t)
+	assert.False(found, "expected missing value, got %d", v)
+
+	storage.Set(t, 10)
+	v, found = storage.Get(t)
+	assert.True(found)
+	assert.Equal(10, v)
+
+	storage.Set(t, 20)
+	v, found = storage.Get(t)
+	assert.True(found)
+	assert.Equal(20, v)
+
+	storage.Del(t)
+
+	v, found = storage.Get(t)
+	assert.False(found, "expected missing value, got %d", v)
+
+	storage.Set(t, 30)
+	v, found = storage.Get(t)
+	assert.True(found)
+	assert.Equal(30, v)
 }

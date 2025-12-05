@@ -46,6 +46,7 @@ import (
 
 func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*CapabilitiesResponse, http.ResponseWriter) error) (*url.URL, *Capabilities) {
 	require := require.New(t)
+	assert := assert.New(t)
 	pool, err := NewHttpClientPool(1, false)
 	require.NoError(err)
 	capabilities, err := NewCapabilities("0.0", pool)
@@ -75,10 +76,11 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 		config := api.StringMap{
 			"signaling": signaling,
 		}
-		spreedCapa, _ := json.Marshal(api.StringMap{
+		spreedCapa, err := json.Marshal(api.StringMap{
 			"features": features,
 			"config":   config,
 		})
+		assert.NoError(err)
 		emptyArray := []byte("[]")
 		response := &CapabilitiesResponse{
 			Version: CapabilitiesVersion{
@@ -91,7 +93,7 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 		}
 
 		data, err := json.Marshal(response)
-		assert.NoError(t, err, "Could not marshal %+v", response)
+		assert.NoError(err, "Could not marshal %+v", response)
 
 		var ocs OcsResponse
 		ocs.Ocs = &OcsBody{
@@ -103,7 +105,7 @@ func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*Capabilitie
 			Data: data,
 		}
 		data, err = json.Marshal(ocs)
-		require.NoError(err)
+		assert.NoError(err)
 
 		var cc []string
 		if !strings.Contains(t.Name(), "NoCache") {
@@ -354,7 +356,7 @@ func TestCapabilitiesShortCache(t *testing.T) {
 	value = called.Load()
 	assert.EqualValues(1, value)
 
-	// The capabilities are cached for a minumum duration.
+	// The capabilities are cached for a minimum duration.
 	SetCapabilitiesGetNow(t, capabilities, func() time.Time {
 		return time.Now().Add(minCapabilitiesCacheDuration / 2)
 	})

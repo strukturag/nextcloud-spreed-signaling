@@ -30,6 +30,7 @@ import (
 )
 
 func TestCanonicalizeUrl(t *testing.T) {
+	t.Parallel()
 	mustParse := func(s string) *url.URL {
 		t.Helper()
 		u, err := url.Parse(s)
@@ -66,7 +67,7 @@ func TestCanonicalizeUrl(t *testing.T) {
 	for idx, tc := range testcases {
 		expectChanged := tc.url.String() != tc.expected.String()
 		canonicalized, changed := CanonicalizeUrl(tc.url)
-		assert.Equal(tc.url, canonicalized) //urls will be changed inplace
+		assert.Equal(tc.url, canonicalized) // urls will be changed inplace
 		if !expectChanged {
 			assert.False(changed, "testcase %d should not have changed the url", idx)
 			continue
@@ -79,6 +80,7 @@ func TestCanonicalizeUrl(t *testing.T) {
 }
 
 func TestCanonicalizeUrlString(t *testing.T) {
+	t.Parallel()
 	testcases := []struct {
 		s        string
 		expected string

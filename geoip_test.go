@@ -76,6 +76,7 @@ func GetGeoIpUrlForTest(t *testing.T) string {
 }
 
 func TestGeoLookup(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpUrlForTest(t))
@@ -88,6 +89,7 @@ func TestGeoLookup(t *testing.T) {
 }
 
 func TestGeoLookupCaching(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpUrlForTest(t))
@@ -102,18 +104,20 @@ func TestGeoLookupCaching(t *testing.T) {
 }
 
 func TestGeoLookupContinent(t *testing.T) {
+	t.Parallel()
 	tests := map[string][]string{
-		"AU":       {"OC"},
-		"DE":       {"EU"},
-		"RU":       {"EU"},
-		"":         nil,
-		"INVALID ": nil,
+		"AU":      {"OC"},
+		"DE":      {"EU"},
+		"RU":      {"EU"},
+		"":        nil,
+		"INVALID": nil,
 	}
 
 	for country, expected := range tests {
 		t.Run(country, func(t *testing.T) {
+			t.Parallel()
 			continents := LookupContinents(country)
-			if !assert.Equal(t, len(expected), len(continents), "Continents didn't match for %s: got %s, expected %s", country, continents, expected) {
+			if !assert.Len(t, continents, len(expected), "Continents didn't match for %s: got %s, expected %s", country, continents, expected) {
 				return
 			}
 			for idx, c := range expected {
@@ -126,6 +130,7 @@ func TestGeoLookupContinent(t *testing.T) {
 }
 
 func TestGeoLookupCloseEmpty(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	reader, err := NewGeoLookupFromUrl(logger, "ignore-url")
 	require.NoError(t, err)
@@ -133,6 +138,7 @@ func TestGeoLookupCloseEmpty(t *testing.T) {
 }
 
 func TestGeoLookupFromFile(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
 	geoIpUrl := GetGeoIpUrlForTest(t)
@@ -196,6 +202,7 @@ func TestGeoLookupFromFile(t *testing.T) {
 }
 
 func TestIsValidContinent(t *testing.T) {
+	t.Parallel()
 	for country, continents := range ContinentMap {
 		for _, continent := range continents {
 			assert.True(t, IsValidContinent(continent), "Continent %s of country %s is not valid", continent, country)

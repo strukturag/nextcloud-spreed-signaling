@@ -74,12 +74,13 @@ func TestPostOnRedirect(t *testing.T) {
 		http.Redirect(w, r, "/ocs/v2.php/two", http.StatusTemporaryRedirect)
 	})
 	r.HandleFunc("/ocs/v2.php/two", func(w http.ResponseWriter, r *http.Request) {
+		assert := assert.New(t)
 		body, err := io.ReadAll(r.Body)
-		require.NoError(err)
+		assert.NoError(err)
 
 		var request map[string]string
 		err = json.Unmarshal(body, &request)
-		require.NoError(err)
+		assert.NoError(err)
 
 		returnOCS(t, w, body)
 	})
@@ -160,9 +161,10 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 	})
 	r.HandleFunc("/ocs/v2.php/two", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(err)
+		if assert.NoError(err) {
+			assert.Empty(string(body), "Should not have received any body, got %s", string(body))
+		}
 
-		assert.Empty(string(body), "Should not have received any body, got %s", string(body))
 		returnOCS(t, w, []byte("{}"))
 	})
 	server := httptest.NewServer(r)

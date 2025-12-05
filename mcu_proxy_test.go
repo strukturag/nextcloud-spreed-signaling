@@ -35,6 +35,7 @@ import (
 	"net/url"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,6 +55,7 @@ const (
 )
 
 func TestMcuProxyStats(t *testing.T) {
+	t.Parallel()
 	collectAndLint(t, proxyMcuStats...)
 }
 
@@ -64,6 +66,7 @@ func newProxyConnectionWithCountry(country string) *mcuProxyConnection {
 }
 
 func Test_sortConnectionsForCountry(t *testing.T) {
+	t.Parallel()
 	conn_de := newProxyConnectionWithCountry("DE")
 	conn_at := newProxyConnectionWithCountry("AT")
 	conn_jp := newProxyConnectionWithCountry("JP")
@@ -109,6 +112,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 
 	for country, test := range testcases {
 		t.Run(country, func(t *testing.T) {
+			t.Parallel()
 			sorted := sortConnectionsForCountry(test[0], country, nil)
 			for idx, conn := range sorted {
 				assert.Equal(t, test[1][idx], conn, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
@@ -118,6 +122,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 }
 
 func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
+	t.Parallel()
 	conn_de := newProxyConnectionWithCountry("DE")
 	conn_at := newProxyConnectionWithCountry("AT")
 	conn_jp := newProxyConnectionWithCountry("JP")
@@ -179,6 +184,7 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 	}
 	for country, test := range testcases {
 		t.Run(country, func(t *testing.T) {
+			t.Parallel()
 			sorted := sortConnectionsForCountry(test[0], country, continentMap)
 			for idx, conn := range sorted {
 				assert.Equal(t, test[1][idx], conn, "Index %d for %s: expected %s, got %s", idx, country, test[1][idx].Country(), conn.Country())
@@ -257,7 +263,7 @@ func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxySer
 
 		key, found := c.server.tokens[claims.Issuer]
 		if !assert.True(c.t, found) {
-			return nil, fmt.Errorf("no key found for issuer")
+			return nil, errors.New("no key found for issuer")
 		}
 
 		return key, nil
@@ -312,9 +318,9 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 
 		if assert.NotNil(c.t, msg.Command.PublisherSettings) {
 			if assert.NotEqualValues(c.t, 0, msg.Command.PublisherSettings.Bitrate) {
-				assert.EqualValues(c.t, msg.Command.Bitrate, msg.Command.PublisherSettings.Bitrate)
+				assert.Equal(c.t, msg.Command.Bitrate, msg.Command.PublisherSettings.Bitrate)
 			}
-			assert.EqualValues(c.t, msg.Command.MediaTypes, msg.Command.PublisherSettings.MediaTypes)
+			assert.Equal(c.t, msg.Command.MediaTypes, msg.Command.PublisherSettings.MediaTypes)
 			if strings.Contains(c.t.Name(), "Codecs") {
 				assert.Equal(c.t, "opus,g722", msg.Command.PublisherSettings.AudioCodec)
 				assert.Equal(c.t, "vp9,vp8,av1", msg.Command.PublisherSettings.VideoCodec)
@@ -366,7 +372,7 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 
 					key, found := server.tokens[claims.Issuer]
 					if !assert.True(c.t, found) {
-						return nil, fmt.Errorf("no key found for issuer")
+						return nil, errors.New("no key found for issuer")
 					}
 
 					return key, nil
@@ -860,7 +866,7 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	if strings.Contains(t.Name(), "DnsDiscovery") {
 		cfg.AddOption("mcu", "dnsdiscovery", "true")
 	}
-	cfg.AddOption("mcu", "proxytimeout", fmt.Sprintf("%d", int(testTimeout.Seconds())))
+	cfg.AddOption("mcu", "proxytimeout", strconv.Itoa(int(testTimeout.Seconds())))
 	var urls []string
 	waitingMap := make(map[string]bool)
 	if len(options.servers) == 0 {
@@ -1017,7 +1023,7 @@ func Test_ProxyAddRemoveConnections(t *testing.T) {
 	assert.NoError(waitCtx.Err(), "error while waiting for connection to be removed")
 }
 
-func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
+func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) { // nolint:paralleltest
 	assert := assert.New(t)
 	require := require.New(t)
 
@@ -1056,7 +1062,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 	require.NotNil(dnsMonitor)
 
 	server2 := NewProxyServerForTest(t, "DE")
-	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.2:%s", port))
+	l, err := net.Listen("tcp", "127.0.0.2:"+port)
 	require.NoError(err)
 	assert.NoError(server2.server.Listener.Close())
 	server2.server.Listener = l
@@ -2438,6 +2444,7 @@ func Test_ProxySubscriberTimeout(t *testing.T) {
 }
 
 func Test_ProxyReconnectAfter(t *testing.T) {
+	t.Parallel()
 	reasons := []string{
 		"session_resumed",
 		"session_expired",

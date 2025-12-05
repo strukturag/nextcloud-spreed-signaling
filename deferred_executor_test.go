@@ -29,6 +29,7 @@ import (
 )
 
 func TestDeferredExecutor_MultiClose(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	e := NewDeferredExecutor(logger, 0)
 	defer e.waitForStop()
@@ -38,6 +39,7 @@ func TestDeferredExecutor_MultiClose(t *testing.T) {
 }
 
 func TestDeferredExecutor_QueueSize(t *testing.T) {
+	t.Parallel()
 	SynctestTest(t, func(t *testing.T) {
 		logger := NewLoggerForTest(t)
 		e := NewDeferredExecutor(logger, 0)
@@ -61,6 +63,7 @@ func TestDeferredExecutor_QueueSize(t *testing.T) {
 }
 
 func TestDeferredExecutor_Order(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	e := NewDeferredExecutor(logger, 64)
 	defer e.waitForStop()
@@ -89,6 +92,7 @@ func TestDeferredExecutor_Order(t *testing.T) {
 }
 
 func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	e := NewDeferredExecutor(logger, 64)
 	defer e.waitForStop()
@@ -103,6 +107,7 @@ func TestDeferredExecutor_CloseFromFunc(t *testing.T) {
 }
 
 func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	e := NewDeferredExecutor(logger, 64)
 	defer e.waitForStop()
@@ -115,6 +120,7 @@ func TestDeferredExecutor_DeferAfterClose(t *testing.T) {
 }
 
 func TestDeferredExecutor_WaitForStopTwice(t *testing.T) {
+	t.Parallel()
 	logger := NewLoggerForTest(t)
 	e := NewDeferredExecutor(logger, 64)
 	defer e.waitForStop()
