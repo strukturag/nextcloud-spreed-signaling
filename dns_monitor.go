@@ -32,10 +32,6 @@ import (
 	"time"
 )
 
-var (
-	lookupDnsMonitorIP = net.LookupIP
-)
-
 const (
 	defaultDnsMonitorInterval = time.Second
 )
@@ -157,9 +153,12 @@ func (e *dnsMonitorEntry) runCallbacks(all []net.IP, add []net.IP, keep []net.IP
 	}
 }
 
+type DnsMonitorLookupFunc func(hostname string) ([]net.IP, error)
+
 type DnsMonitor struct {
-	logger   Logger
-	interval time.Duration
+	logger     Logger
+	interval   time.Duration
+	lookupFunc DnsMonitorLookupFunc
 
 	stopCtx  context.Context
 	stopFunc func()
@@ -176,15 +175,19 @@ type DnsMonitor struct {
 	checkHostnames func()
 }
 
-func NewDnsMonitor(logger Logger, interval time.Duration) (*DnsMonitor, error) {
+func NewDnsMonitor(logger Logger, interval time.Duration, lookupFunc DnsMonitorLookupFunc) (*DnsMonitor, error) {
 	if interval < 0 {
 		interval = defaultDnsMonitorInterval
+	}
+	if lookupFunc == nil {
+		lookupFunc = net.LookupIP
 	}
 
 	stopCtx, stopFunc := context.WithCancel(context.Background())
 	monitor := &DnsMonitor{
-		logger:   logger,
-		interval: interval,
+		logger:     logger,
+		interval:   interval,
+		lookupFunc: lookupFunc,
 
 		stopCtx:  stopCtx,
 		stopFunc: stopFunc,
@@ -347,7 +350,7 @@ func (m *DnsMonitor) checkHostname(entry *dnsMonitorEntry) {
 		return
 	}
 
-	ips, err := lookupDnsMonitorIP(entry.hostname)
+	ips, err := m.lookupFunc(entry.hostname)
 	if err != nil {
 		m.logger.Printf("Could not lookup %s: %s", entry.hostname, err)
 		return

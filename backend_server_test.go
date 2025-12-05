@@ -171,7 +171,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		defer cancel()
 		assert.NoError(events1.Close(ctx))
 	})
-	client1, _ := NewGrpcClientsForTest(t, addr2)
+	client1, _ := NewGrpcClientsForTest(t, addr2, nil)
 	hub1, err := NewHub(ctx, config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	require.NoError(err)
 
@@ -196,7 +196,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		defer cancel()
 		assert.NoError(events2.Close(ctx))
 	})
-	client2, _ := NewGrpcClientsForTest(t, addr1)
+	client2, _ := NewGrpcClientsForTest(t, addr1, nil)
 	hub2, err := NewHub(ctx, config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	require.NoError(err)
 
