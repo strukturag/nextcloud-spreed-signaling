@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2024 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,46 +19,46 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package internal
 
 import (
-	"bytes"
-	"log"
-	"sync"
 	"testing"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/stretchr/testify/assert"
 )
 
-type testLogWriter struct {
-	mu sync.Mutex
-	t  testing.TB
-}
+func Test_TestStorage(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	var storage TestStorage[int]
 
-func (w *testLogWriter) Write(b []byte) (int, error) {
-	w.t.Helper()
-	if !bytes.HasSuffix(b, []byte("\n")) {
-		b = append(b, '\n')
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return writeTestOutput(w.t, b)
-}
+	t.Cleanup(func() {
+		storage.mu.Lock()
+		defer storage.mu.Unlock()
 
-var (
-	testLoggers internal.TestStorage[Logger]
-)
+		assert.Nil(storage.entries)
+	})
 
-func NewLoggerForTest(t testing.TB) Logger {
-	t.Helper()
+	v, found := storage.Get(t)
+	assert.False(found, "expected missing value, got %d", v)
 
-	logger, found := testLoggers.Get(t)
-	if !found {
-		logger = log.New(&testLogWriter{
-			t: t,
-		}, t.Name()+": ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
+	storage.Set(t, 10)
+	v, found = storage.Get(t)
+	assert.True(found)
+	assert.Equal(10, v)
 
-		testLoggers.Set(t, logger)
-	}
-	return logger
+	storage.Set(t, 20)
+	v, found = storage.Get(t)
+	assert.True(found)
+	assert.Equal(20, v)
+
+	storage.Del(t)
+
+	v, found = storage.Get(t)
+	assert.False(found, "expected missing value, got %d", v)
+
+	storage.Set(t, 30)
+	v, found = storage.Get(t)
+	assert.True(found)
+	assert.Equal(30, v)
 }

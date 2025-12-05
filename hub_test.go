@@ -53,6 +53,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -538,7 +539,7 @@ func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request,
 }
 
 var (
-	pingRequests testStorage[[]*BackendClientRequest]
+	pingRequests internal.TestStorage[[]*BackendClientRequest]
 )
 
 func getPingRequests(t *testing.T) []*BackendClientRequest {
@@ -584,7 +585,7 @@ type testAuthToken struct {
 }
 
 var (
-	authTokens testStorage[testAuthToken]
+	authTokens internal.TestStorage[testAuthToken]
 )
 
 func ensureAuthTokens(t *testing.T) (string, string) {
@@ -693,7 +694,7 @@ func registerBackendHandler(t *testing.T, router *mux.Router) {
 }
 
 var (
-	skipV2Capabilities testStorage[bool]
+	skipV2Capabilities internal.TestStorage[bool]
 )
 
 func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
