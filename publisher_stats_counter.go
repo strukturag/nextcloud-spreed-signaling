@@ -25,6 +25,45 @@ import (
 	"sync"
 )
 
+type publisherStatsCounterStats interface {
+	IncPublisherStream(streamType StreamType)
+	DecPublisherStream(streamType StreamType)
+	IncSubscriberStream(streamType StreamType)
+	DecSubscriberStream(streamType StreamType)
+	AddSubscriberStreams(streamType StreamType, count int)
+	SubSubscriberStreams(streamType StreamType, count int)
+}
+
+type prometheusPublisherStats struct{}
+
+func (s *prometheusPublisherStats) IncPublisherStream(streamType StreamType) {
+	statsMcuPublisherStreamTypesCurrent.WithLabelValues(string(streamType)).Inc()
+}
+
+func (s *prometheusPublisherStats) DecPublisherStream(streamType StreamType) {
+	statsMcuPublisherStreamTypesCurrent.WithLabelValues(string(streamType)).Dec()
+}
+
+func (s *prometheusPublisherStats) IncSubscriberStream(streamType StreamType) {
+	statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Inc()
+}
+
+func (s *prometheusPublisherStats) DecSubscriberStream(streamType StreamType) {
+	statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Dec()
+}
+
+func (s *prometheusPublisherStats) AddSubscriberStreams(streamType StreamType, count int) {
+	statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Add(float64(count))
+}
+
+func (s *prometheusPublisherStats) SubSubscriberStreams(streamType StreamType, count int) {
+	statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Sub(float64(count))
+}
+
+var (
+	defaultPublisherStats = &prometheusPublisherStats{} // +checklocksignore: Global readonly variable.
+)
+
 type publisherStatsCounter struct {
 	mu sync.Mutex
 
@@ -32,16 +71,23 @@ type publisherStatsCounter struct {
 	streamTypes map[StreamType]bool
 	// +checklocks:mu
 	subscribers map[string]bool
+	// +checklocks:mu
+	stats publisherStatsCounterStats
 }
 
 func (c *publisherStatsCounter) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	stats := c.stats
+	if stats == nil {
+		stats = defaultPublisherStats
+	}
+
 	count := len(c.subscribers)
 	for streamType := range c.streamTypes {
-		statsMcuPublisherStreamTypesCurrent.WithLabelValues(string(streamType)).Dec()
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Sub(float64(count))
+		stats.DecPublisherStream(streamType)
+		stats.SubSubscriberStreams(streamType, count)
 	}
 	c.streamTypes = nil
 	c.subscribers = nil
@@ -55,17 +101,22 @@ func (c *publisherStatsCounter) EnableStream(streamType StreamType, enable bool)
 		return
 	}
 
+	stats := c.stats
+	if stats == nil {
+		stats = defaultPublisherStats
+	}
+
 	if enable {
 		if c.streamTypes == nil {
 			c.streamTypes = make(map[StreamType]bool)
 		}
 		c.streamTypes[streamType] = true
-		statsMcuPublisherStreamTypesCurrent.WithLabelValues(string(streamType)).Inc()
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Add(float64(len(c.subscribers)))
+		stats.IncPublisherStream(streamType)
+		stats.AddSubscriberStreams(streamType, len(c.subscribers))
 	} else {
 		delete(c.streamTypes, streamType)
-		statsMcuPublisherStreamTypesCurrent.WithLabelValues(string(streamType)).Dec()
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Sub(float64(len(c.subscribers)))
+		stats.DecPublisherStream(streamType)
+		stats.SubSubscriberStreams(streamType, len(c.subscribers))
 	}
 }
 
@@ -77,12 +128,17 @@ func (c *publisherStatsCounter) AddSubscriber(id string) {
 		return
 	}
 
+	stats := c.stats
+	if stats == nil {
+		stats = defaultPublisherStats
+	}
+
 	if c.subscribers == nil {
 		c.subscribers = make(map[string]bool)
 	}
 	c.subscribers[id] = true
 	for streamType := range c.streamTypes {
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Inc()
+		stats.IncSubscriberStream(streamType)
 	}
 }
 
@@ -94,8 +150,13 @@ func (c *publisherStatsCounter) RemoveSubscriber(id string) {
 		return
 	}
 
+	stats := c.stats
+	if stats == nil {
+		stats = defaultPublisherStats
+	}
+
 	delete(c.subscribers, id)
 	for streamType := range c.streamTypes {
-		statsMcuSubscriberStreamTypesCurrent.WithLabelValues(string(streamType)).Dec()
+		stats.DecSubscriberStream(streamType)
 	}
 }

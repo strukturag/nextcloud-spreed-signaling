@@ -84,6 +84,26 @@ func testBackends(t *testing.T, config *BackendConfiguration, valid_urls [][]str
 	}
 }
 
+type mockBackendStats struct {
+	value int
+}
+
+func (s *mockBackendStats) AddBackends(count int) {
+	s.value += count
+}
+
+func (s *mockBackendStats) RemoveBackends(count int) {
+	s.value -= count
+}
+
+func (s *mockBackendStats) IncBackends() {
+	s.value++
+}
+
+func (s *mockBackendStats) DecBackends() {
+	s.value--
+}
+
 func TestIsUrlAllowed_Compat(t *testing.T) {
 	t.Parallel()
 	logger := NewLoggerForTest(t)
@@ -233,11 +253,13 @@ func TestParseBackendIds(t *testing.T) {
 	}
 }
 
-func TestBackendReloadNoChange(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsBackendsCurrent)
+func TestBackendReloadNoChange(t *testing.T) {
+	t.Parallel()
+	stats := &mockBackendStats{}
 
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
+	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -245,9 +267,9 @@ func TestBackendReloadNoChange(t *testing.T) { // nolint:paralleltest
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
+	o_cfg, err := NewBackendConfigurationWithStats(logger, original_config, nil, stats)
 	require.NoError(err)
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1, backend2")
@@ -256,22 +278,24 @@ func TestBackendReloadNoChange(t *testing.T) { // nolint:paralleltest
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
+	n_cfg, err := NewBackendConfigurationWithStats(logger, new_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 4)
+	assert.Equal(4, stats.value)
 	o_cfg.Reload(original_config)
-	checkStatsValue(t, statsBackendsCurrent, 4)
+	assert.Equal(4, stats.value)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
-		assert.Fail(t, "BackendConfiguration should be equal after Reload")
+		assert.Fail("BackendConfiguration should be equal after Reload")
 	}
 }
 
-func TestBackendReloadChangeExistingURL(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsBackendsCurrent)
+func TestBackendReloadChangeExistingURL(t *testing.T) {
+	t.Parallel()
+	stats := &mockBackendStats{}
 
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
+	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -279,10 +303,10 @@ func TestBackendReloadChangeExistingURL(t *testing.T) { // nolint:paralleltest
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
+	o_cfg, err := NewBackendConfigurationWithStats(logger, original_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1, backend2")
 	new_config.AddOption("backend", "allowall", "false")
@@ -291,26 +315,28 @@ func TestBackendReloadChangeExistingURL(t *testing.T) { // nolint:paralleltest
 	new_config.AddOption("backend1", "sessionlimit", "10")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
+	n_cfg, err := NewBackendConfigurationWithStats(logger, new_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 4)
+	assert.Equal(4, stats.value)
 	original_config.RemoveOption("backend1", "url")
 	original_config.AddOption("backend1", "url", "http://domain3.invalid")
 	original_config.AddOption("backend1", "sessionlimit", "10")
 
 	o_cfg.Reload(original_config)
-	checkStatsValue(t, statsBackendsCurrent, 4)
+	assert.Equal(4, stats.value)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
-		assert.Fail(t, "BackendConfiguration should be equal after Reload")
+		assert.Fail("BackendConfiguration should be equal after Reload")
 	}
 }
 
-func TestBackendReloadChangeSecret(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsBackendsCurrent)
+func TestBackendReloadChangeSecret(t *testing.T) {
+	t.Parallel()
+	stats := &mockBackendStats{}
 
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
+	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -318,10 +344,10 @@ func TestBackendReloadChangeSecret(t *testing.T) { // nolint:paralleltest
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
+	o_cfg, err := NewBackendConfigurationWithStats(logger, original_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1, backend2")
 	new_config.AddOption("backend", "allowall", "false")
@@ -329,32 +355,34 @@ func TestBackendReloadChangeSecret(t *testing.T) { // nolint:paralleltest
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend3")
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
+	n_cfg, err := NewBackendConfigurationWithStats(logger, new_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 4)
+	assert.Equal(4, stats.value)
 	original_config.RemoveOption("backend1", "secret")
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend3")
 
 	o_cfg.Reload(original_config)
-	checkStatsValue(t, statsBackendsCurrent, 4)
-	assert.Equal(t, n_cfg, o_cfg, "BackendConfiguration should be equal after Reload")
+	assert.Equal(4, stats.value)
+	assert.Equal(n_cfg, o_cfg, "BackendConfiguration should be equal after Reload")
 }
 
-func TestBackendReloadAddBackend(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsBackendsCurrent)
+func TestBackendReloadAddBackend(t *testing.T) {
+	t.Parallel()
+	stats := &mockBackendStats{}
 
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
+	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1")
 	original_config.AddOption("backend", "allowall", "false")
 	original_config.AddOption("backend1", "url", "http://domain1.invalid")
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
+	o_cfg, err := NewBackendConfigurationWithStats(logger, original_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 1)
+	assert.Equal(1, stats.value)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1, backend2")
 	new_config.AddOption("backend", "allowall", "false")
@@ -363,10 +391,10 @@ func TestBackendReloadAddBackend(t *testing.T) { // nolint:paralleltest
 	new_config.AddOption("backend2", "url", "http://domain2.invalid")
 	new_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
 	new_config.AddOption("backend2", "sessionlimit", "10")
-	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
+	n_cfg, err := NewBackendConfigurationWithStats(logger, new_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 3)
+	assert.Equal(3, stats.value)
 	original_config.RemoveOption("backend", "backends")
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
@@ -374,17 +402,19 @@ func TestBackendReloadAddBackend(t *testing.T) { // nolint:paralleltest
 	original_config.AddOption("backend2", "sessionlimit", "10")
 
 	o_cfg.Reload(original_config)
-	checkStatsValue(t, statsBackendsCurrent, 4)
+	assert.Equal(4, stats.value)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
-		assert.Fail(t, "BackendConfiguration should be equal after Reload")
+		assert.Fail("BackendConfiguration should be equal after Reload")
 	}
 }
 
-func TestBackendReloadRemoveHost(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsBackendsCurrent)
+func TestBackendReloadRemoveHost(t *testing.T) {
+	t.Parallel()
+	stats := &mockBackendStats{}
 
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
+	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -392,35 +422,37 @@ func TestBackendReloadRemoveHost(t *testing.T) { // nolint:paralleltest
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain2.invalid")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
+	o_cfg, err := NewBackendConfigurationWithStats(logger, original_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1")
 	new_config.AddOption("backend", "allowall", "false")
 	new_config.AddOption("backend1", "url", "http://domain1.invalid")
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
+	n_cfg, err := NewBackendConfigurationWithStats(logger, new_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 3)
+	assert.Equal(3, stats.value)
 	original_config.RemoveOption("backend", "backends")
 	original_config.AddOption("backend", "backends", "backend1")
 	original_config.RemoveSection("backend2")
 
 	o_cfg.Reload(original_config)
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
-		assert.Fail(t, "BackendConfiguration should be equal after Reload")
+		assert.Fail("BackendConfiguration should be equal after Reload")
 	}
 }
 
-func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsBackendsCurrent)
+func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
+	t.Parallel()
+	stats := &mockBackendStats{}
 
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
+	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
 	original_config.AddOption("backend", "backends", "backend1, backend2")
 	original_config.AddOption("backend", "allowall", "false")
@@ -428,27 +460,27 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) { // nolint:para
 	original_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
 	original_config.AddOption("backend2", "url", "http://domain1.invalid/bar/")
 	original_config.AddOption("backend2", "secret", string(testBackendSecret)+"-backend2")
-	o_cfg, err := NewBackendConfiguration(logger, original_config, nil)
+	o_cfg, err := NewBackendConfigurationWithStats(logger, original_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	new_config := goconf.NewConfigFile()
 	new_config.AddOption("backend", "backends", "backend1")
 	new_config.AddOption("backend", "allowall", "false")
 	new_config.AddOption("backend1", "url", "http://domain1.invalid/foo/")
 	new_config.AddOption("backend1", "secret", string(testBackendSecret)+"-backend1")
-	n_cfg, err := NewBackendConfiguration(logger, new_config, nil)
+	n_cfg, err := NewBackendConfigurationWithStats(logger, new_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 3)
+	assert.Equal(3, stats.value)
 	original_config.RemoveOption("backend", "backends")
 	original_config.AddOption("backend", "backends", "backend1")
 	original_config.RemoveSection("backend2")
 
 	o_cfg.Reload(original_config)
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	if !reflect.DeepEqual(n_cfg, o_cfg) {
-		assert.Fail(t, "BackendConfiguration should be equal after Reload")
+		assert.Fail("BackendConfiguration should be equal after Reload")
 	}
 }
 
@@ -468,8 +500,9 @@ func mustParse(s string) *url.URL {
 	return p
 }
 
-func TestBackendConfiguration_EtcdCompat(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsBackendsCurrent)
+func TestBackendConfiguration_EtcdCompat(t *testing.T) {
+	t.Parallel()
+	stats := &mockBackendStats{}
 
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
@@ -486,9 +519,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) { // nolint:paralleltest
 	config.AddOption("backend", "backendtype", "etcd")
 	config.AddOption("backend", "backendprefix", "/backends")
 
-	checkStatsValue(t, statsBackendsCurrent, 0)
-
-	cfg, err := NewBackendConfiguration(logger, config, client)
+	cfg, err := NewBackendConfigurationWithStats(logger, config, client, stats)
 	require.NoError(err)
 	defer cfg.Close()
 
@@ -511,7 +542,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) { // nolint:paralleltest
 	drainWakeupChannel(ch)
 	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"url\":\""+url1+"\",\"secret\":\""+secret1+"\"}"))
 	<-ch
-	checkStatsValue(t, statsBackendsCurrent, 1)
+	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
 		assert.Equal([]string{url1}, backends[0].urls) &&
 		assert.Equal(secret1, string(backends[0].secret)) {
@@ -526,7 +557,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) { // nolint:paralleltest
 	drainWakeupChannel(ch)
 	SetEtcdValue(etcd, "/backends/2_two", []byte("{\"url\":\""+url2+"\",\"secret\":\""+secret2+"\"}"))
 	<-ch
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) &&
 		assert.Equal([]string{url1}, backends[0].urls) &&
 		assert.Equal(secret1, string(backends[0].secret)) &&
@@ -545,7 +576,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) { // nolint:paralleltest
 	drainWakeupChannel(ch)
 	SetEtcdValue(etcd, "/backends/3_three", []byte("{\"url\":\""+url3+"\",\"secret\":\""+secret3+"\"}"))
 	<-ch
-	checkStatsValue(t, statsBackendsCurrent, 3)
+	assert.Equal(3, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 3) &&
 		assert.Equal([]string{url1}, backends[0].urls) &&
 		assert.Equal(secret1, string(backends[0].secret)) &&
@@ -565,7 +596,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) { // nolint:paralleltest
 	drainWakeupChannel(ch)
 	DeleteEtcdValue(etcd, "/backends/1_one")
 	<-ch
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) {
 		assert.Equal([]string{url2}, backends[0].urls)
 		assert.Equal(secret2, string(backends[0].secret))
@@ -576,7 +607,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) { // nolint:paralleltest
 	drainWakeupChannel(ch)
 	DeleteEtcdValue(etcd, "/backends/2_two")
 	<-ch
-	checkStatsValue(t, statsBackendsCurrent, 1)
+	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) {
 		assert.Equal([]string{url3}, backends[0].urls)
 		assert.Equal(secret3, string(backends[0].secret))
@@ -629,8 +660,9 @@ func TestBackendCommonSecret(t *testing.T) {
 	}
 }
 
-func TestBackendChangeUrls(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsBackendsCurrent)
+func TestBackendChangeUrls(t *testing.T) {
+	t.Parallel()
+	stats := &mockBackendStats{}
 
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
@@ -645,12 +677,10 @@ func TestBackendChangeUrls(t *testing.T) { // nolint:paralleltest
 	original_config.AddOption("backend1", "urls", u1.String())
 	original_config.AddOption("backend2", "urls", u2.String())
 
-	checkStatsValue(t, statsBackendsCurrent, 0)
-
-	cfg, err := NewBackendConfiguration(logger, original_config, nil)
+	cfg, err := NewBackendConfigurationWithStats(logger, original_config, nil, stats)
 	require.NoError(err)
 
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	if b1 := cfg.GetBackend(u1); assert.NotNil(b1) {
 		assert.Equal("backend1", b1.Id())
 		assert.Equal(string(testBackendSecret), string(b1.Secret()))
@@ -670,7 +700,7 @@ func TestBackendChangeUrls(t *testing.T) { // nolint:paralleltest
 	updated_config.AddOption("backend1", "urls", strings.Join([]string{u1.String(), u2.String()}, ","))
 	cfg.Reload(updated_config)
 
-	checkStatsValue(t, statsBackendsCurrent, 1)
+	assert.Equal(1, stats.value)
 	if b1 := cfg.GetBackend(u1); assert.NotNil(b1) {
 		assert.Equal("backend1", b1.Id())
 		assert.Equal(string(testBackendSecret)+"-backend1", string(b1.Secret()))
@@ -684,7 +714,7 @@ func TestBackendChangeUrls(t *testing.T) { // nolint:paralleltest
 
 	// No change reload.
 	cfg.Reload(updated_config)
-	checkStatsValue(t, statsBackendsCurrent, 1)
+	assert.Equal(1, stats.value)
 	if b1 := cfg.GetBackend(u1); assert.NotNil(b1) {
 		assert.Equal("backend1", b1.Id())
 		assert.Equal(string(testBackendSecret)+"-backend1", string(b1.Secret()))
@@ -703,7 +733,7 @@ func TestBackendChangeUrls(t *testing.T) { // nolint:paralleltest
 	updated_config.AddOption("backend1", "urls", u2.String())
 	cfg.Reload(updated_config)
 
-	checkStatsValue(t, statsBackendsCurrent, 1)
+	assert.Equal(1, stats.value)
 	if b1 := cfg.GetBackend(u2); assert.NotNil(b1) {
 		assert.Equal("backend1", b1.Id())
 		assert.Equal(string(testBackendSecret), string(b1.Secret()))
@@ -715,13 +745,14 @@ func TestBackendChangeUrls(t *testing.T) { // nolint:paralleltest
 	updated_config.AddOption("backend", "secret", string(testBackendSecret))
 	cfg.Reload(updated_config)
 
-	checkStatsValue(t, statsBackendsCurrent, 0)
+	assert.Equal(0, stats.value)
 	b1 := cfg.GetBackend(u2)
 	assert.Nil(b1)
 }
 
-func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsBackendsCurrent)
+func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
+	t.Parallel()
+	stats := &mockBackendStats{}
 
 	logger := NewLoggerForTest(t)
 	require := require.New(t)
@@ -738,9 +769,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) { // nolint:parallelt
 	config.AddOption("backend", "backendtype", "etcd")
 	config.AddOption("backend", "backendprefix", "/backends")
 
-	checkStatsValue(t, statsBackendsCurrent, 0)
-
-	cfg, err := NewBackendConfiguration(logger, config, client)
+	cfg, err := NewBackendConfigurationWithStats(logger, config, client, stats)
 	require.NoError(err)
 	defer cfg.Close()
 
@@ -752,7 +781,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) { // nolint:parallelt
 
 	require.NoError(storage.WaitForInitialized(ctx))
 
-	checkStatsValue(t, statsBackendsCurrent, 1)
+	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
 		assert.Equal([]string{url1}, backends[0].Urls()) &&
 		assert.Equal(initialSecret1, string(backends[0].Secret())) {
@@ -766,7 +795,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) { // nolint:parallelt
 	drainWakeupChannel(ch)
 	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"urls\":[\""+url1+"\",\""+url2+"\"],\"secret\":\""+secret1+"\"}"))
 	<-ch
-	checkStatsValue(t, statsBackendsCurrent, 1)
+	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
 		assert.Equal([]string{url2, url1}, backends[0].Urls()) &&
 		assert.Equal(secret1, string(backends[0].Secret())) {
@@ -786,7 +815,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) { // nolint:parallelt
 	drainWakeupChannel(ch)
 	SetEtcdValue(etcd, "/backends/3_three", []byte("{\"urls\":[\""+url3+"\",\""+url4+"\"],\"secret\":\""+secret3+"\"}"))
 	<-ch
-	checkStatsValue(t, statsBackendsCurrent, 2)
+	assert.Equal(2, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) &&
 		assert.Equal([]string{url2, url1}, backends[0].Urls()) &&
 		assert.Equal(secret1, string(backends[0].Secret())) &&
@@ -806,7 +835,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) { // nolint:parallelt
 	drainWakeupChannel(ch)
 	DeleteEtcdValue(etcd, "/backends/1_one")
 	<-ch
-	checkStatsValue(t, statsBackendsCurrent, 1)
+	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) {
 		assert.Equal([]string{url3, url4}, backends[0].Urls())
 		assert.Equal(secret3, string(backends[0].Secret()))
@@ -816,7 +845,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) { // nolint:parallelt
 	DeleteEtcdValue(etcd, "/backends/3_three")
 	<-ch
 
-	checkStatsValue(t, statsBackendsCurrent, 0)
+	assert.Equal(0, stats.value)
 	storage.mu.RLock()
 	_, found := storage.backends["domain1.invalid"]
 	storage.mu.RUnlock()

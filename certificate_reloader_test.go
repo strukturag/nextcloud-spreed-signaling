@@ -23,21 +23,8 @@ package signaling
 
 import (
 	"context"
-	"testing"
 	"time"
 )
-
-func UpdateCertificateCheckIntervalForTest(t *testing.T, interval time.Duration) {
-	t.Helper()
-	// Make sure test is not executed with "t.Parallel()"
-	t.Setenv("PARALLEL_CHECK", "1")
-	old := deduplicateWatchEvents.Load()
-	t.Cleanup(func() {
-		deduplicateWatchEvents.Store(old)
-	})
-
-	deduplicateWatchEvents.Store(int64(interval))
-}
 
 func (r *CertificateReloader) WaitForReload(ctx context.Context, counter uint64) error {
 	for counter == r.GetReloadCounter() {

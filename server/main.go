@@ -192,7 +192,7 @@ func main() {
 		}
 	}()
 
-	dnsMonitor, err := signaling.NewDnsMonitor(logger, dnsMonitorInterval)
+	dnsMonitor, err := signaling.NewDnsMonitor(logger, dnsMonitorInterval, nil)
 	if err != nil {
 		logger.Fatal("Could not create DNS monitor: ", err)
 	}

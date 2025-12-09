@@ -171,7 +171,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		defer cancel()
 		assert.NoError(events1.Close(ctx))
 	})
-	client1, _ := NewGrpcClientsForTest(t, addr2)
+	client1, _ := NewGrpcClientsForTest(t, addr2, nil)
 	hub1, err := NewHub(ctx, config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	require.NoError(err)
 
@@ -196,7 +196,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		defer cancel()
 		assert.NoError(events2.Close(ctx))
 	})
-	client2, _ := NewGrpcClientsForTest(t, addr1)
+	client2, _ := NewGrpcClientsForTest(t, addr1, nil)
 	hub2, err := NewHub(ctx, config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	require.NoError(err)
 
@@ -483,6 +483,7 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 	defer cancel()
 
 	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
 
 	// Join room by id.
 	roomId := "test-room"
@@ -550,7 +551,9 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	defer cancel()
 
 	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client1.CloseWithBye()
 	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client2.CloseWithBye()
 
 	// Join room by id.
 	roomId1 := "test-room1"
@@ -780,7 +783,9 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 			defer cancel()
 
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
 
 			session1 := hub1.GetSessionByPublicId(hello1.Hello.SessionId)
 			require.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
@@ -863,6 +868,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	defer cancel()
 
 	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
 
 	session := hub.GetSessionByPublicId(hello.Hello.SessionId)
 	assert.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
@@ -927,7 +933,9 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	defer cancel()
 
 	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
 	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
 
 	// Join room by id.
 	roomId := "test-room"
@@ -1100,7 +1108,9 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			defer cancel()
 
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
 
 			session1 := hub1.GetSessionByPublicId(hello1.Hello.SessionId)
 			require.NotNil(session1, "Could not find session %s", hello1.Hello.SessionId)
@@ -1258,6 +1268,7 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 	defer cancel()
 
 	client, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	defer client.CloseWithBye()
 
 	// Join room by id.
 	roomId := "test-room"

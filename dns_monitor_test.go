@@ -44,15 +44,9 @@ type mockDnsLookup struct {
 
 func newMockDnsLookupForTest(t *testing.T) *mockDnsLookup {
 	t.Helper()
-	t.Setenv("PARALLEL_CHECK", "1")
 	mock := &mockDnsLookup{
 		ips: make(map[string][]net.IP),
 	}
-	prev := lookupDnsMonitorIP
-	t.Cleanup(func() {
-		lookupDnsMonitorIP = prev
-	})
-	lookupDnsMonitorIP = mock.lookup
 	return mock
 }
 
@@ -86,12 +80,16 @@ func (m *mockDnsLookup) lookup(host string) ([]net.IP, error) {
 	return append([]net.IP{}, ips...), nil
 }
 
-func newDnsMonitorForTest(t *testing.T, interval time.Duration) *DnsMonitor {
+func newDnsMonitorForTest(t *testing.T, interval time.Duration, lookup *mockDnsLookup) *DnsMonitor {
 	t.Helper()
 	require := require.New(t)
 
 	logger := NewLoggerForTest(t)
-	monitor, err := NewDnsMonitor(logger, interval)
+	var lookupFunc DnsMonitorLookupFunc
+	if lookup != nil {
+		lookupFunc = lookup.lookup
+	}
+	monitor, err := NewDnsMonitor(logger, interval, lookupFunc)
 	require.NoError(err)
 
 	t.Cleanup(func() {
@@ -223,13 +221,14 @@ func (r *dnsMonitorReceiver) ExpectNone() {
 	r.expected = expectNone
 }
 
-func TestDnsMonitor(t *testing.T) { // nolint:paralleltest
+func TestDnsMonitor(t *testing.T) {
+	t.Parallel()
 	lookup := newMockDnsLookupForTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
 	interval := time.Millisecond
-	monitor := newDnsMonitorForTest(t, interval)
+	monitor := newDnsMonitorForTest(t, interval, lookup)
 
 	ip1 := net.ParseIP("192.168.0.1")
 	ip2 := net.ParseIP("192.168.1.1")
@@ -297,7 +296,7 @@ func TestDnsMonitorIP(t *testing.T) {
 	defer cancel()
 
 	interval := time.Millisecond
-	monitor := newDnsMonitorForTest(t, interval)
+	monitor := newDnsMonitorForTest(t, interval, nil)
 
 	ip := "192.168.0.1"
 	ips := []net.IP{
@@ -317,9 +316,10 @@ func TestDnsMonitorIP(t *testing.T) {
 	time.Sleep(5 * interval)
 }
 
-func TestDnsMonitorNoLookupIfEmpty(t *testing.T) { // nolint:paralleltest
+func TestDnsMonitorNoLookupIfEmpty(t *testing.T) {
+	t.Parallel()
 	interval := time.Millisecond
-	monitor := newDnsMonitorForTest(t, interval)
+	monitor := newDnsMonitorForTest(t, interval, nil)
 
 	var checked atomic.Bool
 	monitor.checkHostnames = func() {
@@ -402,14 +402,15 @@ func (r *deadlockMonitorReceiver) Close() {
 	r.wg.Wait()
 }
 
-func TestDnsMonitorDeadlock(t *testing.T) { // nolint:paralleltest
+func TestDnsMonitorDeadlock(t *testing.T) {
+	t.Parallel()
 	lookup := newMockDnsLookupForTest(t)
 	ip1 := net.ParseIP("192.168.0.1")
 	ip2 := net.ParseIP("192.168.0.2")
 	lookup.Set("foo", []net.IP{ip1})
 
 	interval := time.Millisecond
-	monitor := newDnsMonitorForTest(t, interval)
+	monitor := newDnsMonitorForTest(t, interval, lookup)
 
 	r := newDeadlockMonitorReceiver(t, monitor)
 	r.Start()

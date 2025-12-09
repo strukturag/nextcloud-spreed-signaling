@@ -575,7 +575,10 @@ func (g *TestJanusGateway) send(msg api.StringMap, t *transaction) (uint64, erro
 func (g *TestJanusGateway) removeTransaction(id uint64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	delete(g.transactions, id)
+	if t, found := g.transactions[id]; found {
+		delete(g.transactions, id)
+		t.quit()
+	}
 }
 
 func (g *TestJanusGateway) removeSession(session *JanusSession) {
@@ -1081,10 +1084,20 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	}
 }
 
-func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"))
-	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"))
+type mockBandwidthStats struct {
+	incoming uint64
+	outgoing uint64
+}
 
+func (s *mockBandwidthStats) SetBandwidth(incoming uint64, outgoing uint64) {
+	s.incoming = incoming
+	s.outgoing = outgoing
+}
+
+func Test_JanusPublisherSubscriber(t *testing.T) {
+	t.Parallel()
+
+	stats := &mockBandwidthStats{}
 	require := require.New(t)
 	assert := assert.New(t)
 
@@ -1096,9 +1109,9 @@ func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
 
 	// Bandwidth for unknown handles is ignored.
 	mcu.UpdateBandwidth(1234, "video", api.BandwidthFromBytes(100), api.BandwidthFromBytes(200))
-	mcu.updateBandwidthStats()
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 0)
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 0)
+	mcu.updateBandwidthStats(stats)
+	assert.EqualValues(0, stats.incoming)
+	assert.EqualValues(0, stats.outgoing)
 
 	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
@@ -1128,9 +1141,9 @@ func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
 		assert.Equal(api.BandwidthFromBytes(1000), bw.Sent)
 		assert.Equal(api.BandwidthFromBytes(2000), bw.Received)
 	}
-	mcu.updateBandwidthStats()
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 1000)
+	mcu.updateBandwidthStats(stats)
+	assert.EqualValues(2000, stats.incoming)
+	assert.EqualValues(1000, stats.outgoing)
 
 	listener2 := &TestMcuListener{
 		id: pubId,
@@ -1156,11 +1169,11 @@ func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
 		assert.Equal(api.BandwidthFromBytes(4000), bw.Sent)
 		assert.Equal(api.BandwidthFromBytes(6000), bw.Received)
 	}
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 1000)
-	mcu.updateBandwidthStats()
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 6000)
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 4000)
+	assert.EqualValues(2000, stats.incoming)
+	assert.EqualValues(1000, stats.outgoing)
+	mcu.updateBandwidthStats(stats)
+	assert.EqualValues(6000, stats.incoming)
+	assert.EqualValues(4000, stats.outgoing)
 }
 
 func Test_JanusSubscriberPublisher(t *testing.T) {
@@ -1402,18 +1415,61 @@ func Test_JanusRemotePublisher(t *testing.T) {
 	assert.EqualValues(1, removed.Load())
 }
 
-func Test_JanusSubscriberNoSuchRoom(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
-	t.Cleanup(func() {
-		if !t.Failed() {
-			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
-		}
-	})
+type mockJanusStats struct {
+	called atomic.Bool
 
+	mu sync.Mutex
+	// +checklocks:mu
+	value map[StreamType]int
+}
+
+func (s *mockJanusStats) Value(streamType StreamType) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.value[streamType]
+}
+
+func (s *mockJanusStats) IncSubscriber(streamType StreamType) {
+	s.called.Store(true)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.value == nil {
+		s.value = make(map[StreamType]int)
+	}
+	s.value[streamType]++
+}
+
+func (s *mockJanusStats) DecSubscriber(streamType StreamType) {
+	s.called.Store(true)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.value == nil {
+		s.value = make(map[StreamType]int)
+	}
+	s.value[streamType]--
+}
+
+func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
 	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.stats = stats
 	gateway.registerHandlers(map[string]TestJanusHandler{
 		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
@@ -1501,18 +1557,21 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) { // nolint:paralleltest
 	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
-func test_JanusSubscriberAlreadyJoined(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
-	t.Cleanup(func() {
-		if !t.Failed() {
-			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
-		}
-	})
-
+func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
 	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.stats = stats
 	gateway.registerHandlers(map[string]TestJanusHandler{
 		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
@@ -1602,26 +1661,32 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) { // nolint:paralleltest
 	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
-func Test_JanusSubscriberAlreadyJoined(t *testing.T) { // nolint:paralleltest
+func Test_JanusSubscriberAlreadyJoined(t *testing.T) {
+	t.Parallel()
 	test_JanusSubscriberAlreadyJoined(t)
 }
 
-func Test_JanusSubscriberAlreadyJoinedAttachError(t *testing.T) { // nolint:paralleltest
+func Test_JanusSubscriberAlreadyJoinedAttachError(t *testing.T) {
+	t.Parallel()
 	test_JanusSubscriberAlreadyJoined(t)
 }
 
-func Test_JanusSubscriberTimeout(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
-	t.Cleanup(func() {
-		if !t.Failed() {
-			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
-		}
-	})
-
+func Test_JanusSubscriberTimeout(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
 	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.stats = stats
 	gateway.registerHandlers(map[string]TestJanusHandler{
 		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
@@ -1713,18 +1778,22 @@ func Test_JanusSubscriberTimeout(t *testing.T) { // nolint:paralleltest
 	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
 }
 
-func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
-	t.Cleanup(func() {
-		if !t.Failed() {
-			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
-		}
-	})
-
+func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
 	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.stats = stats
 	gateway.registerHandlers(map[string]TestJanusHandler{
 		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
@@ -1823,18 +1892,22 @@ func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) { // nolint:paralleltes
 	assert.Nil(handle, "subscriber should have been closed")
 }
 
-func Test_JanusSubscriberRoomDestroyed(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
-	t.Cleanup(func() {
-		if !t.Failed() {
-			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
-		}
-	})
-
+func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
 	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.stats = stats
 	gateway.registerHandlers(map[string]TestJanusHandler{
 		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)
@@ -1933,18 +2006,22 @@ func Test_JanusSubscriberRoomDestroyed(t *testing.T) { // nolint:paralleltest
 	assert.Nil(handle, "subscriber should have been closed")
 }
 
-func Test_JanusSubscriberUpdateOffer(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"))
-	t.Cleanup(func() {
-		if !t.Failed() {
-			checkStatsValue(t, statsSubscribersCurrent.WithLabelValues("video"), 0)
-		}
-	})
-
+func Test_JanusSubscriberUpdateOffer(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 	assert := assert.New(t)
 
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
 	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.stats = stats
 	gateway.registerHandlers(map[string]TestJanusHandler{
 		"configure": func(room *TestJanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			assert.EqualValues(1, room.id)

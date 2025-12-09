@@ -23,89 +23,155 @@ package signaling
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestPublisherStatsCounter(t *testing.T) { // nolint:paralleltest
-	RegisterJanusMcuStats()
+type mockPublisherStats struct {
+	publishers  map[StreamType]int
+	subscribers map[StreamType]int
+}
 
-	var c publisherStatsCounter
+func (s *mockPublisherStats) IncPublisherStream(streamType StreamType) {
+	if s.publishers == nil {
+		s.publishers = make(map[StreamType]int)
+	}
+	s.publishers[streamType]++
+}
+
+func (s *mockPublisherStats) DecPublisherStream(streamType StreamType) {
+	if s.publishers == nil {
+		s.publishers = make(map[StreamType]int)
+	}
+	s.publishers[streamType]--
+}
+
+func (s *mockPublisherStats) IncSubscriberStream(streamType StreamType) {
+	if s.subscribers == nil {
+		s.subscribers = make(map[StreamType]int)
+	}
+	s.subscribers[streamType]++
+}
+
+func (s *mockPublisherStats) DecSubscriberStream(streamType StreamType) {
+	if s.subscribers == nil {
+		s.subscribers = make(map[StreamType]int)
+	}
+	s.subscribers[streamType]--
+}
+
+func (s *mockPublisherStats) AddSubscriberStreams(streamType StreamType, count int) {
+	if s.subscribers == nil {
+		s.subscribers = make(map[StreamType]int)
+	}
+	s.subscribers[streamType] += count
+}
+
+func (s *mockPublisherStats) SubSubscriberStreams(streamType StreamType, count int) {
+	if s.subscribers == nil {
+		s.subscribers = make(map[StreamType]int)
+	}
+	s.subscribers[streamType] -= count
+}
+
+func (s *mockPublisherStats) Publishers(streamType StreamType) int {
+	return s.publishers[streamType]
+}
+
+func (s *mockPublisherStats) Subscribers(streamType StreamType) int {
+	return s.subscribers[streamType]
+}
+
+func TestPublisherStatsPrometheus(t *testing.T) {
+	t.Parallel()
+
+	RegisterJanusMcuStats()
+	collectAndLint(t, commonMcuStats...)
+}
+
+func TestPublisherStatsCounter(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	stats := &mockPublisherStats{}
+	c := publisherStatsCounter{
+		stats: stats,
+	}
 
 	c.Reset()
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 0)
+	assert.Equal(0, stats.Publishers("audio"))
 	c.EnableStream("audio", false)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 0)
+	assert.Equal(0, stats.Publishers("audio"))
 	c.EnableStream("audio", true)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
+	assert.Equal(1, stats.Publishers("audio"))
 	c.EnableStream("audio", true)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
+	assert.Equal(1, stats.Publishers("audio"))
 	c.EnableStream("video", true)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
+	assert.Equal(1, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
 	c.EnableStream("audio", false)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 0)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
+	assert.Equal(0, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
 	c.EnableStream("audio", false)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 0)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
+	assert.Equal(0, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
 
 	c.AddSubscriber("1")
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 0)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 0)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 1)
+	assert.Equal(0, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
+	assert.Equal(0, stats.Subscribers("audio"))
+	assert.Equal(1, stats.Subscribers("video"))
 	c.EnableStream("audio", true)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 1)
+	assert.Equal(1, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
+	assert.Equal(1, stats.Subscribers("audio"))
+	assert.Equal(1, stats.Subscribers("video"))
 	c.AddSubscriber("1")
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 1)
+	assert.Equal(1, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
+	assert.Equal(1, stats.Subscribers("audio"))
+	assert.Equal(1, stats.Subscribers("video"))
 
 	c.AddSubscriber("2")
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 2)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 2)
+	assert.Equal(1, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
+	assert.Equal(2, stats.Subscribers("audio"))
+	assert.Equal(2, stats.Subscribers("video"))
 
 	c.RemoveSubscriber("3")
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 2)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 2)
+	assert.Equal(1, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
+	assert.Equal(2, stats.Subscribers("audio"))
+	assert.Equal(2, stats.Subscribers("video"))
 
 	c.RemoveSubscriber("1")
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 1)
+	assert.Equal(1, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
+	assert.Equal(1, stats.Subscribers("audio"))
+	assert.Equal(1, stats.Subscribers("video"))
 
 	c.AddSubscriber("1")
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 2)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 2)
+	assert.Equal(1, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
+	assert.Equal(2, stats.Subscribers("audio"))
+	assert.Equal(2, stats.Subscribers("video"))
 
 	c.EnableStream("audio", false)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 0)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 0)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 2)
+	assert.Equal(0, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
+	assert.Equal(0, stats.Subscribers("audio"))
+	assert.Equal(2, stats.Subscribers("video"))
 
 	c.EnableStream("audio", true)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 1)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 1)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 2)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 2)
+	assert.Equal(1, stats.Publishers("audio"))
+	assert.Equal(1, stats.Publishers("video"))
+	assert.Equal(2, stats.Subscribers("audio"))
+	assert.Equal(2, stats.Subscribers("video"))
 
 	c.EnableStream("audio", false)
 	c.EnableStream("video", false)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("audio"), 0)
-	checkStatsValue(t, statsMcuPublisherStreamTypesCurrent.WithLabelValues("video"), 0)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("audio"), 0)
-	checkStatsValue(t, statsMcuSubscriberStreamTypesCurrent.WithLabelValues("video"), 0)
-
-	collectAndLint(t, commonMcuStats...)
+	assert.Equal(0, stats.Publishers("audio"))
+	assert.Equal(0, stats.Publishers("video"))
+	assert.Equal(0, stats.Subscribers("audio"))
+	assert.Equal(0, stats.Subscribers("video"))
 }

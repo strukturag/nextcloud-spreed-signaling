@@ -246,7 +246,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	})
 	config1, err := getConfigFunc(server1)
 	require.NoError(err)
-	client1, _ := NewGrpcClientsForTest(t, addr2)
+	client1, _ := NewGrpcClientsForTest(t, addr2, nil)
 	h1, err := NewHub(ctx, config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	require.NoError(err)
 	b1, err := NewBackendServer(ctx, config1, h1, "no-version")
@@ -260,7 +260,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	})
 	config2, err := getConfigFunc(server2)
 	require.NoError(err)
-	client2, _ := NewGrpcClientsForTest(t, addr1)
+	client2, _ := NewGrpcClientsForTest(t, addr1, nil)
 	h2, err := NewHub(ctx, config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	require.NoError(err)
 	b2, err := NewBackendServer(ctx, config2, h2, "no-version")
@@ -809,16 +809,6 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 	}
 }
 
-func performHousekeeping(hub *Hub, now time.Time) *sync.WaitGroup {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		hub.performHousekeeping(now)
-		wg.Done()
-	}()
-	return &wg
-}
-
 func Benchmark_DecodePrivateSessionIdCached(b *testing.B) {
 	require := require.New(b)
 	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
@@ -940,7 +930,7 @@ func TestExpectClientHello(t *testing.T) {
 
 	// Perform housekeeping in the future, this will cause the connection to
 	// be terminated due to the missing "Hello" request.
-	performHousekeeping(hub, time.Now().Add(initialHelloTimeout+time.Second))
+	hub.performHousekeeping(time.Now().Add(initialHelloTimeout + time.Second))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1486,7 +1476,7 @@ func TestClientHelloResumeThrottle(t *testing.T) {
 
 	// Perform housekeeping in the future, this will cause the session to be
 	// cleaned up after it is expired.
-	performHousekeeping(hub, time.Now().Add(sessionExpireDuration+time.Second)).Wait()
+	hub.performHousekeeping(time.Now().Add(sessionExpireDuration + time.Second))
 
 	client = NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -1523,7 +1513,7 @@ func TestClientHelloResumeExpired(t *testing.T) {
 
 	// Perform housekeeping in the future, this will cause the session to be
 	// cleaned up after it is expired.
-	performHousekeeping(hub, time.Now().Add(sessionExpireDuration+time.Second)).Wait()
+	hub.performHousekeeping(time.Now().Add(sessionExpireDuration + time.Second))
 
 	client = NewTestClient(t, server, hub)
 	defer client.CloseWithBye()
@@ -2803,7 +2793,7 @@ func TestExpectAnonymousJoinRoom(t *testing.T) {
 
 	// Perform housekeeping in the future, this will cause the connection to
 	// be terminated because the anonymous client didn't join a room.
-	performHousekeeping(hub, time.Now().Add(anonmyousJoinRoomTimeout+time.Second))
+	hub.performHousekeeping(time.Now().Add(anonmyousJoinRoomTimeout + time.Second))
 
 	if message, ok := client.RunUntilMessage(ctx); ok {
 		if checkMessageType(t, message, "bye") {
@@ -2840,7 +2830,7 @@ func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
 
 	// Perform housekeeping in the future, this will keep the connection as the
 	// session joined a room.
-	performHousekeeping(hub, time.Now().Add(anonmyousJoinRoomTimeout+time.Second))
+	hub.performHousekeeping(time.Now().Add(anonmyousJoinRoomTimeout + time.Second))
 
 	// No message about the closing is sent to the new connection.
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -2854,7 +2844,7 @@ func TestExpectAnonymousJoinRoomAfterLeave(t *testing.T) {
 
 	// Perform housekeeping in the future, this will cause the connection to
 	// be terminated because the anonymous client didn't join a room.
-	performHousekeeping(hub, time.Now().Add(anonmyousJoinRoomTimeout+time.Second))
+	hub.performHousekeeping(time.Now().Add(anonmyousJoinRoomTimeout + time.Second))
 
 	if message, ok := client.RunUntilMessage(ctx); ok {
 		if checkMessageType(t, message, "bye") {
@@ -5096,7 +5086,9 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 			defer cancel()
 
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
 
 			roomSessionId1 := RoomSessionId("roomsession1")
 			roomId1 := "test-room"
@@ -5421,7 +5413,7 @@ func TestGracefulShutdownOnExpiration(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	performHousekeeping(hub, time.Now().Add(sessionExpireDuration+time.Second))
+	hub.performHousekeeping(time.Now().Add(sessionExpireDuration + time.Second))
 
 	select {
 	case <-hub.ShutdownChannel():

@@ -40,7 +40,7 @@ func TestFileWatcher_NotExist(t *testing.T) {
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
 	logger := NewLoggerForTest(t)
-	if w, err := NewFileWatcher(logger, path.Join(tmpdir, "test.txt"), func(filename string) {}); !assert.ErrorIs(err, os.ErrNotExist) {
+	if w, err := NewFileWatcher(logger, path.Join(tmpdir, "test.txt"), func(filename string) {}, defaultDeduplicateWatchEvents); !assert.ErrorIs(err, os.ErrNotExist) {
 		if w != nil {
 			assert.NoError(w.Close())
 		}
@@ -59,7 +59,7 @@ func TestFileWatcher_File(t *testing.T) { // nolint:paralleltest
 		modified := make(chan struct{})
 		w, err := NewFileWatcher(logger, filename, func(filename string) {
 			modified <- struct{}{}
-		})
+		}, defaultDeduplicateWatchEvents)
 		require.NoError(err)
 		defer w.Close()
 
@@ -94,7 +94,7 @@ func TestFileWatcher_CurrentDir(t *testing.T) { // nolint:paralleltest
 		require := require.New(t)
 		assert := assert.New(t)
 		tmpdir := t.TempDir()
-		require.NoError(os.Chdir(tmpdir))
+		t.Chdir(tmpdir)
 		filename := path.Join(tmpdir, "test.txt")
 		require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
 
@@ -102,7 +102,7 @@ func TestFileWatcher_CurrentDir(t *testing.T) { // nolint:paralleltest
 		modified := make(chan struct{})
 		w, err := NewFileWatcher(logger, "./"+path.Base(filename), func(filename string) {
 			modified <- struct{}{}
-		})
+		}, defaultDeduplicateWatchEvents)
 		require.NoError(err)
 		defer w.Close()
 
@@ -144,7 +144,7 @@ func TestFileWatcher_Rename(t *testing.T) {
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
-	})
+	}, defaultDeduplicateWatchEvents)
 	require.NoError(err)
 	defer w.Close()
 
@@ -188,7 +188,7 @@ func TestFileWatcher_Symlink(t *testing.T) {
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
-	})
+	}, defaultDeduplicateWatchEvents)
 	require.NoError(err)
 	defer w.Close()
 
@@ -223,7 +223,7 @@ func TestFileWatcher_ChangeSymlinkTarget(t *testing.T) {
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
-	})
+	}, defaultDeduplicateWatchEvents)
 	require.NoError(err)
 	defer w.Close()
 
@@ -260,7 +260,7 @@ func TestFileWatcher_OtherSymlink(t *testing.T) {
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
-	})
+	}, defaultDeduplicateWatchEvents)
 	require.NoError(err)
 	defer w.Close()
 
@@ -291,7 +291,7 @@ func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
-	})
+	}, defaultDeduplicateWatchEvents)
 	require.NoError(err)
 	defer w.Close()
 
@@ -345,7 +345,7 @@ func TestFileWatcher_UpdateSymlinkFolder(t *testing.T) {
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
-	})
+	}, defaultDeduplicateWatchEvents)
 	require.NoError(err)
 	defer w.Close()
 

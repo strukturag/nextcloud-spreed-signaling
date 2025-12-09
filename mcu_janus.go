@@ -213,6 +213,21 @@ func (s *mcuJanusSettings) Reload(config *goconf.ConfigFile) {
 	}
 }
 
+type mcuJanusStats interface {
+	IncSubscriber(streamType StreamType)
+	DecSubscriber(streamType StreamType)
+}
+
+type prometheusJanusStats struct{}
+
+func (s *prometheusJanusStats) IncSubscriber(streamType StreamType) {
+	statsSubscribersCurrent.WithLabelValues(string(streamType)).Inc()
+}
+
+func (s *prometheusJanusStats) DecSubscriber(streamType StreamType) {
+	statsSubscribersCurrent.WithLabelValues(string(streamType)).Dec()
+}
+
 type mcuJanus struct {
 	logger Logger
 
@@ -220,6 +235,7 @@ type mcuJanus struct {
 	mu  sync.Mutex
 
 	settings *mcuJanusSettings
+	stats    mcuJanusStats
 
 	createJanusGateway func(ctx context.Context, wsURL string, listener GatewayListener) (JanusGatewayInterface, error)
 
@@ -265,6 +281,7 @@ func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mc
 		logger:    LoggerFromContext(ctx),
 		url:       url,
 		settings:  settings,
+		stats:     &prometheusJanusStats{},
 		closeChan: make(chan struct{}, 1),
 		clients:   make(map[uint64]clientInterface),
 
@@ -333,7 +350,22 @@ func (m *mcuJanus) Bandwidth() (result *McuClientBandwidthInfo) {
 	return
 }
 
-func (m *mcuJanus) updateBandwidthStats() {
+type janusBandwidthStats interface {
+	SetBandwidth(incoming uint64, outgoing uint64)
+}
+
+type prometheusJanusBandwidthStats struct{}
+
+func (s *prometheusJanusBandwidthStats) SetBandwidth(incoming uint64, outgoing uint64) {
+	statsJanusBandwidthCurrent.WithLabelValues("incoming").Set(float64(incoming))
+	statsJanusBandwidthCurrent.WithLabelValues("outgoing").Set(float64(outgoing))
+}
+
+var (
+	defaultJanusBandwidthStats = &prometheusJanusBandwidthStats{}
+)
+
+func (m *mcuJanus) updateBandwidthStats(stats janusBandwidthStats) {
 	if info := m.info.Load(); info != nil {
 		if !info.EventHandlers {
 			// Event handlers are disabled, no stats will be available.
@@ -346,12 +378,14 @@ func (m *mcuJanus) updateBandwidthStats() {
 		}
 	}
 
+	if stats == nil {
+		stats = defaultJanusBandwidthStats
+	}
+
 	if bandwidth := m.Bandwidth(); bandwidth != nil {
-		statsJanusBandwidthCurrent.WithLabelValues("incoming").Set(float64(bandwidth.Received.Bytes()))
-		statsJanusBandwidthCurrent.WithLabelValues("outgoing").Set(float64(bandwidth.Sent.Bytes()))
+		stats.SetBandwidth(bandwidth.Received.Bytes(), bandwidth.Sent.Bytes())
 	} else {
-		statsJanusBandwidthCurrent.WithLabelValues("incoming").Set(0)
-		statsJanusBandwidthCurrent.WithLabelValues("outgoing").Set(0)
+		stats.SetBandwidth(0, 0)
 	}
 }
 
@@ -524,7 +558,7 @@ loop:
 		case <-ticker.C:
 			m.sendKeepalive(context.Background())
 		case <-bandwidthTicker.C:
-			m.updateBandwidthStats()
+			m.updateBandwidthStats(nil)
 		case <-m.closeChan:
 			break loop
 		}
@@ -890,7 +924,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 	client.mcuJanusClient.handleMedia = client.handleMedia
 	m.registerClient(client)
 	go client.run(handle, client.closeChan)
-	statsSubscribersCurrent.WithLabelValues(string(streamType)).Inc()
+	m.stats.IncSubscriber(streamType)
 	statsSubscribersTotal.WithLabelValues(string(streamType)).Inc()
 	return client, nil
 }
@@ -1060,7 +1094,7 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 	client.mcuJanusClient.handleMedia = client.handleMedia
 	m.registerClient(client)
 	go client.run(handle, client.closeChan)
-	statsSubscribersCurrent.WithLabelValues(string(publisher.StreamType())).Inc()
+	m.stats.IncSubscriber(publisher.StreamType())
 	statsSubscribersTotal.WithLabelValues(string(publisher.StreamType())).Inc()
 	return client, nil
 }

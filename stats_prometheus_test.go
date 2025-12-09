@@ -58,7 +58,7 @@ func assertCollectorChangeBy(t *testing.T, collector prometheus.Collector, delta
 	})
 }
 
-func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64) {
+func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64) { // nolint:unused
 	// Make sure test is not executed with "t.Parallel()"
 	t.Setenv("PARALLEL_CHECK", "1")
 
@@ -71,7 +71,7 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 		pc := make([]uintptr, 10)
 		n := runtime.Callers(2, pc)
 		if n == 0 {
-			assert.InEpsilon(value, v, 0.0001, "failed for %s", desc)
+			assert.InDelta(value, v, 0.0001, "failed for %s", desc)
 			return
 		}
 
@@ -88,7 +88,7 @@ func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64
 				break
 			}
 		}
-		assert.InEpsilon(value, v, 0.0001, "Unexpected value for %s at\n%s", desc, stack.String())
+		assert.InDelta(value, v, 0.0001, "Unexpected value for %s at\n%s", desc, stack.String())
 	}
 }
 

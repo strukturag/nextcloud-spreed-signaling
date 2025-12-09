@@ -29,7 +29,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -39,28 +38,21 @@ const (
 	defaultDeduplicateWatchEvents = 100 * time.Millisecond
 )
 
-var (
-	deduplicateWatchEvents atomic.Int64
-)
-
-func init() {
-	deduplicateWatchEvents.Store(int64(defaultDeduplicateWatchEvents))
-}
-
 type FileWatcherCallback func(filename string)
 
 type FileWatcher struct {
-	logger   Logger
-	filename string
-	target   string
-	callback FileWatcherCallback
+	logger      Logger
+	filename    string
+	target      string
+	callback    FileWatcherCallback
+	deduplicate time.Duration
 
 	watcher   *fsnotify.Watcher
 	closeCtx  context.Context
 	closeFunc context.CancelFunc
 }
 
-func NewFileWatcher(logger Logger, filename string, callback FileWatcherCallback) (*FileWatcher, error) {
+func NewFileWatcher(logger Logger, filename string, callback FileWatcherCallback, deduplicate time.Duration) (*FileWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -74,10 +66,11 @@ func NewFileWatcher(logger Logger, filename string, callback FileWatcherCallback
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 
 	w := &FileWatcher{
-		logger:   logger,
-		filename: filename,
-		callback: callback,
-		watcher:  watcher,
+		logger:      logger,
+		filename:    filename,
+		callback:    callback,
+		deduplicate: deduplicate,
+		watcher:     watcher,
 
 		closeCtx:  closeCtx,
 		closeFunc: closeFunc,
@@ -115,8 +108,7 @@ func (f *FileWatcher) run() {
 	timers := make(map[string]*time.Timer)
 
 	triggerEvent := func(event fsnotify.Event) {
-		deduplicate := time.Duration(deduplicateWatchEvents.Load())
-		if deduplicate <= 0 {
+		if f.deduplicate <= 0 {
 			f.callback(f.filename)
 			return
 		}
@@ -128,7 +120,7 @@ func (f *FileWatcher) run() {
 		t, found := timers[filename]
 		mu.Unlock()
 		if !found {
-			t = time.AfterFunc(deduplicate, func() {
+			t = time.AfterFunc(f.deduplicate, func() {
 				f.callback(f.filename)
 
 				mu.Lock()
@@ -139,7 +131,7 @@ func (f *FileWatcher) run() {
 			timers[filename] = t
 			mu.Unlock()
 		} else {
-			t.Reset(deduplicate)
+			t.Reset(f.deduplicate)
 		}
 	}
 

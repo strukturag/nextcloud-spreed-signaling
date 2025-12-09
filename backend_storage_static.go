@@ -43,7 +43,7 @@ type backendStorageStatic struct {
 	compatBackend *Backend
 }
 
-func NewBackendStorageStatic(logger Logger, config *goconf.ConfigFile) (BackendStorage, error) {
+func NewBackendStorageStatic(logger Logger, config *goconf.ConfigFile, stats BackendStorageStats) (BackendStorage, error) {
 	allowAll, _ := config.GetBool("backend", "allowall")
 	allowHttp, _ := config.GetBool("backend", "allowhttp")
 	commonSecret, _ := GetStringOptionWithEnv(config, "backend", "secret")
@@ -157,10 +157,11 @@ func NewBackendStorageStatic(logger Logger, config *goconf.ConfigFile) (BackendS
 		logger.Printf("WARNING: No backends configured, client connections will not be possible.")
 	}
 
-	statsBackendsCurrent.Add(float64(numBackends))
+	stats.AddBackends(numBackends)
 	return &backendStorageStatic{
 		backendStorageCommon: backendStorageCommon{
 			backends: backends,
+			stats:    stats,
 		},
 
 		logger:       logger,
@@ -196,7 +197,7 @@ func (s *backendStorageStatic) RemoveBackendsForHost(host string, seen map[strin
 				backend.counted = false
 			}
 		}
-		statsBackendsCurrent.Sub(float64(deleted))
+		s.stats.RemoveBackends(deleted)
 	}
 	delete(s.backends, host)
 }
@@ -247,7 +248,7 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 				if len(urls) == len(removed.urls) && removed.counted {
 					deleteBackendStats(removed)
 					delete(s.backendsById, removed.Id())
-					statsBackendsCurrent.Dec()
+					s.stats.DecBackends()
 					removed.counted = false
 				}
 			}
@@ -276,7 +277,7 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 			added.counted = true
 		}
 	}
-	statsBackendsCurrent.Add(float64(addedBackends))
+	s.stats.AddBackends(addedBackends)
 }
 
 func getConfiguredBackendIDs(backendIds string) (ids []string) {

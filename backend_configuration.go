@@ -171,10 +171,19 @@ type BackendStorage interface {
 	GetBackends() []*Backend
 }
 
+type BackendStorageStats interface {
+	AddBackends(count int)
+	RemoveBackends(count int)
+	IncBackends()
+	DecBackends()
+}
+
 type backendStorageCommon struct {
 	mu sync.RWMutex
 	// +checklocks:mu
 	backends map[string][]*Backend
+
+	stats BackendStorageStats // +checklocksignore: Only written to from constructor
 }
 
 func (s *backendStorageCommon) GetBackends() []*Backend {
@@ -224,21 +233,50 @@ type BackendConfiguration struct {
 	storage BackendStorage
 }
 
+type prometheusBackendStats struct{}
+
+func (s *prometheusBackendStats) AddBackends(count int) {
+	statsBackendsCurrent.Add(float64(count))
+}
+
+func (s *prometheusBackendStats) RemoveBackends(count int) {
+	statsBackendsCurrent.Sub(float64(count))
+}
+
+func (s *prometheusBackendStats) IncBackends() {
+	statsBackendsCurrent.Inc()
+}
+
+func (s *prometheusBackendStats) DecBackends() {
+	statsBackendsCurrent.Dec()
+}
+
+var (
+	defaultBackendStats = &prometheusBackendStats{}
+)
+
 func NewBackendConfiguration(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient) (*BackendConfiguration, error) {
+	return NewBackendConfigurationWithStats(logger, config, etcdClient, nil)
+}
+
+func NewBackendConfigurationWithStats(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, stats BackendStorageStats) (*BackendConfiguration, error) {
 	backendType, _ := config.GetString("backend", "backendtype")
 	if backendType == "" {
 		backendType = DefaultBackendType
 	}
 
-	RegisterBackendConfigurationStats()
+	if stats == nil {
+		RegisterBackendConfigurationStats()
+		stats = defaultBackendStats
+	}
 
 	var storage BackendStorage
 	var err error
 	switch backendType {
 	case BackendTypeStatic:
-		storage, err = NewBackendStorageStatic(logger, config)
+		storage, err = NewBackendStorageStatic(logger, config, stats)
 	case BackendTypeEtcd:
-		storage, err = NewBackendStorageEtcd(logger, config, etcdClient)
+		storage, err = NewBackendStorageEtcd(logger, config, etcdClient, stats)
 	default:
 		err = fmt.Errorf("unknown backend type: %s", backendType)
 	}

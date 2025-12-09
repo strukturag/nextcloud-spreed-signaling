@@ -51,6 +51,7 @@ func TestBandwidth_Client(t *testing.T) {
 	hub.SetMcu(mcu)
 
 	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
 
 	// Join room by id.
 	roomId := "test-room"
@@ -476,6 +477,7 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 			defer cancel()
 
 			client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+			defer client.CloseWithBye()
 
 			roomId := "test-room"
 			roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
@@ -541,6 +543,7 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 				}
 
 				client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+				defer client2.CloseWithBye()
 
 				roomMsg2 := MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 				require.Equal(roomId, roomMsg2.Room.RoomId)

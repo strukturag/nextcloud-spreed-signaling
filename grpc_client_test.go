@@ -51,8 +51,8 @@ func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
 	return ch
 }
 
-func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient) (*GrpcClients, *DnsMonitor) {
-	dnsMonitor := newDnsMonitorForTest(t, time.Hour) // will be updated manually
+func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
+	dnsMonitor := newDnsMonitorForTest(t, time.Hour, lookup) // will be updated manually
 	logger := NewLoggerForTest(t)
 	ctx := NewLoggerContext(t.Context(), logger)
 	client, err := NewGrpcClients(ctx, config, etcdClient, dnsMonitor, "0.0.0")
@@ -64,15 +64,15 @@ func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, et
 	return client, dnsMonitor
 }
 
-func NewGrpcClientsForTest(t *testing.T, addr string) (*GrpcClients, *DnsMonitor) {
+func NewGrpcClientsForTest(t *testing.T, addr string, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("grpc", "targets", addr)
 	config.AddOption("grpc", "dnsdiscovery", "true")
 
-	return NewGrpcClientsForTestWithConfig(t, config, nil)
+	return NewGrpcClientsForTestWithConfig(t, config, nil, lookup)
 }
 
-func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) (*GrpcClients, *DnsMonitor) {
+func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 
@@ -86,7 +86,7 @@ func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd) (*GrpcClients
 		assert.NoError(t, etcdClient.Close())
 	})
 
-	return NewGrpcClientsForTestWithConfig(t, config, etcdClient)
+	return NewGrpcClientsForTestWithConfig(t, config, etcdClient, lookup)
 }
 
 func drainWakeupChannel(ch <-chan struct{}) {
@@ -122,7 +122,7 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) { // nolint:paralleltest
 		SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 		SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
-		client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
+		client, _ := NewGrpcClientsWithEtcdForTest(t, etcd, nil)
 		ctx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
 		require.NoError(t, client.WaitForInitialized(ctx))
@@ -138,7 +138,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	etcd := NewEtcdForTest(t)
-	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
+	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd, nil)
 	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(ctx, testTimeout)
@@ -185,7 +185,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	ctx := NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	etcd := NewEtcdForTest(t)
-	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd)
+	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd, nil)
 	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(ctx, testTimeout)
@@ -232,7 +232,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 		targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
 		targetWithIp2 := fmt.Sprintf("%s (%s)", target, ip2)
 		lookup.Set("testgrpc", []net.IP{ip1})
-		client, dnsMonitor := NewGrpcClientsForTest(t, target)
+		client, dnsMonitor := NewGrpcClientsForTest(t, target, lookup)
 		ch := client.getWakeupChannelForTesting()
 
 		ctx, cancel := context.WithTimeout(ctx, testTimeout)
@@ -274,13 +274,14 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 	})
 }
 
-func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) { // nolint:paralleltest
+func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	lookup := newMockDnsLookupForTest(t)
 	target := "testgrpc:12345"
 	ip1 := net.ParseIP("192.168.0.1")
 	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
-	client, dnsMonitor := NewGrpcClientsForTest(t, target)
+	client, dnsMonitor := NewGrpcClientsForTest(t, target, lookup)
 	ch := client.getWakeupChannelForTesting()
 
 	testCtx, testCtxCancel := context.WithTimeout(context.Background(), testTimeout)
@@ -339,7 +340,7 @@ func Test_GrpcClients_Encryption(t *testing.T) { // nolint:paralleltest
 		clientConfig.AddOption("grpc", "clientcertificate", clientCertFile)
 		clientConfig.AddOption("grpc", "clientkey", clientPrivkeyFile)
 		clientConfig.AddOption("grpc", "serverca", serverCertFile)
-		clients, _ := NewGrpcClientsForTestWithConfig(t, clientConfig, nil)
+		clients, _ := NewGrpcClientsForTestWithConfig(t, clientConfig, nil, nil)
 
 		ctx, cancel1 := context.WithTimeout(context.Background(), time.Second)
 		defer cancel1()

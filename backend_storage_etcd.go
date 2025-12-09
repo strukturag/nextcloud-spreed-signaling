@@ -49,7 +49,7 @@ type backendStorageEtcd struct {
 	closeFunc context.CancelFunc
 }
 
-func NewBackendStorageEtcd(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient) (BackendStorage, error) {
+func NewBackendStorageEtcd(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, stats BackendStorageStats) (BackendStorage, error) {
 	if etcdClient == nil || !etcdClient.IsConfigured() {
 		return nil, errors.New("no etcd endpoints configured")
 	}
@@ -64,6 +64,7 @@ func NewBackendStorageEtcd(logger Logger, config *goconf.ConfigFile, etcdClient 
 	result := &backendStorageEtcd{
 		backendStorageCommon: backendStorageCommon{
 			backends: make(map[string][]*Backend),
+			stats:    stats,
 		},
 		logger:     logger,
 		etcdClient: etcdClient,
@@ -231,7 +232,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 	}
 	updateBackendStats(backend)
 	if added {
-		statsBackendsCurrent.Inc()
+		s.stats.IncBackends()
 	}
 	s.wakeupForTesting()
 }
@@ -275,7 +276,7 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prev
 				if !seen[entry.Id()] {
 					seen[entry.Id()] = true
 					updateBackendStats(entry)
-					statsBackendsCurrent.Dec()
+					s.stats.DecBackends()
 				}
 				continue
 			}

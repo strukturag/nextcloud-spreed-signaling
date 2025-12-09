@@ -140,7 +140,7 @@ func (p *mcuJanusSubscriber) closeClient(ctx context.Context) bool {
 		return false
 	}
 
-	statsSubscribersCurrent.WithLabelValues(string(p.streamType)).Dec()
+	p.mcu.stats.DecSubscriber(p.streamType)
 	return true
 }
 
@@ -226,7 +226,7 @@ retry:
 			p.sid = strconv.FormatUint(handle.Id, 10)
 			p.listener.SubscriberSidUpdated(p)
 			p.closeChan = make(chan struct{}, 1)
-			statsSubscribersCurrent.WithLabelValues(string(p.streamType)).Inc()
+			p.mcu.stats.IncSubscriber(p.streamType)
 			go p.run(handle, p.closeChan)
 			p.logger.Printf("Already connected subscriber %d for %s, leaving and re-joining on handle %d", p.id, p.streamType, p.handleId.Load())
 			goto retry
