@@ -94,7 +94,7 @@ func TestFileWatcher_CurrentDir(t *testing.T) { // nolint:paralleltest
 		require := require.New(t)
 		assert := assert.New(t)
 		tmpdir := t.TempDir()
-		require.NoError(os.Chdir(tmpdir))
+		t.Chdir(tmpdir)
 		filename := path.Join(tmpdir, "test.txt")
 		require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
 
