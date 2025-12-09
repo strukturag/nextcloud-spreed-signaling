@@ -33,6 +33,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type mockDnsLookup struct {
@@ -84,7 +86,7 @@ func newDnsMonitorForTest(t *testing.T, interval time.Duration, lookup *mockDnsL
 	t.Helper()
 	require := require.New(t)
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	var lookupFunc DnsMonitorLookupFunc
 	if lookup != nil {
 		lookupFunc = lookup.lookup

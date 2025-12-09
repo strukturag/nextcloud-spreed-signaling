@@ -27,10 +27,12 @@ import (
 	"errors"
 	"sync/atomic"
 	"time"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type RemoteSession struct {
-	logger       Logger
+	logger       log.Logger
 	hub          *Hub
 	client       *Client
 	remoteClient *GrpcClient

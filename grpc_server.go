@@ -37,6 +37,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	status "google.golang.org/grpc/status"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -73,7 +75,7 @@ type GrpcServer struct {
 	UnimplementedRpcMcuServer
 	UnimplementedRpcSessionsServer
 
-	logger   Logger
+	logger   log.Logger
 	version  string
 	creds    credentials.TransportCredentials
 	conn     *grpc.Server
@@ -93,7 +95,7 @@ func NewGrpcServer(ctx context.Context, config *goconf.ConfigFile, version strin
 		}
 	}
 
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	creds, err := NewReloadableCredentials(logger, config, true)
 	if err != nil {
 		return nil, err

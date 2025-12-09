@@ -35,6 +35,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
@@ -77,7 +79,7 @@ func GetGeoIpUrlForTest(t *testing.T) string {
 
 func TestGeoLookup(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpUrlForTest(t))
 	require.NoError(err)
@@ -90,7 +92,7 @@ func TestGeoLookup(t *testing.T) {
 
 func TestGeoLookupCaching(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpUrlForTest(t))
 	require.NoError(err)
@@ -131,7 +133,7 @@ func TestGeoLookupContinent(t *testing.T) {
 
 func TestGeoLookupCloseEmpty(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	reader, err := NewGeoLookupFromUrl(logger, "ignore-url")
 	require.NoError(t, err)
 	reader.Close()
@@ -139,7 +141,7 @@ func TestGeoLookupCloseEmpty(t *testing.T) {
 
 func TestGeoLookupFromFile(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	geoIpUrl := GetGeoIpUrlForTest(t)
 

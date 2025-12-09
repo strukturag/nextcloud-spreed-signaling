@@ -46,6 +46,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -138,8 +139,8 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httpte
 	config := goconf.NewConfigFile()
 	config.AddOption("tokens", TokenIdForTest, pubkey.Name())
 
-	logger := signaling.NewLoggerForTest(t)
-	ctx := signaling.NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	proxy, err = NewProxyServer(ctx, r, "0.0", config)
 	require.NoError(err)
 

@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func GetSubjectForBackendRoomId(roomId string, backend *Backend) string {
@@ -60,7 +62,7 @@ func GetSubjectForSessionId(sessionId PublicSessionId, backend *Backend) string 
 type asyncSubscriberNats struct {
 	key    string
 	client NatsClient
-	logger Logger
+	logger log.Logger
 
 	receiver     chan *nats.Msg
 	closeChan    chan struct{}
@@ -69,7 +71,7 @@ type asyncSubscriberNats struct {
 	processMessage func(*nats.Msg)
 }
 
-func newAsyncSubscriberNats(logger Logger, key string, client NatsClient) (*asyncSubscriberNats, error) {
+func newAsyncSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncSubscriberNats, error) {
 	receiver := make(chan *nats.Msg, 64)
 	sub, err := client.Subscribe(key, receiver)
 	if err != nil {
@@ -117,7 +119,7 @@ type asyncBackendRoomSubscriberNats struct {
 	asyncBackendRoomSubscriber
 }
 
-func newAsyncBackendRoomSubscriberNats(logger Logger, key string, client NatsClient) (*asyncBackendRoomSubscriberNats, error) {
+func newAsyncBackendRoomSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncBackendRoomSubscriberNats, error) {
 	sub, err := newAsyncSubscriberNats(logger, key, client)
 	if err != nil {
 		return nil, err
@@ -146,7 +148,7 @@ type asyncRoomSubscriberNats struct {
 	*asyncSubscriberNats
 }
 
-func newAsyncRoomSubscriberNats(logger Logger, key string, client NatsClient) (*asyncRoomSubscriberNats, error) {
+func newAsyncRoomSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncRoomSubscriberNats, error) {
 	sub, err := newAsyncSubscriberNats(logger, key, client)
 	if err != nil {
 		return nil, err
@@ -175,7 +177,7 @@ type asyncUserSubscriberNats struct {
 	asyncUserSubscriber
 }
 
-func newAsyncUserSubscriberNats(logger Logger, key string, client NatsClient) (*asyncUserSubscriberNats, error) {
+func newAsyncUserSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncUserSubscriberNats, error) {
 	sub, err := newAsyncSubscriberNats(logger, key, client)
 	if err != nil {
 		return nil, err
@@ -204,7 +206,7 @@ type asyncSessionSubscriberNats struct {
 	asyncSessionSubscriber
 }
 
-func newAsyncSessionSubscriberNats(logger Logger, key string, client NatsClient) (*asyncSessionSubscriberNats, error) {
+func newAsyncSessionSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncSessionSubscriberNats, error) {
 	sub, err := newAsyncSubscriberNats(logger, key, client)
 	if err != nil {
 		return nil, err
@@ -231,7 +233,7 @@ func (s *asyncSessionSubscriberNats) doProcessMessage(msg *nats.Msg) {
 type asyncEventsNats struct {
 	mu     sync.Mutex
 	client NatsClient
-	logger Logger // +checklocksignore
+	logger log.Logger // +checklocksignore
 
 	// +checklocks:mu
 	backendRoomSubscriptions map[string]*asyncBackendRoomSubscriberNats
@@ -243,7 +245,7 @@ type asyncEventsNats struct {
 	sessionSubscriptions map[string]*asyncSessionSubscriberNats
 }
 
-func NewAsyncEventsNats(logger Logger, client NatsClient) (AsyncEvents, error) {
+func NewAsyncEventsNats(logger log.Logger, client NatsClient) (AsyncEvents, error) {
 	events := &asyncEventsNats{
 		client: client,
 		logger: logger,

@@ -30,10 +30,12 @@ import (
 
 	"github.com/dlintw/goconf"
 	clientv3 "go.etcd.io/etcd/client/v3"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type proxyConfigEtcd struct {
-	logger Logger
+	logger log.Logger
 	mu     sync.Mutex
 	proxy  McuProxy // +checklocksignore: Only written to from constructor.
 
@@ -48,7 +50,7 @@ type proxyConfigEtcd struct {
 	closeFunc context.CancelFunc
 }
 
-func NewProxyConfigEtcd(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, proxy McuProxy) (ProxyConfig, error) {
+func NewProxyConfigEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, proxy McuProxy) (ProxyConfig, error) {
 	if !etcdClient.IsConfigured() {
 		return nil, errors.New("no etcd endpoints configured")
 	}

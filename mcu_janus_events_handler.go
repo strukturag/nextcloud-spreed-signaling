@@ -37,6 +37,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -620,7 +621,7 @@ func (h *handleStats) LostRemote(media string, lost uint64) {
 type JanusEventsHandler struct {
 	mu sync.Mutex
 
-	logger Logger
+	logger log.Logger
 	ctx    context.Context
 	mcu    McuEventHandler
 	// +checklocks:mu
@@ -654,7 +655,7 @@ func RunJanusEventsHandler(ctx context.Context, mcu Mcu, conn *websocket.Conn, a
 
 	client, err := NewJanusEventsHandler(ctx, m, conn, addr, agent)
 	if err != nil {
-		logger := LoggerFromContext(ctx)
+		logger := log.LoggerFromContext(ctx)
 		logger.Printf("Could not create Janus events handler for %s: %s", addr, err)
 		conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "error creating handler"), deadline) // nolint
 		return
@@ -665,7 +666,7 @@ func RunJanusEventsHandler(ctx context.Context, mcu Mcu, conn *websocket.Conn, a
 
 func NewJanusEventsHandler(ctx context.Context, mcu McuEventHandler, conn *websocket.Conn, addr string, agent string) (*JanusEventsHandler, error) {
 	handler := &JanusEventsHandler{
-		logger: LoggerFromContext(ctx),
+		logger: log.LoggerFromContext(ctx),
 		ctx:    ctx,
 		mcu:    mcu,
 		conn:   conn,

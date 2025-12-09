@@ -30,6 +30,7 @@ import (
 	"github.com/dlintw/goconf"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -81,7 +82,7 @@ type McuSettings interface {
 }
 
 type mcuCommonSettings struct {
-	logger Logger
+	logger log.Logger
 
 	maxStreamBitrate api.AtomicBandwidth
 	maxScreenBitrate api.AtomicBandwidth

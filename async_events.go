@@ -24,6 +24,8 @@ package signaling
 import (
 	"context"
 	"sync"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type AsyncBackendRoomEventListener interface {
@@ -69,7 +71,7 @@ func NewAsyncEvents(ctx context.Context, url string) (AsyncEvents, error) {
 		return nil, err
 	}
 
-	return NewAsyncEventsNats(LoggerFromContext(ctx), client)
+	return NewAsyncEventsNats(log.LoggerFromContext(ctx), client)
 }
 
 type asyncBackendRoomSubscriber struct {

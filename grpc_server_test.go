@@ -41,6 +41,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func (s *GrpcServer) WaitForCertificateReload(ctx context.Context, counter uint64) error {
@@ -62,8 +64,8 @@ func (s *GrpcServer) WaitForCertPoolReload(ctx context.Context, counter uint64) 
 }
 
 func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (server *GrpcServer, addr string) {
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	for port := 50000; port < 50100; port++ {
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 		config.AddOption("grpc", "listen", addr)
@@ -169,7 +171,7 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 
 func Test_GrpcServer_ReloadCA(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	require.NoError(err)

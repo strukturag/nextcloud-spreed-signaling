@@ -33,6 +33,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -63,13 +65,13 @@ func GetEncodedSubject(prefix string, suffix string) string {
 }
 
 type natsClient struct {
-	logger Logger
+	logger log.Logger
 	conn   *nats.Conn
 	closed chan struct{}
 }
 
 func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (NatsClient, error) {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	if url == ":loopback:" {
 		logger.Printf("WARNING: events url %s is deprecated, please use %s instead", url, NatsLoopbackUrl)
 		url = NatsLoopbackUrl

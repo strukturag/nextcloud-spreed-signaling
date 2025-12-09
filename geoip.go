@@ -38,6 +38,8 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/oschwald/maxminddb-golang"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -57,7 +59,7 @@ func GetGeoIpDownloadUrl(license string) string {
 }
 
 type GeoLookup struct {
-	logger Logger
+	logger log.Logger
 	url    string
 	isFile bool
 	client http.Client
@@ -68,7 +70,7 @@ type GeoLookup struct {
 	reader atomic.Pointer[maxminddb.Reader]
 }
 
-func NewGeoLookupFromUrl(logger Logger, url string) (*GeoLookup, error) {
+func NewGeoLookupFromUrl(logger log.Logger, url string) (*GeoLookup, error) {
 	geoip := &GeoLookup{
 		logger: logger,
 		url:    url,
@@ -76,7 +78,7 @@ func NewGeoLookupFromUrl(logger Logger, url string) (*GeoLookup, error) {
 	return geoip, nil
 }
 
-func NewGeoLookupFromFile(logger Logger, filename string) (*GeoLookup, error) {
+func NewGeoLookupFromFile(logger log.Logger, filename string) (*GeoLookup, error) {
 	geoip := &GeoLookup{
 		logger: logger,
 		url:    filename,
@@ -273,7 +275,7 @@ func IsValidContinent(continent string) bool {
 }
 
 func LoadGeoIPOverrides(ctx context.Context, config *goconf.ConfigFile, ignoreErrors bool) (map[*net.IPNet]string, error) {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	options, _ := GetStringOptions(config, "geoip-overrides", true)
 	if len(options) == 0 {
 		return nil, nil

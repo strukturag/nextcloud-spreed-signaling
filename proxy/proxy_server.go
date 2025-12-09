@@ -51,6 +51,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -109,7 +110,7 @@ type ProxyServer struct {
 	welcomeMsg     *signaling.WelcomeServerMessage
 	config         *goconf.ConfigFile
 	mcuTimeout     time.Duration
-	logger         signaling.Logger
+	logger         log.Logger
 
 	url     string
 	mcu     signaling.Mcu
@@ -188,7 +189,7 @@ func GetLocalIP() (string, error) {
 	return "", nil
 }
 
-func getTargetBandwidths(logger signaling.Logger, config *goconf.ConfigFile) (api.Bandwidth, api.Bandwidth) {
+func getTargetBandwidths(logger log.Logger, config *goconf.ConfigFile) (api.Bandwidth, api.Bandwidth) {
 	maxIncomingValue, _ := config.GetInt("bandwidth", "incoming")
 	if maxIncomingValue < 0 {
 		maxIncomingValue = 0
@@ -215,7 +216,7 @@ func getTargetBandwidths(logger signaling.Logger, config *goconf.ConfigFile) (ap
 }
 
 func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *goconf.ConfigFile) (*ProxyServer, error) {
-	logger := signaling.LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	hashKey := make([]byte, 64)
 	if _, err := rand.Read(hashKey); err != nil {
 		return nil, fmt.Errorf("could not generate random hash key: %s", err)
@@ -677,7 +678,7 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := signaling.NewLoggerContext(r.Context(), s.logger)
+	ctx := log.NewLoggerContext(r.Context(), s.logger)
 	if conn.Subprotocol() == signaling.JanusEventsSubprotocol {
 		agent := r.Header.Get("User-Agent")
 		signaling.RunJanusEventsHandler(ctx, s.mcu, conn, addr, agent)

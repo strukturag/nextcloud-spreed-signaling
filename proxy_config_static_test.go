@@ -29,6 +29,8 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func newProxyConfigStatic(t *testing.T, proxy McuProxy, dns bool, lookup *mockDnsLookup, urls ...string) (ProxyConfig, *DnsMonitor) {
@@ -38,7 +40,7 @@ func newProxyConfigStatic(t *testing.T, proxy McuProxy, dns bool, lookup *mockDn
 		cfg.AddOption("mcu", "dnsdiscovery", "true")
 	}
 	dnsMonitor := newDnsMonitorForTest(t, time.Hour, lookup) // will be updated manually
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	p, err := NewProxyConfigStatic(logger, cfg, proxy, dnsMonitor)
 	require.NoError(t, err)
 	t.Cleanup(func() {

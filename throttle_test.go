@@ -28,6 +28,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func newMemoryThrottlerForTest(t *testing.T) Throttler {
@@ -72,8 +74,8 @@ func TestThrottler(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
-		logger := NewLoggerForTest(t)
-		ctx := NewLoggerContext(t.Context(), logger)
+		logger := log.NewLoggerForTest(t)
+		ctx := log.NewLoggerContext(t.Context(), logger)
 
 		throttle1, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
 		assert.NoError(err)
@@ -107,8 +109,8 @@ func TestThrottlerIPv6(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
-		logger := NewLoggerForTest(t)
-		ctx := NewLoggerContext(t.Context(), logger)
+		logger := log.NewLoggerForTest(t)
+		ctx := log.NewLoggerContext(t.Context(), logger)
 
 		// Make sure full /64 subnets are throttled for IPv6.
 		throttle1, err := th.CheckBruteforce(ctx, "2001:db8:abcd:0012::1", "action1")
@@ -145,8 +147,8 @@ func TestThrottler_Bruteforce(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
-		logger := NewLoggerForTest(t)
-		ctx := NewLoggerContext(t.Context(), logger)
+		logger := log.NewLoggerForTest(t)
+		ctx := log.NewLoggerContext(t.Context(), logger)
 
 		delay := 100 * time.Millisecond
 		for range maxBruteforceAttempts {
@@ -174,8 +176,8 @@ func TestThrottler_Cleanup(t *testing.T) {
 		th, ok := throttler.(*memoryThrottler)
 		require.True(t, ok, "required memoryThrottler, got %T", throttler)
 
-		logger := NewLoggerForTest(t)
-		ctx := NewLoggerContext(t.Context(), logger)
+		logger := log.NewLoggerForTest(t)
+		ctx := log.NewLoggerContext(t.Context(), logger)
 
 		throttle1, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
 		assert.NoError(err)
@@ -229,8 +231,8 @@ func TestThrottler_ExpirePartial(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
-		logger := NewLoggerForTest(t)
-		ctx := NewLoggerContext(t.Context(), logger)
+		logger := log.NewLoggerForTest(t)
+		ctx := log.NewLoggerContext(t.Context(), logger)
 
 		throttle1, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
 		assert.NoError(err)
@@ -262,8 +264,8 @@ func TestThrottler_ExpireAll(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
-		logger := NewLoggerForTest(t)
-		ctx := NewLoggerContext(t.Context(), logger)
+		logger := log.NewLoggerForTest(t)
+		ctx := log.NewLoggerContext(t.Context(), logger)
 
 		throttle1, err := th.CheckBruteforce(ctx, "192.168.0.1", "action1")
 		assert.NoError(err)
@@ -295,8 +297,8 @@ func TestThrottler_Negative(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
-		logger := NewLoggerForTest(t)
-		ctx := NewLoggerContext(t.Context(), logger)
+		logger := log.NewLoggerForTest(t)
+		ctx := log.NewLoggerContext(t.Context(), logger)
 
 		delay := 100 * time.Millisecond
 		for range maxBruteforceAttempts * 10 {

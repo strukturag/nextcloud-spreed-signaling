@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -37,7 +38,7 @@ const (
 )
 
 type VirtualSession struct {
-	logger    Logger
+	logger    log.Logger
 	hub       *Hub
 	session   *ClientSession
 	privateId PrivateSessionId
@@ -192,7 +193,7 @@ func (s *VirtualSession) CloseWithFeedback(session Session, message *ClientMessa
 }
 
 func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, message *ClientMessage) {
-	ctx := NewLoggerContext(context.Background(), s.logger)
+	ctx := log.NewLoggerContext(context.Background(), s.logger)
 	ctx, cancel := context.WithTimeout(ctx, s.hub.backendTimeout)
 	defer cancel()
 

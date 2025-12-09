@@ -26,6 +26,8 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type BuiltinRoomSessions struct {
@@ -116,7 +118,7 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 
 	var wg sync.WaitGroup
 	var result atomic.Value
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	for _, client := range clients {
 		wg.Add(1)
 		go func(client *GrpcClient) {

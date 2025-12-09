@@ -54,6 +54,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -151,8 +152,8 @@ func getTestConfigWithMultipleUrls(server *httptest.Server) (*goconf.ConfigFile,
 }
 
 func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
@@ -202,8 +203,8 @@ func CreateHubWithMultipleUrlsForTest(t *testing.T) (*Hub, AsyncEvents, *mux.Rou
 }
 
 func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, *Hub, *mux.Router, *mux.Router, *httptest.Server, *httptest.Server) {
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	r1 := mux.NewRouter()
@@ -5200,8 +5201,8 @@ func TestGeoipOverrides(t *testing.T) {
 
 func TestDialoutStatus(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	_, _, _, hub, _, server := CreateBackendServerForTest(t)

@@ -49,6 +49,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -62,7 +63,7 @@ const (
 )
 
 type BackendServer struct {
-	logger       Logger
+	logger       log.Logger
 	hub          *Hub
 	events       AsyncEvents
 	roomSessions RoomSessions
@@ -83,7 +84,7 @@ type BackendServer struct {
 }
 
 func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	turnapikey, _ := GetStringOptionWithEnv(config, "turn", "apikey")
 	turnsecret, _ := GetStringOptionWithEnv(config, "turn", "secret")
 	turnservers, _ := config.GetString("turn", "servers")
@@ -316,7 +317,7 @@ func (b *BackendServer) parseRequestBody(f func(context.Context, http.ResponseWr
 		}
 		defer b.buffers.Put(body)
 
-		ctx := NewLoggerContext(r.Context(), b.logger)
+		ctx := log.NewLoggerContext(r.Context(), b.logger)
 		f(ctx, w, r, body.Bytes())
 	}
 }
@@ -367,7 +368,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 	}
 
 	timeout := time.Second
-	ctx := NewLoggerContext(context.Background(), b.logger)
+	ctx := log.NewLoggerContext(context.Background(), b.logger)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var wg sync.WaitGroup
@@ -497,7 +498,7 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request 
 	if !request.InCall.All {
 		timeout := time.Second
 
-		ctx := NewLoggerContext(context.Background(), b.logger)
+		ctx := log.NewLoggerContext(context.Background(), b.logger)
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		var cache ConcurrentMap[RoomSessionId, PublicSessionId]

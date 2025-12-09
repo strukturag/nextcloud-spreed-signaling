@@ -32,6 +32,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -41,7 +43,7 @@ const (
 type FileWatcherCallback func(filename string)
 
 type FileWatcher struct {
-	logger      Logger
+	logger      log.Logger
 	filename    string
 	target      string
 	callback    FileWatcherCallback
@@ -52,7 +54,7 @@ type FileWatcher struct {
 	closeFunc context.CancelFunc
 }
 
-func NewFileWatcher(logger Logger, filename string, callback FileWatcherCallback, deduplicate time.Duration) (*FileWatcher, error) {
+func NewFileWatcher(logger log.Logger, filename string, callback FileWatcherCallback, deduplicate time.Duration) (*FileWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err

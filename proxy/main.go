@@ -38,6 +38,7 @@ import (
 	"github.com/gorilla/mux"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -72,7 +73,7 @@ func main() {
 	defer stop()
 
 	logger := log.Default()
-	stopCtx = signaling.NewLoggerContext(stopCtx, logger)
+	stopCtx = signalinglog.NewLoggerContext(stopCtx, logger)
 
 	logger.Printf("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
 

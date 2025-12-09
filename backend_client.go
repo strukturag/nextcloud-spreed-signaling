@@ -32,6 +32,8 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -57,7 +59,7 @@ type BackendClient struct {
 }
 
 func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient *EtcdClient) (*BackendClient, error) {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	backends, err := NewBackendConfiguration(logger, config, etcdClient)
 	if err != nil {
 		return nil, err
@@ -118,7 +120,7 @@ func isOcsRequest(u *url.URL) bool {
 // PerformJSONRequest sends a JSON POST request to the given url and decodes
 // the result into "response".
 func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, request any, response any) error {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	if u == nil {
 		return fmt.Errorf("no url passed to perform JSON request %+v", request)
 	}

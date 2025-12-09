@@ -32,6 +32,8 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, invalid_urls []string) {
@@ -106,7 +108,7 @@ func (s *mockBackendStats) DecBackends() {
 
 func TestIsUrlAllowed_Compat(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	// Old-style configuration
 	valid_urls := []string{
 		"http://domain.invalid",
@@ -128,7 +130,7 @@ func TestIsUrlAllowed_Compat(t *testing.T) {
 
 func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	// Old-style configuration, force HTTPS
 	valid_urls := []string{
 		"https://domain.invalid",
@@ -149,7 +151,7 @@ func TestIsUrlAllowed_CompatForceHttps(t *testing.T) {
 
 func TestIsUrlAllowed(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	valid_urls := [][]string{
 		{"https://domain.invalid/foo", string(testBackendSecret) + "-foo"},
 		{"https://domain.invalid/foo/", string(testBackendSecret) + "-foo"},
@@ -194,7 +196,7 @@ func TestIsUrlAllowed(t *testing.T) {
 
 func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	valid_urls := []string{}
 	invalid_urls := []string{
 		"http://domain.invalid",
@@ -211,7 +213,7 @@ func TestIsUrlAllowed_EmptyAllowlist(t *testing.T) {
 
 func TestIsUrlAllowed_AllowAll(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	valid_urls := []string{
 		"http://domain.invalid",
 		"https://domain.invalid",
@@ -257,7 +259,7 @@ func TestBackendReloadNoChange(t *testing.T) {
 	t.Parallel()
 	stats := &mockBackendStats{}
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
@@ -293,7 +295,7 @@ func TestBackendReloadChangeExistingURL(t *testing.T) {
 	t.Parallel()
 	stats := &mockBackendStats{}
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
@@ -334,7 +336,7 @@ func TestBackendReloadChangeSecret(t *testing.T) {
 	t.Parallel()
 	stats := &mockBackendStats{}
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
@@ -371,7 +373,7 @@ func TestBackendReloadAddBackend(t *testing.T) {
 	t.Parallel()
 	stats := &mockBackendStats{}
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
@@ -412,7 +414,7 @@ func TestBackendReloadRemoveHost(t *testing.T) {
 	t.Parallel()
 	stats := &mockBackendStats{}
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
@@ -450,7 +452,7 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	t.Parallel()
 	stats := &mockBackendStats{}
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	original_config := goconf.NewConfigFile()
@@ -504,7 +506,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	t.Parallel()
 	stats := &mockBackendStats{}
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
@@ -621,7 +623,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 
 func TestBackendCommonSecret(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	u1, err := url.Parse("http://domain1.invalid")
@@ -664,7 +666,7 @@ func TestBackendChangeUrls(t *testing.T) {
 	t.Parallel()
 	stats := &mockBackendStats{}
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	u1, err := url.Parse("http://domain1.invalid/")
@@ -754,7 +756,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 	t.Parallel()
 	stats := &mockBackendStats{}
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)

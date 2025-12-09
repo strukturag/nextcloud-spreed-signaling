@@ -27,6 +27,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type pingEntries struct {
@@ -121,7 +123,7 @@ func (p *RoomPing) publishEntries(ctx context.Context, entries *pingEntries, tim
 	if !found || limit <= 0 {
 		// Limit disabled while waiting for the next iteration, fallback to sending
 		// one request per room.
-		logger := LoggerFromContext(ctx)
+		logger := log.LoggerFromContext(ctx)
 		for roomId, e := range entries.entries {
 			ctx2, cancel2 := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 			defer cancel2()
@@ -167,7 +169,7 @@ func (p *RoomPing) sendPingsDirect(ctx context.Context, roomId string, url *url.
 }
 
 func (p *RoomPing) sendPingsCombined(ctx context.Context, url *url.URL, entries []BackendPingEntry, limit int, timeout time.Duration) {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	for tosend := range slices.Chunk(entries, limit) {
 		subCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()

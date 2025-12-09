@@ -29,6 +29,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -39,7 +41,7 @@ func TestFileWatcher_NotExist(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	tmpdir := t.TempDir()
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	if w, err := NewFileWatcher(logger, path.Join(tmpdir, "test.txt"), func(filename string) {}, defaultDeduplicateWatchEvents); !assert.ErrorIs(err, os.ErrNotExist) {
 		if w != nil {
 			assert.NoError(w.Close())
@@ -55,7 +57,7 @@ func TestFileWatcher_File(t *testing.T) { // nolint:paralleltest
 		filename := path.Join(tmpdir, "test.txt")
 		require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
 
-		logger := NewLoggerForTest(t)
+		logger := log.NewLoggerForTest(t)
 		modified := make(chan struct{})
 		w, err := NewFileWatcher(logger, filename, func(filename string) {
 			modified <- struct{}{}
@@ -98,7 +100,7 @@ func TestFileWatcher_CurrentDir(t *testing.T) { // nolint:paralleltest
 		filename := path.Join(tmpdir, "test.txt")
 		require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
 
-		logger := NewLoggerForTest(t)
+		logger := log.NewLoggerForTest(t)
 		modified := make(chan struct{})
 		w, err := NewFileWatcher(logger, "./"+path.Base(filename), func(filename string) {
 			modified <- struct{}{}
@@ -140,7 +142,7 @@ func TestFileWatcher_Rename(t *testing.T) {
 	filename := path.Join(tmpdir, "test.txt")
 	require.NoError(os.WriteFile(filename, []byte("Hello world!"), 0644))
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
@@ -184,7 +186,7 @@ func TestFileWatcher_Symlink(t *testing.T) {
 	filename := path.Join(tmpdir, "symlink.txt")
 	require.NoError(os.Symlink(sourceFilename, filename))
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
@@ -219,7 +221,7 @@ func TestFileWatcher_ChangeSymlinkTarget(t *testing.T) {
 	filename := path.Join(tmpdir, "symlink.txt")
 	require.NoError(os.Symlink(sourceFilename1, filename))
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
@@ -256,7 +258,7 @@ func TestFileWatcher_OtherSymlink(t *testing.T) {
 	filename := path.Join(tmpdir, "symlink.txt")
 	require.NoError(os.Symlink(sourceFilename1, filename))
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
@@ -287,7 +289,7 @@ func TestFileWatcher_RenameSymlinkTarget(t *testing.T) {
 	filename := path.Join(tmpdir, "test.txt")
 	require.NoError(os.Symlink(sourceFilename1, filename))
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}
@@ -341,7 +343,7 @@ func TestFileWatcher_UpdateSymlinkFolder(t *testing.T) {
 	filename := path.Join(tmpdir, "test.txt")
 	require.NoError(os.Symlink("data/test.txt", filename))
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	modified := make(chan struct{})
 	w, err := NewFileWatcher(logger, filename, func(filename string) {
 		modified <- struct{}{}

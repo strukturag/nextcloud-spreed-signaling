@@ -43,6 +43,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -93,7 +94,7 @@ func createTLSListener(addr string, certFile, keyFile string) (net.Listener, err
 }
 
 type Listeners struct {
-	logger signaling.Logger // +checklocksignore
+	logger signalinglog.Logger // +checklocksignore
 	mu     sync.Mutex
 	// +checklocks:mu
 	listeners []net.Listener
@@ -134,7 +135,7 @@ func main() {
 	defer stop()
 
 	logger := log.Default()
-	stopCtx = signaling.NewLoggerContext(stopCtx, logger)
+	stopCtx = signalinglog.NewLoggerContext(stopCtx, logger)
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)

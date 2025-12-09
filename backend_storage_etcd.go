@@ -31,12 +31,14 @@ import (
 
 	"github.com/dlintw/goconf"
 	clientv3 "go.etcd.io/etcd/client/v3"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type backendStorageEtcd struct {
 	backendStorageCommon
 
-	logger     Logger
+	logger     log.Logger
 	etcdClient *EtcdClient
 	keyPrefix  string
 	keyInfos   map[string]*BackendInformationEtcd
@@ -49,7 +51,7 @@ type backendStorageEtcd struct {
 	closeFunc context.CancelFunc
 }
 
-func NewBackendStorageEtcd(logger Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, stats BackendStorageStats) (BackendStorage, error) {
+func NewBackendStorageEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, stats BackendStorageStats) (BackendStorage, error) {
 	if etcdClient == nil || !etcdClient.IsConfigured() {
 		return nil, errors.New("no etcd endpoints configured")
 	}

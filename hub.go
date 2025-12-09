@@ -52,6 +52,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -139,7 +140,7 @@ func init() {
 
 type Hub struct {
 	version      string
-	logger       Logger
+	logger       log.Logger
 	events       AsyncEvents
 	upgrader     websocket.Upgrader
 	sessionIds   *SessionIdCodec
@@ -220,7 +221,7 @@ type Hub struct {
 }
 
 func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	hashKey, _ := GetStringOptionWithEnv(config, "sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
@@ -1270,7 +1271,7 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId PrivateSessionId, message
 }
 
 func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
-	ctx := NewLoggerContext(client.Context(), h.logger)
+	ctx := log.NewLoggerContext(client.Context(), h.logger)
 	resumeId := message.Hello.ResumeId
 	if resumeId != "" {
 		throttle, err := h.throttler.CheckBruteforce(ctx, client.RemoteAddr(), "HelloResume")
@@ -1576,7 +1577,7 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage)
 		return
 	}
 
-	ctx := NewLoggerContext(client.Context(), h.logger)
+	ctx := log.NewLoggerContext(client.Context(), h.logger)
 	throttle, err := h.throttler.CheckBruteforce(ctx, client.RemoteAddr(), "HelloInternal")
 	if err == ErrBruteforceDetected {
 		client.SendMessage(message.NewErrorServerMessage(TooManyRequests))
@@ -1944,7 +1945,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 		return 0, &wg
 	}
 	count := 0
-	ctx := NewLoggerContext(context.Background(), h.logger)
+	ctx := log.NewLoggerContext(context.Background(), h.logger)
 	for roomId, entries := range rooms {
 		for u, e := range entries {
 			wg.Add(1)
@@ -3128,7 +3129,7 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := NewLoggerContext(r.Context(), h.logger)
+	ctx := log.NewLoggerContext(r.Context(), h.logger)
 	if conn.Subprotocol() == JanusEventsSubprotocol {
 		RunJanusEventsHandler(ctx, h.mcu, conn, addr, agent)
 		return

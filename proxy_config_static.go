@@ -29,6 +29,8 @@ import (
 	"sync"
 
 	"github.com/dlintw/goconf"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type ipList struct {
@@ -39,7 +41,7 @@ type ipList struct {
 }
 
 type proxyConfigStatic struct {
-	logger Logger
+	logger log.Logger
 	mu     sync.Mutex
 	proxy  McuProxy
 
@@ -51,7 +53,7 @@ type proxyConfigStatic struct {
 	connectionsMap map[string]*ipList
 }
 
-func NewProxyConfigStatic(logger Logger, config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *DnsMonitor) (ProxyConfig, error) {
+func NewProxyConfigStatic(logger log.Logger, config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *DnsMonitor) (ProxyConfig, error) {
 	result := &proxyConfigStatic{
 		logger:         logger,
 		proxy:          proxy,

@@ -27,14 +27,16 @@ import (
 	"strings"
 
 	"github.com/dlintw/goconf"
+
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type backendStorageStatic struct {
 	backendStorageCommon
 
-	logger       Logger
+	logger       log.Logger
 	backendsById map[string]*Backend
 
 	// Deprecated
@@ -43,7 +45,7 @@ type backendStorageStatic struct {
 	compatBackend *Backend
 }
 
-func NewBackendStorageStatic(logger Logger, config *goconf.ConfigFile, stats BackendStorageStats) (BackendStorage, error) {
+func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats BackendStorageStats) (BackendStorage, error) {
 	allowAll, _ := config.GetBool("backend", "allowall")
 	allowHttp, _ := config.GetBool("backend", "allowhttp")
 	commonSecret, _ := GetStringOptionWithEnv(config, "backend", "secret")
@@ -295,7 +297,7 @@ func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	return ids
 }
 
-func getConfiguredHosts(logger Logger, backendIds string, config *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
+func getConfiguredHosts(logger log.Logger, backendIds string, config *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
 	hosts = make(map[string][]*Backend)
 	seenUrls := make(map[string]string)
 	for _, id := range getConfiguredBackendIDs(backendIds) {

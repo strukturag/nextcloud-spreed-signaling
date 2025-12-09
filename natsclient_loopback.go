@@ -29,10 +29,12 @@ import (
 	"sync"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type LoopbackNatsClient struct {
-	logger Logger
+	logger log.Logger
 
 	mu     sync.Mutex
 	closed chan struct{}
@@ -46,7 +48,7 @@ type LoopbackNatsClient struct {
 	incoming list.List
 }
 
-func NewLoopbackNatsClient(logger Logger) (NatsClient, error) {
+func NewLoopbackNatsClient(logger log.Logger) (NatsClient, error) {
 	client := &LoopbackNatsClient{
 		logger: logger,
 		closed: make(chan struct{}),

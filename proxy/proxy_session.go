@@ -30,6 +30,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -45,7 +46,7 @@ type remotePublisherData struct {
 }
 
 type ProxySession struct {
-	logger    signaling.Logger
+	logger    log.Logger
 	proxy     *ProxyServer
 	id        signaling.PublicSessionId
 	sid       uint64

@@ -30,6 +30,8 @@ import (
 	"github.com/dlintw/goconf"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type reloadableCredentials struct {
@@ -133,7 +135,7 @@ func (c *reloadableCredentials) Close() {
 	}
 }
 
-func NewReloadableCredentials(logger Logger, config *goconf.ConfigFile, server bool) (credentials.TransportCredentials, error) {
+func NewReloadableCredentials(logger log.Logger, config *goconf.ConfigFile, server bool) (credentials.TransportCredentials, error) {
 	var prefix string
 	var caPrefix string
 	if server {

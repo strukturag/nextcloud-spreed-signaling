@@ -29,6 +29,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -54,8 +56,8 @@ func getAsyncEventsForTest(t *testing.T) AsyncEvents {
 }
 
 func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	server, _ := startLocalNatsServer(t)
 	events, err := NewAsyncEvents(ctx, server.ClientURL())
 	if err != nil {
@@ -65,8 +67,8 @@ func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
 }
 
 func getLoopbackAsyncEventsForTest(t *testing.T) AsyncEvents {
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	events, err := NewAsyncEvents(ctx, NatsLoopbackUrl)
 	if err != nil {
 		require.NoError(t, err)

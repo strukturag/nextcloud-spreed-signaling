@@ -40,6 +40,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -61,7 +62,7 @@ var (
 )
 
 type RemoteConnection struct {
-	logger signaling.Logger
+	logger log.Logger
 	mu     sync.Mutex
 	p      *ProxyServer
 	url    *url.URL
