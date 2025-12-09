@@ -58,7 +58,7 @@ func assertCollectorChangeBy(t *testing.T, collector prometheus.Collector, delta
 	})
 }
 
-func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64) {
+func checkStatsValue(t *testing.T, collector prometheus.Collector, value float64) { // nolint:unused
 	// Make sure test is not executed with "t.Parallel()"
 	t.Setenv("PARALLEL_CHECK", "1")
 
