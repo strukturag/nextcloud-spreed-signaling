@@ -47,10 +47,13 @@ type TestJanusEventsServerHandler struct {
 
 	mcu  Mcu
 	addr string
+	wg   sync.WaitGroup
 }
 
 func (h *TestJanusEventsServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.t.Helper()
+	h.wg.Add(1)
+	defer h.wg.Done()
 	assert := assert.New(h.t)
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	assert.NoError(err)
@@ -90,6 +93,8 @@ func NewTestJanusEventsHandlerServer(t *testing.T) (*httptest.Server, string, *T
 	server := httptest.NewServer(handler)
 	t.Cleanup(func() {
 		server.Close()
+		server.CloseClientConnections()
+		handler.wg.Wait()
 	})
 	url := strings.ReplaceAll(server.URL, "http://", "ws://")
 	url = strings.ReplaceAll(url, "https://", "wss://")
@@ -113,6 +118,9 @@ func TestJanusEventsHandlerNoMcu(t *testing.T) {
 	}
 	conn, response, err := dialer.DialContext(ctx, url, nil)
 	require.NoError(err)
+	defer func() {
+		assert.NoError(conn.Close())
+	}()
 
 	assert.Equal(JanusEventsSubprotocol, response.Header.Get("Sec-WebSocket-Protocol"))
 
@@ -145,6 +153,9 @@ func TestJanusEventsHandlerInvalidMcu(t *testing.T) {
 	}
 	conn, response, err := dialer.DialContext(ctx, url, nil)
 	require.NoError(err)
+	defer func() {
+		assert.NoError(conn.Close())
+	}()
 
 	assert.Equal(JanusEventsSubprotocol, response.Header.Get("Sec-WebSocket-Protocol"))
 
@@ -178,6 +189,9 @@ func TestJanusEventsHandlerPublicIP(t *testing.T) {
 	}
 	conn, response, err := dialer.DialContext(ctx, url, nil)
 	require.NoError(err)
+	defer func() {
+		assert.NoError(conn.Close())
+	}()
 
 	assert.Equal(JanusEventsSubprotocol, response.Header.Get("Sec-WebSocket-Protocol"))
 
@@ -305,6 +319,9 @@ func TestJanusEventsHandlerDifferentTypes(t *testing.T) {
 	}
 	conn, response, err := dialer.DialContext(ctx, url, nil)
 	require.NoError(err)
+	defer func() {
+		assert.NoError(conn.Close())
+	}()
 
 	assert.Equal(JanusEventsSubprotocol, response.Header.Get("Sec-WebSocket-Protocol"))
 
@@ -519,6 +536,9 @@ func TestJanusEventsHandlerNotGrouped(t *testing.T) {
 	}
 	conn, response, err := dialer.DialContext(ctx, url, nil)
 	require.NoError(err)
+	defer func() {
+		assert.NoError(conn.Close())
+	}()
 
 	assert.Equal(JanusEventsSubprotocol, response.Header.Get("Sec-WebSocket-Protocol"))
 
@@ -595,6 +615,9 @@ func TestJanusEventsHandlerGrouped(t *testing.T) {
 	}
 	conn, response, err := dialer.DialContext(ctx, url, nil)
 	require.NoError(err)
+	defer func() {
+		assert.NoError(conn.Close())
+	}()
 
 	assert.Equal(JanusEventsSubprotocol, response.Header.Get("Sec-WebSocket-Protocol"))
 
