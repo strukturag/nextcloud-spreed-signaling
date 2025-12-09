@@ -95,8 +95,6 @@ type TransientData struct {
 	listeners map[TransientListener]bool
 	// +checklocks:mu
 	timers map[string]*time.Timer
-	// +checklocks:mu
-	ttlCh chan<- struct{}
 }
 
 // NewTransientData creates a new transient data container.
@@ -181,7 +179,10 @@ func (t *TransientData) RemoveListener(listener TransientListener) {
 // +checklocks:t.mu
 func (t *TransientData) updateTTL(key string, value any, ttl time.Duration) {
 	if ttl <= 0 {
-		delete(t.timers, key)
+		if old, found := t.timers[key]; found {
+			old.Stop()
+			delete(t.timers, key)
+		}
 	} else {
 		t.removeAfterTTL(key, value, ttl)
 	}
@@ -189,12 +190,13 @@ func (t *TransientData) updateTTL(key string, value any, ttl time.Duration) {
 
 // +checklocks:t.mu
 func (t *TransientData) removeAfterTTL(key string, value any, ttl time.Duration) {
-	if ttl <= 0 {
-		return
-	}
-
 	if old, found := t.timers[key]; found {
 		old.Stop()
+	}
+
+	if ttl <= 0 {
+		delete(t.timers, key)
+		return
 	}
 
 	timer := time.AfterFunc(ttl, func() {
@@ -202,12 +204,6 @@ func (t *TransientData) removeAfterTTL(key string, value any, ttl time.Duration)
 		defer t.mu.Unlock()
 
 		t.compareAndRemove(key, value)
-		if t.ttlCh != nil {
-			select {
-			case t.ttlCh <- struct{}{}:
-			default:
-			}
-		}
 	})
 	if t.timers == nil {
 		t.timers = make(map[string]*time.Timer)
