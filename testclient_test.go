@@ -221,7 +221,10 @@ func NewTestClientContext(ctx context.Context, t *testing.T, server *httptest.Se
 	messageChan := make(chan []byte)
 	readErrorChan := make(chan error, 1)
 
+	closing := make(chan struct{})
+	closed := make(chan struct{})
 	go func() {
+		defer close(closed)
 		for {
 			messageType, data, err := conn.ReadMessage()
 			if err != nil {
@@ -231,9 +234,17 @@ func NewTestClientContext(ctx context.Context, t *testing.T, server *httptest.Se
 				return
 			}
 
-			messageChan <- data
+			select {
+			case messageChan <- data:
+			case <-closing:
+				return
+			}
 		}
 	}()
+	t.Cleanup(func() {
+		close(closing)
+		<-closed
+	})
 
 	return &TestClient{
 		t:       t,

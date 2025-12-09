@@ -5086,7 +5086,9 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 			defer cancel()
 
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
 
 			roomSessionId1 := RoomSessionId("roomsession1")
 			roomId1 := "test-room"
