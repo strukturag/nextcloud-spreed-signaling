@@ -575,7 +575,10 @@ func (g *TestJanusGateway) send(msg api.StringMap, t *transaction) (uint64, erro
 func (g *TestJanusGateway) removeTransaction(id uint64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	delete(g.transactions, id)
+	if t, found := g.transactions[id]; found {
+		delete(g.transactions, id)
+		t.quit()
+	}
 }
 
 func (g *TestJanusGateway) removeSession(session *JanusSession) {
