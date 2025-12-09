@@ -1081,10 +1081,20 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	}
 }
 
-func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
-	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"))
-	ResetStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"))
+type mockBandwidthStats struct {
+	incoming uint64
+	outgoing uint64
+}
 
+func (s *mockBandwidthStats) SetBandwidth(incoming uint64, outgoing uint64) {
+	s.incoming = incoming
+	s.outgoing = outgoing
+}
+
+func Test_JanusPublisherSubscriber(t *testing.T) {
+	t.Parallel()
+
+	stats := &mockBandwidthStats{}
 	require := require.New(t)
 	assert := assert.New(t)
 
@@ -1096,9 +1106,9 @@ func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
 
 	// Bandwidth for unknown handles is ignored.
 	mcu.UpdateBandwidth(1234, "video", api.BandwidthFromBytes(100), api.BandwidthFromBytes(200))
-	mcu.updateBandwidthStats()
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 0)
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 0)
+	mcu.updateBandwidthStats(stats)
+	assert.EqualValues(0, stats.incoming)
+	assert.EqualValues(0, stats.outgoing)
 
 	pubId := PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
@@ -1128,9 +1138,9 @@ func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
 		assert.Equal(api.BandwidthFromBytes(1000), bw.Sent)
 		assert.Equal(api.BandwidthFromBytes(2000), bw.Received)
 	}
-	mcu.updateBandwidthStats()
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 1000)
+	mcu.updateBandwidthStats(stats)
+	assert.EqualValues(2000, stats.incoming)
+	assert.EqualValues(1000, stats.outgoing)
 
 	listener2 := &TestMcuListener{
 		id: pubId,
@@ -1156,11 +1166,11 @@ func Test_JanusPublisherSubscriber(t *testing.T) { // nolint:paralleltest
 		assert.Equal(api.BandwidthFromBytes(4000), bw.Sent)
 		assert.Equal(api.BandwidthFromBytes(6000), bw.Received)
 	}
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 2000)
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 1000)
-	mcu.updateBandwidthStats()
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("incoming"), 6000)
-	checkStatsValue(t, statsJanusBandwidthCurrent.WithLabelValues("outgoing"), 4000)
+	assert.EqualValues(2000, stats.incoming)
+	assert.EqualValues(1000, stats.outgoing)
+	mcu.updateBandwidthStats(stats)
+	assert.EqualValues(6000, stats.incoming)
+	assert.EqualValues(4000, stats.outgoing)
 }
 
 func Test_JanusSubscriberPublisher(t *testing.T) {
