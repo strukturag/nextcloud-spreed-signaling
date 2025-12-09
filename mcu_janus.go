@@ -213,6 +213,21 @@ func (s *mcuJanusSettings) Reload(config *goconf.ConfigFile) {
 	}
 }
 
+type mcuJanusStats interface {
+	IncSubscriber(streamType StreamType)
+	DecSubscriber(streamType StreamType)
+}
+
+type prometheusJanusStats struct{}
+
+func (s *prometheusJanusStats) IncSubscriber(streamType StreamType) {
+	statsSubscribersCurrent.WithLabelValues(string(streamType)).Inc()
+}
+
+func (s *prometheusJanusStats) DecSubscriber(streamType StreamType) {
+	statsSubscribersCurrent.WithLabelValues(string(streamType)).Dec()
+}
+
 type mcuJanus struct {
 	logger Logger
 
@@ -220,6 +235,7 @@ type mcuJanus struct {
 	mu  sync.Mutex
 
 	settings *mcuJanusSettings
+	stats    mcuJanusStats
 
 	createJanusGateway func(ctx context.Context, wsURL string, listener GatewayListener) (JanusGatewayInterface, error)
 
@@ -265,6 +281,7 @@ func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mc
 		logger:    LoggerFromContext(ctx),
 		url:       url,
 		settings:  settings,
+		stats:     &prometheusJanusStats{},
 		closeChan: make(chan struct{}, 1),
 		clients:   make(map[uint64]clientInterface),
 
@@ -907,7 +924,7 @@ func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publ
 	client.mcuJanusClient.handleMedia = client.handleMedia
 	m.registerClient(client)
 	go client.run(handle, client.closeChan)
-	statsSubscribersCurrent.WithLabelValues(string(streamType)).Inc()
+	m.stats.IncSubscriber(streamType)
 	statsSubscribersTotal.WithLabelValues(string(streamType)).Inc()
 	return client, nil
 }
@@ -1077,7 +1094,7 @@ func (m *mcuJanus) NewRemoteSubscriber(ctx context.Context, listener McuListener
 	client.mcuJanusClient.handleMedia = client.handleMedia
 	m.registerClient(client)
 	go client.run(handle, client.closeChan)
-	statsSubscribersCurrent.WithLabelValues(string(publisher.StreamType())).Inc()
+	m.stats.IncSubscriber(publisher.StreamType())
 	statsSubscribersTotal.WithLabelValues(string(publisher.StreamType())).Inc()
 	return client, nil
 }
