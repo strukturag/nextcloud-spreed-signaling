@@ -38,6 +38,7 @@ import (
 	"go.etcd.io/etcd/server/v3/embed"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
@@ -115,7 +116,7 @@ func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 func Test_GrpcClients_EtcdInitial(t *testing.T) { // nolint:paralleltest
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, addr1 := NewGrpcServerForTest(t)
 		_, addr2 := NewGrpcServerForTest(t)
 
@@ -224,7 +225,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
 		lookup := newMockDnsLookupForTest(t)
@@ -307,7 +308,7 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 }
 
 func Test_GrpcClients_Encryption(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		require := require.New(t)
 		serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
 		require.NoError(err)
