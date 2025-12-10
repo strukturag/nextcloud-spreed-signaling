@@ -179,7 +179,7 @@ type Hub struct {
 	// +checklocks:mu
 	virtualSessions map[PublicSessionId]uint64
 
-	decodeCaches []*LruCache[*SessionIdData]
+	decodeCaches []*container.LruCache[*SessionIdData]
 
 	mcu                   Mcu
 	mcuTimeout            time.Duration
@@ -307,9 +307,9 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 	}
 
-	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
+	decodeCaches := make([]*container.LruCache[*SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
+		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
 	}
 
 	roomSessions, err := NewBuiltinRoomSessions(rpcClients)
@@ -624,7 +624,7 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 	h.rpcClients.Reload(config)
 }
 
-func (h *Hub) getDecodeCache(cache_key string) *LruCache[*SessionIdData] {
+func (h *Hub) getDecodeCache(cache_key string) *container.LruCache[*SessionIdData] {
 	hash := fnv.New32a()
 	// Make sure we don't have a temporary allocation for the string -> []byte conversion.
 	hash.Write(unsafe.Slice(unsafe.StringData(cache_key), len(cache_key))) // nolint
