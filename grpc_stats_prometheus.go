@@ -23,6 +23,8 @@ package signaling
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
 )
 
 var (
@@ -57,9 +59,9 @@ var (
 )
 
 func RegisterGrpcClientStats() {
-	registerAll(grpcClientStats...)
+	metrics.RegisterAll(grpcClientStats...)
 }
 
 func RegisterGrpcServerStats() {
-	registerAll(grpcServerStats...)
+	metrics.RegisterAll(grpcServerStats...)
 }
