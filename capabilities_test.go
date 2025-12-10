@@ -43,12 +43,13 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 )
 
 func NewCapabilitiesForTestWithCallback(t *testing.T, callback func(*CapabilitiesResponse, http.ResponseWriter) error) (*url.URL, *Capabilities) {
 	require := require.New(t)
 	assert := assert.New(t)
-	pool, err := NewHttpClientPool(1, false)
+	pool, err := pool.NewHttpClientPool(1, false)
 	require.NoError(err)
 	capabilities, err := NewCapabilities("0.0", pool)
 	require.NoError(err)
