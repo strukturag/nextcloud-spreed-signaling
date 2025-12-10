@@ -39,6 +39,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 )
 
 const (
@@ -85,7 +86,7 @@ func IsValidCountry(country string) bool {
 var (
 	InvalidFormat = NewError("invalid_format", "Invalid data format.")
 
-	bufferPool BufferPool
+	bufferPool pool.BufferPool
 )
 
 type WritableClientMessage interface {

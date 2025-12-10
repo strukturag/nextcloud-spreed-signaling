@@ -36,6 +36,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 )
 
 func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
@@ -145,7 +146,7 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 	err = client.PerformJSONRequest(ctx, u, request, &response)
 	if err != nil {
 		// The redirect to a different host should have failed.
-		require.ErrorIs(err, ErrNotRedirecting)
+		require.ErrorIs(err, pool.ErrNotRedirecting)
 	} else {
 		require.Fail("The redirect should have failed")
 	}

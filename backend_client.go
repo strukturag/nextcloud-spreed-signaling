@@ -34,10 +34,10 @@ import (
 	"github.com/dlintw/goconf"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 )
 
 var (
-	ErrNotRedirecting         = errors.New("not redirecting to different host")
 	ErrUnsupportedContentType = errors.New("unsupported_content_type")
 
 	ErrIncompleteResponse = errors.New("incomplete OCS response")
@@ -53,9 +53,9 @@ type BackendClient struct {
 	version  string
 	backends *BackendConfiguration
 
-	pool         *HttpClientPool
+	pool         *pool.HttpClientPool
 	capabilities *Capabilities
-	buffers      BufferPool
+	buffers      pool.BufferPool
 }
 
 func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient *EtcdClient) (*BackendClient, error) {
@@ -70,7 +70,7 @@ func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurr
 		logger.Println("WARNING: Backend verification is disabled!")
 	}
 
-	pool, err := NewHttpClientPool(maxConcurrentRequestsPerHost, skipverify)
+	pool, err := pool.NewHttpClientPool(maxConcurrentRequestsPerHost, skipverify)
 	if err != nil {
 		return nil, err
 	}

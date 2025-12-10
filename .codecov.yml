@@ -50,6 +50,10 @@ component_management:
       name: nats
       paths:
         - nats/**
+    - component_id: module_pool
+      name: pool
+      paths:
+        - pool/**
     - component_id: module_proxy
       name: proxy
       paths:

@@ -53,6 +53,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 )
 
 const (
@@ -83,7 +84,7 @@ type BackendServer struct {
 	statsAllowedIps atomic.Pointer[container.IPList]
 	invalidSecret   []byte
 
-	buffers BufferPool
+	buffers pool.BufferPool
 }
 
 func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
