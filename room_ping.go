@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -66,7 +67,7 @@ func (e *pingEntries) RemoveRoom(roomId string) {
 // and sent out batched every "updateActiveSessionsInterval" seconds.
 type RoomPing struct {
 	mu     sync.Mutex
-	closer *Closer
+	closer *internal.Closer
 
 	backend      *BackendClient
 	capabilities *Capabilities
@@ -77,7 +78,7 @@ type RoomPing struct {
 
 func NewRoomPing(backend *BackendClient, capabilities *Capabilities) (*RoomPing, error) {
 	result := &RoomPing{
-		closer:       NewCloser(),
+		closer:       internal.NewCloser(),
 		backend:      backend,
 		capabilities: capabilities,
 	}

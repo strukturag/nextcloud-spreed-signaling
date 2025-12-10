@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -99,7 +100,7 @@ type memoryThrottler struct {
 	// +checklocks:mu
 	clients map[string]map[string][]throttleEntry
 
-	closer *Closer
+	closer *internal.Closer
 }
 
 func NewMemoryThrottler() (Throttler, error) {
@@ -108,7 +109,7 @@ func NewMemoryThrottler() (Throttler, error) {
 
 		clients: make(map[string]map[string][]throttleEntry),
 
-		closer: NewCloser(),
+		closer: internal.NewCloser(),
 	}
 	result.doDelay = result.delay
 	go result.housekeeping()

@@ -93,7 +93,7 @@ type FederationClient struct {
 	url    string
 	// +checklocks:mu
 	conn   *websocket.Conn
-	closer *Closer
+	closer *internal.Closer
 	// +checklocks:mu
 	reconnectDelay time.Duration
 	reconnecting   atomic.Bool
@@ -153,7 +153,7 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 
 		dialer: dialer,
 		url:    url,
-		closer: NewCloser(),
+		closer: internal.NewCloser(),
 	}
 	result.roomId.Store(room.RoomId)
 	result.remoteRoomId.Store(remoteRoomId)

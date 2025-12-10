@@ -53,6 +53,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -149,11 +150,11 @@ type Hub struct {
 	infoInternal *WelcomeServerMessage
 	welcome      atomic.Value // *ServerMessage
 
-	closer          *Closer
+	closer          *internal.Closer
 	readPumpActive  atomic.Int32
 	writePumpActive atomic.Int32
 
-	shutdown          *Closer
+	shutdown          *internal.Closer
 	shutdownScheduled atomic.Bool
 
 	roomUpdated      chan *BackendServerRoomRequest
@@ -372,8 +373,8 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
 		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
 
-		closer:   NewCloser(),
-		shutdown: NewCloser(),
+		closer:   internal.NewCloser(),
+		shutdown: internal.NewCloser(),
 
 		roomUpdated:      make(chan *BackendServerRoomRequest),
 		roomDeleted:      make(chan *BackendServerRoomRequest),

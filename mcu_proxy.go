@@ -356,8 +356,8 @@ type mcuProxyConnection struct {
 	load       atomic.Uint64
 	bandwidth  atomic.Pointer[EventProxyServerBandwidth]
 	mu         sync.Mutex
-	closer     *Closer
-	closedDone *Closer
+	closer     *internal.Closer
+	closedDone *internal.Closer
 	closed     atomic.Bool
 	// +checklocks:mu
 	conn *websocket.Conn
@@ -409,8 +409,8 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP, token str
 		url:          parsed,
 		ip:           ip,
 		connectToken: token,
-		closer:       NewCloser(),
-		closedDone:   NewCloser(),
+		closer:       internal.NewCloser(),
+		closedDone:   internal.NewCloser(),
 		callbacks:    make(map[string]mcuProxyCallback),
 		publishers:   make(map[string]*mcuProxyPublisher),
 		publisherIds: make(map[StreamId]PublicSessionId),

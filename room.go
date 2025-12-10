@@ -75,7 +75,7 @@ type Room struct {
 	// +checklocks:mu
 	properties json.RawMessage
 
-	closer  *Closer
+	closer  *internal.Closer
 	mu      *sync.RWMutex
 	asyncCh AsyncChannel
 	// +checklocks:mu
@@ -119,7 +119,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEv
 
 		properties: properties,
 
-		closer:   NewCloser(),
+		closer:   internal.NewCloser(),
 		mu:       &sync.RWMutex{},
 		asyncCh:  make(AsyncChannel, DefaultAsyncChannelSize),
 		sessions: make(map[PublicSessionId]Session),
