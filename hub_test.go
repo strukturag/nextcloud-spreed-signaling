@@ -815,9 +815,9 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 
 func Benchmark_DecodePrivateSessionIdCached(b *testing.B) {
 	require := require.New(b)
-	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
+	decodeCaches := make([]*container.LruCache[*SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
+		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
 	}
 	backend := &Backend{
 		id: "compat",
@@ -844,9 +844,9 @@ func Benchmark_DecodePrivateSessionIdCached(b *testing.B) {
 
 func Benchmark_DecodePublicSessionIdCached(b *testing.B) {
 	require := require.New(b)
-	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
+	decodeCaches := make([]*container.LruCache[*SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
+		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
 	}
 	backend := &Backend{
 		id: "compat",
