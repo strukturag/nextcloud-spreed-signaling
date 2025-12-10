@@ -30,7 +30,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"net"
-	"os"
 	"path"
 	"strconv"
 	"testing"
@@ -42,6 +41,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -107,15 +107,15 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	require.NoError(err)
 
 	org1 := "Testing certificate"
-	cert1 := GenerateSelfSignedCertificateForTesting(t, 1024, org1, key)
+	cert1 := internal.GenerateSelfSignedCertificateForTesting(t, org1, key)
 
 	dir := t.TempDir()
 	privkeyFile := path.Join(dir, "privkey.pem")
 	pubkeyFile := path.Join(dir, "pubkey.pem")
 	certFile := path.Join(dir, "cert.pem")
-	WritePrivateKey(key, privkeyFile)          // nolint
-	WritePublicKey(&key.PublicKey, pubkeyFile) // nolint
-	os.WriteFile(certFile, cert1, 0755)        // nolint
+	require.NoError(internal.WritePrivateKey(key, privkeyFile))
+	require.NoError(internal.WritePublicKey(&key.PublicKey, pubkeyFile))
+	require.NoError(internal.WriteCertificate(cert1, certFile))
 
 	config := goconf.NewConfigFile()
 	config.AddOption("grpc", "servercertificate", certFile)
@@ -124,9 +124,7 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	server, addr := NewGrpcServerForTestWithConfig(t, config)
 
 	cp1 := x509.NewCertPool()
-	if !cp1.AppendCertsFromPEM(cert1) {
-		require.Fail("could not add certificate")
-	}
+	cp1.AddCert(cert1)
 
 	cfg1 := &tls.Config{
 		RootCAs: cp1,
@@ -142,8 +140,8 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	}
 
 	org2 := "Updated certificate"
-	cert2 := GenerateSelfSignedCertificateForTesting(t, 1024, org2, key)
-	replaceFile(t, certFile, cert2, 0755)
+	cert2 := internal.GenerateSelfSignedCertificateForTesting(t, org2, key)
+	internal.ReplaceCertificate(t, certFile, cert2)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -151,9 +149,7 @@ func Test_GrpcServer_ReloadCerts(t *testing.T) {
 	require.NoError(server.WaitForCertificateReload(ctx, 0))
 
 	cp2 := x509.NewCertPool()
-	if !cp2.AppendCertsFromPEM(cert2) {
-		require.Fail("could not add certificate")
-	}
+	cp2.AddCert(cert2)
 
 	cfg2 := &tls.Config{
 		RootCAs: cp2,
@@ -178,19 +174,19 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	require.NoError(err)
 
-	serverCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Server cert", serverKey)
+	serverCert := internal.GenerateSelfSignedCertificateForTesting(t, "Server cert", serverKey)
 	org1 := "Testing client"
-	clientCert1 := GenerateSelfSignedCertificateForTesting(t, 1024, org1, clientKey)
+	clientCert1 := internal.GenerateSelfSignedCertificateForTesting(t, org1, clientKey)
 
 	dir := t.TempDir()
 	privkeyFile := path.Join(dir, "privkey.pem")
 	pubkeyFile := path.Join(dir, "pubkey.pem")
 	certFile := path.Join(dir, "cert.pem")
 	caFile := path.Join(dir, "ca.pem")
-	WritePrivateKey(serverKey, privkeyFile)          // nolint
-	WritePublicKey(&serverKey.PublicKey, pubkeyFile) // nolint
-	os.WriteFile(certFile, serverCert, 0755)         // nolint
-	os.WriteFile(caFile, clientCert1, 0755)          // nolint
+	require.NoError(internal.WritePrivateKey(serverKey, privkeyFile))
+	require.NoError(internal.WritePublicKey(&serverKey.PublicKey, pubkeyFile))
+	require.NoError(internal.WriteCertificate(serverCert, certFile))
+	require.NoError(internal.WriteCertificate(clientCert1, caFile))
 
 	config := goconf.NewConfigFile()
 	config.AddOption("grpc", "servercertificate", certFile)
@@ -200,11 +196,12 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	server, addr := NewGrpcServerForTestWithConfig(t, config)
 
 	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(serverCert) {
-		require.Fail("could not add certificate")
-	}
+	pool.AddCert(serverCert)
 
-	pair1, err := tls.X509KeyPair(clientCert1, pem.EncodeToMemory(&pem.Block{
+	pair1, err := tls.X509KeyPair(pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: clientCert1.Raw,
+	}), pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(clientKey),
 	}))
@@ -225,12 +222,15 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	require.NoError(err)
 
 	org2 := "Updated client"
-	clientCert2 := GenerateSelfSignedCertificateForTesting(t, 1024, org2, clientKey)
-	replaceFile(t, caFile, clientCert2, 0755)
+	clientCert2 := internal.GenerateSelfSignedCertificateForTesting(t, org2, clientKey)
+	internal.ReplaceCertificate(t, caFile, clientCert2)
 
 	require.NoError(server.WaitForCertPoolReload(ctx1, 0))
 
-	pair2, err := tls.X509KeyPair(clientCert2, pem.EncodeToMemory(&pem.Block{
+	pair2, err := tls.X509KeyPair(pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: clientCert2.Raw,
+	}), pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(clientKey),
 	}))

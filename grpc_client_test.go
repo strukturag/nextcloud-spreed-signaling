@@ -27,7 +27,6 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"net"
-	"os"
 	"path"
 	"testing"
 	"time"
@@ -37,6 +36,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
@@ -315,22 +315,22 @@ func Test_GrpcClients_Encryption(t *testing.T) { // nolint:paralleltest
 		clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
 		require.NoError(err)
 
-		serverCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Server cert", serverKey)
-		clientCert := GenerateSelfSignedCertificateForTesting(t, 1024, "Testing client", clientKey)
+		serverCert := internal.GenerateSelfSignedCertificateForTesting(t, "Server cert", serverKey)
+		clientCert := internal.GenerateSelfSignedCertificateForTesting(t, "Testing client", clientKey)
 
 		dir := t.TempDir()
 		serverPrivkeyFile := path.Join(dir, "server-privkey.pem")
 		serverPubkeyFile := path.Join(dir, "server-pubkey.pem")
 		serverCertFile := path.Join(dir, "server-cert.pem")
-		WritePrivateKey(serverKey, serverPrivkeyFile)          // nolint
-		WritePublicKey(&serverKey.PublicKey, serverPubkeyFile) // nolint
-		os.WriteFile(serverCertFile, serverCert, 0755)         // nolint
+		require.NoError(internal.WritePrivateKey(serverKey, serverPrivkeyFile))
+		require.NoError(internal.WritePublicKey(&serverKey.PublicKey, serverPubkeyFile))
+		require.NoError(internal.WriteCertificate(serverCert, serverCertFile))
 		clientPrivkeyFile := path.Join(dir, "client-privkey.pem")
 		clientPubkeyFile := path.Join(dir, "client-pubkey.pem")
 		clientCertFile := path.Join(dir, "client-cert.pem")
-		WritePrivateKey(clientKey, clientPrivkeyFile)          // nolint
-		WritePublicKey(&clientKey.PublicKey, clientPubkeyFile) // nolint
-		os.WriteFile(clientCertFile, clientCert, 0755)         // nolint
+		require.NoError(internal.WritePrivateKey(clientKey, clientPrivkeyFile))
+		require.NoError(internal.WritePublicKey(&clientKey.PublicKey, clientPubkeyFile))
+		require.NoError(internal.WriteCertificate(clientCert, clientCertFile))
 
 		serverConfig := goconf.NewConfigFile()
 		serverConfig.AddOption("grpc", "servercertificate", serverCertFile)
