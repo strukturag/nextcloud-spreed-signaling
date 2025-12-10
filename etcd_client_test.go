@@ -46,6 +46,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -95,13 +96,13 @@ func NewEtcdForTestWithTls(t *testing.T, withTLS bool) (*embed.Etcd, string, str
 		key, err := rsa.GenerateKey(rand.Reader, 1024)
 		require.NoError(err)
 		keyfile = path.Join(tmpdir, "etcd.key")
-		require.NoError(WritePrivateKey(key, keyfile))
+		require.NoError(internal.WritePrivateKey(key, keyfile))
 		cfg.ClientTLSInfo.KeyFile = keyfile
 		cfg.PeerTLSInfo.KeyFile = keyfile
 
-		cert := GenerateSelfSignedCertificateForTesting(t, 1024, "etcd", key)
+		cert := internal.GenerateSelfSignedCertificateForTesting(t, "etcd", key)
 		certfile = path.Join(tmpdir, "etcd.pem")
-		require.NoError(os.WriteFile(certfile, cert, 0755))
+		require.NoError(internal.WriteCertificate(cert, certfile))
 		cfg.ClientTLSInfo.CertFile = certfile
 		cfg.ClientTLSInfo.TrustedCAFile = certfile
 		cfg.PeerTLSInfo.CertFile = certfile
