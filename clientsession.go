@@ -36,6 +36,7 @@ import (
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -94,7 +95,7 @@ type ClientSession struct {
 	// +checklocks:roomSessionIdLock
 	roomSessionId RoomSessionId
 
-	publisherWaiters ChannelWaiters // +checklocksignore
+	publisherWaiters async.ChannelWaiters // +checklocksignore
 
 	// +checklocks:mu
 	publishers map[StreamType]McuPublisher
