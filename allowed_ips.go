@@ -26,6 +26,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 type AllowedIps struct {
@@ -83,7 +85,7 @@ func parseIPNet(s string) (*net.IPNet, error) {
 
 func ParseAllowedIps(allowed string) (*AllowedIps, error) {
 	var allowedIps []*net.IPNet
-	for ip := range SplitEntries(allowed, ",") {
+	for ip := range internal.SplitEntries(allowed, ",") {
 		i, err := parseIPNet(ip)
 		if err != nil {
 			return nil, err
