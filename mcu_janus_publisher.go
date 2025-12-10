@@ -256,7 +256,7 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 }
 
 func getFmtpValue(fmtp string, key string) (string, bool) {
-	for part := range SplitEntries(fmtp, ";") {
+	for part := range internal.SplitEntries(fmtp, ";") {
 		kv := strings.SplitN(part, "=", 2)
 		if len(kv) != 2 {
 			continue

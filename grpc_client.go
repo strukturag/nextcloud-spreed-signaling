@@ -44,6 +44,7 @@ import (
 	status "google.golang.org/grpc/status"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -657,7 +658,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 	}
 
 	targets, _ := config.GetString("grpc", "targets")
-	for target := range SplitEntries(targets, ",") {
+	for target := range internal.SplitEntries(targets, ",") {
 		if entries, found := clientsMap[target]; found {
 			clients = append(clients, entries.clients...)
 			if dnsDiscovery && entries.entry == nil {

@@ -50,6 +50,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -92,7 +93,7 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 	// TODO(jojo): Make the validity for TURN credentials configurable.
 	turnvalid := 24 * time.Hour
 
-	turnserverslist := slices.Collect(SplitEntries(turnservers, ","))
+	turnserverslist := slices.Collect(internal.SplitEntries(turnservers, ","))
 	if len(turnserverslist) != 0 {
 		if turnapikey == "" {
 			return nil, errors.New("need a TURN API key if TURN servers are configured")

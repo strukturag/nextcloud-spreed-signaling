@@ -46,6 +46,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -322,7 +323,7 @@ func TestWebsocketFeatures(t *testing.T) {
 	}
 	features := response.Header.Get("X-Spreed-Signaling-Features")
 	featuresList := make(map[string]bool)
-	for f := range signaling.SplitEntries(features, ",") {
+	for f := range internal.SplitEntries(features, ",") {
 		if _, found := featuresList[f]; found {
 			assert.Fail("duplicate feature", "id \"%s\" in \"%s\"", f, features)
 		}

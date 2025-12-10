@@ -30,6 +30,7 @@ import (
 
 	"github.com/dlintw/goconf"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -89,7 +90,7 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 	remove := maps.Clone(p.connectionsMap)
 
 	mcuUrl, _ := GetStringOptionWithEnv(config, "mcu", "url")
-	for u := range SplitEntries(mcuUrl, " ") {
+	for u := range internal.SplitEntries(mcuUrl, " ") {
 		if existing, found := remove[u]; found {
 			// Proxy connection still exists in new configuration
 			delete(remove, u)

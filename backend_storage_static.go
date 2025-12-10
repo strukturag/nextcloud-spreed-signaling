@@ -103,7 +103,7 @@ func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats
 	} else if allowedUrls, _ := config.GetString("backend", "allowed"); allowedUrls != "" {
 		// Old-style configuration, only hosts are configured and are using a common secret.
 		allowMap := make(map[string]bool)
-		for u := range SplitEntries(allowedUrls, ",") {
+		for u := range internal.SplitEntries(allowedUrls, ",") {
 			if idx := strings.IndexByte(u, '/'); idx != -1 {
 				logger.Printf("WARNING: Removing path from allowed hostname \"%s\", check your configuration!", u)
 				if u = u[:idx]; u == "" {
@@ -285,7 +285,7 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	seen := make(map[string]bool)
 
-	for id := range SplitEntries(backendIds, ",") {
+	for id := range internal.SplitEntries(backendIds, ",") {
 		if seen[id] {
 			continue
 		}
@@ -330,7 +330,7 @@ func getConfiguredHosts(logger log.Logger, backendIds string, config *goconf.Con
 
 		var urls []string
 		if u, _ := GetStringOptionWithEnv(config, id, "urls"); u != "" {
-			urls = slices.Sorted(SplitEntries(u, ","))
+			urls = slices.Sorted(internal.SplitEntries(u, ","))
 			urls = slices.Compact(urls)
 		} else if u, _ := GetStringOptionWithEnv(config, id, "url"); u != "" {
 			if u = strings.TrimSpace(u); u != "" {

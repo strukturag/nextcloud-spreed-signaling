@@ -48,6 +48,7 @@ import (
 	"github.com/mailru/easyjson/jwriter"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 var (
@@ -566,7 +567,7 @@ func main() {
 
 	urls := make([]url.URL, 0)
 	urlstrings := make([]string, 0)
-	for host := range signaling.SplitEntries(*addr, ",") {
+	for host := range internal.SplitEntries(*addr, ",") {
 		u := url.URL{
 			Scheme: "ws",
 			Host:   host,

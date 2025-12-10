@@ -43,6 +43,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -342,7 +343,7 @@ func main() {
 		if writeTimeout <= 0 {
 			writeTimeout = defaultWriteTimeout
 		}
-		for address := range signaling.SplitEntries(saddr, " ") {
+		for address := range internal.SplitEntries(saddr, " ") {
 			go func(address string) {
 				logger.Println("Listening on", address)
 				listener, err := createTLSListener(address, cert, key)
@@ -375,7 +376,7 @@ func main() {
 			writeTimeout = defaultWriteTimeout
 		}
 
-		for address := range signaling.SplitEntries(addr, " ") {
+		for address := range internal.SplitEntries(addr, " ") {
 			go func(address string) {
 				logger.Println("Listening on", address)
 				listener, err := createListener(address)
