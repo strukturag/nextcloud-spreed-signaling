@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package async
 
 import (
 	"context"
@@ -92,9 +92,12 @@ type throttleEntry struct {
 	ts time.Time
 }
 
+type GetTimeFunc func() time.Time
+type ThrottleDelayFunc func(context.Context, time.Duration)
+
 type memoryThrottler struct {
-	getNow  func() time.Time
-	doDelay func(context.Context, time.Duration)
+	getNow  GetTimeFunc
+	doDelay ThrottleDelayFunc
 
 	mu sync.RWMutex
 	// +checklocks:mu
@@ -104,14 +107,18 @@ type memoryThrottler struct {
 }
 
 func NewMemoryThrottler() (Throttler, error) {
+	return NewCustomMemoryThrottler(time.Now, defaultDelay)
+}
+
+func NewCustomMemoryThrottler(getNow GetTimeFunc, delay ThrottleDelayFunc) (Throttler, error) {
 	result := &memoryThrottler{
-		getNow: time.Now,
+		getNow:  getNow,
+		doDelay: delay,
 
 		clients: make(map[string]map[string][]throttleEntry),
 
 		closer: internal.NewCloser(),
 	}
-	result.doDelay = result.delay
 	go result.housekeeping()
 	return result, nil
 }
@@ -310,7 +317,7 @@ func (t *memoryThrottler) throttle(ctx context.Context, client string, action st
 	t.doDelay(ctx, delay)
 }
 
-func (t *memoryThrottler) delay(ctx context.Context, duration time.Duration) {
+func defaultDelay(ctx context.Context, duration time.Duration) {
 	c, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 

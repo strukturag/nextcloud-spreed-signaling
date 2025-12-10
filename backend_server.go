@@ -49,6 +49,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -840,7 +841,7 @@ func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend
 
 func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, r *http.Request, body []byte) {
 	throttle, err := b.hub.throttler.CheckBruteforce(ctx, b.hub.getRealUserIP(r), "BackendRoomAuth")
-	if err == ErrBruteforceDetected {
+	if err == async.ErrBruteforceDetected {
 		http.Error(w, "Too many requests", http.StatusTooManyRequests)
 		return
 	} else if err != nil {

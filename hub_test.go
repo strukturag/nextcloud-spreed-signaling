@@ -53,6 +53,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
@@ -1440,6 +1441,22 @@ func TestClientHelloResume(t *testing.T) {
 	}
 }
 
+type throttlerTiming struct {
+	t *testing.T
+
+	now           time.Time
+	expectedSleep time.Duration
+}
+
+func (t *throttlerTiming) getNow() time.Time {
+	return t.now
+}
+
+func (t *throttlerTiming) doDelay(ctx context.Context, duration time.Duration) {
+	t.t.Helper()
+	assert.Equal(t.t, t.expectedSleep, duration)
+}
+
 func TestClientHelloResumeThrottle(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -1450,12 +1467,12 @@ func TestClientHelloResumeThrottle(t *testing.T) {
 		t:   t,
 		now: time.Now(),
 	}
-	throttler := newMemoryThrottlerForTest(t)
-	th, ok := throttler.(*memoryThrottler)
-	require.True(ok, "expected memoryThrottler, got %T", throttler)
-	th.getNow = timing.getNow
-	th.doDelay = timing.doDelay
-	hub.throttler = th
+	throttler, err := async.NewCustomMemoryThrottler(timing.getNow, timing.doDelay)
+	require.NoError(err)
+	t.Cleanup(func() {
+		throttler.Close()
+	})
+	hub.throttler = throttler
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
