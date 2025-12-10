@@ -371,7 +371,7 @@ type mcuProxyConnection struct {
 	trackClose        atomic.Bool
 	temporary         atomic.Bool
 
-	connectedNotifier SingleNotifier
+	connectedNotifier async.SingleNotifier
 
 	msgId      atomic.Int64
 	helloMsgId string
