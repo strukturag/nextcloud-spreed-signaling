@@ -38,6 +38,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/connectivity"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -247,7 +248,7 @@ func (c *EtcdClient) RemoveListener(listener EtcdClientListener) {
 }
 
 func (c *EtcdClient) WaitForConnection(ctx context.Context) error {
-	backoff, err := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+	backoff, err := async.NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 	if err != nil {
 		return err
 	}
