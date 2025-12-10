@@ -48,6 +48,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 var (
@@ -143,7 +144,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		server2.Close()
 	})
 
-	nats, _ := startLocalNatsServer(t)
+	nats, _ := nats.StartLocalServer(t)
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
 
@@ -248,7 +249,7 @@ func expectRoomlistEvent(t *testing.T, ch AsyncChannel, msgType string) (*EventS
 	select {
 	case natsMsg := <-ch:
 		var message AsyncMessage
-		if !assert.NoError(NatsDecode(natsMsg, &message)) ||
+		if !assert.NoError(nats.Decode(natsMsg, &message)) ||
 			!assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
 			!assert.NotNil(message.Message, "message missing, got %+v", message) {
 			return nil, false

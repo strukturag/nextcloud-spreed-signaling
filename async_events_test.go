@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 var (
@@ -58,7 +59,7 @@ func getAsyncEventsForTest(t *testing.T) AsyncEvents {
 func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
-	server, _ := startLocalNatsServer(t)
+	server, _ := nats.StartLocalServer(t)
 	events, err := NewAsyncEvents(ctx, server.ClientURL())
 	if err != nil {
 		require.NoError(t, err)
@@ -69,7 +70,7 @@ func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
 func getLoopbackAsyncEventsForTest(t *testing.T) AsyncEvents {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
-	events, err := NewAsyncEvents(ctx, NatsLoopbackUrl)
+	events, err := NewAsyncEvents(ctx, nats.LoopbackUrl)
 	if err != nil {
 		require.NoError(t, err)
 	}
@@ -78,8 +79,8 @@ func getLoopbackAsyncEventsForTest(t *testing.T) AsyncEvents {
 		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 		defer cancel()
 
-		nats := (events.(*asyncEventsNats)).client
-		(nats).(*LoopbackNatsClient).waitForSubscriptionsEmpty(ctx, t)
+		client := (events.(*asyncEventsNats)).client
+		nats.WaitForSubscriptionsEmpty(ctx, t, client)
 	})
 	return events
 }
@@ -87,17 +88,17 @@ func getLoopbackAsyncEventsForTest(t *testing.T) AsyncEvents {
 func waitForAsyncEventsFlushed(ctx context.Context, t *testing.T, events AsyncEvents) {
 	t.Helper()
 
-	nats, ok := (events.(*asyncEventsNats))
+	e, ok := (events.(*asyncEventsNats))
 	if !ok {
 		// Only can wait for NATS events.
 		return
 	}
 
-	client, ok := nats.client.(*natsClient)
+	client, ok := e.client.(*nats.NativeClient)
 	if !ok {
 		// The loopback NATS clients is executing all events synchronously.
 		return
 	}
 
-	assert.NoError(t, client.conn.FlushWithContext(ctx))
+	assert.NoError(t, client.FlushWithContext(ctx))
 }

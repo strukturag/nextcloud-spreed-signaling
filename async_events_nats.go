@@ -27,44 +27,43 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
-
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 func GetSubjectForBackendRoomId(roomId string, backend *Backend) string {
 	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("backend.room", roomId)
+		return nats.GetEncodedSubject("backend.room", roomId)
 	}
 
-	return GetEncodedSubject("backend.room", roomId+"|"+backend.Id())
+	return nats.GetEncodedSubject("backend.room", roomId+"|"+backend.Id())
 }
 
 func GetSubjectForRoomId(roomId string, backend *Backend) string {
 	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("room", roomId)
+		return nats.GetEncodedSubject("room", roomId)
 	}
 
-	return GetEncodedSubject("room", roomId+"|"+backend.Id())
+	return nats.GetEncodedSubject("room", roomId+"|"+backend.Id())
 }
 
 func GetSubjectForUserId(userId string, backend *Backend) string {
 	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("user", userId)
+		return nats.GetEncodedSubject("user", userId)
 	}
 
-	return GetEncodedSubject("user", userId+"|"+backend.Id())
+	return nats.GetEncodedSubject("user", userId+"|"+backend.Id())
 }
 
 func GetSubjectForSessionId(sessionId PublicSessionId, backend *Backend) string {
 	return string("session." + sessionId)
 }
 
-type asyncEventsNatsSubscriptions map[string]map[AsyncEventListener]NatsSubscription
+type asyncEventsNatsSubscriptions map[string]map[AsyncEventListener]nats.Subscription
 
 type asyncEventsNats struct {
 	mu     sync.Mutex
-	client NatsClient
+	client nats.Client
 	logger log.Logger // +checklocksignore
 
 	// +checklocks:mu
@@ -77,7 +76,7 @@ type asyncEventsNats struct {
 	sessionSubscriptions asyncEventsNatsSubscriptions
 }
 
-func NewAsyncEventsNats(logger log.Logger, client NatsClient) (AsyncEvents, error) {
+func NewAsyncEventsNats(logger log.Logger, client nats.Client) (AsyncEvents, error) {
 	events := &asyncEventsNats{
 		client: client,
 		logger: logger,
@@ -91,28 +90,29 @@ func NewAsyncEventsNats(logger log.Logger, client NatsClient) (AsyncEvents, erro
 }
 
 func (e *asyncEventsNats) GetServerInfoNats() *BackendServerInfoNats {
-	var nats *BackendServerInfoNats
+	// TODO: This should call a method on "e.client" directly instead of having a type switch.
+	var result *BackendServerInfoNats
 	switch n := e.client.(type) {
-	case *natsClient:
-		nats = &BackendServerInfoNats{
-			Urls: n.conn.Servers(),
+	case *nats.NativeClient:
+		result = &BackendServerInfoNats{
+			Urls: n.URLs(),
 		}
-		if c := n.conn; c.IsConnected() {
-			nats.Connected = true
-			nats.ServerUrl = c.ConnectedUrl()
-			nats.ServerID = c.ConnectedServerId()
-			nats.ServerVersion = c.ConnectedServerVersion()
-			nats.ClusterName = c.ConnectedClusterName()
+		if n.IsConnected() {
+			result.Connected = true
+			result.ServerUrl = n.ConnectedUrl()
+			result.ServerID = n.ConnectedServerId()
+			result.ServerVersion = n.ConnectedServerVersion()
+			result.ClusterName = n.ConnectedClusterName()
 		}
-	case *LoopbackNatsClient:
-		nats = &BackendServerInfoNats{
-			Urls:      []string{NatsLoopbackUrl},
+	case *nats.LoopbackClient:
+		result = &BackendServerInfoNats{
+			Urls:      []string{nats.LoopbackUrl},
 			Connected: true,
-			ServerUrl: NatsLoopbackUrl,
+			ServerUrl: nats.LoopbackUrl,
 		}
 	}
 
-	return nats
+	return result
 }
 
 func closeSubscriptions(logger log.Logger, wg *sync.WaitGroup, subscriptions asyncEventsNatsSubscriptions) {
@@ -153,7 +153,7 @@ func (e *asyncEventsNats) Close(ctx context.Context) error {
 func (e *asyncEventsNats) registerListener(key string, subscriptions asyncEventsNatsSubscriptions, listener AsyncEventListener) error {
 	subs, found := subscriptions[key]
 	if !found {
-		subs = make(map[AsyncEventListener]NatsSubscription)
+		subs = make(map[AsyncEventListener]nats.Subscription)
 		subscriptions[key] = subs
 	} else if _, found := subs[listener]; found {
 		return ErrAlreadyRegistered
