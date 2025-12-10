@@ -46,6 +46,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -1503,7 +1504,7 @@ type mcuProxy struct {
 	// +checklocks:mu
 	publishers map[StreamId]*mcuProxyConnection
 
-	publisherWaiters ChannelWaiters
+	publisherWaiters async.ChannelWaiters
 
 	continentsMap atomic.Value
 
