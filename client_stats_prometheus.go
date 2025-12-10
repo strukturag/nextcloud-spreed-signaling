@@ -23,6 +23,8 @@ package signaling
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
 )
 
 var (
@@ -61,5 +63,5 @@ var (
 )
 
 func RegisterClientStats() {
-	registerAll(clientStats...)
+	metrics.RegisterAll(clientStats...)
 }

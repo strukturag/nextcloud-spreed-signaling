@@ -23,6 +23,8 @@ package signaling
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
 )
 
 var (
@@ -38,22 +40,6 @@ var (
 	}
 )
 
-func registerAll(cs ...prometheus.Collector) {
-	for _, c := range cs {
-		if err := prometheus.DefaultRegisterer.Register(c); err != nil {
-			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
-				panic(err)
-			}
-		}
-	}
-}
-
-func unregisterAll(cs ...prometheus.Collector) {
-	for _, c := range cs {
-		prometheus.Unregister(c)
-	}
-}
-
 func RegisterStats() {
-	registerAll(signalingStats...)
+	metrics.RegisterAll(signalingStats...)
 }

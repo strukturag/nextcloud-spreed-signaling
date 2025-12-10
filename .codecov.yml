@@ -38,6 +38,10 @@ component_management:
       name: log
       paths:
         - log/**
+    - component_id: module_metrics
+      name: metrics
+      paths:
+        - metrics/**
     - component_id: module_proxy
       name: proxy
       paths:
