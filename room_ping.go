@@ -30,6 +30,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type pingEntries struct {
@@ -70,13 +71,13 @@ type RoomPing struct {
 	closer *internal.Closer
 
 	backend      *BackendClient
-	capabilities *Capabilities
+	capabilities *talk.Capabilities
 
 	// +checklocks:mu
 	entries map[string]*pingEntries
 }
 
-func NewRoomPing(backend *BackendClient, capabilities *Capabilities) (*RoomPing, error) {
+func NewRoomPing(backend *BackendClient, capabilities *talk.Capabilities) (*RoomPing, error) {
 	result := &RoomPing{
 		closer:       internal.NewCloser(),
 		backend:      backend,

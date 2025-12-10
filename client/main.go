@@ -49,6 +49,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
@@ -458,9 +459,9 @@ func registerAuthHandler(router *mux.Router) {
 		}
 
 		rawdata := json.RawMessage(data)
-		payload := &signaling.OcsResponse{
-			Ocs: &signaling.OcsBody{
-				Meta: signaling.OcsMeta{
+		payload := &talk.OcsResponse{
+			Ocs: &talk.OcsBody{
+				Meta: talk.OcsMeta{
 					Status:     "ok",
 					StatusCode: http.StatusOK,
 					Message:    http.StatusText(http.StatusOK),

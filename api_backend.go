@@ -418,24 +418,6 @@ func NewBackendClientSessionRequest(roomid string, action string, sessionid Publ
 	return request
 }
 
-type OcsMeta struct {
-	Status     string `json:"status"`
-	StatusCode int    `json:"statuscode"`
-	Message    string `json:"message"`
-}
-
-type OcsBody struct {
-	Meta OcsMeta         `json:"meta"`
-	Data json.RawMessage `json:"data"`
-}
-
-type OcsResponse struct {
-	json.Marshaler
-	json.Unmarshaler
-
-	Ocs *OcsBody `json:"ocs"`
-}
-
 // See https://tools.ietf.org/html/draft-uberti-behave-turn-rest-00
 type TurnCredentials struct {
 	Username string   `json:"username"`

@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"context"
@@ -59,6 +59,10 @@ const (
 
 var (
 	ErrUnexpectedHttpStatus = errors.New("unexpected_http_status") // +checklocksignore: Global readonly variable.
+
+	ErrUnsupportedContentType = errors.New("unsupported_content_type") // +checklocksignore: Global readonly variable.
+
+	ErrIncompleteResponse = errors.New("incomplete OCS response") // +checklocksignore: Global readonly variable.
 )
 
 type capabilitiesEntry struct {
