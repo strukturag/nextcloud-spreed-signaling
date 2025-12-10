@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2021 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,27 +19,24 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-
-	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
 )
 
-var (
-	statsRoomSessionsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "signaling",
-		Subsystem: "room",
-		Name:      "sessions",
-		Help:      "The current number of sessions in a room",
-	}, []string{"backend", "room", "clienttype"})
-
-	roomStats = []prometheus.Collector{
-		statsRoomSessionsCurrent,
+func RegisterAll(cs ...prometheus.Collector) {
+	for _, c := range cs {
+		if err := prometheus.DefaultRegisterer.Register(c); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
 	}
-)
+}
 
-func RegisterRoomStats() {
-	metrics.RegisterAll(roomStats...)
+func UnregisterAll(cs ...prometheus.Collector) {
+	for _, c := range cs {
+		prometheus.Unregister(c)
+	}
 }
