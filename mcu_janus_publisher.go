@@ -33,6 +33,7 @@ import (
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -52,7 +53,7 @@ type mcuJanusPublisher struct {
 	settings  NewPublisherSettings
 	stats     publisherStatsCounter
 	sdpFlags  Flags
-	sdpReady  *Closer
+	sdpReady  *internal.Closer
 	offerSdp  atomic.Pointer[sdp.SessionDescription]
 	answerSdp atomic.Pointer[sdp.SessionDescription]
 }

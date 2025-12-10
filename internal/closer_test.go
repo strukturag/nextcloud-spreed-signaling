@@ -19,29 +19,40 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package internal
 
 import (
-	"sync/atomic"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-type Closer struct {
-	closed atomic.Bool
-	C      chan struct{}
-}
+func TestCloserMulti(t *testing.T) {
+	t.Parallel()
+	closer := NewCloser()
 
-func NewCloser() *Closer {
-	return &Closer{
-		C: make(chan struct{}),
+	var wg sync.WaitGroup
+	count := 10
+	for range count {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-closer.C
+		}()
 	}
+
+	assert.False(t, closer.IsClosed())
+	closer.Close()
+	assert.True(t, closer.IsClosed())
+	wg.Wait()
 }
 
-func (c *Closer) IsClosed() bool {
-	return c.closed.Load()
-}
-
-func (c *Closer) Close() {
-	if c.closed.CompareAndSwap(false, true) {
-		close(c.C)
-	}
+func TestCloserCloseBeforeWait(t *testing.T) {
+	t.Parallel()
+	closer := NewCloser()
+	closer.Close()
+	assert.True(t, closer.IsClosed())
+	<-closer.C
+	assert.True(t, closer.IsClosed())
 }
