@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 type AsyncBackendRoomEventListener interface {
@@ -66,7 +67,7 @@ type AsyncEvents interface {
 }
 
 func NewAsyncEvents(ctx context.Context, url string) (AsyncEvents, error) {
-	client, err := NewNatsClient(ctx, url)
+	client, err := nats.NewClient(ctx, url)
 	if err != nil {
 		return nil, err
 	}

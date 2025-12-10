@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package nats
 
 import (
 	"context"
@@ -27,41 +27,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/nats-io/nats-server/v2/server"
-	natsserver "github.com/nats-io/nats-server/v2/test"
+	"github.com/nats-io/nats.go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
-func startLocalNatsServer(t *testing.T) (*server.Server, int) {
+func CreateLocalClientForTest(t *testing.T, options ...nats.Option) (*server.Server, int, Client) {
 	t.Helper()
-	return startLocalNatsServerPort(t, server.RANDOM_PORT)
-}
-
-func startLocalNatsServerPort(t *testing.T, port int) (*server.Server, int) {
-	t.Helper()
-	opts := natsserver.DefaultTestOptions
-	opts.Port = port
-	opts.Cluster.Name = "testing"
-	srv := natsserver.RunServer(&opts)
-	t.Cleanup(func() {
-		srv.Shutdown()
-		srv.WaitForShutdown()
-	})
-	return srv, opts.Port
-}
-
-func CreateLocalNatsClientForTest(t *testing.T, options ...nats.Option) (*server.Server, int, NatsClient) {
-	t.Helper()
-	server, port := startLocalNatsServer(t)
+	server, port := StartLocalServer(t)
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
-	result, err := NewNatsClient(ctx, server.ClientURL(), options...)
+	result, err := NewClient(ctx, server.ClientURL(), options...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -71,10 +52,10 @@ func CreateLocalNatsClientForTest(t *testing.T, options ...nats.Option) (*server
 	return server, port, result
 }
 
-func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
+func testClient_Subscribe(t *testing.T, client Client) {
 	require := require.New(t)
 	assert := assert.New(t)
-	dest := make(chan *nats.Msg)
+	dest := make(chan *Msg)
 	sub, err := client.Subscribe("foo", dest)
 	require.NoError(err)
 	ch := make(chan struct{})
@@ -113,76 +94,76 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 	require.Equal(maxPublish, received.Load(), "Received wrong # of messages")
 }
 
-func TestNatsClient_Subscribe(t *testing.T) { // nolint:paralleltest
+func TestClient_Subscribe(t *testing.T) { // nolint:paralleltest
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
-		_, _, client := CreateLocalNatsClientForTest(t)
+		_, _, client := CreateLocalClientForTest(t)
 
-		testNatsClient_Subscribe(t, client)
+		testClient_Subscribe(t, client)
 	})
 }
 
-func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
+func test_PublishAfterClose(t *testing.T, client Client) {
 	assert.NoError(t, client.Close(t.Context()))
 
 	assert.ErrorIs(t, client.Publish("foo", "bar"), nats.ErrConnectionClosed)
 }
 
-func TestNatsClient_PublishAfterClose(t *testing.T) { // nolint:paralleltest
+func TestClient_PublishAfterClose(t *testing.T) { // nolint:paralleltest
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
-		_, _, client := CreateLocalNatsClientForTest(t)
+		_, _, client := CreateLocalClientForTest(t)
 
-		testNatsClient_PublishAfterClose(t, client)
+		test_PublishAfterClose(t, client)
 	})
 }
 
-func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
+func testClient_SubscribeAfterClose(t *testing.T, client Client) {
 	assert.NoError(t, client.Close(t.Context()))
 
-	ch := make(chan *nats.Msg)
+	ch := make(chan *Msg)
 	_, err := client.Subscribe("foo", ch)
 	assert.ErrorIs(t, err, nats.ErrConnectionClosed)
 }
 
-func TestNatsClient_SubscribeAfterClose(t *testing.T) { // nolint:paralleltest
+func TestClient_SubscribeAfterClose(t *testing.T) { // nolint:paralleltest
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
-		_, _, client := CreateLocalNatsClientForTest(t)
+		_, _, client := CreateLocalClientForTest(t)
 
-		testNatsClient_SubscribeAfterClose(t, client)
+		testClient_SubscribeAfterClose(t, client)
 	})
 }
 
-func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
+func testClient_BadSubjects(t *testing.T, client Client) {
 	assert := assert.New(t)
 	subjects := []string{
 		"foo bar",
 		"foo.",
 	}
 
-	ch := make(chan *nats.Msg)
+	ch := make(chan *Msg)
 	for _, s := range subjects {
 		_, err := client.Subscribe(s, ch)
 		assert.ErrorIs(err, nats.ErrBadSubject, "Expected error for subject %s", s)
 	}
 }
 
-func TestNatsClient_BadSubjects(t *testing.T) { // nolint:paralleltest
+func TestClient_BadSubjects(t *testing.T) { // nolint:paralleltest
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
-		_, _, client := CreateLocalNatsClientForTest(t)
+		_, _, client := CreateLocalClientForTest(t)
 
-		testNatsClient_BadSubjects(t, client)
+		testClient_BadSubjects(t, client)
 	})
 }
 
-func TestNatsClient_MaxReconnects(t *testing.T) { // nolint:paralleltest
+func TestClient_MaxReconnects(t *testing.T) { // nolint:paralleltest
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
 		reconnectWait := time.Millisecond
-		server, port, client := CreateLocalNatsClientForTest(t,
+		server, port, client := CreateLocalClientForTest(t,
 			nats.ReconnectWait(reconnectWait),
 			nats.ReconnectJitter(0, 0),
 		)
-		c, ok := client.(*natsClient)
+		c, ok := client.(*NativeClient)
 		require.True(ok, "wrong class: %T", client)
 		require.True(c.conn.IsConnected(), "not connected initially")
 		assert.Equal(server.ID(), c.conn.ConnectedServerId())
@@ -197,7 +178,7 @@ func TestNatsClient_MaxReconnects(t *testing.T) { // nolint:paralleltest
 		}
 		require.False(c.conn.IsConnected(), "should be disconnected after server shutdown")
 
-		server, _ = startLocalNatsServerPort(t, port)
+		server, _ = StartLocalServerPort(t, port)
 
 		// Wait for automatic reconnection
 		for i := 0; i < 1000 && !c.conn.IsConnected(); i++ {
