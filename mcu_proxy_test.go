@@ -49,6 +49,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -860,8 +861,8 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	dir := t.TempDir()
 	privkeyFile := path.Join(dir, "privkey.pem")
 	pubkeyFile := path.Join(dir, "pubkey.pem")
-	WritePrivateKey(tokenKey, privkeyFile)          // nolint
-	WritePublicKey(&tokenKey.PublicKey, pubkeyFile) // nolint
+	require.NoError(internal.WritePrivateKey(tokenKey, privkeyFile))
+	require.NoError(internal.WritePublicKey(&tokenKey.PublicKey, pubkeyFile))
 
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "urltype", "static")
