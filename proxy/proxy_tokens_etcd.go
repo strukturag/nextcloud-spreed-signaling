@@ -34,6 +34,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -51,7 +52,7 @@ type tokensEtcd struct {
 	client *signaling.EtcdClient
 
 	tokenFormats atomic.Value
-	tokenCache   *signaling.LruCache[*tokenCacheEntry]
+	tokenCache   *container.LruCache[*tokenCacheEntry]
 }
 
 func NewProxyTokensEtcd(logger log.Logger, config *goconf.ConfigFile) (ProxyTokens, error) {
@@ -67,7 +68,7 @@ func NewProxyTokensEtcd(logger log.Logger, config *goconf.ConfigFile) (ProxyToke
 	result := &tokensEtcd{
 		logger:     logger,
 		client:     client,
-		tokenCache: signaling.NewLruCache[*tokenCacheEntry](tokenCacheSize),
+		tokenCache: container.NewLruCache[*tokenCacheEntry](tokenCacheSize),
 	}
 	if err := result.load(config, false); err != nil {
 		return nil, err
