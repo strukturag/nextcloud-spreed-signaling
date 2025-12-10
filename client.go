@@ -37,6 +37,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -141,7 +142,7 @@ type Client struct {
 
 	mu sync.Mutex
 
-	closer       *Closer
+	closer       *internal.Closer
 	closeOnce    sync.Once
 	messagesDone chan struct{}
 	messageChan  chan *bytes.Buffer
@@ -171,7 +172,7 @@ func (c *Client) SetConn(ctx context.Context, conn *websocket.Conn, remoteAddres
 	c.conn = conn
 	c.addr = remoteAddress
 	c.SetHandler(handler)
-	c.closer = NewCloser()
+	c.closer = internal.NewCloser()
 	c.messageChan = make(chan *bytes.Buffer, 16)
 	c.messagesDone = make(chan struct{})
 }

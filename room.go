@@ -73,7 +73,7 @@ type Room struct {
 	// +checklocks:mu
 	properties json.RawMessage
 
-	closer *Closer
+	closer *internal.Closer
 	mu     *sync.RWMutex
 	// +checklocks:mu
 	sessions map[PublicSessionId]Session
@@ -116,7 +116,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEv
 
 		properties: properties,
 
-		closer:   NewCloser(),
+		closer:   internal.NewCloser(),
 		mu:       &sync.RWMutex{},
 		sessions: make(map[PublicSessionId]Session),
 

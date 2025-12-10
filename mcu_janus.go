@@ -816,7 +816,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id Pu
 			closeChan: make(chan struct{}, 1),
 			deferred:  make(chan func(), 64),
 		},
-		sdpReady: NewCloser(),
+		sdpReady: internal.NewCloser(),
 		id:       id,
 		settings: settings,
 	}
@@ -1000,7 +1000,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 				deferred:  make(chan func(), 64),
 			},
 
-			sdpReady: NewCloser(),
+			sdpReady: internal.NewCloser(),
 			id:       controller.PublisherId(),
 			settings: settings,
 		},
