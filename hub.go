@@ -213,7 +213,7 @@ type Hub struct {
 	rpcServer  *GrpcServer
 	rpcClients *GrpcClients
 
-	throttler Throttler
+	throttler async.Throttler
 
 	skipFederationVerify bool
 	federationTimeout    time.Duration
@@ -352,7 +352,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		return nil, err
 	}
 
-	throttler, err := NewMemoryThrottler()
+	throttler, err := async.NewMemoryThrottler()
 	if err != nil {
 		return nil, err
 	}
@@ -1277,7 +1277,7 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 	resumeId := message.Hello.ResumeId
 	if resumeId != "" {
 		throttle, err := h.throttler.CheckBruteforce(ctx, client.RemoteAddr(), "HelloResume")
-		if err == ErrBruteforceDetected {
+		if err == async.ErrBruteforceDetected {
 			client.SendMessage(message.NewErrorServerMessage(TooManyRequests))
 			return
 		} else if err != nil {
@@ -1581,7 +1581,7 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage)
 
 	ctx := log.NewLoggerContext(client.Context(), h.logger)
 	throttle, err := h.throttler.CheckBruteforce(ctx, client.RemoteAddr(), "HelloInternal")
-	if err == ErrBruteforceDetected {
+	if err == async.ErrBruteforceDetected {
 		client.SendMessage(message.NewErrorServerMessage(TooManyRequests))
 		return
 	} else if err != nil {

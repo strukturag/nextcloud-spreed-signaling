@@ -19,10 +19,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package async
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -43,22 +42,6 @@ func newMemoryThrottlerForTest(t *testing.T) Throttler {
 	})
 
 	return result
-}
-
-type throttlerTiming struct {
-	t *testing.T
-
-	now           time.Time
-	expectedSleep time.Duration
-}
-
-func (t *throttlerTiming) getNow() time.Time {
-	return t.now
-}
-
-func (t *throttlerTiming) doDelay(ctx context.Context, duration time.Duration) {
-	t.t.Helper()
-	assert.Equal(t.t, t.expectedSleep, duration)
 }
 
 func expectDelay(t *testing.T, f func(), delay time.Duration) {
