@@ -43,6 +43,7 @@ import (
 	"google.golang.org/grpc/resolver"
 	status "google.golang.org/grpc/status"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -588,7 +589,7 @@ func (c *GrpcClients) getServerIdWithTimeout(ctx context.Context, client *GrpcCl
 }
 
 func (c *GrpcClients) checkIsSelf(ctx context.Context, target string, client *GrpcClient) {
-	backoff, _ := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+	backoff, _ := async.NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 	defer c.selfCheckWaitGroup.Done()
 
 loop:
@@ -830,7 +831,7 @@ func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
 			panic(err)
 		}
 
-		backoff, _ := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+		backoff, _ := async.NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 		var nextRevision int64
 		for c.closeCtx.Err() == nil {
 			response, err := c.getGrpcTargets(c.closeCtx, client, c.targetPrefix)
