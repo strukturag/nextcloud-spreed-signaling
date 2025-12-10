@@ -19,9 +19,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package container
 
 import (
+	"crypto/rand"
 	"strconv"
 	"sync"
 	"testing"
@@ -83,7 +84,7 @@ func TestConcurrentStringStringMap(t *testing.T) {
 			defer wg.Done()
 
 			key := "key-" + strconv.Itoa(x)
-			rnd := newRandomString(32)
+			rnd := rand.Text()
 			for y := range count {
 				value := rnd + "-" + strconv.Itoa(y)
 				m.Set(key, value)
