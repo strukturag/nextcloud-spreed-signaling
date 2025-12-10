@@ -58,6 +58,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
@@ -374,9 +375,9 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 		assert.NoError(err)
 
 		if r.Header.Get("OCS-APIRequest") != "" {
-			var ocs OcsResponse
-			ocs.Ocs = &OcsBody{
-				Meta: OcsMeta{
+			var ocs talk.OcsResponse
+			ocs.Ocs = &talk.OcsBody{
+				Meta: talk.OcsMeta{
 					Status:     "ok",
 					StatusCode: http.StatusOK,
 					Message:    http.StatusText(http.StatusOK),
@@ -778,8 +779,8 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			"config":   config,
 		})
 		assert.NoError(t, err)
-		response := &CapabilitiesResponse{
-			Version: CapabilitiesVersion{
+		response := &talk.CapabilitiesResponse{
+			Version: talk.CapabilitiesVersion{
 				Major: 20,
 			},
 			Capabilities: map[string]json.RawMessage{
@@ -790,9 +791,9 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		data, err := json.Marshal(response)
 		assert.NoError(t, err, "Could not marshal %+v", response)
 
-		var ocs OcsResponse
-		ocs.Ocs = &OcsBody{
-			Meta: OcsMeta{
+		var ocs talk.OcsResponse
+		ocs.Ocs = &talk.OcsBody{
+			Meta: talk.OcsMeta{
 				Status:     "ok",
 				StatusCode: http.StatusOK,
 				Message:    http.StatusText(http.StatusOK),
