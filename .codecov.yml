@@ -42,3 +42,7 @@ component_management:
       name: server
       paths:
         - server/**
+    - component_id: module_test
+      name: test
+      paths:
+        - test/**

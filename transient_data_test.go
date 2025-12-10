@@ -33,11 +33,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func Test_TransientData(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		data := NewTransientData()
 		assert.False(data.Set("foo", nil))

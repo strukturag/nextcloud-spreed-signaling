@@ -29,6 +29,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func TestSingleNotifierNoWaiter(t *testing.T) {
@@ -118,7 +120,7 @@ func TestSingleNotifierResetWillNotify(t *testing.T) {
 
 func TestSingleNotifierDuplicate(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		var notifier SingleNotifier
 		var done sync.WaitGroup
 

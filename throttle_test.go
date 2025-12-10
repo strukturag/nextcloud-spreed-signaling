@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func newMemoryThrottlerForTest(t *testing.T) Throttler {
@@ -70,7 +71,7 @@ func expectDelay(t *testing.T, f func(), delay time.Duration) {
 
 func TestThrottler(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
@@ -105,7 +106,7 @@ func TestThrottler(t *testing.T) {
 
 func TestThrottlerIPv6(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
@@ -143,7 +144,7 @@ func TestThrottlerIPv6(t *testing.T) {
 
 func TestThrottler_Bruteforce(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
@@ -170,7 +171,7 @@ func TestThrottler_Bruteforce(t *testing.T) {
 
 func TestThrottler_Cleanup(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		throttler := newMemoryThrottlerForTest(t)
 		th, ok := throttler.(*memoryThrottler)
@@ -227,7 +228,7 @@ func TestThrottler_Cleanup(t *testing.T) {
 
 func TestThrottler_ExpirePartial(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
@@ -260,7 +261,7 @@ func TestThrottler_ExpirePartial(t *testing.T) {
 
 func TestThrottler_ExpireAll(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 
@@ -293,7 +294,7 @@ func TestThrottler_ExpireAll(t *testing.T) {
 
 func TestThrottler_Negative(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		th := newMemoryThrottlerForTest(t)
 

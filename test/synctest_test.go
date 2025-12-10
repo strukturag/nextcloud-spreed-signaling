@@ -1,5 +1,3 @@
-//go:build go1.25
-
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
  * Copyright (C) 2025 struktur AG
@@ -21,12 +19,20 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package test
 
 import (
-	"testing/synctest"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
-var (
-	SynctestTest = synctest.Test
-)
+func TestSynctest(t *testing.T) {
+	t.Parallel()
+	SynctestTest(t, func(t *testing.T) {
+		start := time.Now()
+		time.Sleep(time.Second)
+		assert.Equal(t, time.Second, time.Since(start))
+	})
+}
