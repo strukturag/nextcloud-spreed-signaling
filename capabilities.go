@@ -35,6 +35,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 )
 
 const (
@@ -249,16 +250,16 @@ type Capabilities struct {
 	getNow func() time.Time
 
 	version string
-	pool    *HttpClientPool
+	pool    *pool.HttpClientPool
 	// +checklocks:mu
 	entries map[string]*capabilitiesEntry
 	// +checklocks:mu
 	nextInvalidate map[string]time.Time
 
-	buffers BufferPool
+	buffers pool.BufferPool
 }
 
-func NewCapabilities(version string, pool *HttpClientPool) (*Capabilities, error) {
+func NewCapabilities(version string, pool *pool.HttpClientPool) (*Capabilities, error) {
 	result := &Capabilities{
 		getNow: time.Now,
 

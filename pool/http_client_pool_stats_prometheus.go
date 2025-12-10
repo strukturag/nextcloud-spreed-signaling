@@ -19,61 +19,27 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package pool
 
 import (
-	"bytes"
-	"encoding/json"
-	"io"
-	"sync"
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
 )
 
-type BufferPool struct {
-	buffers     sync.Pool
-	copyBuffers sync.Pool
-}
+var (
+	connectionsPerHostCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "http_client_pool",
+		Name:      "connections",
+		Help:      "The current number of HTTP client connections per host",
+	}, []string{"host"})
 
-func (p *BufferPool) Get() *bytes.Buffer {
-	b := p.buffers.Get()
-	if b == nil {
-		return bytes.NewBuffer(nil)
+	httpClientPoolStats = []prometheus.Collector{
+		connectionsPerHostCurrent,
 	}
+)
 
-	return b.(*bytes.Buffer)
-}
-
-func (p *BufferPool) Put(b *bytes.Buffer) {
-	if b == nil {
-		return
-	}
-
-	b.Reset()
-	p.buffers.Put(b)
-}
-
-func (p *BufferPool) ReadAll(r io.Reader) (*bytes.Buffer, error) {
-	buf := p.copyBuffers.Get()
-	if buf == nil {
-		buf = make([]byte, 1024)
-	}
-	defer p.copyBuffers.Put(buf)
-
-	b := p.Get()
-	if _, err := io.CopyBuffer(b, r, buf.([]byte)); err != nil {
-		p.Put(b)
-		return nil, err
-	}
-
-	return b, nil
-}
-
-func (p *BufferPool) MarshalAsJSON(v any) (*bytes.Buffer, error) {
-	b := p.Get()
-	encoder := json.NewEncoder(b)
-	if err := encoder.Encode(v); err != nil {
-		p.Put(b)
-		return nil, err
-	}
-
-	return b, nil
+func RegisterHttpClientPoolStats() {
+	metrics.RegisterAll(httpClientPoolStats...)
 }
