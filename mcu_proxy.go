@@ -1609,7 +1609,7 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 		}
 
 		var values []string
-		for v := range SplitEntries(value, ",") {
+		for v := range internal.SplitEntries(value, ",") {
 			v = strings.ToUpper(v)
 			if !IsValidContinent(v) {
 				m.logger.Printf("Ignore unknown continent %s for override %s", v, option)

@@ -23,10 +23,8 @@ package signaling
 
 import (
 	"errors"
-	"iter"
 	"os"
 	"regexp"
-	"strings"
 
 	"github.com/dlintw/goconf"
 )
@@ -86,18 +84,4 @@ func GetStringOptions(config *goconf.ConfigFile, section string, ignoreErrors bo
 	}
 
 	return result, nil
-}
-
-// SplitEntries returns an iterator over all non-empty substrings of s separated
-// by sep.
-func SplitEntries(s string, sep string) iter.Seq[string] {
-	return func(yield func(entry string) bool) {
-		for entry := range strings.SplitSeq(s, sep) {
-			if entry = strings.TrimSpace(entry); entry != "" {
-				if !yield(entry) {
-					return
-				}
-			}
-		}
-	}
 }

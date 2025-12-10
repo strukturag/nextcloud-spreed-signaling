@@ -38,6 +38,7 @@ import (
 	"github.com/gorilla/mux"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -106,7 +107,7 @@ func main() {
 			writeTimeout = defaultWriteTimeout
 		}
 
-		for address := range signaling.SplitEntries(addr, " ") {
+		for address := range internal.SplitEntries(addr, " ") {
 			go func(address string) {
 				logger.Println("Listening on", address)
 				listener, err := net.Listen("tcp", address)
