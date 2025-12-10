@@ -51,6 +51,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -433,7 +434,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 		mcuType = signaling.McuTypeDefault
 	}
 
-	backoff, err := signaling.NewExponentialBackoff(initialMcuRetry, maxMcuRetry)
+	backoff, err := async.NewExponentialBackoff(initialMcuRetry, maxMcuRetry)
 	if err != nil {
 		return err
 	}

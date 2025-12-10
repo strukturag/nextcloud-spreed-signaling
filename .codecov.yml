@@ -22,6 +22,10 @@ component_management:
       name: api
       paths:
         - api/**
+    - component_id: module_async
+      name: async
+      paths:
+        - async/**
     - component_id: module_client
       name: client
       paths:

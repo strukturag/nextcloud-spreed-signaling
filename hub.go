@@ -52,6 +52,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -510,7 +511,7 @@ func (h *Hub) updateGeoDatabase() {
 	}
 
 	defer h.geoipUpdating.Store(false)
-	backoff, err := NewExponentialBackoff(time.Second, 5*time.Minute)
+	backoff, err := async.NewExponentialBackoff(time.Second, 5*time.Minute)
 	if err != nil {
 		h.logger.Printf("Could not create exponential backoff: %s", err)
 		return

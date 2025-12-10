@@ -31,6 +31,7 @@ import (
 	"github.com/dlintw/goconf"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -109,7 +110,7 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 			panic(err)
 		}
 
-		backoff, err := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+		backoff, err := async.NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 		if err != nil {
 			panic(err)
 		}

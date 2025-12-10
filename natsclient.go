@@ -34,6 +34,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -79,7 +80,7 @@ func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (Nat
 		return NewLoopbackNatsClient(logger)
 	}
 
-	backoff, err := NewExponentialBackoff(initialConnectInterval, maxConnectInterval)
+	backoff, err := async.NewExponentialBackoff(initialConnectInterval, maxConnectInterval)
 	if err != nil {
 		return nil, err
 	}
