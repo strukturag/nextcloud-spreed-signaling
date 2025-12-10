@@ -427,7 +427,7 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified
 	}
 }
 
-func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId RoomSessionId, cache *ConcurrentMap[RoomSessionId, PublicSessionId]) (PublicSessionId, error) {
+func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId RoomSessionId, cache *container.ConcurrentMap[RoomSessionId, PublicSessionId]) (PublicSessionId, error) {
 	if roomSessionId == sessionIdNotInMeeting {
 		b.logger.Printf("Trying to lookup empty room session id: %s", roomSessionId)
 		return "", nil
@@ -452,7 +452,7 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentMap[RoomSessionId, PublicSessionId], users []api.StringMap) []api.StringMap {
+func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *container.ConcurrentMap[RoomSessionId, PublicSessionId], users []api.StringMap) []api.StringMap {
 	if len(users) == 0 {
 		return users
 	}
@@ -504,7 +504,7 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request 
 		ctx := log.NewLoggerContext(context.Background(), b.logger)
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		var cache ConcurrentMap[RoomSessionId, PublicSessionId]
+		var cache container.ConcurrentMap[RoomSessionId, PublicSessionId]
 		// Convert (Nextcloud) session ids to signaling session ids.
 		request.InCall.Users = b.fixupUserSessions(ctx, &cache, request.InCall.Users)
 		// Entries in "Changed" are most likely already fetched through the "Users" list.
@@ -528,7 +528,7 @@ func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid s
 	// Convert (Nextcloud) session ids to signaling session ids.
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var cache ConcurrentMap[RoomSessionId, PublicSessionId]
+	var cache container.ConcurrentMap[RoomSessionId, PublicSessionId]
 	request.Participants.Users = b.fixupUserSessions(ctx, &cache, request.Participants.Users)
 	request.Participants.Changed = b.fixupUserSessions(ctx, &cache, request.Participants.Changed)
 
