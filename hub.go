@@ -56,6 +56,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
@@ -1403,7 +1404,7 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		tokenString = message.Hello.Auth.helloV2Params.Token
 		tokenClaims = &HelloV2TokenClaims{}
 	case HelloClientTypeFederation:
-		if !h.backend.capabilities.HasCapabilityFeature(ctx, url, FeatureFederationV2) {
+		if !h.backend.capabilities.HasCapabilityFeature(ctx, url, talk.FeatureFederationV2) {
 			return nil, nil, ErrFederationNotSupported
 		}
 

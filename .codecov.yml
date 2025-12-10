@@ -62,6 +62,10 @@ component_management:
       name: server
       paths:
         - server/**
+    - component_id: module_talk
+      name: talk
+      paths:
+        - talk/**
     - component_id: module_test
       name: test
       paths:
