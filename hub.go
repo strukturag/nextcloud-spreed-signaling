@@ -53,6 +53,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -133,7 +134,7 @@ var (
 	// Allow time differences of up to one minute between server and proxy.
 	tokenLeeway = time.Minute
 
-	DefaultTrustedProxies = DefaultPrivateIps()
+	DefaultTrustedProxies = container.DefaultPrivateIPs()
 )
 
 func init() {
@@ -204,7 +205,7 @@ type Hub struct {
 	backendTimeout time.Duration
 	backend        *BackendClient
 
-	trustedProxies atomic.Pointer[AllowedIps]
+	trustedProxies atomic.Pointer[container.IPList]
 	geoip          *GeoLookup
 	geoipOverrides atomic.Pointer[map[*net.IPNet]string]
 	geoipUpdating  atomic.Bool
@@ -218,8 +219,8 @@ type Hub struct {
 	skipFederationVerify bool
 	federationTimeout    time.Duration
 
-	allowedCandidates atomic.Pointer[AllowedIps]
-	blockedCandidates atomic.Pointer[AllowedIps]
+	allowedCandidates atomic.Pointer[container.IPList]
+	blockedCandidates atomic.Pointer[container.IPList]
 }
 
 func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
@@ -284,7 +285,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 	}
 
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
-	trustedProxiesIps, err := ParseAllowedIps(trustedProxies)
+	trustedProxiesIps, err := container.ParseIPList(trustedProxies)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +420,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		federationTimeout:    federationTimeout,
 	}
 	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
-		allowed, err := ParseAllowedIps(value)
+		allowed, err := container.ParseIPList(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid allowedcandidates: %w", err)
 		}
@@ -430,7 +431,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		logger.Printf("No candidates allowlist")
 	}
 	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
-		blocked, err := ParseAllowedIps(value)
+		blocked, err := container.ParseIPList(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid blockedcandidates: %w", err)
 		}
@@ -574,7 +575,7 @@ func (h *Hub) Stop() {
 
 func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
-	if trustedProxiesIps, err := ParseAllowedIps(trustedProxies); err == nil {
+	if trustedProxiesIps, err := container.ParseIPList(trustedProxies); err == nil {
 		if !trustedProxiesIps.Empty() {
 			h.logger.Printf("Trusted proxies: %s", trustedProxiesIps)
 		} else {
@@ -594,7 +595,7 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 	}
 
 	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
-		if allowed, err := ParseAllowedIps(value); err != nil {
+		if allowed, err := container.ParseIPList(value); err != nil {
 			h.logger.Printf("invalid allowedcandidates: %s", err)
 		} else {
 			h.logger.Printf("Candidates allowlist: %s", allowed)
@@ -605,7 +606,7 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 		h.allowedCandidates.Store(nil)
 	}
 	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
-		if blocked, err := ParseAllowedIps(value); err != nil {
+		if blocked, err := container.ParseIPList(value); err != nil {
 			h.logger.Printf("invalid blockedcandidates: %s", err)
 		} else {
 			h.logger.Printf("Candidates blocklist: %s", blocked)
@@ -3055,7 +3056,7 @@ func (h *Hub) GetServerInfoDialout() (result []BackendServerInfoDialout) {
 	return
 }
 
-func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
+func GetRealUserIP(r *http.Request, trusted *container.IPList) string {
 	addr := r.RemoteAddr
 	if host, _, err := net.SplitHostPort(addr); err == nil {
 		addr = host
@@ -3067,7 +3068,7 @@ func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
 	}
 
 	// Don't check any headers if the server can be reached by untrusted clients directly.
-	if trusted == nil || !trusted.Allowed(ip) {
+	if trusted == nil || !trusted.Contains(ip) {
 		return addr
 	}
 
@@ -3094,7 +3095,7 @@ func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
 				continue
 			}
 
-			if trusted.Allowed(ip) {
+			if trusted.Contains(ip) {
 				lastTrusted = hop
 				continue
 			}

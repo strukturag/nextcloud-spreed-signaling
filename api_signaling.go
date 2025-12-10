@@ -37,6 +37,7 @@ import (
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
@@ -838,7 +839,7 @@ func (m *MessageClientMessageData) CheckValid() error {
 	return nil
 }
 
-func FilterCandidate(c ice.Candidate, allowed *AllowedIps, blocked *AllowedIps) bool {
+func FilterCandidate(c ice.Candidate, allowed *container.IPList, blocked *container.IPList) bool {
 	switch c {
 	case nil:
 		return true
@@ -852,19 +853,19 @@ func FilterCandidate(c ice.Candidate, allowed *AllowedIps, blocked *AllowedIps) 
 	}
 
 	// Whitelist has preference.
-	if allowed != nil && allowed.Allowed(ip) {
+	if allowed != nil && allowed.Contains(ip) {
 		return false
 	}
 
 	// Check if address is blocked manually.
-	if blocked != nil && blocked.Allowed(ip) {
+	if blocked != nil && blocked.Contains(ip) {
 		return true
 	}
 
 	return false
 }
 
-func FilterSDPCandidates(s *sdp.SessionDescription, allowed *AllowedIps, blocked *AllowedIps) bool {
+func FilterSDPCandidates(s *sdp.SessionDescription, allowed *container.IPList, blocked *container.IPList) bool {
 	modified := false
 	for _, m := range s.MediaDescriptions {
 		m.Attributes = slices.DeleteFunc(m.Attributes, func(a sdp.Attribute) bool {

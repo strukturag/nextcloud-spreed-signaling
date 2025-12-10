@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package container
 
 import (
 	"net"
@@ -29,41 +29,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAllowedIps(t *testing.T) {
+func TestIPList(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	a, err := ParseAllowedIps("127.0.0.1, 192.168.0.1, 192.168.1.1/24")
+	a, err := ParseIPList("127.0.0.1, 192.168.0.1, 192.168.1.1/24")
 	require.NoError(err)
 	require.False(a.Empty())
 	require.Equal(`[127.0.0.1/32, 192.168.0.1/32, 192.168.1.0/24]`, a.String())
 
-	allowed := []string{
+	contained := []string{
 		"127.0.0.1",
 		"192.168.0.1",
 		"192.168.1.1",
 		"192.168.1.100",
 	}
-	notAllowed := []string{
+	notContained := []string{
 		"192.168.0.2",
 		"10.1.2.3",
 	}
 
-	for _, addr := range allowed {
+	for _, addr := range contained {
 		t.Run(addr, func(t *testing.T) {
 			t.Parallel()
 			assert := assert.New(t)
 			if ip := net.ParseIP(addr); assert.NotNil(ip, "error parsing %s", addr) {
-				assert.True(a.Allowed(ip), "should allow %s", addr)
+				assert.True(a.Contains(ip), "should contain %s", addr)
 			}
 		})
 	}
 
-	for _, addr := range notAllowed {
+	for _, addr := range notContained {
 		t.Run(addr, func(t *testing.T) {
 			t.Parallel()
 			assert := assert.New(t)
 			if ip := net.ParseIP(addr); assert.NotNil(ip, "error parsing %s", addr) {
-				assert.False(a.Allowed(ip), "should not allow %s", addr)
+				assert.False(a.Contains(ip), "should not contain %s", addr)
 			}
 		})
 	}
