@@ -54,6 +54,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
@@ -3294,7 +3295,7 @@ func TestGetRealUserIP(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		trustedProxies, err := ParseAllowedIps(tc.trusted)
+		trustedProxies, err := container.ParseIPList(tc.trusted)
 		if !assert.NoError(t, err, "invalid trusted proxies in %+v", tc) {
 			continue
 		}

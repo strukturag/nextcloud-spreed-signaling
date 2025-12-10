@@ -19,25 +19,26 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package container
 
 import (
 	"bytes"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
-type AllowedIps struct {
-	allowed []*net.IPNet
+type IPList struct {
+	ips []*net.IPNet
 }
 
-func (a *AllowedIps) String() string {
+func (a *IPList) String() string {
 	var b bytes.Buffer
 	b.WriteString("[")
-	for idx, n := range a.allowed {
+	for idx, n := range a.ips {
 		if idx > 0 {
 			b.WriteString(", ")
 		}
@@ -47,18 +48,14 @@ func (a *AllowedIps) String() string {
 	return b.String()
 }
 
-func (a *AllowedIps) Empty() bool {
-	return len(a.allowed) == 0
+func (a *IPList) Empty() bool {
+	return len(a.ips) == 0
 }
 
-func (a *AllowedIps) Allowed(ip net.IP) bool {
-	for _, i := range a.allowed {
-		if i.Contains(ip) {
-			return true
-		}
-	}
-
-	return false
+func (a *IPList) Contains(ip net.IP) bool {
+	return slices.ContainsFunc(a.ips, func(n *net.IPNet) bool {
+		return n.Contains(ip)
+	})
 }
 
 func parseIPNet(s string) (*net.IPNet, error) {
@@ -83,7 +80,7 @@ func parseIPNet(s string) (*net.IPNet, error) {
 	return ipnet, nil
 }
 
-func ParseAllowedIps(allowed string) (*AllowedIps, error) {
+func ParseIPList(allowed string) (*IPList, error) {
 	var allowedIps []*net.IPNet
 	for ip := range internal.SplitEntries(allowed, ",") {
 		i, err := parseIPNet(ip)
@@ -93,13 +90,13 @@ func ParseAllowedIps(allowed string) (*AllowedIps, error) {
 		allowedIps = append(allowedIps, i)
 	}
 
-	result := &AllowedIps{
-		allowed: allowedIps,
+	result := &IPList{
+		ips: allowedIps,
 	}
 	return result, nil
 }
 
-func DefaultAllowedIps() *AllowedIps {
+func DefaultAllowedIPs() *IPList {
 	allowedIps := []*net.IPNet{
 		{
 			IP:   net.ParseIP("127.0.0.1"),
@@ -111,8 +108,8 @@ func DefaultAllowedIps() *AllowedIps {
 		},
 	}
 
-	result := &AllowedIps{
-		allowed: allowedIps,
+	result := &IPList{
+		ips: allowedIps,
 	}
 	return result
 }
@@ -129,8 +126,8 @@ var (
 	}
 )
 
-func DefaultPrivateIps() *AllowedIps {
-	allowed, err := ParseAllowedIps(strings.Join(privateIpNets, ","))
+func DefaultPrivateIPs() *IPList {
+	allowed, err := ParseIPList(strings.Join(privateIpNets, ","))
 	if err != nil {
 		panic(fmt.Errorf("could not parse private ips %+v: %w", privateIpNets, err))
 	}

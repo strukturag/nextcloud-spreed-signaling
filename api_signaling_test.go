@@ -31,6 +31,8 @@ import (
 	"github.com/pion/ice/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 )
 
 type testCheckValid interface {
@@ -481,17 +483,17 @@ func TestFilterCandidates(t *testing.T) {
 			continue
 		}
 
-		var allowed *AllowedIps
+		var allowed *container.IPList
 		if tc.allowed != "" {
-			allowed, err = ParseAllowedIps(tc.allowed)
+			allowed, err = container.ParseIPList(tc.allowed)
 			if !assert.NoError(err, "parsing allowed list %s failed in testcase %d", tc.allowed, idx) {
 				continue
 			}
 		}
 
-		var blocked *AllowedIps
+		var blocked *container.IPList
 		if tc.blocked != "" {
-			blocked, err = ParseAllowedIps(tc.blocked)
+			blocked, err = container.ParseIPList(tc.blocked)
 			if !assert.NoError(err, "parsing blocked list %s failed in testcase %d", tc.blocked, idx) {
 				continue
 			}
@@ -527,7 +529,7 @@ func TestFilterSDPCandidates(t *testing.T) {
 		assert.Equal(expectedBefore[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
 	}
 
-	blocked, err := ParseAllowedIps("192.0.0.0/24, 192.168.0.0/16")
+	blocked, err := container.ParseIPList("192.0.0.0/24, 192.168.0.0/16")
 	require.NoError(err)
 
 	expectedAfter := map[string]int{
@@ -577,7 +579,7 @@ func TestNoFilterSDPCandidates(t *testing.T) {
 		assert.Equal(expectedBefore[m.MediaName.Media], count, "invalid number of candidates for media description %s", m.MediaName.Media)
 	}
 
-	blocked, err := ParseAllowedIps("192.0.0.0/24, 192.168.0.0/16")
+	blocked, err := container.ParseIPList("192.0.0.0/24, 192.168.0.0/16")
 	require.NoError(err)
 
 	expectedAfter := map[string]int{

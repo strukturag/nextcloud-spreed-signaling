@@ -52,6 +52,7 @@ import (
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -129,8 +130,8 @@ type ProxyServer struct {
 	upgrader websocket.Upgrader
 
 	tokens          ProxyTokens
-	statsAllowedIps atomic.Pointer[signaling.AllowedIps]
-	trustedProxies  atomic.Pointer[signaling.AllowedIps]
+	statsAllowedIps atomic.Pointer[container.IPList]
+	trustedProxies  atomic.Pointer[container.IPList]
 
 	sid          atomic.Uint64
 	cookie       *signaling.SessionIdCodec
@@ -252,7 +253,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 	}
 
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
-	statsAllowedIps, err := signaling.ParseAllowedIps(statsAllowed)
+	statsAllowedIps, err := container.ParseIPList(statsAllowed)
 	if err != nil {
 		return nil, err
 	}
@@ -260,12 +261,12 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 	if !statsAllowedIps.Empty() {
 		logger.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 	} else {
-		statsAllowedIps = signaling.DefaultAllowedIps()
+		statsAllowedIps = container.DefaultAllowedIPs()
 		logger.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 	}
 
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
-	trustedProxiesIps, err := signaling.ParseAllowedIps(trustedProxies)
+	trustedProxiesIps, err := container.ParseIPList(trustedProxies)
 	if err != nil {
 		return nil, err
 	}
@@ -617,11 +618,11 @@ func (s *ProxyServer) ScheduleShutdown() {
 
 func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
-	if statsAllowedIps, err := signaling.ParseAllowedIps(statsAllowed); err == nil {
+	if statsAllowedIps, err := container.ParseIPList(statsAllowed); err == nil {
 		if !statsAllowedIps.Empty() {
 			s.logger.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 		} else {
-			statsAllowedIps = signaling.DefaultAllowedIps()
+			statsAllowedIps = container.DefaultAllowedIPs()
 			s.logger.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 		}
 		s.statsAllowedIps.Store(statsAllowedIps)
@@ -630,7 +631,7 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 	}
 
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
-	if trustedProxiesIps, err := signaling.ParseAllowedIps(trustedProxies); err == nil {
+	if trustedProxiesIps, err := container.ParseIPList(trustedProxies); err == nil {
 		if !trustedProxiesIps.Empty() {
 			s.logger.Printf("Trusted proxies: %s", trustedProxiesIps)
 		} else {
@@ -1655,7 +1656,7 @@ func (s *ProxyServer) allowStatsAccess(r *http.Request) bool {
 	}
 
 	allowed := s.statsAllowedIps.Load()
-	return allowed != nil && allowed.Allowed(ip)
+	return allowed != nil && allowed.Contains(ip)
 }
 
 func (s *ProxyServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
