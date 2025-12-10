@@ -30,6 +30,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -156,7 +158,7 @@ func (e *dnsMonitorEntry) runCallbacks(all []net.IP, add []net.IP, keep []net.IP
 type DnsMonitorLookupFunc func(hostname string) ([]net.IP, error)
 
 type DnsMonitor struct {
-	logger     Logger
+	logger     log.Logger
 	interval   time.Duration
 	lookupFunc DnsMonitorLookupFunc
 
@@ -175,7 +177,7 @@ type DnsMonitor struct {
 	checkHostnames func()
 }
 
-func NewDnsMonitor(logger Logger, interval time.Duration, lookupFunc DnsMonitorLookupFunc) (*DnsMonitor, error) {
+func NewDnsMonitor(logger log.Logger, interval time.Duration, lookupFunc DnsMonitorLookupFunc) (*DnsMonitor, error) {
 	if interval < 0 {
 		interval = defaultDnsMonitorInterval
 	}

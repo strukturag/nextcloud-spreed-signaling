@@ -36,6 +36,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -64,7 +65,7 @@ func init() {
 
 type Room struct {
 	id      string
-	logger  Logger
+	logger  log.Logger
 	hub     *Hub
 	events  AsyncEvents
 	backend *Backend
@@ -619,7 +620,7 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[PublicSession
 
 	r.mu.RUnlock()
 	defer r.mu.RLock()
-	ctx := NewLoggerContext(context.Background(), r.logger)
+	ctx := log.NewLoggerContext(context.Background(), r.logger)
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
@@ -1103,7 +1104,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 		return 0, &wg
 	}
 	var count int
-	ctx := NewLoggerContext(context.Background(), r.logger)
+	ctx := log.NewLoggerContext(context.Background(), r.logger)
 	for u, e := range entries {
 		wg.Add(1)
 		count += len(e)
@@ -1285,7 +1286,7 @@ func (r *Room) fetchInitialTransientData() {
 		return
 	}
 
-	ctx := NewLoggerContext(context.Background(), r.logger)
+	ctx := log.NewLoggerContext(context.Background(), r.logger)
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 

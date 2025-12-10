@@ -30,6 +30,10 @@ component_management:
       name: internal
       paths:
         - internal/**
+    - component_id: module_log
+      name: log
+      paths:
+        - log/**
     - component_id: module_proxy
       name: proxy
       paths:

@@ -31,14 +31,15 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type tokensStatic struct {
-	logger    signaling.Logger
+	logger    log.Logger
 	tokenKeys atomic.Value
 }
 
-func NewProxyTokensStatic(logger signaling.Logger, config *goconf.ConfigFile) (ProxyTokens, error) {
+func NewProxyTokensStatic(logger log.Logger, config *goconf.ConfigFile) (ProxyTokens, error) {
 	result := &tokensStatic{
 		logger: logger,
 	}

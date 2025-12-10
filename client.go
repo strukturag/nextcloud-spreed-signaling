@@ -36,6 +36,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -121,7 +123,7 @@ type ClientGeoIpHandler interface {
 }
 
 type Client struct {
-	logger  Logger
+	logger  log.Logger
 	ctx     context.Context
 	conn    *websocket.Conn
 	addr    string
@@ -164,7 +166,7 @@ func NewClient(ctx context.Context, conn *websocket.Conn, remoteAddress string, 
 }
 
 func (c *Client) SetConn(ctx context.Context, conn *websocket.Conn, remoteAddress string, handler ClientHandler) {
-	c.logger = LoggerFromContext(ctx)
+	c.logger = log.LoggerFromContext(ctx)
 	c.ctx = ctx
 	c.conn = conn
 	c.addr = remoteAddress

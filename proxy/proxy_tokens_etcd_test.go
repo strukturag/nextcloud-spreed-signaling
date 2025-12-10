@@ -44,7 +44,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -118,7 +118,7 @@ func newTokensEtcdForTesting(t *testing.T) (*tokensEtcd, *embed.Etcd) {
 	cfg.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 	cfg.AddOption("tokens", "keyformat", "/%s, /testing/%s/key")
 
-	logger := signaling.NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	tokens, err := NewProxyTokensEtcd(logger, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {

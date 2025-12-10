@@ -36,6 +36,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -107,7 +108,7 @@ func convertIntValue(value any) (uint64, error) {
 	}
 }
 
-func getPluginIntValue(logger Logger, data janus.PluginData, pluginName string, key string) uint64 {
+func getPluginIntValue(logger log.Logger, data janus.PluginData, pluginName string, key string) uint64 {
 	val := getPluginValue(data, pluginName, key)
 	if val == nil {
 		return 0
@@ -156,7 +157,7 @@ type mcuJanusSettings struct {
 func newMcuJanusSettings(ctx context.Context, config *goconf.ConfigFile) (*mcuJanusSettings, error) {
 	settings := &mcuJanusSettings{
 		mcuCommonSettings: mcuCommonSettings{
-			logger: LoggerFromContext(ctx),
+			logger: log.LoggerFromContext(ctx),
 		},
 	}
 	if err := settings.load(config); err != nil {
@@ -229,7 +230,7 @@ func (s *prometheusJanusStats) DecSubscriber(streamType StreamType) {
 }
 
 type mcuJanus struct {
-	logger Logger
+	logger log.Logger
 
 	url string
 	mu  sync.Mutex
@@ -278,7 +279,7 @@ func NewMcuJanus(ctx context.Context, url string, config *goconf.ConfigFile) (Mc
 	}
 
 	mcu := &mcuJanus{
-		logger:    LoggerFromContext(ctx),
+		logger:    log.LoggerFromContext(ctx),
 		url:       url,
 		settings:  settings,
 		stats:     &prometheusJanusStats{},

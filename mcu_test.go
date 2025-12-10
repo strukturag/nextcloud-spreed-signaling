@@ -33,6 +33,7 @@ import (
 	"github.com/dlintw/goconf"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -188,7 +189,7 @@ func (c *TestMCUClient) MaxBitrate() api.Bandwidth {
 
 func (c *TestMCUClient) Close(ctx context.Context) {
 	if c.closed.CompareAndSwap(false, true) {
-		logger := NewLoggerForTest(c.t)
+		logger := log.NewLoggerForTest(c.t)
 		logger.Printf("Close MCU client %s", c.id)
 	}
 }

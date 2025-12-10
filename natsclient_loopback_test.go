@@ -28,6 +28,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *testing.T) {
@@ -52,7 +54,7 @@ func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *t
 }
 
 func CreateLoopbackNatsClientForTest(t *testing.T) NatsClient {
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	result, err := NewLoopbackNatsClient(logger)
 	require.NoError(t, err)
 	t.Cleanup(func() {

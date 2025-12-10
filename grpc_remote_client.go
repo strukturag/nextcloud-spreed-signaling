@@ -32,6 +32,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -48,7 +50,7 @@ func getMD(md metadata.MD, key string) string {
 
 // remoteGrpcClient is a remote client connecting from a GRPC proxy to a Hub.
 type remoteGrpcClient struct {
-	logger Logger
+	logger log.Logger
 	hub    *Hub
 	client RpcSessions_ProxySessionServer
 

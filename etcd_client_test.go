@@ -45,6 +45,8 @@ import (
 	"go.etcd.io/etcd/server/v3/lease"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -154,7 +156,7 @@ func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
 	config.AddOption("etcd", "loglevel", "error")
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	client, err := NewEtcdClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -173,7 +175,7 @@ func NewEtcdClientWithTLSForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	config.AddOption("etcd", "clientcert", certfile)
 	config.AddOption("etcd", "cacert", certfile)
 
-	logger := NewLoggerForTest(t)
+	logger := log.NewLoggerForTest(t)
 	client, err := NewEtcdClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -198,8 +200,8 @@ func DeleteEtcdValue(etcd *embed.Etcd, key string) {
 
 func Test_EtcdClient_Get(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	require := require.New(t)
 	etcd, client := NewEtcdClientForTest(t)
@@ -245,8 +247,8 @@ func Test_EtcdClient_Get(t *testing.T) {
 
 func Test_EtcdClientTLS_Get(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	require := require.New(t)
 	etcd, client := NewEtcdClientWithTLSForTest(t)
@@ -292,8 +294,8 @@ func Test_EtcdClientTLS_Get(t *testing.T) {
 
 func Test_EtcdClient_GetPrefix(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 
@@ -404,8 +406,8 @@ func (l *EtcdClientTestListener) EtcdKeyDeleted(client *EtcdClient, key string, 
 
 func Test_EtcdClient_Watch(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	etcd, client := NewEtcdClientForTest(t)
 

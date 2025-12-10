@@ -34,6 +34,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
@@ -66,8 +68,8 @@ func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
 
 func TestPostOnRedirect(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
@@ -114,8 +116,8 @@ func TestPostOnRedirect(t *testing.T) {
 
 func TestPostOnRedirectDifferentHost(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	r := mux.NewRouter()
 	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
@@ -151,8 +153,8 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 
 func TestPostOnRedirectStatusFound(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	r := mux.NewRouter()
@@ -194,8 +196,8 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 
 func TestHandleThrottled(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	r := mux.NewRouter()

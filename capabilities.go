@@ -34,6 +34,7 @@ import (
 	"github.com/pquerna/cachecontrol/cacheobject"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -117,7 +118,7 @@ func (e *capabilitiesEntry) errorIfMustRevalidate(err error) (bool, error) {
 }
 
 func (e *capabilitiesEntry) update(ctx context.Context, u *url.URL, now time.Time) (bool, error) {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -351,7 +352,7 @@ func (c *Capabilities) loadCapabilities(ctx context.Context, u *url.URL) (api.St
 }
 
 func (c *Capabilities) HasCapabilityFeature(ctx context.Context, u *url.URL, feature string) bool {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	caps, _, err := c.loadCapabilities(ctx, u)
 	if err != nil {
 		logger.Printf("Could not get capabilities for %s: %s", u, err)
@@ -378,7 +379,7 @@ func (c *Capabilities) HasCapabilityFeature(ctx context.Context, u *url.URL, fea
 }
 
 func (c *Capabilities) getConfigGroup(ctx context.Context, u *url.URL, group string) (api.StringMap, bool, bool) {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	caps, cached, err := c.loadCapabilities(ctx, u)
 	if err != nil {
 		logger.Printf("Could not get capabilities for %s: %s", u, err)
@@ -429,7 +430,7 @@ func (c *Capabilities) GetIntegerConfig(ctx context.Context, u *url.URL, group, 
 	case float64:
 		return int(value), cached, true
 	default:
-		logger := LoggerFromContext(ctx)
+		logger := log.LoggerFromContext(ctx)
 		logger.Printf("Invalid config value for \"%s\" received from %s: %+v", key, u, value)
 	}
 
@@ -451,7 +452,7 @@ func (c *Capabilities) GetStringConfig(ctx context.Context, u *url.URL, group, k
 	case string:
 		return value, cached, true
 	default:
-		logger := LoggerFromContext(ctx)
+		logger := log.LoggerFromContext(ctx)
 		logger.Printf("Invalid config value for \"%s\" received from %s: %+v", key, u, value)
 	}
 

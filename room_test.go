@@ -34,6 +34,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func TestRoom_InCall(t *testing.T) {
@@ -77,8 +79,8 @@ func TestRoom_InCall(t *testing.T) {
 
 func TestRoom_Update(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
@@ -172,8 +174,8 @@ loop:
 
 func TestRoom_Delete(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
@@ -270,8 +272,8 @@ loop:
 
 func TestRoom_RoomJoinFeatures(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
@@ -308,8 +310,8 @@ func TestRoom_RoomJoinFeatures(t *testing.T) {
 
 func TestRoom_RoomSessionData(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)
@@ -352,8 +354,8 @@ func TestRoom_RoomSessionData(t *testing.T) {
 
 func TestRoom_InCallAll(t *testing.T) {
 	t.Parallel()
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, router, server := CreateHubForTest(t)

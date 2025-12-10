@@ -47,6 +47,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -79,7 +80,7 @@ type McuProxy interface {
 }
 
 type mcuProxyPubSubCommon struct {
-	logger Logger
+	logger log.Logger
 
 	sid        string
 	streamType StreamType
@@ -149,7 +150,7 @@ type mcuProxyPublisher struct {
 	settings NewPublisherSettings
 }
 
-func newMcuProxyPublisher(logger Logger, id PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, settings NewPublisherSettings, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
+func newMcuProxyPublisher(logger log.Logger, id PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, settings NewPublisherSettings, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
 	return &mcuProxyPublisher{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			logger: logger,
@@ -243,7 +244,7 @@ type mcuProxySubscriber struct {
 	publisherConn *mcuProxyConnection
 }
 
-func newMcuProxySubscriber(logger Logger, publisherId PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, proxyId string, conn *mcuProxyConnection, listener McuListener, publisherConn *mcuProxyConnection) *mcuProxySubscriber {
+func newMcuProxySubscriber(logger log.Logger, publisherId PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, proxyId string, conn *mcuProxyConnection, listener McuListener, publisherConn *mcuProxyConnection) *mcuProxySubscriber {
 	return &mcuProxySubscriber{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			logger: logger,
@@ -344,7 +345,7 @@ func (s *mcuProxySubscriber) ProcessEvent(msg *EventProxyServerMessage) {
 type mcuProxyCallback func(response *ProxyServerMessage)
 
 type mcuProxyConnection struct {
-	logger       Logger
+	logger       log.Logger
 	proxy        *mcuProxy
 	rawUrl       string
 	url          *url.URL
@@ -1449,7 +1450,7 @@ type mcuProxySettings struct {
 func newMcuProxySettings(ctx context.Context, config *goconf.ConfigFile) (McuSettings, error) {
 	settings := &mcuProxySettings{
 		mcuCommonSettings: mcuCommonSettings{
-			logger: LoggerFromContext(ctx),
+			logger: log.LoggerFromContext(ctx),
 		},
 	}
 	if err := settings.load(config); err != nil {
@@ -1481,7 +1482,7 @@ func (s *mcuProxySettings) Reload(config *goconf.ConfigFile) {
 }
 
 type mcuProxy struct {
-	logger   Logger
+	logger   log.Logger
 	urlType  string
 	tokenId  string
 	tokenKey *rsa.PrivateKey
@@ -1510,7 +1511,7 @@ type mcuProxy struct {
 }
 
 func NewMcuProxy(ctx context.Context, config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *GrpcClients, dnsMonitor *DnsMonitor) (Mcu, error) {
-	logger := LoggerFromContext(ctx)
+	logger := log.LoggerFromContext(ctx)
 	urlType, _ := config.GetString("mcu", "urltype")
 	if urlType == "" {
 		urlType = proxyUrlTypeStatic

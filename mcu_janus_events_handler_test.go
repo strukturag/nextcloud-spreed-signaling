@@ -39,6 +39,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type TestJanusEventsServerHandler struct {
@@ -66,8 +67,8 @@ func (h *TestJanusEventsServerHandler) ServeHTTP(w http.ResponseWriter, r *http.
 		if host, _, err := net.SplitHostPort(addr); err == nil {
 			addr = host
 		}
-		logger := NewLoggerForTest(h.t)
-		ctx := NewLoggerContext(r.Context(), logger)
+		logger := log.NewLoggerForTest(h.t)
+		ctx := log.NewLoggerContext(r.Context(), logger)
 		RunJanusEventsHandler(ctx, h.mcu, conn, addr, r.Header.Get("User-Agent"))
 		return
 	}

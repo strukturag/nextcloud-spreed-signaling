@@ -39,6 +39,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type EtcdClientListener interface {
@@ -52,7 +53,7 @@ type EtcdClientWatcher interface {
 }
 
 type EtcdClient struct {
-	logger        Logger
+	logger        log.Logger
 	compatSection string
 
 	mu     sync.Mutex
@@ -61,7 +62,7 @@ type EtcdClient struct {
 	listeners map[EtcdClientListener]bool
 }
 
-func NewEtcdClient(logger Logger, config *goconf.ConfigFile, compatSection string) (*EtcdClient, error) {
+func NewEtcdClient(logger log.Logger, config *goconf.ConfigFile, compatSection string) (*EtcdClient, error) {
 	result := &EtcdClient{
 		logger:        logger,
 		compatSection: compatSection,

@@ -31,10 +31,11 @@ import (
 	"github.com/notedit/janus-go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type mcuJanusClient struct {
-	logger   Logger
+	logger   log.Logger
 	mcu      *mcuJanus
 	listener McuListener
 	mu       sync.Mutex

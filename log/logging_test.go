@@ -19,42 +19,50 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package log
 
 import (
-	"context"
-	"log"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-type loggerKey struct{}
+func TestGlobalLogger(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
 
-var (
-	ctxLogger loggerKey = struct{}{}
-)
-
-type Logger interface {
-	Printf(format string, v ...any)
-	Println(...any)
-}
-
-// NewLoggerContext returns a derieved context that stores the passed logger.
-func NewLoggerContext(ctx context.Context, logger Logger) context.Context {
-	if logger == nil {
-		panic("logger is nil")
-	}
-	return context.WithValue(ctx, ctxLogger, logger)
-}
-
-// LoggerFromContext returns the logger to use for the passed context.
-func LoggerFromContext(ctx context.Context) Logger {
-	logger := ctx.Value(ctxLogger)
-	if logger == nil {
-		if testing.Testing() {
-			panic("accessed global logger")
+	defer func() {
+		if err := recover(); assert.NotNil(err) {
+			assert.Equal("accessed global logger", err)
 		}
-		return log.Default()
-	}
+	}()
 
-	return logger.(Logger)
+	logger := LoggerFromContext(t.Context())
+	assert.Fail("should have paniced", "got logger %+v", logger)
+}
+
+func TestLoggerContext(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	testLogger := NewLoggerForTest(t)
+	testLogger.Printf("Hello %s!", "world")
+
+	ctx := NewLoggerContext(t.Context(), testLogger)
+	logger2 := LoggerFromContext(ctx)
+	assert.Equal(testLogger, logger2)
+}
+
+func TestNilLoggerContext(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	defer func() {
+		if err := recover(); assert.NotNil(err) {
+			assert.Equal("logger is nil", err)
+		}
+	}()
+
+	ctx := NewLoggerContext(t.Context(), nil)
+	assert.Fail("should have paniced", "got context %+v", ctx)
 }

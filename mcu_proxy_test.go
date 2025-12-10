@@ -48,6 +48,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -889,8 +891,8 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	etcdConfig.AddOption("etcd", "endpoints", options.etcd.Config().ListenClientUrls[0].String())
 	etcdConfig.AddOption("etcd", "loglevel", "error")
 
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	etcdClient, err := NewEtcdClient(logger, etcdConfig, "")
 	require.NoError(err)
 	t.Cleanup(func() {

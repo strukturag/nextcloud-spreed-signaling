@@ -33,6 +33,8 @@ import (
 
 	"github.com/nats-io/nats-server/v2/server"
 	natsserver "github.com/nats-io/nats-server/v2/test"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func startLocalNatsServer(t *testing.T) (*server.Server, int) {
@@ -56,8 +58,8 @@ func startLocalNatsServerPort(t *testing.T, port int) (*server.Server, int) {
 func CreateLocalNatsClientForTest(t *testing.T, options ...nats.Option) (*server.Server, int, NatsClient) {
 	t.Helper()
 	server, port := startLocalNatsServer(t)
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	result, err := NewNatsClient(ctx, server.ClientURL(), options...)
 	require.NoError(t, err)
 	t.Cleanup(func() {

@@ -36,6 +36,7 @@ import (
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 var (
@@ -55,7 +56,7 @@ const (
 type ResponseHandlerFunc func(message *ClientMessage) bool
 
 type ClientSession struct {
-	logger    Logger
+	logger    log.Logger
 	hub       *Hub
 	events    AsyncEvents
 	privateId PrivateSessionId
@@ -120,7 +121,7 @@ type ClientSession struct {
 }
 
 func NewClientSession(hub *Hub, privateId PrivateSessionId, publicId PublicSessionId, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
-	ctx := NewLoggerContext(context.Background(), hub.logger)
+	ctx := log.NewLoggerContext(context.Background(), hub.logger)
 	ctx, closeFunc := context.WithCancel(ctx)
 	s := &ClientSession{
 		logger:    hub.logger,
@@ -551,7 +552,7 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 	if notify && room != nil && s.roomSessionId != "" && !s.roomSessionId.IsFederated() {
 		// Notify
 		go func(sid RoomSessionId) {
-			ctx := NewLoggerContext(context.Background(), s.logger)
+			ctx := log.NewLoggerContext(context.Background(), s.logger)
 			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
 			request.Room.UpdateFromSession(s)
 			request.Room.Action = "leave"

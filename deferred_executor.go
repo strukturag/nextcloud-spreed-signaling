@@ -26,18 +26,20 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sync"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 // DeferredExecutor will asynchronously execute functions while maintaining
 // their order.
 type DeferredExecutor struct {
-	logger    Logger
+	logger    log.Logger
 	queue     chan func()
 	closed    chan struct{}
 	closeOnce sync.Once
 }
 
-func NewDeferredExecutor(logger Logger, queueSize int) *DeferredExecutor {
+func NewDeferredExecutor(logger log.Logger, queueSize int) *DeferredExecutor {
 	if queueSize < 0 {
 		queueSize = 0
 	}

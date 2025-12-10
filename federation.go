@@ -39,6 +39,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -77,7 +78,7 @@ func getCloudUrl(s string) string {
 }
 
 type FederationClient struct {
-	logger  Logger
+	logger  log.Logger
 	hub     *Hub
 	session *ClientSession
 	message atomic.Pointer[ClientMessage]
@@ -363,7 +364,7 @@ func (c *FederationClient) reconnect() {
 		return
 	}
 
-	ctx := NewLoggerContext(context.Background(), c.logger)
+	ctx := log.NewLoggerContext(context.Background(), c.logger)
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.hub.federationTimeout))
 	defer cancel()
 

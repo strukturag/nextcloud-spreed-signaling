@@ -42,6 +42,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/resolver"
 	status "google.golang.org/grpc/status"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 const (
@@ -78,7 +80,7 @@ func newGrpcClientImpl(conn grpc.ClientConnInterface) *grpcClientImpl {
 }
 
 type GrpcClient struct {
-	logger    Logger
+	logger    log.Logger
 	ip        net.IP
 	rawTarget string
 	target    string
@@ -127,7 +129,7 @@ func (r *customIpResolver) Close() {
 	// Noop
 }
 
-func NewGrpcClient(logger Logger, target string, ip net.IP, opts ...grpc.DialOption) (*GrpcClient, error) {
+func NewGrpcClient(logger log.Logger, target string, ip net.IP, opts ...grpc.DialOption) (*GrpcClient, error) {
 	var conn *grpc.ClientConn
 	var err error
 	if ip != nil {
@@ -370,7 +372,7 @@ type ProxySessionReceiver interface {
 }
 
 type SessionProxy struct {
-	logger    Logger
+	logger    log.Logger
 	sessionId PublicSessionId
 	receiver  ProxySessionReceiver
 
@@ -450,7 +452,7 @@ type grpcClientsList struct {
 type GrpcClients struct {
 	mu      sync.RWMutex
 	version string
-	logger  Logger
+	logger  log.Logger
 
 	// +checklocks:mu
 	clientsMap map[string]*grpcClientsList
@@ -482,7 +484,7 @@ func NewGrpcClients(ctx context.Context, config *goconf.ConfigFile, etcdClient *
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 	result := &GrpcClients{
 		version:         version,
-		logger:          LoggerFromContext(ctx),
+		logger:          log.LoggerFromContext(ctx),
 		dnsMonitor:      dnsMonitor,
 		etcdClient:      etcdClient,
 		initializedCtx:  initializedCtx,

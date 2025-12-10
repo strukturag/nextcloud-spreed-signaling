@@ -37,6 +37,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 func TestMcuJanusStats(t *testing.T) {
@@ -594,8 +595,8 @@ func newMcuJanusForTesting(t *testing.T) (*mcuJanus, *TestJanusGateway) {
 	if strings.Contains(t.Name(), "Filter") {
 		config.AddOption("mcu", "blockedcandidates", "192.0.0.0/24, 192.168.0.0/16")
 	}
-	logger := NewLoggerForTest(t)
-	ctx := NewLoggerContext(t.Context(), logger)
+	logger := log.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
 	mcu, err := NewMcuJanus(ctx, "", config)
 	require.NoError(t, err)
 	t.Cleanup(func() {

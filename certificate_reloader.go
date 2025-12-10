@@ -28,10 +28,12 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type CertificateReloader struct {
-	logger Logger
+	logger log.Logger
 
 	certFile    string
 	certWatcher *FileWatcher
@@ -44,7 +46,7 @@ type CertificateReloader struct {
 	reloadCounter atomic.Uint64
 }
 
-func NewCertificateReloader(logger Logger, certFile string, keyFile string) (*CertificateReloader, error) {
+func NewCertificateReloader(logger log.Logger, certFile string, keyFile string) (*CertificateReloader, error) {
 	pair, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("could not load certificate / key: %w", err)
@@ -108,7 +110,7 @@ func (r *CertificateReloader) GetReloadCounter() uint64 {
 }
 
 type CertPoolReloader struct {
-	logger Logger
+	logger log.Logger
 
 	certFile    string
 	certWatcher *FileWatcher
@@ -132,7 +134,7 @@ func loadCertPool(filename string) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-func NewCertPoolReloader(logger Logger, certFile string) (*CertPoolReloader, error) {
+func NewCertPoolReloader(logger log.Logger, certFile string) (*CertPoolReloader, error) {
 	pool, err := loadCertPool(certFile)
 	if err != nil {
 		return nil, err
