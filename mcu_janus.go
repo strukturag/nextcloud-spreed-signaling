@@ -36,6 +36,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -151,8 +152,8 @@ type clientInterface interface {
 type mcuJanusSettings struct {
 	mcuCommonSettings
 
-	allowedCandidates atomic.Pointer[AllowedIps]
-	blockedCandidates atomic.Pointer[AllowedIps]
+	allowedCandidates atomic.Pointer[container.IPList]
+	blockedCandidates atomic.Pointer[container.IPList]
 }
 
 func newMcuJanusSettings(ctx context.Context, config *goconf.ConfigFile) (*mcuJanusSettings, error) {
@@ -182,7 +183,7 @@ func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
 	s.setTimeout(mcuTimeout)
 
 	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
-		allowed, err := ParseAllowedIps(value)
+		allowed, err := container.ParseIPList(value)
 		if err != nil {
 			return fmt.Errorf("invalid allowedcandidates: %w", err)
 		}
@@ -194,7 +195,7 @@ func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
 		s.allowedCandidates.Store(nil)
 	}
 	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
-		blocked, err := ParseAllowedIps(value)
+		blocked, err := container.ParseIPList(value)
 		if err != nil {
 			return fmt.Errorf("invalid blockedcandidates: %w", err)
 		}

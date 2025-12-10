@@ -50,6 +50,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -79,7 +80,7 @@ type BackendServer struct {
 	turnvalid   time.Duration
 	turnservers []string
 
-	statsAllowedIps atomic.Pointer[AllowedIps]
+	statsAllowedIps atomic.Pointer[container.IPList]
 	invalidSecret   []byte
 
 	buffers BufferPool
@@ -110,7 +111,7 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 	}
 
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
-	statsAllowedIps, err := ParseAllowedIps(statsAllowed)
+	statsAllowedIps, err := container.ParseIPList(statsAllowed)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +119,7 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 	if !statsAllowedIps.Empty() {
 		logger.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 	} else {
-		statsAllowedIps = DefaultAllowedIps()
+		statsAllowedIps = container.DefaultAllowedIPs()
 		logger.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 	}
 
@@ -152,11 +153,11 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 
 func (b *BackendServer) Reload(config *goconf.ConfigFile) {
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
-	if statsAllowedIps, err := ParseAllowedIps(statsAllowed); err == nil {
+	if statsAllowedIps, err := container.ParseIPList(statsAllowed); err == nil {
 		if !statsAllowedIps.Empty() {
 			b.logger.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 		} else {
-			statsAllowedIps = DefaultAllowedIps()
+			statsAllowedIps = container.DefaultAllowedIPs()
 			b.logger.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 		}
 		b.statsAllowedIps.Store(statsAllowedIps)
@@ -980,7 +981,7 @@ func (b *BackendServer) allowStatsAccess(r *http.Request) bool {
 	}
 
 	allowed := b.statsAllowedIps.Load()
-	return allowed != nil && allowed.Allowed(ip)
+	return allowed != nil && allowed.Contains(ip)
 }
 
 func (b *BackendServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
