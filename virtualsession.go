@@ -28,9 +28,9 @@ import (
 	"net/url"
 	"sync/atomic"
 
-	"github.com/nats-io/nats.go"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 const (
@@ -310,7 +310,7 @@ func (s *VirtualSession) Options() *AddSessionOptions {
 
 func (s *VirtualSession) processAsyncNatsMessage(msg *nats.Msg) {
 	var message AsyncMessage
-	if err := NatsDecode(msg, &message); err != nil {
+	if err := nats.Decode(msg, &message); err != nil {
 		s.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
 		return
 	}

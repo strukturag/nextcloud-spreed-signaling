@@ -33,12 +33,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 var (
@@ -1070,7 +1070,7 @@ func (s *ClientSession) GetSubscriber(id PublicSessionId, streamType StreamType)
 
 func (s *ClientSession) processAsyncNatsMessage(msg *nats.Msg) {
 	var message AsyncMessage
-	if err := NatsDecode(msg, &message); err != nil {
+	if err := nats.Decode(msg, &message); err != nil {
 		s.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
 		return
 	}

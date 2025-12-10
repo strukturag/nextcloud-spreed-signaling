@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package nats
 
 import (
 	"context"
@@ -32,30 +32,9 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
-func (c *LoopbackNatsClient) waitForSubscriptionsEmpty(ctx context.Context, t *testing.T) {
-	for {
-		c.mu.Lock()
-		count := len(c.subscriptions)
-		c.mu.Unlock()
-		if count == 0 {
-			break
-		}
-
-		select {
-		case <-ctx.Done():
-			c.mu.Lock()
-			assert.NoError(t, ctx.Err(), "Error waiting for subscriptions %+v to terminate", c.subscriptions)
-			c.mu.Unlock()
-			return
-		default:
-			time.Sleep(time.Millisecond)
-		}
-	}
-}
-
-func CreateLoopbackNatsClientForTest(t *testing.T) NatsClient {
+func CreateLoopbackClientForTest(t *testing.T) Client {
 	logger := log.NewLoggerForTest(t)
-	result, err := NewLoopbackNatsClient(logger)
+	result, err := NewLoopbackClient(logger)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -65,30 +44,30 @@ func CreateLoopbackNatsClientForTest(t *testing.T) NatsClient {
 	return result
 }
 
-func TestLoopbackNatsClient_Subscribe(t *testing.T) {
+func TestLoopbackClient_Subscribe(t *testing.T) {
 	t.Parallel()
 
-	client := CreateLoopbackNatsClientForTest(t)
-	testNatsClient_Subscribe(t, client)
+	client := CreateLoopbackClientForTest(t)
+	testClient_Subscribe(t, client)
 }
 
 func TestLoopbackClient_PublishAfterClose(t *testing.T) {
 	t.Parallel()
 
-	client := CreateLoopbackNatsClientForTest(t)
-	testNatsClient_PublishAfterClose(t, client)
+	client := CreateLoopbackClientForTest(t)
+	test_PublishAfterClose(t, client)
 }
 
 func TestLoopbackClient_SubscribeAfterClose(t *testing.T) {
 	t.Parallel()
 
-	client := CreateLoopbackNatsClientForTest(t)
-	testNatsClient_SubscribeAfterClose(t, client)
+	client := CreateLoopbackClientForTest(t)
+	testClient_SubscribeAfterClose(t, client)
 }
 
 func TestLoopbackClient_BadSubjects(t *testing.T) {
 	t.Parallel()
 
-	client := CreateLoopbackNatsClientForTest(t)
-	testNatsClient_BadSubjects(t, client)
+	client := CreateLoopbackClientForTest(t)
+	testClient_BadSubjects(t, client)
 }

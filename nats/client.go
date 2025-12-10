@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2017 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,21 +19,19 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package nats
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
-
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -42,17 +40,25 @@ const (
 	initialConnectInterval = time.Second
 	maxConnectInterval     = 8 * time.Second
 
-	NatsLoopbackUrl = "nats://loopback"
+	LoopbackUrl = "nats://loopback"
+
+	DefaultURL = nats.DefaultURL
 )
 
-type NatsSubscription interface {
+var (
+	ErrConnectionClosed = nats.ErrConnectionClosed
+)
+
+type Msg = nats.Msg
+
+type Subscription interface {
 	Unsubscribe() error
 }
 
-type NatsClient interface {
+type Client interface {
 	Close(ctx context.Context) error
 
-	Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error)
+	Subscribe(subject string, ch chan *Msg) (Subscription, error)
 	Publish(subject string, message any) error
 }
 
@@ -63,21 +69,15 @@ func GetEncodedSubject(prefix string, suffix string) string {
 	return prefix + "." + base64.StdEncoding.EncodeToString([]byte(suffix))
 }
 
-type natsClient struct {
-	logger log.Logger
-	conn   *nats.Conn
-	closed chan struct{}
-}
-
-func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (NatsClient, error) {
+func NewClient(ctx context.Context, url string, options ...nats.Option) (Client, error) {
 	logger := log.LoggerFromContext(ctx)
 	if url == ":loopback:" {
-		logger.Printf("WARNING: events url %s is deprecated, please use %s instead", url, NatsLoopbackUrl)
-		url = NatsLoopbackUrl
+		logger.Printf("WARNING: events url %s is deprecated, please use %s instead", url, LoopbackUrl)
+		url = LoopbackUrl
 	}
-	if url == NatsLoopbackUrl {
+	if url == LoopbackUrl {
 		logger.Println("Using internal NATS loopback client")
-		return NewLoopbackNatsClient(logger)
+		return NewLoopbackClient(logger)
 	}
 
 	backoff, err := async.NewExponentialBackoff(initialConnectInterval, maxConnectInterval)
@@ -85,7 +85,7 @@ func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (Nat
 		return nil, err
 	}
 
-	client := &natsClient{
+	client := &NativeClient{
 		logger: logger,
 		closed: make(chan struct{}),
 	}
@@ -115,47 +115,7 @@ func NewNatsClient(ctx context.Context, url string, options ...nats.Option) (Nat
 	return client, nil
 }
 
-func (c *natsClient) Close(ctx context.Context) error {
-	c.conn.Close()
-	select {
-	case <-c.closed:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (c *natsClient) onClosed(conn *nats.Conn) {
-	if err := conn.LastError(); err != nil {
-		c.logger.Printf("NATS client closed, last error %s", conn.LastError())
-	} else {
-		c.logger.Println("NATS client closed")
-	}
-	close(c.closed)
-}
-
-func (c *natsClient) onDisconnected(conn *nats.Conn) {
-	c.logger.Println("NATS client disconnected")
-}
-
-func (c *natsClient) onReconnected(conn *nats.Conn) {
-	c.logger.Printf("NATS client reconnected to %s (%s)", conn.ConnectedUrl(), conn.ConnectedServerId())
-}
-
-func (c *natsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error) {
-	return c.conn.ChanSubscribe(subject, ch)
-}
-
-func (c *natsClient) Publish(subject string, message any) error {
-	data, err := json.Marshal(message)
-	if err != nil {
-		return err
-	}
-
-	return c.conn.Publish(subject, data)
-}
-
-func NatsDecode(msg *nats.Msg, vPtr any) (err error) {
+func Decode(msg *nats.Msg, vPtr any) (err error) {
 	switch arg := vPtr.(type) {
 	case *string:
 		// If they want a string and it is a JSON string, strip quotes
@@ -173,12 +133,4 @@ func NatsDecode(msg *nats.Msg, vPtr any) (err error) {
 		err = json.Unmarshal(msg.Data, arg)
 	}
 	return
-}
-
-func removeURLCredentials(u string) string {
-	if u, err := url.Parse(u); err == nil && u.User != nil {
-		u.User = url.User("***")
-		return u.String()
-	}
-	return u
 }

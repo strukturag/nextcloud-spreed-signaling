@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package nats
 
 import (
 	"container/list"
@@ -33,14 +33,14 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
-type LoopbackNatsClient struct {
+type LoopbackClient struct {
 	logger log.Logger
 
 	mu     sync.Mutex
 	closed chan struct{}
 
 	// +checklocks:mu
-	subscriptions map[string]map[*loopbackNatsSubscription]bool
+	subscriptions map[string]map[*loopbackSubscription]bool
 
 	// +checklocks:mu
 	wakeup sync.Cond
@@ -48,19 +48,19 @@ type LoopbackNatsClient struct {
 	incoming list.List
 }
 
-func NewLoopbackNatsClient(logger log.Logger) (NatsClient, error) {
-	client := &LoopbackNatsClient{
+func NewLoopbackClient(logger log.Logger) (Client, error) {
+	client := &LoopbackClient{
 		logger: logger,
 		closed: make(chan struct{}),
 
-		subscriptions: make(map[string]map[*loopbackNatsSubscription]bool),
+		subscriptions: make(map[string]map[*loopbackSubscription]bool),
 	}
 	client.wakeup.L = &client.mu
 	go client.processMessages()
 	return client, nil
 }
 
-func (c *LoopbackNatsClient) processMessages() {
+func (c *LoopbackClient) processMessages() {
 	defer close(c.closed)
 
 	c.mu.Lock()
@@ -74,19 +74,19 @@ func (c *LoopbackNatsClient) processMessages() {
 			break
 		}
 
-		msg := c.incoming.Remove(c.incoming.Front()).(*nats.Msg)
+		msg := c.incoming.Remove(c.incoming.Front()).(*Msg)
 		c.processMessage(msg)
 	}
 }
 
 // +checklocks:c.mu
-func (c *LoopbackNatsClient) processMessage(msg *nats.Msg) {
+func (c *LoopbackClient) processMessage(msg *Msg) {
 	subs, found := c.subscriptions[msg.Subject]
 	if !found {
 		return
 	}
 
-	channels := make([]chan *nats.Msg, 0, len(subs))
+	channels := make([]chan *Msg, 0, len(subs))
 	for sub := range subs {
 		channels = append(channels, sub.ch)
 	}
@@ -101,7 +101,7 @@ func (c *LoopbackNatsClient) processMessage(msg *nats.Msg) {
 	}
 }
 
-func (c *LoopbackNatsClient) doClose() {
+func (c *LoopbackClient) doClose() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -110,7 +110,7 @@ func (c *LoopbackNatsClient) doClose() {
 	c.wakeup.Signal()
 }
 
-func (c *LoopbackNatsClient) Close(ctx context.Context) error {
+func (c *LoopbackClient) Close(ctx context.Context) error {
 	c.doClose()
 	select {
 	case <-c.closed:
@@ -120,19 +120,19 @@ func (c *LoopbackNatsClient) Close(ctx context.Context) error {
 	}
 }
 
-type loopbackNatsSubscription struct {
+type loopbackSubscription struct {
 	subject string
-	client  *LoopbackNatsClient
+	client  *LoopbackClient
 
-	ch chan *nats.Msg
+	ch chan *Msg
 }
 
-func (s *loopbackNatsSubscription) Unsubscribe() error {
+func (s *loopbackSubscription) Unsubscribe() error {
 	s.client.unsubscribe(s)
 	return nil
 }
 
-func (c *LoopbackNatsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error) {
+func (c *LoopbackClient) Subscribe(subject string, ch chan *Msg) (Subscription, error) {
 	if strings.HasSuffix(subject, ".") || strings.Contains(subject, " ") {
 		return nil, nats.ErrBadSubject
 	}
@@ -143,14 +143,14 @@ func (c *LoopbackNatsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsS
 		return nil, nats.ErrConnectionClosed
 	}
 
-	s := &loopbackNatsSubscription{
+	s := &loopbackSubscription{
 		subject: subject,
 		client:  c,
 		ch:      ch,
 	}
 	subs, found := c.subscriptions[subject]
 	if !found {
-		subs = make(map[*loopbackNatsSubscription]bool)
+		subs = make(map[*loopbackSubscription]bool)
 		c.subscriptions[subject] = subs
 	}
 	subs[s] = true
@@ -158,7 +158,7 @@ func (c *LoopbackNatsClient) Subscribe(subject string, ch chan *nats.Msg) (NatsS
 	return s, nil
 }
 
-func (c *LoopbackNatsClient) unsubscribe(s *loopbackNatsSubscription) {
+func (c *LoopbackClient) unsubscribe(s *loopbackSubscription) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -170,7 +170,7 @@ func (c *LoopbackNatsClient) unsubscribe(s *loopbackNatsSubscription) {
 	}
 }
 
-func (c *LoopbackNatsClient) Publish(subject string, message any) error {
+func (c *LoopbackClient) Publish(subject string, message any) error {
 	if strings.HasSuffix(subject, ".") || strings.Contains(subject, " ") {
 		return nats.ErrBadSubject
 	}
@@ -181,7 +181,7 @@ func (c *LoopbackNatsClient) Publish(subject string, message any) error {
 		return nats.ErrConnectionClosed
 	}
 
-	msg := &nats.Msg{
+	msg := &Msg{
 		Subject: subject,
 	}
 	var err error

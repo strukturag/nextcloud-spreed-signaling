@@ -33,12 +33,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 const (
@@ -235,7 +235,7 @@ func (r *Room) Close() []Session {
 
 func (r *Room) processAsyncNatsMessage(msg *nats.Msg) {
 	var message AsyncMessage
-	if err := NatsDecode(msg, &message); err != nil {
+	if err := nats.Decode(msg, &message); err != nil {
 		r.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
 		return
 	}
