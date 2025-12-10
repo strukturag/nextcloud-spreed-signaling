@@ -28,11 +28,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func TestBackoff_Exponential(t *testing.T) {
 	t.Parallel()
-	SynctestTest(t, func(t *testing.T) {
+	test.SynctestTest(t, func(t *testing.T) {
 		assert := assert.New(t)
 		minWait := 100 * time.Millisecond
 		backoff, err := NewExponentialBackoff(minWait, 500*time.Millisecond)
