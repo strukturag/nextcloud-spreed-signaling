@@ -35,6 +35,7 @@ import (
 	"github.com/notedit/janus-go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -256,8 +257,8 @@ type mcuJanus struct {
 
 	// +checklocks:mu
 	publishers         map[StreamId]*mcuJanusPublisher
-	publisherCreated   Notifier
-	publisherConnected Notifier
+	publisherCreated   async.Notifier
+	publisherConnected async.Notifier
 	// +checklocks:mu
 	remotePublishers map[StreamId]*mcuJanusRemotePublisher
 
