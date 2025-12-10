@@ -22,83 +22,12 @@
 package signaling
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
-	"os"
-	"os/signal"
-	"runtime/pprof"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-var listenSignalOnce sync.Once
-
-func ensureNoGoroutinesLeak(t *testing.T, f func(t *testing.T)) {
-	t.Helper()
-	// Make sure test is not executed with "t.Parallel()"
-	t.Setenv("PARALLEL_CHECK", "1")
-
-	// The signal package will start a goroutine the first time "signal.Notify"
-	// is called. Do so outside the function under test so the signal goroutine
-	// will not be shown as "leaking".
-	listenSignalOnce.Do(func() {
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, os.Interrupt)
-		go func() {
-			for {
-				<-ch
-			}
-		}()
-	})
-
-	profile := pprof.Lookup("goroutine")
-	// Give time for things to settle before capturing the number of
-	// go routines
-	var before int
-	timeout := time.Now().Add(time.Second)
-	for time.Now().Before(timeout) {
-		before = profile.Count()
-		time.Sleep(10 * time.Millisecond)
-		if profile.Count() == before {
-			break
-		}
-	}
-	var prev bytes.Buffer
-	dumpGoroutines("Before:", &prev)
-
-	t.Run("leakcheck", f)
-
-	var after int
-	// Give time for things to settle before capturing the number of
-	// go routines
-	timeout = time.Now().Add(time.Second)
-	for time.Now().Before(timeout) {
-		after = profile.Count()
-		if after == before {
-			break
-		}
-	}
-
-	if after != before {
-		io.Copy(os.Stderr, &prev) // nolint
-		dumpGoroutines("After:", os.Stderr)
-		require.Equal(t, before, after, "Number of Go routines has changed")
-	}
-}
-
-func dumpGoroutines(prefix string, w io.Writer) {
-	if prefix != "" {
-		io.WriteString(w, prefix+"\n") // nolint
-	}
-	profile := pprof.Lookup("goroutine")
-	profile.WriteTo(w, 2) // nolint
-}
 
 func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, hello1 *ServerMessage, client2 *TestClient, hello2 *ServerMessage) {
 	t.Helper()
