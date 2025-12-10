@@ -35,6 +35,7 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/test"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func startLocalNatsServer(t *testing.T) (*server.Server, int) {
@@ -113,7 +114,7 @@ func testNatsClient_Subscribe(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_Subscribe(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_Subscribe(t, client)
@@ -127,7 +128,7 @@ func testNatsClient_PublishAfterClose(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_PublishAfterClose(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_PublishAfterClose(t, client)
@@ -143,7 +144,7 @@ func testNatsClient_SubscribeAfterClose(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_SubscribeAfterClose(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_SubscribeAfterClose(t, client)
@@ -165,7 +166,7 @@ func testNatsClient_BadSubjects(t *testing.T, client NatsClient) {
 }
 
 func TestNatsClient_BadSubjects(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, _, client := CreateLocalNatsClientForTest(t)
 
 		testNatsClient_BadSubjects(t, client)
@@ -173,7 +174,7 @@ func TestNatsClient_BadSubjects(t *testing.T) { // nolint:paralleltest
 }
 
 func TestNatsClient_MaxReconnects(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
 		reconnectWait := time.Millisecond

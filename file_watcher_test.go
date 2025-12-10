@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 var (
@@ -50,7 +51,7 @@ func TestFileWatcher_NotExist(t *testing.T) {
 }
 
 func TestFileWatcher_File(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		require := require.New(t)
 		assert := assert.New(t)
 		tmpdir := t.TempDir()
@@ -92,7 +93,7 @@ func TestFileWatcher_File(t *testing.T) { // nolint:paralleltest
 }
 
 func TestFileWatcher_CurrentDir(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		require := require.New(t)
 		assert := assert.New(t)
 		tmpdir := t.TempDir()

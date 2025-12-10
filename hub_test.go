@@ -55,6 +55,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 const (
@@ -320,7 +321,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 		case <-ctx.Done():
 			h.mu.Lock()
 			h.ru.Lock()
-			dumpGoroutines("", os.Stderr)
+			test.DumpGoroutines("", os.Stderr)
 			assert.Fail(t, "Error waiting for hub to terminate", "clients %+v / rooms %+v / sessions %+v / remoteSessions %v / federatedSessions %v / federationClients %v / %d read / %d write: %s",
 				h.clients,
 				h.rooms,
@@ -1752,7 +1753,7 @@ func runGrpcProxyTest(t *testing.T, f func(hub1, hub2 *Hub, server1, server2 *ht
 }
 
 func TestClientHelloResumeProxy(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
 			assert := assert.New(t)
@@ -1802,7 +1803,7 @@ func TestClientHelloResumeProxy(t *testing.T) { // nolint:paralleltest
 }
 
 func TestClientHelloResumeProxy_Takeover(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
 			assert := assert.New(t)
@@ -1856,7 +1857,7 @@ func TestClientHelloResumeProxy_Takeover(t *testing.T) { // nolint:paralleltest
 }
 
 func TestClientHelloResumeProxy_Disconnect(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
 			assert := assert.New(t)
