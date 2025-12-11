@@ -49,6 +49,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
@@ -60,7 +61,7 @@ var (
 
 	addr = flag.String("addr", "localhost:28080", "http service address")
 
-	config = flag.String("config", "server.conf", "config file to use")
+	configFlag = flag.String("config", "server.conf", "config file to use")
 
 	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 
@@ -508,12 +509,12 @@ func main() {
 		os.Exit(0)
 	}
 
-	config, err := goconf.ReadConfigFile(*config)
+	cfg, err := goconf.ReadConfigFile(*configFlag)
 	if err != nil {
 		log.Fatal("Could not read configuration: ", err)
 	}
 
-	secret, _ := signaling.GetStringOptionWithEnv(config, "backend", "secret")
+	secret, _ := config.GetStringOptionWithEnv(cfg, "backend", "secret")
 	backendSecret = []byte(secret)
 
 	log.Printf("Using a maximum of %d CPUs", runtime.GOMAXPROCS(0))

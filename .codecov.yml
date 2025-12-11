@@ -30,6 +30,10 @@ component_management:
       name: client
       paths:
         - client/**
+    - component_id: module_config
+      name: config
+      paths:
+        - config/**
     - component_id: module_container
       name: container
       paths:

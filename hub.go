@@ -53,6 +53,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -222,9 +223,9 @@ type Hub struct {
 	blockedCandidates atomic.Pointer[container.IPList]
 }
 
-func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
+func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
 	logger := log.LoggerFromContext(ctx)
-	hashKey, _ := GetStringOptionWithEnv(config, "sessions", "hashkey")
+	hashKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
 	case 64:
@@ -232,7 +233,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		logger.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
 	}
 
-	blockKey, _ := GetStringOptionWithEnv(config, "sessions", "blockkey")
+	blockKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "blockkey")
 	blockBytes := []byte(blockKey)
 	switch len(blockKey) {
 	case 0:
@@ -249,51 +250,51 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		return nil, fmt.Errorf("error creating session id codec: %w", err)
 	}
 
-	internalClientsSecret, _ := GetStringOptionWithEnv(config, "clients", "internalsecret")
+	internalClientsSecret, _ := config.GetStringOptionWithEnv(cfg, "clients", "internalsecret")
 	if internalClientsSecret == "" {
 		logger.Println("WARNING: No shared secret has been set for internal clients.")
 	}
 
-	maxConcurrentRequestsPerHost, _ := config.GetInt("backend", "connectionsperhost")
+	maxConcurrentRequestsPerHost, _ := cfg.GetInt("backend", "connectionsperhost")
 	if maxConcurrentRequestsPerHost <= 0 {
 		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
 	}
 
-	backend, err := NewBackendClient(ctx, config, maxConcurrentRequestsPerHost, version, etcdClient)
+	backend, err := NewBackendClient(ctx, cfg, maxConcurrentRequestsPerHost, version, etcdClient)
 	if err != nil {
 		return nil, err
 	}
 	logger.Printf("Using a maximum of %d concurrent backend connections per host", maxConcurrentRequestsPerHost)
 
-	backendTimeoutSeconds, _ := config.GetInt("backend", "timeout")
+	backendTimeoutSeconds, _ := cfg.GetInt("backend", "timeout")
 	if backendTimeoutSeconds <= 0 {
 		backendTimeoutSeconds = defaultBackendTimeoutSeconds
 	}
 	backendTimeout := time.Duration(backendTimeoutSeconds) * time.Second
 	logger.Printf("Using a timeout of %s for backend connections", backendTimeout)
 
-	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
+	mcuTimeoutSeconds, _ := cfg.GetInt("mcu", "timeout")
 	if mcuTimeoutSeconds <= 0 {
 		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
 	}
 	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
 
-	allowSubscribeAnyStream, _ := config.GetBool("app", "allowsubscribeany")
+	allowSubscribeAnyStream, _ := cfg.GetBool("app", "allowsubscribeany")
 	if allowSubscribeAnyStream {
 		logger.Printf("WARNING: Allow subscribing any streams, this is insecure and should only be enabled for testing")
 	}
 
-	trustedProxies, _ := config.GetString("app", "trustedproxies")
+	trustedProxies, _ := cfg.GetString("app", "trustedproxies")
 	trustedProxiesIps, err := container.ParseIPList(trustedProxies)
 	if err != nil {
 		return nil, err
 	}
 
-	skipFederationVerify, _ := config.GetBool("federation", "skipverify")
+	skipFederationVerify, _ := cfg.GetBool("federation", "skipverify")
 	if skipFederationVerify {
 		logger.Println("WARNING: Federation target verification is disabled!")
 	}
-	federationTimeoutSeconds, _ := config.GetInt("federation", "timeout")
+	federationTimeoutSeconds, _ := cfg.GetInt("federation", "timeout")
 	if federationTimeoutSeconds <= 0 {
 		federationTimeoutSeconds = defaultFederationTimeoutSeconds
 	}
@@ -321,12 +322,12 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		return nil, err
 	}
 
-	geoipUrl, _ := config.GetString("geoip", "url")
+	geoipUrl, _ := cfg.GetString("geoip", "url")
 	if geoipUrl == "default" || geoipUrl == "none" {
 		geoipUrl = ""
 	}
 	if geoipUrl == "" {
-		if geoipLicense, _ := config.GetString("geoip", "license"); geoipLicense != "" {
+		if geoipLicense, _ := cfg.GetString("geoip", "license"); geoipLicense != "" {
 			geoipUrl = GetGeoIpDownloadUrl(geoipLicense)
 		}
 	}
@@ -347,7 +348,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		logger.Printf("Not using GeoIP database")
 	}
 
-	geoipOverrides, err := LoadGeoIPOverrides(ctx, config, false)
+	geoipOverrides, err := LoadGeoIPOverrides(ctx, cfg, false)
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +419,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		skipFederationVerify: skipFederationVerify,
 		federationTimeout:    federationTimeout,
 	}
-	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
+	if value, _ := cfg.GetString("mcu", "allowedcandidates"); value != "" {
 		allowed, err := container.ParseIPList(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid allowedcandidates: %w", err)
@@ -429,7 +430,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 	} else {
 		logger.Printf("No candidates allowlist")
 	}
-	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
+	if value, _ := cfg.GetString("mcu", "blockedcandidates"); value != "" {
 		blocked, err := container.ParseIPList(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid blockedcandidates: %w", err)

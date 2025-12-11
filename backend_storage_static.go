@@ -29,6 +29,7 @@ import (
 	"github.com/dlintw/goconf"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -45,11 +46,11 @@ type backendStorageStatic struct {
 	compatBackend *Backend
 }
 
-func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats BackendStorageStats) (BackendStorage, error) {
-	allowAll, _ := config.GetBool("backend", "allowall")
-	allowHttp, _ := config.GetBool("backend", "allowhttp")
-	commonSecret, _ := GetStringOptionWithEnv(config, "backend", "secret")
-	sessionLimit, err := config.GetInt("backend", "sessionlimit")
+func NewBackendStorageStatic(logger log.Logger, cfg *goconf.ConfigFile, stats BackendStorageStats) (BackendStorage, error) {
+	allowAll, _ := cfg.GetBool("backend", "allowall")
+	allowHttp, _ := cfg.GetBool("backend", "allowhttp")
+	commonSecret, _ := config.GetStringOptionWithEnv(cfg, "backend", "secret")
+	sessionLimit, err := cfg.GetInt("backend", "sessionlimit")
 	if err != nil || sessionLimit < 0 {
 		sessionLimit = 0
 	}
@@ -59,11 +60,11 @@ func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats
 	numBackends := 0
 	if allowAll {
 		logger.Println("WARNING: All backend hostnames are allowed, only use for development!")
-		maxStreamBitrate, err := config.GetInt("backend", "maxstreambitrate")
+		maxStreamBitrate, err := cfg.GetInt("backend", "maxstreambitrate")
 		if err != nil || maxStreamBitrate < 0 {
 			maxStreamBitrate = 0
 		}
-		maxScreenBitrate, err := config.GetInt("backend", "maxscreenbitrate")
+		maxScreenBitrate, err := cfg.GetInt("backend", "maxscreenbitrate")
 		if err != nil || maxScreenBitrate < 0 {
 			maxScreenBitrate = 0
 		}
@@ -85,9 +86,9 @@ func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats
 		updateBackendStats(compatBackend)
 		backendsById[compatBackend.id] = compatBackend
 		numBackends++
-	} else if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
+	} else if backendIds, _ := cfg.GetString("backend", "backends"); backendIds != "" {
 		added := make(map[string]*Backend)
-		for host, configuredBackends := range getConfiguredHosts(logger, backendIds, config, commonSecret) {
+		for host, configuredBackends := range getConfiguredHosts(logger, backendIds, cfg, commonSecret) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
 				added[be.id] = be
@@ -100,7 +101,7 @@ func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats
 			be.counted = true
 		}
 		numBackends += len(added)
-	} else if allowedUrls, _ := config.GetString("backend", "allowed"); allowedUrls != "" {
+	} else if allowedUrls, _ := cfg.GetString("backend", "allowed"); allowedUrls != "" {
 		// Old-style configuration, only hosts are configured and are using a common secret.
 		allowMap := make(map[string]bool)
 		for u := range internal.SplitEntries(allowedUrls, ",") {
@@ -117,11 +118,11 @@ func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats
 		if len(allowMap) == 0 {
 			logger.Println("WARNING: No backend hostnames are allowed, check your configuration!")
 		} else {
-			maxStreamBitrate, err := config.GetInt("backend", "maxstreambitrate")
+			maxStreamBitrate, err := cfg.GetInt("backend", "maxstreambitrate")
 			if err != nil || maxStreamBitrate < 0 {
 				maxStreamBitrate = 0
 			}
-			maxScreenBitrate, err := config.GetInt("backend", "maxscreenbitrate")
+			maxScreenBitrate, err := cfg.GetInt("backend", "maxscreenbitrate")
 			if err != nil || maxScreenBitrate < 0 {
 				maxScreenBitrate = 0
 			}
@@ -297,11 +298,11 @@ func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	return ids
 }
 
-func getConfiguredHosts(logger log.Logger, backendIds string, config *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
+func getConfiguredHosts(logger log.Logger, backendIds string, cfg *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
 	hosts = make(map[string][]*Backend)
 	seenUrls := make(map[string]string)
 	for _, id := range getConfiguredBackendIDs(backendIds) {
-		secret, _ := GetStringOptionWithEnv(config, id, "secret")
+		secret, _ := config.GetStringOptionWithEnv(cfg, id, "secret")
 		if secret == "" && commonSecret != "" {
 			logger.Printf("Backend %s has no own shared secret set, using common shared secret", id)
 			secret = commonSecret
@@ -311,7 +312,7 @@ func getConfiguredHosts(logger log.Logger, backendIds string, config *goconf.Con
 			continue
 		}
 
-		sessionLimit, err := config.GetInt(id, "sessionlimit")
+		sessionLimit, err := cfg.GetInt(id, "sessionlimit")
 		if err != nil || sessionLimit < 0 {
 			sessionLimit = 0
 		}
@@ -319,20 +320,20 @@ func getConfiguredHosts(logger log.Logger, backendIds string, config *goconf.Con
 			logger.Printf("Backend %s allows a maximum of %d sessions", id, sessionLimit)
 		}
 
-		maxStreamBitrate, err := config.GetInt(id, "maxstreambitrate")
+		maxStreamBitrate, err := cfg.GetInt(id, "maxstreambitrate")
 		if err != nil || maxStreamBitrate < 0 {
 			maxStreamBitrate = 0
 		}
-		maxScreenBitrate, err := config.GetInt(id, "maxscreenbitrate")
+		maxScreenBitrate, err := cfg.GetInt(id, "maxscreenbitrate")
 		if err != nil || maxScreenBitrate < 0 {
 			maxScreenBitrate = 0
 		}
 
 		var urls []string
-		if u, _ := GetStringOptionWithEnv(config, id, "urls"); u != "" {
+		if u, _ := config.GetStringOptionWithEnv(cfg, id, "urls"); u != "" {
 			urls = slices.Sorted(internal.SplitEntries(u, ","))
 			urls = slices.Compact(urls)
-		} else if u, _ := GetStringOptionWithEnv(config, id, "url"); u != "" {
+		} else if u, _ := config.GetStringOptionWithEnv(cfg, id, "url"); u != "" {
 			if u = strings.TrimSpace(u); u != "" {
 				urls = []string{u}
 			}
@@ -391,7 +392,7 @@ func getConfiguredHosts(logger log.Logger, backendIds string, config *goconf.Con
 	return hosts
 }
 
-func (s *backendStorageStatic) Reload(config *goconf.ConfigFile) {
+func (s *backendStorageStatic) Reload(cfg *goconf.ConfigFile) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -400,10 +401,10 @@ func (s *backendStorageStatic) Reload(config *goconf.ConfigFile) {
 		return
 	}
 
-	commonSecret, _ := GetStringOptionWithEnv(config, "backend", "secret")
+	commonSecret, _ := config.GetStringOptionWithEnv(cfg, "backend", "secret")
 
-	if backendIds, _ := config.GetString("backend", "backends"); backendIds != "" {
-		configuredHosts := getConfiguredHosts(s.logger, backendIds, config, commonSecret)
+	if backendIds, _ := cfg.GetString("backend", "backends"); backendIds != "" {
+		configuredHosts := getConfiguredHosts(s.logger, backendIds, cfg, commonSecret)
 
 		// remove backends that are no longer configured
 		seen := make(map[string]seenState)

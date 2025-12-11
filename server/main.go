@@ -42,6 +42,7 @@ import (
 	"github.com/gorilla/mux"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
@@ -168,7 +169,7 @@ func main() {
 
 	logger.Printf("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
 
-	config, err := goconf.ReadConfigFile(*configFlag)
+	cfg, err := goconf.ReadConfigFile(*configFlag)
 	if err != nil {
 		logger.Fatal("Could not read configuration: ", err)
 	}
@@ -177,7 +178,7 @@ func main() {
 
 	signaling.RegisterStats()
 
-	natsUrl, _ := signaling.GetStringOptionWithEnv(config, "nats", "url")
+	natsUrl, _ := config.GetStringOptionWithEnv(cfg, "nats", "url")
 	if natsUrl == "" {
 		natsUrl = nats.DefaultURL
 	}
@@ -203,7 +204,7 @@ func main() {
 	}
 	defer dnsMonitor.Stop()
 
-	etcdClient, err := signaling.NewEtcdClient(logger, config, "mcu")
+	etcdClient, err := signaling.NewEtcdClient(logger, cfg, "mcu")
 	if err != nil {
 		logger.Fatalf("Could not create etcd client: %s", err)
 	}
@@ -213,7 +214,7 @@ func main() {
 		}
 	}()
 
-	rpcServer, err := signaling.NewGrpcServer(stopCtx, config, version)
+	rpcServer, err := signaling.NewGrpcServer(stopCtx, cfg, version)
 	if err != nil {
 		logger.Fatalf("Could not create RPC server: %s", err)
 	}
@@ -224,20 +225,20 @@ func main() {
 	}()
 	defer rpcServer.Close()
 
-	rpcClients, err := signaling.NewGrpcClients(stopCtx, config, etcdClient, dnsMonitor, version)
+	rpcClients, err := signaling.NewGrpcClients(stopCtx, cfg, etcdClient, dnsMonitor, version)
 	if err != nil {
 		logger.Fatalf("Could not create RPC clients: %s", err)
 	}
 	defer rpcClients.Close()
 
 	r := mux.NewRouter()
-	hub, err := signaling.NewHub(stopCtx, config, events, rpcServer, rpcClients, etcdClient, r, version)
+	hub, err := signaling.NewHub(stopCtx, cfg, events, rpcServer, rpcClients, etcdClient, r, version)
 	if err != nil {
 		logger.Fatal("Could not create hub: ", err)
 	}
 
-	mcuUrl, _ := signaling.GetStringOptionWithEnv(config, "mcu", "url")
-	mcuType, _ := config.GetString("mcu", "type")
+	mcuUrl, _ := config.GetStringOptionWithEnv(cfg, "mcu", "url")
+	mcuType, _ := cfg.GetString("mcu", "type")
 	if mcuType == "" && mcuUrl != "" {
 		logger.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
 		mcuType = signaling.McuTypeJanus
@@ -256,11 +257,11 @@ func main() {
 			ctx := context.TODO()
 			switch mcuType {
 			case signaling.McuTypeJanus:
-				mcu, err = signaling.NewMcuJanus(ctx, mcuUrl, config)
+				mcu, err = signaling.NewMcuJanus(ctx, mcuUrl, cfg)
 				signaling.UnregisterProxyMcuStats()
 				signaling.RegisterJanusMcuStats()
 			case signaling.McuTypeProxy:
-				mcu, err = signaling.NewMcuProxy(ctx, config, etcdClient, rpcClients, dnsMonitor)
+				mcu, err = signaling.NewMcuProxy(ctx, cfg, etcdClient, rpcClients, dnsMonitor)
 				signaling.UnregisterJanusMcuStats()
 				signaling.RegisterProxyMcuStats()
 			default:
@@ -285,11 +286,11 @@ func main() {
 				switch sig {
 				case syscall.SIGHUP:
 					logger.Printf("Received SIGHUP, reloading %s", *configFlag)
-					if config, err = goconf.ReadConfigFile(*configFlag); err != nil {
+					if cfg, err = goconf.ReadConfigFile(*configFlag); err != nil {
 						logger.Printf("Could not read configuration from %s: %s", *configFlag, err)
 					} else {
-						mcuUrl, _ = signaling.GetStringOptionWithEnv(config, "mcu", "url")
-						mcuType, _ = config.GetString("mcu", "type")
+						mcuUrl, _ = config.GetStringOptionWithEnv(cfg, "mcu", "url")
+						mcuType, _ = cfg.GetString("mcu", "type")
 						if mcuType == "" && mcuUrl != "" {
 							logger.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
 							mcuType = signaling.McuTypeJanus
@@ -316,7 +317,7 @@ func main() {
 	go hub.Run()
 	defer hub.Stop()
 
-	server, err := signaling.NewBackendServer(stopCtx, config, hub, version)
+	server, err := signaling.NewBackendServer(stopCtx, cfg, hub, version)
 	if err != nil {
 		logger.Fatal("Could not create backend server: ", err)
 	}
@@ -328,18 +329,18 @@ func main() {
 		logger: logger,
 	}
 
-	if saddr, _ := signaling.GetStringOptionWithEnv(config, "https", "listen"); saddr != "" {
-		cert, _ := config.GetString("https", "certificate")
-		key, _ := config.GetString("https", "key")
+	if saddr, _ := config.GetStringOptionWithEnv(cfg, "https", "listen"); saddr != "" {
+		cert, _ := cfg.GetString("https", "certificate")
+		key, _ := cfg.GetString("https", "key")
 		if cert == "" || key == "" {
 			logger.Fatal("Need a certificate and key for the HTTPS listener")
 		}
 
-		readTimeout, _ := config.GetInt("https", "readtimeout")
+		readTimeout, _ := cfg.GetInt("https", "readtimeout")
 		if readTimeout <= 0 {
 			readTimeout = defaultReadTimeout
 		}
-		writeTimeout, _ := config.GetInt("https", "writetimeout")
+		writeTimeout, _ := cfg.GetInt("https", "writetimeout")
 		if writeTimeout <= 0 {
 			writeTimeout = defaultWriteTimeout
 		}
@@ -366,12 +367,12 @@ func main() {
 		}
 	}
 
-	if addr, _ := signaling.GetStringOptionWithEnv(config, "http", "listen"); addr != "" {
-		readTimeout, _ := config.GetInt("http", "readtimeout")
+	if addr, _ := config.GetStringOptionWithEnv(cfg, "http", "listen"); addr != "" {
+		readTimeout, _ := cfg.GetInt("http", "readtimeout")
 		if readTimeout <= 0 {
 			readTimeout = defaultReadTimeout
 		}
-		writeTimeout, _ := config.GetInt("http", "writetimeout")
+		writeTimeout, _ := cfg.GetInt("http", "writetimeout")
 		if writeTimeout <= 0 {
 			writeTimeout = defaultWriteTimeout
 		}

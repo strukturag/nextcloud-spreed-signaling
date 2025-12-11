@@ -52,6 +52,7 @@ import (
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -424,13 +425,13 @@ func (s *ProxyServer) checkOrigin(r *http.Request) bool {
 	return true
 }
 
-func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
-	s.url, _ = signaling.GetStringOptionWithEnv(config, "mcu", "url")
+func (s *ProxyServer) Start(cfg *goconf.ConfigFile) error {
+	s.url, _ = config.GetStringOptionWithEnv(cfg, "mcu", "url")
 	if s.url == "" {
 		return errors.New("no MCU server url configured")
 	}
 
-	mcuType, _ := config.GetString("mcu", "type")
+	mcuType, _ := cfg.GetString("mcu", "type")
 	if mcuType == "" {
 		mcuType = signaling.McuTypeDefault
 	}
@@ -447,7 +448,7 @@ func (s *ProxyServer) Start(config *goconf.ConfigFile) error {
 	for {
 		switch mcuType {
 		case signaling.McuTypeJanus:
-			mcu, err = signaling.NewMcuJanus(ctx, s.url, config)
+			mcu, err = signaling.NewMcuJanus(ctx, s.url, cfg)
 			if err == nil {
 				signaling.RegisterJanusMcuStats()
 			}
