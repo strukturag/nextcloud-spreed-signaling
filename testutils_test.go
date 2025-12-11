@@ -27,9 +27,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
-func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, hello1 *ServerMessage, client2 *TestClient, hello2 *ServerMessage) {
+func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, hello1 *api.ServerMessage, client2 *TestClient, hello2 *api.ServerMessage) {
 	t.Helper()
 	// We will receive "joined" events for all clients. The ordering is not
 	// defined as messages are processed and sent by asynchronous event handlers.

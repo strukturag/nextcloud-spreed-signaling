@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package api
 
 import (
 	"encoding/json"
@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 )
 
 type testCheckValid interface {
@@ -509,10 +510,10 @@ func TestFilterSDPCandidates(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 
-	s, err := parseSDP(MockSdpOfferAudioOnly)
+	s, err := ParseSDP(mock.MockSdpOfferAudioOnly)
 	require.NoError(err)
 	if encoded, err := s.Marshal(); assert.NoError(err) {
-		assert.Equal(MockSdpOfferAudioOnly, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+		assert.Equal(mock.MockSdpOfferAudioOnly, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
 	}
 
 	expectedBefore := map[string]int{
@@ -549,8 +550,8 @@ func TestFilterSDPCandidates(t *testing.T) {
 	}
 
 	if encoded, err := s.Marshal(); assert.NoError(err) {
-		assert.NotEqual(MockSdpOfferAudioOnly, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
-		assert.Equal(MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+		assert.NotEqual(mock.MockSdpOfferAudioOnly, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+		assert.Equal(mock.MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
 	}
 }
 
@@ -559,10 +560,10 @@ func TestNoFilterSDPCandidates(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 
-	s, err := parseSDP(MockSdpOfferAudioOnlyNoFilter)
+	s, err := ParseSDP(mock.MockSdpOfferAudioOnlyNoFilter)
 	require.NoError(err)
 	if encoded, err := s.Marshal(); assert.NoError(err) {
-		assert.Equal(MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+		assert.Equal(mock.MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
 	}
 
 	expectedBefore := map[string]int{
@@ -599,6 +600,6 @@ func TestNoFilterSDPCandidates(t *testing.T) {
 	}
 
 	if encoded, err := s.Marshal(); assert.NoError(err) {
-		assert.Equal(MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
+		assert.Equal(mock.MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
 	}
 }

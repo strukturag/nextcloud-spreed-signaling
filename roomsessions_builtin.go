@@ -27,29 +27,30 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type BuiltinRoomSessions struct {
 	mu sync.RWMutex
 	// +checklocks:mu
-	sessionIdToRoomSession map[PublicSessionId]RoomSessionId
+	sessionIdToRoomSession map[api.PublicSessionId]api.RoomSessionId
 	// +checklocks:mu
-	roomSessionToSessionid map[RoomSessionId]PublicSessionId
+	roomSessionToSessionid map[api.RoomSessionId]api.PublicSessionId
 
 	clients *GrpcClients
 }
 
 func NewBuiltinRoomSessions(clients *GrpcClients) (RoomSessions, error) {
 	return &BuiltinRoomSessions{
-		sessionIdToRoomSession: make(map[PublicSessionId]RoomSessionId),
-		roomSessionToSessionid: make(map[RoomSessionId]PublicSessionId),
+		sessionIdToRoomSession: make(map[api.PublicSessionId]api.RoomSessionId),
+		roomSessionToSessionid: make(map[api.RoomSessionId]api.PublicSessionId),
 
 		clients: clients,
 	}, nil
 }
 
-func (r *BuiltinRoomSessions) SetRoomSession(session Session, roomSessionId RoomSessionId) error {
+func (r *BuiltinRoomSessions) SetRoomSession(session Session, roomSessionId api.RoomSessionId) error {
 	if roomSessionId == "" {
 		r.DeleteRoomSession(session)
 		return nil
@@ -87,7 +88,7 @@ func (r *BuiltinRoomSessions) DeleteRoomSession(session Session) {
 	}
 }
 
-func (r *BuiltinRoomSessions) GetSessionId(roomSessionId RoomSessionId) (PublicSessionId, error) {
+func (r *BuiltinRoomSessions) GetSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	sid, found := r.roomSessionToSessionid[roomSessionId]
@@ -98,7 +99,7 @@ func (r *BuiltinRoomSessions) GetSessionId(roomSessionId RoomSessionId) (PublicS
 	return sid, nil
 }
 
-func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId RoomSessionId, disconnectReason string) (PublicSessionId, error) {
+func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
 	sid, err := r.GetSessionId(roomSessionId)
 	if err == nil {
 		return sid, nil
@@ -146,5 +147,5 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 		return "", ErrNoSuchRoomSession
 	}
 
-	return value.(PublicSessionId), nil
+	return value.(api.PublicSessionId), nil
 }
