@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
@@ -54,7 +55,7 @@ func GetSubjectForUserId(userId string, backend *Backend) string {
 	return nats.GetEncodedSubject("user", userId+"|"+backend.Id())
 }
 
-func GetSubjectForSessionId(sessionId PublicSessionId, backend *Backend) string {
+func GetSubjectForSessionId(sessionId api.PublicSessionId, backend *Backend) string {
 	return string("session." + sessionId)
 }
 
@@ -427,7 +428,7 @@ func (e *asyncEventsNats) UnregisterUserListener(roomId string, backend *Backend
 	}
 }
 
-func (e *asyncEventsNats) RegisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) error {
+func (e *asyncEventsNats) RegisterSessionListener(sessionId api.PublicSessionId, backend *Backend, listener AsyncSessionEventListener) error {
 	key := GetSubjectForSessionId(sessionId, backend)
 
 	e.mu.Lock()
@@ -445,7 +446,7 @@ func (e *asyncEventsNats) RegisterSessionListener(sessionId PublicSessionId, bac
 	return nil
 }
 
-func (e *asyncEventsNats) UnregisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) {
+func (e *asyncEventsNats) UnregisterSessionListener(sessionId api.PublicSessionId, backend *Backend, listener AsyncSessionEventListener) {
 	key := GetSubjectForSessionId(sessionId, backend)
 
 	e.mu.Lock()
@@ -481,7 +482,7 @@ func (e *asyncEventsNats) PublishUserMessage(userId string, backend *Backend, me
 	return e.publish(subject, message)
 }
 
-func (e *asyncEventsNats) PublishSessionMessage(sessionId PublicSessionId, backend *Backend, message *AsyncMessage) error {
+func (e *asyncEventsNats) PublishSessionMessage(sessionId api.PublicSessionId, backend *Backend, message *AsyncMessage) error {
 	subject := GetSubjectForSessionId(sessionId, backend)
 	return e.publish(subject, message)
 }

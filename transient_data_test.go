@@ -104,7 +104,7 @@ type MockTransientListener struct {
 	data *TransientData
 }
 
-func (l *MockTransientListener) SendMessage(message *ServerMessage) bool {
+func (l *MockTransientListener) SendMessage(message *api.ServerMessage) bool {
 	close(l.sending)
 
 	time.Sleep(10 * time.Millisecond)
@@ -275,7 +275,7 @@ func Test_TransientMessages(t *testing.T) {
 			_, ignored, ok := client3.RunUntilJoinedAndReturn(ctx, hello2.Hello, hello3.Hello)
 			require.True(ok)
 
-			var msg *ServerMessage
+			var msg *api.ServerMessage
 			if len(ignored) == 0 {
 				msg = MustSucceed1(t, client3.RunUntilMessage, ctx)
 			} else if len(ignored) == 1 {
@@ -392,7 +392,7 @@ func Test_TransientSessionData(t *testing.T) {
 			client1.CloseWithBye()
 			assert.NoError(client1.WaitForClientRemoved(ctx))
 
-			var messages []*ServerMessage
+			var messages []*api.ServerMessage
 			for range 2 {
 				if msg, ok := client2.RunUntilMessage(ctx); ok {
 					messages = append(messages, msg)
@@ -413,7 +413,7 @@ func Test_TransientSessionData(t *testing.T) {
 			_, ignored, ok := client3.RunUntilJoinedAndReturn(ctx, hello2.Hello, hello3.Hello)
 			require.True(ok)
 
-			var msg *ServerMessage
+			var msg *api.ServerMessage
 			if len(ignored) == 0 {
 				msg = MustSucceed1(t, client3.RunUntilMessage, ctx)
 			} else if len(ignored) == 1 {

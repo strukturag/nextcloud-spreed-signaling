@@ -76,7 +76,7 @@ type Room struct {
 	closer *internal.Closer
 	mu     *sync.RWMutex
 	// +checklocks:mu
-	sessions map[PublicSessionId]Session
+	sessions map[api.PublicSessionId]Session
 	// +checklocks:mu
 	internalSessions map[*ClientSession]bool
 	// +checklocks:mu
@@ -84,7 +84,7 @@ type Room struct {
 	// +checklocks:mu
 	inCallSessions map[Session]bool
 	// +checklocks:mu
-	roomSessionData map[PublicSessionId]*RoomSessionData
+	roomSessionData map[api.PublicSessionId]*RoomSessionData
 
 	// +checklocks:mu
 	statsRoomSessionsCurrent *prometheus.GaugeVec
@@ -118,12 +118,12 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEv
 
 		closer:   internal.NewCloser(),
 		mu:       &sync.RWMutex{},
-		sessions: make(map[PublicSessionId]Session),
+		sessions: make(map[api.PublicSessionId]Session),
 
 		internalSessions: make(map[*ClientSession]bool),
 		virtualSessions:  make(map[*VirtualSession]bool),
 		inCallSessions:   make(map[Session]bool),
-		roomSessionData:  make(map[PublicSessionId]*RoomSessionData),
+		roomSessionData:  make(map[api.PublicSessionId]*RoomSessionData),
 
 		statsRoomSessionsCurrent: statsRoomSessionsCurrent.MustCurryWith(prometheus.Labels{
 			"backend": backend.Id(),
@@ -211,9 +211,9 @@ func (r *Room) Close() []Session {
 		result = append(result, s)
 	}
 	r.sessions = nil
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeClient)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeInternal)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeVirtual)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeClient)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeInternal)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeVirtual)})
 	r.mu.Unlock()
 	return result
 }
@@ -278,7 +278,7 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *AsyncRoomMessage) {
 	switch message.Type {
 	case "sessionjoined":
 		r.notifySessionJoined(message.SessionId)
-		if message.ClientType == HelloClientTypeInternal {
+		if message.ClientType == api.HelloClientTypeInternal {
 			r.publishUsersChangedWithInternal()
 		}
 	default:
@@ -306,7 +306,7 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 	}
 	var publishUsersChanged bool
 	switch session.ClientType() {
-	case HelloClientTypeInternal:
+	case api.HelloClientTypeInternal:
 		clientSession, ok := session.(*ClientSession)
 		if !ok {
 			delete(r.sessions, sid)
@@ -314,7 +314,7 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 			panic(fmt.Sprintf("Expected a client session, got %v (%T)", session, session))
 		}
 		r.internalSessions[clientSession] = true
-	case HelloClientTypeVirtual:
+	case api.HelloClientTypeVirtual:
 		virtualSession, ok := session.(*VirtualSession)
 		if !ok {
 			delete(r.sessions, sid)
@@ -358,7 +358,7 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 	}
 }
 
-func (r *Room) getOtherSessions(ignoreSessionId PublicSessionId) (Session, []Session) {
+func (r *Room) getOtherSessions(ignoreSessionId api.PublicSessionId) (Session, []Session) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -374,19 +374,19 @@ func (r *Room) getOtherSessions(ignoreSessionId PublicSessionId) (Session, []Ses
 	return r.sessions[ignoreSessionId], sessions
 }
 
-func (r *Room) notifySessionJoined(sessionId PublicSessionId) {
+func (r *Room) notifySessionJoined(sessionId api.PublicSessionId) {
 	session, sessions := r.getOtherSessions(sessionId)
 	if len(sessions) == 0 {
 		return
 	}
 
-	if session != nil && session.ClientType() != HelloClientTypeClient {
+	if session != nil && session.ClientType() != api.HelloClientTypeClient {
 		session = nil
 	}
 
-	events := make([]EventServerMessageSessionEntry, 0, len(sessions))
+	events := make([]api.EventServerMessageSessionEntry, 0, len(sessions))
 	for _, s := range sessions {
-		entry := EventServerMessageSessionEntry{
+		entry := api.EventServerMessageSessionEntry{
 			SessionId: s.PublicId(),
 			UserId:    s.UserId(),
 			User:      s.UserData(),
@@ -394,14 +394,14 @@ func (r *Room) notifySessionJoined(sessionId PublicSessionId) {
 		if s, ok := s.(*ClientSession); ok {
 			entry.Features = s.GetFeatures()
 			entry.RoomSessionId = s.RoomSessionId()
-			entry.Federated = s.ClientType() == HelloClientTypeFederation
+			entry.Federated = s.ClientType() == api.HelloClientTypeFederation
 		}
 		events = append(events, entry)
 	}
 
-	msg := &ServerMessage{
+	msg := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "room",
 			Type:   "join",
 			Join:   events,
@@ -427,12 +427,12 @@ func (r *Room) notifySessionJoined(sessionId PublicSessionId) {
 			continue
 		}
 
-		msg := &ServerMessage{
+		msg := &api.ServerMessage{
 			Type: "event",
-			Event: &EventServerMessage{
+			Event: &api.EventServerMessage{
 				Target: "participants",
 				Type:   "flags",
-				Flags: &RoomFlagsServerMessage{
+				Flags: &api.RoomFlagsServerMessage{
 					RoomId:    r.id,
 					SessionId: vsess.PublicId(),
 					Flags:     vsess.Flags(),
@@ -479,7 +479,7 @@ func (r *Room) RemoveSession(session Session) bool {
 		// Handle case where virtual session was also sent by Nextcloud.
 		users := make([]api.StringMap, 0, len(r.users))
 		for _, u := range r.users {
-			if value, found := api.GetStringMapString[PublicSessionId](u, "sessionId"); !found || value != sid {
+			if value, found := api.GetStringMapString[api.PublicSessionId](u, "sessionId"); !found || value != sid {
 				users = append(users, u)
 			}
 		}
@@ -503,9 +503,9 @@ func (r *Room) RemoveSession(session Session) bool {
 	}
 
 	r.hub.removeRoom(r)
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeClient)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeInternal)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(HelloClientTypeVirtual)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeClient)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeInternal)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeVirtual)})
 	r.unsubscribeBackend()
 	r.doClose()
 	r.mu.Unlock()
@@ -517,7 +517,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	return false
 }
 
-func (r *Room) publish(message *ServerMessage) error {
+func (r *Room) publish(message *api.ServerMessage) error {
 	return r.events.PublishRoomMessage(r.id, r.backend, &AsyncMessage{
 		Type:    "message",
 		Message: message,
@@ -534,9 +534,9 @@ func (r *Room) UpdateProperties(properties json.RawMessage) {
 	}
 
 	r.properties = properties
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type: "room",
-		Room: &RoomServerMessage{
+		Room: &api.RoomServerMessage{
 			RoomId:     r.id,
 			Properties: r.properties,
 		},
@@ -563,12 +563,12 @@ func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionDat
 		userid = sessionData.UserId
 	}
 
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "room",
 			Type:   "join",
-			Join: []EventServerMessageSessionEntry{
+			Join: []api.EventServerMessageSessionEntry{
 				{
 					SessionId: sessionId,
 					UserId:    userid,
@@ -580,7 +580,7 @@ func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionDat
 	if session, ok := session.(*ClientSession); ok {
 		message.Event.Join[0].Features = session.GetFeatures()
 		message.Event.Join[0].RoomSessionId = session.RoomSessionId()
-		message.Event.Join[0].Federated = session.ClientType() == HelloClientTypeFederation
+		message.Event.Join[0].Federated = session.ClientType() == api.HelloClientTypeFederation
 	}
 	if err := r.publish(message); err != nil {
 		r.logger.Printf("Could not publish session joined message in room %s: %s", r.Id(), err)
@@ -593,12 +593,12 @@ func (r *Room) PublishSessionLeft(session Session) {
 		return
 	}
 
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "room",
 			Type:   "leave",
-			Leave: []PublicSessionId{
+			Leave: []api.PublicSessionId{
 				sessionId,
 			},
 		},
@@ -607,13 +607,13 @@ func (r *Room) PublishSessionLeft(session Session) {
 		r.logger.Printf("Could not publish session left message in room %s: %s", r.Id(), err)
 	}
 
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		r.publishUsersChangedWithInternal()
 	}
 }
 
 // +checklocksread:r.mu
-func (r *Room) getClusteredInternalSessionsRLocked() (internal map[PublicSessionId]*InternalSessionData, virtual map[PublicSessionId]*VirtualSessionData) {
+func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSessionId]*InternalSessionData, virtual map[api.PublicSessionId]*VirtualSessionData) {
 	if r.hub.rpcClients == nil {
 		return nil, nil
 	}
@@ -640,11 +640,11 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[PublicSession
 			mu.Lock()
 			defer mu.Unlock()
 			if internal == nil {
-				internal = make(map[PublicSessionId]*InternalSessionData, len(clientInternal))
+				internal = make(map[api.PublicSessionId]*InternalSessionData, len(clientInternal))
 			}
 			maps.Copy(internal, clientInternal)
 			if virtual == nil {
-				virtual = make(map[PublicSessionId]*VirtualSessionData, len(clientVirtual))
+				virtual = make(map[api.PublicSessionId]*VirtualSessionData, len(clientVirtual))
 			}
 			maps.Copy(virtual, clientVirtual)
 		}(client)
@@ -669,9 +669,9 @@ func (r *Room) addInternalSessions(users []api.StringMap) []api.StringMap {
 		return users
 	}
 
-	skipSession := make(map[PublicSessionId]bool)
+	skipSession := make(map[api.PublicSessionId]bool)
 	for _, user := range users {
-		sessionid, found := api.GetStringMapString[PublicSessionId](user, "sessionId")
+		sessionid, found := api.GetStringMapString[api.PublicSessionId](user, "sessionId")
 		if !found || sessionid == "" {
 			continue
 		}
@@ -786,9 +786,9 @@ func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.St
 			continue
 		}
 
-		sessionId, found := api.GetStringMapString[PublicSessionId](user, "sessionId")
+		sessionId, found := api.GetStringMapString[api.PublicSessionId](user, "sessionId")
 		if !found {
-			sessionId, found = api.GetStringMapString[PublicSessionId](user, "sessionid")
+			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
 			if !found {
 				continue
 			}
@@ -819,12 +819,12 @@ func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.St
 	changed = r.filterPermissions(changed)
 	users = r.filterPermissions(users)
 
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "participants",
 			Type:   "update",
-			Update: &RoomEventServerMessage{
+			Update: &api.RoomEventServerMessage{
 				RoomId:  r.id,
 				Changed: changed,
 				Users:   r.addInternalSessions(users),
@@ -843,15 +843,15 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	var notify []*ClientSession
 	if inCall&FlagInCall != 0 {
 		// All connected sessions join the call.
-		var joined []PublicSessionId
+		var joined []api.PublicSessionId
 		for _, session := range r.sessions {
 			clientSession, ok := session.(*ClientSession)
 			if !ok {
 				continue
 			}
 
-			if session.ClientType() == HelloClientTypeInternal ||
-				session.ClientType() == HelloClientTypeFederation {
+			if session.ClientType() == api.HelloClientTypeInternal ||
+				session.ClientType() == api.HelloClientTypeFederation {
 				continue
 			}
 
@@ -904,12 +904,12 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 
 	inCallMsg := json.RawMessage(strconv.FormatInt(int64(inCall), 10))
 
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "participants",
 			Type:   "update",
-			Update: &RoomEventServerMessage{
+			Update: &api.RoomEventServerMessage{
 				RoomId: r.id,
 				InCall: inCallMsg,
 				All:    true,
@@ -928,12 +928,12 @@ func (r *Room) PublishUsersChanged(changed []api.StringMap, users []api.StringMa
 	changed = r.filterPermissions(changed)
 	users = r.filterPermissions(users)
 
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "participants",
 			Type:   "update",
-			Update: &RoomEventServerMessage{
+			Update: &api.RoomEventServerMessage{
 				RoomId:  r.id,
 				Changed: changed,
 				Users:   r.addInternalSessions(users),
@@ -945,15 +945,15 @@ func (r *Room) PublishUsersChanged(changed []api.StringMap, users []api.StringMa
 	}
 }
 
-func (r *Room) getParticipantsUpdateMessage(users []api.StringMap) *ServerMessage {
+func (r *Room) getParticipantsUpdateMessage(users []api.StringMap) *api.ServerMessage {
 	users = r.filterPermissions(users)
 
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "participants",
 			Type:   "update",
-			Update: &RoomEventServerMessage{
+			Update: &api.RoomEventServerMessage{
 				RoomId: r.id,
 				Users:  r.addInternalSessions(users),
 			},
@@ -972,7 +972,7 @@ func (r *Room) NotifySessionResumed(session *ClientSession) {
 }
 
 func (r *Room) NotifySessionChanged(session Session, flags SessionChangeFlag) {
-	if flags&SessionChangeFlags != 0 && session.ClientType() == HelloClientTypeVirtual {
+	if flags&SessionChangeFlags != 0 && session.ClientType() == api.HelloClientTypeVirtual {
 		// Only notify if a virtual session has changed.
 		if virtual, ok := session.(*VirtualSession); ok {
 			r.publishSessionFlagsChanged(virtual)
@@ -1025,12 +1025,12 @@ func (r *Room) publishUsersChangedWithInternal() {
 }
 
 func (r *Room) publishSessionFlagsChanged(session *VirtualSession) {
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "participants",
 			Type:   "flags",
-			Flags: &RoomFlagsServerMessage{
+			Flags: &api.RoomFlagsServerMessage{
 				RoomId:    r.id,
 				SessionId: session.PublicId(),
 				Flags:     session.Flags(),
@@ -1068,7 +1068,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 
 		parsedBackendUrl := parsed
 
-		var sid RoomSessionId
+		var sid api.RoomSessionId
 		var uid string
 		switch sess := session.(type) {
 		case *ClientSession:
@@ -1077,7 +1077,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 			uid = sess.AuthUserId()
 		case *VirtualSession:
 			// Use our internal generated session id (will be added to Nextcloud).
-			sid = RoomSessionId(sess.PublicId())
+			sid = api.RoomSessionId(sess.PublicId())
 			uid = sess.UserId()
 		default:
 			continue
@@ -1126,12 +1126,12 @@ func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
 		return
 	}
 
-	msg := &ServerMessage{
+	msg := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "room",
 			Type:   "message",
-			Message: &RoomEventMessage{
+			Message: &api.RoomEventMessage{
 				RoomId: r.id,
 				Data:   message.Data,
 			},
@@ -1145,12 +1145,12 @@ func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
 func (r *Room) publishSwitchTo(message *BackendRoomSwitchToMessageRequest) {
 	var wg sync.WaitGroup
 	if len(message.SessionsList) > 0 {
-		msg := &ServerMessage{
+		msg := &api.ServerMessage{
 			Type: "event",
-			Event: &EventServerMessage{
+			Event: &api.EventServerMessage{
 				Target: "room",
 				Type:   "switchto",
-				SwitchTo: &EventServerMessageSwitchTo{
+				SwitchTo: &api.EventServerMessageSwitchTo{
 					RoomId: message.RoomId,
 				},
 			},
@@ -1158,7 +1158,7 @@ func (r *Room) publishSwitchTo(message *BackendRoomSwitchToMessageRequest) {
 
 		for _, sessionId := range message.SessionsList {
 			wg.Add(1)
-			go func(sessionId PublicSessionId) {
+			go func(sessionId api.PublicSessionId) {
 				defer wg.Done()
 
 				if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
@@ -1174,15 +1174,15 @@ func (r *Room) publishSwitchTo(message *BackendRoomSwitchToMessageRequest) {
 	if len(message.SessionsMap) > 0 {
 		for sessionId, details := range message.SessionsMap {
 			wg.Add(1)
-			go func(sessionId PublicSessionId, details json.RawMessage) {
+			go func(sessionId api.PublicSessionId, details json.RawMessage) {
 				defer wg.Done()
 
-				msg := &ServerMessage{
+				msg := &api.ServerMessage{
 					Type: "event",
-					Event: &EventServerMessage{
+					Event: &api.EventServerMessage{
 						Target: "room",
 						Type:   "switchto",
-						SwitchTo: &EventServerMessageSwitchTo{
+						SwitchTo: &api.EventServerMessageSwitchTo{
 							RoomId:  message.RoomId,
 							Details: details,
 						},
@@ -1202,9 +1202,9 @@ func (r *Room) publishSwitchTo(message *BackendRoomSwitchToMessageRequest) {
 }
 
 func (r *Room) notifyInternalRoomDeleted() {
-	msg := &ServerMessage{
+	msg := &api.ServerMessage{
 		Type: "event",
-		Event: &EventServerMessage{
+		Event: &api.EventServerMessage{
 			Target: "room",
 			Type:   "delete",
 		},

@@ -127,8 +127,8 @@ type BackendRoomInviteRequest struct {
 }
 
 type BackendRoomDisinviteRequest struct {
-	UserIds    []string        `json:"userids,omitempty"`
-	SessionIds []RoomSessionId `json:"sessionids,omitempty"`
+	UserIds    []string            `json:"userids,omitempty"`
+	SessionIds []api.RoomSessionId `json:"sessionids,omitempty"`
 	// TODO(jojo): We should get rid of "AllUserIds" and find a better way to
 	// notify existing users the room has changed and they need to update it.
 	AllUserIds []string        `json:"alluserids,omitempty"`
@@ -161,11 +161,11 @@ type BackendRoomMessageRequest struct {
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
-type BackendRoomSwitchToSessionsList []RoomSessionId
-type BackendRoomSwitchToSessionsMap map[RoomSessionId]json.RawMessage
+type BackendRoomSwitchToSessionsList []api.RoomSessionId
+type BackendRoomSwitchToSessionsMap map[api.RoomSessionId]json.RawMessage
 
-type BackendRoomSwitchToPublicSessionsList []PublicSessionId
-type BackendRoomSwitchToPublicSessionsMap map[PublicSessionId]json.RawMessage
+type BackendRoomSwitchToPublicSessionsList []api.PublicSessionId
+type BackendRoomSwitchToPublicSessionsMap map[api.PublicSessionId]json.RawMessage
 
 type BackendRoomSwitchToMessageRequest struct {
 	// Target room id
@@ -198,13 +198,13 @@ func isValidNumber(s string) bool {
 	return checkE164Number.MatchString(s)
 }
 
-func (r *BackendRoomDialoutRequest) ValidateNumber() *Error {
+func (r *BackendRoomDialoutRequest) ValidateNumber() *api.Error {
 	if r.Number == "" {
-		return NewError("number_missing", "No number provided")
+		return api.NewError("number_missing", "No number provided")
 	}
 
 	if !isValidNumber(r.Number) {
-		return NewError("invalid_number", "Expected E.164 number.")
+		return api.NewError("invalid_number", "Expected E.164 number.")
 	}
 
 	return nil
@@ -246,7 +246,7 @@ type BackendRoomDialoutError struct {
 type BackendRoomDialoutResponse struct {
 	CallId string `json:"callid,omitempty"`
 
-	Error *Error `json:"error,omitempty"`
+	Error *api.Error `json:"error,omitempty"`
 }
 
 // Requests from the signaling server to the Nextcloud backend.
@@ -287,7 +287,7 @@ type BackendClientResponse struct {
 
 	Type string `json:"type"`
 
-	Error *Error `json:"error,omitempty"`
+	Error *api.Error `json:"error,omitempty"`
 
 	Auth *BackendClientAuthResponse `json:"auth,omitempty"`
 
@@ -305,11 +305,11 @@ type BackendClientAuthResponse struct {
 }
 
 type BackendClientRoomRequest struct {
-	Version   string        `json:"version"`
-	RoomId    string        `json:"roomid"`
-	Action    string        `json:"action,omitempty"`
-	UserId    string        `json:"userid"`
-	SessionId RoomSessionId `json:"sessionid"`
+	Version   string            `json:"version"`
+	RoomId    string            `json:"roomid"`
+	Action    string            `json:"action,omitempty"`
+	UserId    string            `json:"userid"`
+	SessionId api.RoomSessionId `json:"sessionid"`
 
 	// For Nextcloud Talk with SIP support and for federated sessions.
 	ActorId   string `json:"actorid,omitempty"`
@@ -318,7 +318,7 @@ type BackendClientRoomRequest struct {
 }
 
 func (r *BackendClientRoomRequest) UpdateFromSession(s Session) {
-	if s.ClientType() == HelloClientTypeFederation {
+	if s.ClientType() == api.HelloClientTypeFederation {
 		// Need to send additional data for requests of federated users.
 		if u, err := s.ParsedUserData(); err == nil && len(u) > 0 {
 			if actorType, found := api.GetStringMapEntry[string](u, "actorType"); found {
@@ -331,7 +331,7 @@ func (r *BackendClientRoomRequest) UpdateFromSession(s Session) {
 	}
 }
 
-func NewBackendClientRoomRequest(roomid string, userid string, sessionid RoomSessionId) *BackendClientRequest {
+func NewBackendClientRoomRequest(roomid string, userid string, sessionid api.RoomSessionId) *BackendClientRequest {
 	return &BackendClientRequest{
 		Type: "room",
 		Room: &BackendClientRoomRequest{
@@ -361,8 +361,8 @@ type RoomSessionData struct {
 }
 
 type BackendPingEntry struct {
-	UserId    string        `json:"userid,omitempty"`
-	SessionId RoomSessionId `json:"sessionid"`
+	UserId    string            `json:"userid,omitempty"`
+	SessionId api.RoomSessionId `json:"sessionid"`
 }
 
 type BackendClientPingRequest struct {
@@ -388,12 +388,12 @@ type BackendClientRingResponse struct {
 }
 
 type BackendClientSessionRequest struct {
-	Version   string          `json:"version"`
-	RoomId    string          `json:"roomid"`
-	Action    string          `json:"action"`
-	SessionId PublicSessionId `json:"sessionid"`
-	UserId    string          `json:"userid,omitempty"`
-	User      json.RawMessage `json:"user,omitempty"`
+	Version   string              `json:"version"`
+	RoomId    string              `json:"roomid"`
+	Action    string              `json:"action"`
+	SessionId api.PublicSessionId `json:"sessionid"`
+	UserId    string              `json:"userid,omitempty"`
+	User      json.RawMessage     `json:"user,omitempty"`
 }
 
 type BackendClientSessionResponse struct {
@@ -401,7 +401,7 @@ type BackendClientSessionResponse struct {
 	RoomId  string `json:"roomid"`
 }
 
-func NewBackendClientSessionRequest(roomid string, action string, sessionid PublicSessionId, msg *AddSessionInternalClientMessage) *BackendClientRequest {
+func NewBackendClientSessionRequest(roomid string, action string, sessionid api.PublicSessionId, msg *api.AddSessionInternalClientMessage) *BackendClientRequest {
 	request := &BackendClientRequest{
 		Type: "session",
 		Session: &BackendClientSessionRequest{
@@ -548,12 +548,12 @@ type BackendServerInfoSfu struct {
 }
 
 type BackendServerInfoDialout struct {
-	SessionId PublicSessionId `json:"sessionid"`
-	Connected bool            `json:"connected"`
-	Address   string          `json:"address,omitempty"`
-	UserAgent string          `json:"useragent,omitempty"`
-	Version   string          `json:"version,omitempty"`
-	Features  []string        `json:"features,omitempty"`
+	SessionId api.PublicSessionId `json:"sessionid"`
+	Connected bool                `json:"connected"`
+	Address   string              `json:"address,omitempty"`
+	UserAgent string              `json:"useragent,omitempty"`
+	Version   string              `json:"version,omitempty"`
+	Features  []string            `json:"features,omitempty"`
 }
 
 type BackendServerInfoNats struct {

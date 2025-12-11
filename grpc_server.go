@@ -38,6 +38,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	status "google.golang.org/grpc/status"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -60,9 +61,9 @@ func init() {
 }
 
 type GrpcServerHub interface {
-	GetSessionByResumeId(resumeId PrivateSessionId) Session
-	GetSessionByPublicId(sessionId PublicSessionId) Session
-	GetSessionIdByRoomSessionId(roomSessionId RoomSessionId) (PublicSessionId, error)
+	GetSessionByResumeId(resumeId api.PrivateSessionId) Session
+	GetSessionByPublicId(sessionId api.PublicSessionId) Session
+	GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error)
 	GetRoomForBackend(roomId string, backend *Backend) *Room
 
 	GetBackend(u *url.URL) *Backend
@@ -136,7 +137,7 @@ func (s *GrpcServer) LookupResumeId(ctx context.Context, request *LookupResumeId
 	statsGrpcServerCalls.WithLabelValues("LookupResumeId").Inc()
 	// TODO: Remove debug logging
 	s.logger.Printf("Lookup session for resume id %s", request.ResumeId)
-	session := s.hub.GetSessionByResumeId(PrivateSessionId(request.ResumeId))
+	session := s.hub.GetSessionByResumeId(api.PrivateSessionId(request.ResumeId))
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such room session id")
 	}
@@ -150,7 +151,7 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 	statsGrpcServerCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
 	s.logger.Printf("Lookup session id for room session id %s", request.RoomSessionId)
-	sid, err := s.hub.GetSessionIdByRoomSessionId(RoomSessionId(request.RoomSessionId))
+	sid, err := s.hub.GetSessionIdByRoomSessionId(api.RoomSessionId(request.RoomSessionId))
 	if errors.Is(err, ErrNoSuchRoomSession) {
 		return nil, status.Error(codes.NotFound, "no such room session id")
 	} else if err != nil {
@@ -158,7 +159,7 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 	}
 
 	if sid != "" && request.DisconnectReason != "" {
-		if session := s.hub.GetSessionByPublicId(PublicSessionId(sid)); session != nil {
+		if session := s.hub.GetSessionByPublicId(api.PublicSessionId(sid)); session != nil {
 			s.logger.Printf("Closing session %s because same room session %s connected", session.PublicId(), request.RoomSessionId)
 			session.LeaveRoom(false)
 			switch sess := session.(type) {
@@ -179,7 +180,7 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 	statsGrpcServerCalls.WithLabelValues("IsSessionInCall").Inc()
 	// TODO: Remove debug logging
 	s.logger.Printf("Check if session %s is in call %s on %s", request.SessionId, request.RoomId, request.BackendUrl)
-	session := s.hub.GetSessionByPublicId(PublicSessionId(request.SessionId))
+	session := s.hub.GetSessionByPublicId(api.PublicSessionId(request.SessionId))
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such session id")
 	}
@@ -187,7 +188,7 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 	result := &IsSessionInCallReply{}
 	room := session.GetRoom()
 	if room == nil || room.Id() != request.GetRoomId() || !room.Backend().HasUrl(request.GetBackendUrl()) ||
-		(session.ClientType() != HelloClientTypeInternal && !room.IsSessionInCall(session)) {
+		(session.ClientType() != api.HelloClientTypeInternal && !room.IsSessionInCall(session)) {
 		// Recipient is not in a room, a different room or not in the call.
 		result.InCall = false
 	} else {
@@ -265,7 +266,7 @@ func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherId
 	statsGrpcServerCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
 	s.logger.Printf("Get %s publisher id for session %s", request.StreamType, request.SessionId)
-	session := s.hub.GetSessionByPublicId(PublicSessionId(request.SessionId))
+	session := s.hub.GetSessionByPublicId(api.PublicSessionId(request.SessionId))
 	if session == nil {
 		return nil, status.Error(codes.NotFound, "no such session")
 	}

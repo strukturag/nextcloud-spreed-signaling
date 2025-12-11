@@ -34,22 +34,22 @@ import (
 )
 
 type DummySession struct {
-	publicId PublicSessionId
+	publicId api.PublicSessionId
 }
 
 func (s *DummySession) Context() context.Context {
 	return context.Background()
 }
 
-func (s *DummySession) PrivateId() PrivateSessionId {
+func (s *DummySession) PrivateId() api.PrivateSessionId {
 	return ""
 }
 
-func (s *DummySession) PublicId() PublicSessionId {
+func (s *DummySession) PublicId() api.PublicSessionId {
 	return s.publicId
 }
 
-func (s *DummySession) ClientType() ClientType {
+func (s *DummySession) ClientType() api.ClientType {
 	return ""
 }
 
@@ -88,6 +88,10 @@ func (s *DummySession) GetRoom() *Room {
 	return nil
 }
 
+func (s *DummySession) IsInRoom(id string) bool {
+	return false
+}
+
 func (s *DummySession) LeaveRoom(notify bool) *Room {
 	return nil
 }
@@ -99,15 +103,15 @@ func (s *DummySession) HasPermission(permission Permission) bool {
 	return false
 }
 
-func (s *DummySession) SendError(e *Error) bool {
+func (s *DummySession) SendError(e *api.Error) bool {
 	return false
 }
 
-func (s *DummySession) SendMessage(message *ServerMessage) bool {
+func (s *DummySession) SendMessage(message *api.ServerMessage) bool {
 	return false
 }
 
-func checkSession(t *testing.T, sessions RoomSessions, sessionId PublicSessionId, roomSessionId RoomSessionId) Session {
+func checkSession(t *testing.T, sessions RoomSessions, sessionId api.PublicSessionId, roomSessionId api.RoomSessionId) Session {
 	session := &DummySession{
 		publicId: sessionId,
 	}

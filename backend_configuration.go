@@ -44,7 +44,7 @@ const (
 )
 
 var (
-	SessionLimitExceeded = NewError("session_limit_exceeded", "Too many sessions connected for this backend.")
+	SessionLimitExceeded = api.NewError("session_limit_exceeded", "Too many sessions connected for this backend.")
 )
 
 type Backend struct {
@@ -60,7 +60,7 @@ type Backend struct {
 	sessionLimit uint64
 	sessionsLock sync.Mutex
 	// +checklocks:sessionsLock
-	sessions map[PublicSessionId]bool
+	sessions map[api.PublicSessionId]bool
 
 	counted bool
 }
@@ -134,7 +134,7 @@ func (b *Backend) Len() int {
 }
 
 func (b *Backend) AddSession(session Session) error {
-	if session.ClientType() == HelloClientTypeInternal || session.ClientType() == HelloClientTypeVirtual {
+	if session.ClientType() == api.HelloClientTypeInternal || session.ClientType() == api.HelloClientTypeVirtual {
 		// Internal and virtual sessions are not counting to the limit.
 		return nil
 	}
@@ -147,7 +147,7 @@ func (b *Backend) AddSession(session Session) error {
 	b.sessionsLock.Lock()
 	defer b.sessionsLock.Unlock()
 	if b.sessions == nil {
-		b.sessions = make(map[PublicSessionId]bool)
+		b.sessions = make(map[api.PublicSessionId]bool)
 	} else if uint64(len(b.sessions)) >= b.sessionLimit {
 		statsBackendLimitExceededTotal.WithLabelValues(b.id).Inc()
 		return SessionLimitExceeded

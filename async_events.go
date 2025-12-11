@@ -25,6 +25,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
@@ -57,13 +58,13 @@ type AsyncEvents interface {
 	RegisterUserListener(userId string, backend *Backend, listener AsyncUserEventListener) error
 	UnregisterUserListener(userId string, backend *Backend, listener AsyncUserEventListener)
 
-	RegisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) error
-	UnregisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener)
+	RegisterSessionListener(sessionId api.PublicSessionId, backend *Backend, listener AsyncSessionEventListener) error
+	UnregisterSessionListener(sessionId api.PublicSessionId, backend *Backend, listener AsyncSessionEventListener)
 
 	PublishBackendRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error
 	PublishRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error
 	PublishUserMessage(userId string, backend *Backend, message *AsyncMessage) error
-	PublishSessionMessage(sessionId PublicSessionId, backend *Backend, message *AsyncMessage) error
+	PublishSessionMessage(sessionId api.PublicSessionId, backend *Backend, message *AsyncMessage) error
 }
 
 func NewAsyncEvents(ctx context.Context, url string) (AsyncEvents, error) {

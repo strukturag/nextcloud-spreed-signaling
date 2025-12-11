@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 )
 
 func TestBandwidth_Client(t *testing.T) {
@@ -63,20 +64,20 @@ func TestBandwidth_Client(t *testing.T) {
 
 	// Client may not send an offer with audio and video.
 	bitrate := api.BandwidthFromBits(10000)
-	require.NoError(client.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
 		Bitrate:  bitrate,
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	require.True(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+	require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
 	pub := mcu.GetPublisher(hello.Hello.SessionId)
 	require.NotNil(pub)
@@ -122,7 +123,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			params := TestBackendClientAuthParams{
 				UserId: testDefaultUserId,
 			}
-			require.NoError(client.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params))
+			require.NoError(client.SendHelloParams(server.URL+"/one", api.HelloVersionV1, "client", nil, params))
 
 			hello := MustSucceed1(t, client.RunUntilHello, ctx)
 
@@ -136,20 +137,20 @@ func TestBandwidth_Backend(t *testing.T) {
 
 			// Client may not send an offer with audio and video.
 			bitrate := api.BandwidthFromBits(10000)
-			require.NoError(client.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "offer",
 				Sid:      "54321",
 				RoomType: string(streamType),
 				Bitrate:  bitrate,
 				Payload: api.StringMap{
-					"sdp": MockSdpOfferAudioAndVideo,
+					"sdp": mock.MockSdpOfferAudioAndVideo,
 				},
 			}))
 
-			require.True(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+			require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
 			pub := mcu.GetPublisher(hello.Hello.SessionId)
 			require.NotNil(pub, "Could not find publisher")
@@ -179,7 +180,7 @@ func TestFeatureChatRelay(t *testing.T) {
 			defer client.CloseWithBye()
 			var features []string
 			if feature {
-				features = append(features, ClientFeatureChatRelay)
+				features = append(features, api.ClientFeatureChatRelay)
 			}
 			require.NoError(client.SendHelloClientWithFeatures(testDefaultUserId, features))
 
@@ -263,11 +264,11 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			hub1, hub2, server1, server2 := CreateClusteredHubsForTest(t)
 
 			localFeatures := []string{
-				ClientFeatureChatRelay,
+				api.ClientFeatureChatRelay,
 			}
 			var federatedFeatures []string
 			if feature {
-				federatedFeatures = append(federatedFeatures, ClientFeatureChatRelay)
+				federatedFeatures = append(federatedFeatures, api.ClientFeatureChatRelay)
 			}
 
 			client1 := NewTestClient(t, server1, hub1)
@@ -300,13 +301,13 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
 			require.NoError(err)
 
-			msg := &ClientMessage{
+			msg := &api.ClientMessage{
 				Id:   "join-room-fed",
 				Type: "room",
-				Room: &RoomClientMessage{
+				Room: &api.RoomClientMessage{
 					RoomId:    federatedRoomId,
-					SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-					Federation: &RoomFederationMessage{
+					SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+					Federation: &api.RoomFederationMessage{
 						SignalingUrl: server1.URL,
 						NextcloudUrl: server1.URL,
 						RoomId:       roomId,
@@ -323,7 +324,7 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			}
 
 			// The client1 will see the remote session id for client2.
-			var remoteSessionId PublicSessionId
+			var remoteSessionId api.PublicSessionId
 			if message, ok := client1.RunUntilMessage(ctx); ok {
 				client1.checkSingleMessageJoined(message)
 				evt := message.Event.Join[0]
@@ -551,7 +552,7 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 				client.RunUntilJoined(ctx, hello2.Hello)
 				client2.RunUntilJoined(ctx, hello.Hello, hello2.Hello)
 
-				recipient1 := MessageClientMessageRecipient{
+				recipient1 := api.MessageClientMessageRecipient{
 					Type:      "session",
 					SessionId: hello.Hello.SessionId,
 				}

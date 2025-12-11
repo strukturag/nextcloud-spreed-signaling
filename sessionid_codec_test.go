@@ -27,6 +27,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 func TestReverseSessionId(t *testing.T) {
@@ -158,11 +160,11 @@ func TestPublicPrivate(t *testing.T) {
 		codec.Put(data)
 	}
 
-	if data, err := codec.DecodePublic(PublicSessionId(private)); !assert.Error(err) {
+	if data, err := codec.DecodePublic(api.PublicSessionId(private)); !assert.Error(err) {
 		assert.Fail("should have failed", "received %+v", data)
 		codec.Put(data)
 	}
-	if data, err := codec.DecodePrivate(PrivateSessionId(public)); !assert.Error(err) {
+	if data, err := codec.DecodePrivate(api.PrivateSessionId(public)); !assert.Error(err) {
 		assert.Fail("should have failed", "received %+v", data)
 		codec.Put(data)
 	}

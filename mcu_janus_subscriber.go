@@ -34,10 +34,10 @@ import (
 type mcuJanusSubscriber struct {
 	mcuJanusClient
 
-	publisher PublicSessionId
+	publisher api.PublicSessionId
 }
 
-func (p *mcuJanusSubscriber) Publisher() PublicSessionId {
+func (p *mcuJanusSubscriber) Publisher() api.PublicSessionId {
 	return p.publisher
 }
 
@@ -290,7 +290,7 @@ func (p *mcuJanusSubscriber) update(ctx context.Context, stream *streamSelection
 	callback(nil, configure_response.Jsep)
 }
 
-func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
+func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {
@@ -315,9 +315,9 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 		}
 	case "answer":
 		p.deferred <- func() {
-			if FilterSDPCandidates(data.answerSdp, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
+			if api.FilterSDPCandidates(data.AnswerSdp, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
 				// Update request with filtered SDP.
-				marshalled, err := data.answerSdp.Marshal()
+				marshalled, err := data.AnswerSdp.Marshal()
 				if err != nil {
 					go callback(fmt.Errorf("could not marshal filtered answer: %w", err), nil)
 					return
@@ -336,8 +336,8 @@ func (p *mcuJanusSubscriber) SendMessage(ctx context.Context, message *MessageCl
 			}
 		}
 	case "candidate":
-		if FilterCandidate(data.candidate, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
-			go callback(ErrCandidateFiltered, nil)
+		if api.FilterCandidate(data.Candidate, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
+			go callback(api.ErrCandidateFiltered, nil)
 			return
 		}
 
