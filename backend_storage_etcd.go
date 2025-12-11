@@ -33,7 +33,9 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type backendStorageEtcd struct {
@@ -42,7 +44,7 @@ type backendStorageEtcd struct {
 	logger     log.Logger
 	etcdClient *EtcdClient
 	keyPrefix  string
-	keyInfos   map[string]*BackendInformationEtcd
+	keyInfos   map[string]*etcd.BackendInformationEtcd
 
 	initializedCtx       context.Context
 	initializedFunc      context.CancelFunc
@@ -66,13 +68,13 @@ func NewBackendStorageEtcd(logger log.Logger, config *goconf.ConfigFile, etcdCli
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 	result := &backendStorageEtcd{
 		backendStorageCommon: backendStorageCommon{
-			backends: make(map[string][]*Backend),
+			backends: make(map[string][]*talk.Backend),
 			stats:    stats,
 		},
 		logger:     logger,
 		etcdClient: etcdClient,
 		keyPrefix:  keyPrefix,
-		keyInfos:   make(map[string]*BackendInformationEtcd),
+		keyInfos:   make(map[string]*etcd.BackendInformationEtcd),
 
 		initializedCtx:  initializedCtx,
 		initializedFunc: initializedFunc,
@@ -173,7 +175,7 @@ func (s *backendStorageEtcd) getBackends(ctx context.Context, client *EtcdClient
 }
 
 func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
-	var info BackendInformationEtcd
+	var info etcd.BackendInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
 		s.logger.Printf("Could not decode backend information %s: %s", string(data), err)
 		return
@@ -183,34 +185,20 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		return
 	}
 
-	allowHttp := slices.ContainsFunc(info.parsedUrls, func(u *url.URL) bool {
-		return u.Scheme == "http"
-	})
-
-	backend := &Backend{
-		id:     key,
-		urls:   info.Urls,
-		secret: []byte(info.Secret),
-
-		allowHttp: allowHttp,
-
-		maxStreamBitrate: info.MaxStreamBitrate,
-		maxScreenBitrate: info.MaxScreenBitrate,
-		sessionLimit:     info.SessionLimit,
-	}
+	backend := talk.NewBackendFromEtcd(key, &info)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.keyInfos[key] = &info
 	added := false
-	for idx, u := range info.parsedUrls {
+	for idx, u := range info.ParsedUrls {
 		host := u.Host
 		entries, found := s.backends[host]
 		if !found {
 			// Simple case, first backend for this host
 			s.logger.Printf("Added backend %s (from %s)", info.Urls[idx], key)
-			s.backends[host] = []*Backend{backend}
+			s.backends[host] = []*talk.Backend{backend}
 			added = true
 			continue
 		}
@@ -218,7 +206,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 		// Was the backend changed?
 		replaced := false
 		for idx, entry := range entries {
-			if entry.id == key {
+			if entry.Id() == key {
 				s.logger.Printf("Updated backend %s (from %s)", info.Urls[idx], key)
 				entries[idx] = backend
 				replaced = true
@@ -233,7 +221,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 			added = true
 		}
 	}
-	updateBackendStats(backend)
+	backend.UpdateStats()
 	if added {
 		s.stats.IncBackends()
 	}
@@ -250,15 +238,15 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prev
 	}
 
 	delete(s.keyInfos, key)
-	var deleted map[string][]*Backend
+	var deleted map[string][]*talk.Backend
 	seen := make(map[string]bool)
-	for idx, u := range info.parsedUrls {
+	for idx, u := range info.ParsedUrls {
 		host := u.Host
 		entries, found := s.backends[host]
 		if !found {
 			if d, ok := deleted[host]; ok {
-				if slices.ContainsFunc(d, func(b *Backend) bool {
-					return slices.Contains(b.urls, u.String())
+				if slices.ContainsFunc(d, func(b *talk.Backend) bool {
+					return slices.Contains(b.Urls(), u.String())
 				}) {
 					s.logger.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
 				}
@@ -267,18 +255,18 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prev
 		}
 
 		s.logger.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
-		newEntries := make([]*Backend, 0, len(entries)-1)
+		newEntries := make([]*talk.Backend, 0, len(entries)-1)
 		for _, entry := range entries {
-			if entry.id == key {
-				if len(info.parsedUrls) > 1 {
+			if entry.Id() == key {
+				if len(info.ParsedUrls) > 1 {
 					if deleted == nil {
-						deleted = make(map[string][]*Backend)
+						deleted = make(map[string][]*talk.Backend)
 					}
 					deleted[host] = append(deleted[host], entry)
 				}
 				if !seen[entry.Id()] {
 					seen[entry.Id()] = true
-					updateBackendStats(entry)
+					entry.UpdateStats()
 					s.stats.DecBackends()
 				}
 				continue
@@ -304,11 +292,11 @@ func (s *backendStorageEtcd) Reload(config *goconf.ConfigFile) {
 	// Backend updates are processed through etcd.
 }
 
-func (s *backendStorageEtcd) GetCompatBackend() *Backend {
+func (s *backendStorageEtcd) GetCompatBackend() *talk.Backend {
 	return nil
 }
 
-func (s *backendStorageEtcd) GetBackend(u *url.URL) *Backend {
+func (s *backendStorageEtcd) GetBackend(u *url.URL) *talk.Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

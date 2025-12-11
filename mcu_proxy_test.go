@@ -52,6 +52,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -1787,11 +1788,11 @@ func (h *mockGrpcServerHub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSe
 	return "", nil
 }
 
-func (h *mockGrpcServerHub) GetBackend(u *url.URL) *Backend {
+func (h *mockGrpcServerHub) GetBackend(u *url.URL) *talk.Backend {
 	return nil
 }
 
-func (h *mockGrpcServerHub) GetRoomForBackend(roomId string, backend *Backend) *Room {
+func (h *mockGrpcServerHub) GetRoomForBackend(roomId string, backend *talk.Backend) *Room {
 	return nil
 }
 

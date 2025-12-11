@@ -742,7 +742,7 @@ func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.
 	return h.roomSessions.GetSessionId(roomSessionId)
 }
 
-func (h *Hub) GetDialoutSessions(roomId string, backend *Backend) (result []*ClientSession) {
+func (h *Hub) GetDialoutSessions(roomId string, backend *talk.Backend) (result []*ClientSession) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for session := range h.dialoutSessions {
@@ -758,7 +758,7 @@ func (h *Hub) GetDialoutSessions(roomId string, backend *Backend) (result []*Cli
 	return
 }
 
-func (h *Hub) GetBackend(u *url.URL) *Backend {
+func (h *Hub) GetBackend(u *url.URL) *talk.Backend {
 	if u == nil {
 		return h.backend.GetCompatBackend()
 	}
@@ -942,7 +942,7 @@ func (h *Hub) unregisterRemoteSession(session *RemoteSession) {
 	delete(h.remoteSessions, session)
 }
 
-func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
+func (h *Hub) newSessionIdData(backend *talk.Backend) *SessionIdData {
 	sid := h.sid.Add(1)
 	for sid == 0 {
 		sid = h.sid.Add(1)
@@ -955,7 +955,7 @@ func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
 	return sessionIdData
 }
 
-func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backend *Backend, auth *BackendClientResponse) {
+func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backend *talk.Backend, auth *BackendClientResponse) {
 	if !c.IsConnected() {
 		// Client disconnected while waiting for "hello" response.
 		return
@@ -1036,9 +1036,9 @@ func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backe
 		wg.Wait()
 		if totalCount.Load() > limit {
 			backend.RemoveSession(session)
-			h.logger.Printf("Error adding session %s to backend %s: %s", session.PublicId(), backend.Id(), SessionLimitExceeded)
+			h.logger.Printf("Error adding session %s to backend %s: %s", session.PublicId(), backend.Id(), talk.SessionLimitExceeded)
 			session.Close()
-			client.SendMessage(message.NewWrappedErrorServerMessage(SessionLimitExceeded))
+			client.SendMessage(message.NewWrappedErrorServerMessage(talk.SessionLimitExceeded))
 			return
 		}
 	}
@@ -1365,7 +1365,7 @@ func (h *Hub) processHello(client HandlerClient, message *api.ClientMessage) {
 	}
 }
 
-func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*Backend, *BackendClientResponse, error) {
+func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *BackendClientResponse, error) {
 	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
@@ -1389,7 +1389,7 @@ func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message 
 	return backend, &auth, nil
 }
 
-func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*Backend, *BackendClientResponse, error) {
+func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *BackendClientResponse, error) {
 	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
@@ -1546,7 +1546,7 @@ func (h *Hub) processHelloClient(client HandlerClient, message *api.ClientMessag
 	// Make sure the client must send another "hello" in case of errors.
 	defer h.startExpectHello(client)
 
-	var authFunc func(context.Context, HandlerClient, *api.ClientMessage) (*Backend, *BackendClientResponse, error)
+	var authFunc func(context.Context, HandlerClient, *api.ClientMessage) (*talk.Backend, *BackendClientResponse, error)
 	switch message.Hello.Version {
 	case api.HelloVersionV1:
 		// Auth information contains a ticket that must be validated against the
@@ -1616,7 +1616,7 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *api.ClientMess
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, backend *Backend) {
+func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, backend *talk.Backend) {
 	sessionId, err := h.roomSessions.LookupSessionId(ctx, roomSessionId, "room_session_reconnected")
 	if err == ErrNoSuchRoomSession {
 		return
@@ -1680,8 +1680,8 @@ func (h *Hub) sendRoom(session *ClientSession, message *api.ClientMessage, room 
 		var backendStreamBitrate api.Bandwidth
 		var backendScreenBitrate api.Bandwidth
 		if backend := room.Backend(); backend != nil {
-			backendStreamBitrate = backend.maxStreamBitrate
-			backendScreenBitrate = backend.maxScreenBitrate
+			backendStreamBitrate = backend.MaxStreamBitrate()
+			backendScreenBitrate = backend.MaxScreenBitrate()
 		}
 
 		var maxStreamBitrate api.Bandwidth
@@ -1967,7 +1967,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 	return count, &wg
 }
 
-func (h *Hub) GetRoomForBackend(id string, backend *Backend) *Room {
+func (h *Hub) GetRoomForBackend(id string, backend *talk.Backend) *Room {
 	internalRoomId := getRoomIdForBackend(id, backend)
 
 	h.ru.RLock()
@@ -1986,7 +1986,7 @@ func (h *Hub) removeRoom(room *Room) {
 	h.roomPing.DeleteRoom(room.Id())
 }
 
-func (h *Hub) CreateRoom(id string, properties json.RawMessage, backend *Backend) (*Room, error) {
+func (h *Hub) CreateRoom(id string, properties json.RawMessage, backend *talk.Backend) (*Room, error) {
 	h.ru.Lock()
 	defer h.ru.Unlock()
 
@@ -1994,7 +1994,7 @@ func (h *Hub) CreateRoom(id string, properties json.RawMessage, backend *Backend
 }
 
 // +checklocks:h.ru
-func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *Backend) (*Room, error) {
+func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *talk.Backend) (*Room, error) {
 	// Note the write lock must be held.
 	room, err := NewRoom(id, properties, h, h.events, backend)
 	if err != nil {

@@ -41,6 +41,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
@@ -65,9 +66,9 @@ type GrpcServerHub interface {
 	GetSessionByResumeId(resumeId api.PrivateSessionId) Session
 	GetSessionByPublicId(sessionId api.PublicSessionId) Session
 	GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error)
-	GetRoomForBackend(roomId string, backend *Backend) *Room
+	GetRoomForBackend(roomId string, backend *talk.Backend) *Room
 
-	GetBackend(u *url.URL) *Backend
+	GetBackend(u *url.URL) *talk.Backend
 	CreateProxyToken(publisherId string) (string, error)
 }
 

@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, invalid_urls []string) {
@@ -486,9 +487,9 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	}
 }
 
-func sortBackends(backends []*Backend) []*Backend {
+func sortBackends(backends []*talk.Backend) []*talk.Backend {
 	result := slices.Clone(backends)
-	slices.SortFunc(result, func(a, b *Backend) int {
+	slices.SortFunc(result, func(a, b *talk.Backend) int {
 		return strings.Compare(a.Id(), b.Id())
 	})
 	return result
@@ -534,8 +535,8 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	require.NoError(storage.WaitForInitialized(ctx))
 
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
-		assert.Equal([]string{url1}, backends[0].urls) &&
-		assert.Equal(initialSecret1, string(backends[0].secret)) {
+		assert.Equal([]string{url1}, backends[0].Urls()) &&
+		assert.Equal(initialSecret1, string(backends[0].Secret())) {
 		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
 			assert.Equal(backends[0], backend)
 		}
@@ -546,8 +547,8 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	<-ch
 	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
-		assert.Equal([]string{url1}, backends[0].urls) &&
-		assert.Equal(secret1, string(backends[0].secret)) {
+		assert.Equal([]string{url1}, backends[0].Urls()) &&
+		assert.Equal(secret1, string(backends[0].Secret())) {
 		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
 			assert.Equal(backends[0], backend)
 		}
@@ -561,10 +562,10 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	<-ch
 	assert.Equal(2, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) &&
-		assert.Equal([]string{url1}, backends[0].urls) &&
-		assert.Equal(secret1, string(backends[0].secret)) &&
-		assert.Equal([]string{url2}, backends[1].urls) &&
-		assert.Equal(secret2, string(backends[1].secret)) {
+		assert.Equal([]string{url1}, backends[0].Urls()) &&
+		assert.Equal(secret1, string(backends[0].Secret())) &&
+		assert.Equal([]string{url2}, backends[1].Urls()) &&
+		assert.Equal(secret2, string(backends[1].Secret())) {
 		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
 			assert.Equal(backends[0], backend)
 		} else if backend := cfg.GetBackend(mustParse(url2)); assert.NotNil(backend) {
@@ -580,12 +581,12 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	<-ch
 	assert.Equal(3, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 3) &&
-		assert.Equal([]string{url1}, backends[0].urls) &&
-		assert.Equal(secret1, string(backends[0].secret)) &&
-		assert.Equal([]string{url2}, backends[1].urls) &&
-		assert.Equal(secret2, string(backends[1].secret)) &&
-		assert.Equal([]string{url3}, backends[2].urls) &&
-		assert.Equal(secret3, string(backends[2].secret)) {
+		assert.Equal([]string{url1}, backends[0].Urls()) &&
+		assert.Equal(secret1, string(backends[0].Secret())) &&
+		assert.Equal([]string{url2}, backends[1].Urls()) &&
+		assert.Equal(secret2, string(backends[1].Secret())) &&
+		assert.Equal([]string{url3}, backends[2].Urls()) &&
+		assert.Equal(secret3, string(backends[2].Secret())) {
 		if backend := cfg.GetBackend(mustParse(url1)); assert.NotNil(backend) {
 			assert.Equal(backends[0], backend)
 		} else if backend := cfg.GetBackend(mustParse(url2)); assert.NotNil(backend) {
@@ -600,10 +601,10 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	<-ch
 	assert.Equal(2, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) {
-		assert.Equal([]string{url2}, backends[0].urls)
-		assert.Equal(secret2, string(backends[0].secret))
-		assert.Equal([]string{url3}, backends[1].urls)
-		assert.Equal(secret3, string(backends[1].secret))
+		assert.Equal([]string{url2}, backends[0].Urls())
+		assert.Equal(secret2, string(backends[0].Secret()))
+		assert.Equal([]string{url3}, backends[1].Urls())
+		assert.Equal(secret3, string(backends[1].Secret()))
 	}
 
 	drainWakeupChannel(ch)
@@ -611,8 +612,8 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	<-ch
 	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) {
-		assert.Equal([]string{url3}, backends[0].urls)
-		assert.Equal(secret3, string(backends[0].secret))
+		assert.Equal([]string{url3}, backends[0].Urls())
+		assert.Equal(secret3, string(backends[0].Secret()))
 	}
 
 	storage.mu.RLock()

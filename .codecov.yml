@@ -38,6 +38,10 @@ component_management:
       name: container
       paths:
         - container/**
+    - component_id: module_etcd
+      name: etcd
+      paths:
+        - etcd/**
     - component_id: module_internal
       name: internal
       paths:

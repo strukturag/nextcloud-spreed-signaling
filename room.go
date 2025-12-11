@@ -39,6 +39,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -70,7 +71,7 @@ type Room struct {
 	logger  log.Logger
 	hub     *Hub
 	events  AsyncEvents
-	backend *Backend
+	backend *talk.Backend
 
 	// +checklocks:mu
 	properties json.RawMessage
@@ -101,7 +102,7 @@ type Room struct {
 	transientData *TransientData
 }
 
-func getRoomIdForBackend(id string, backend *Backend) string {
+func getRoomIdForBackend(id string, backend *talk.Backend) string {
 	if id == "" {
 		return ""
 	}
@@ -109,7 +110,7 @@ func getRoomIdForBackend(id string, backend *Backend) string {
 	return backend.Id() + "|" + id
 }
 
-func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEvents, backend *Backend) (*Room, error) {
+func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEvents, backend *talk.Backend) (*Room, error) {
 	room := &Room{
 		id:      roomId,
 		logger:  hub.logger,
@@ -158,7 +159,7 @@ func (r *Room) Properties() json.RawMessage {
 	return r.properties
 }
 
-func (r *Room) Backend() *Backend {
+func (r *Room) Backend() *talk.Backend {
 	return r.backend
 }
 

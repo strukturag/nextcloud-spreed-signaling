@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type DummySession struct {
@@ -69,7 +70,7 @@ func (s *DummySession) ParsedUserData() (api.StringMap, error) {
 	return nil, nil
 }
 
-func (s *DummySession) Backend() *Backend {
+func (s *DummySession) Backend() *talk.Backend {
 	return nil
 }
 

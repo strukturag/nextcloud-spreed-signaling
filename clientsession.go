@@ -39,6 +39,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
@@ -76,7 +77,7 @@ type ClientSession struct {
 	// +checklocks:mu
 	permissions map[Permission]bool
 
-	backend          *Backend
+	backend          *talk.Backend
 	backendUrl       string
 	parsedBackendUrl *url.URL
 
@@ -119,7 +120,7 @@ type ClientSession struct {
 	responseHandlers map[string]ResponseHandlerFunc
 }
 
-func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, backend *Backend, hello *api.HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
+func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, backend *talk.Backend, hello *api.HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
 	ctx := log.NewLoggerContext(context.Background(), hub.logger)
 	ctx, closeFunc := context.WithCancel(ctx)
 	s := &ClientSession{
@@ -284,7 +285,7 @@ func (s *ClientSession) SetPermissions(permissions []Permission) {
 	s.logger.Printf("Permissions of session %s changed: %s", s.PublicId(), permissions)
 }
 
-func (s *ClientSession) Backend() *Backend {
+func (s *ClientSession) Backend() *talk.Backend {
 	return s.backend
 }
 
@@ -947,9 +948,9 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		if backend := s.Backend(); backend != nil {
 			var maxBitrate api.Bandwidth
 			if streamType == StreamTypeScreen {
-				maxBitrate = backend.maxScreenBitrate
+				maxBitrate = backend.MaxScreenBitrate()
 			} else {
-				maxBitrate = backend.maxStreamBitrate
+				maxBitrate = backend.MaxStreamBitrate()
 			}
 			if settings.Bitrate <= 0 {
 				settings.Bitrate = maxBitrate
