@@ -1424,7 +1424,7 @@ func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
 				}
 			}
 		case "event":
-			if msg.Message.Event.Target == "room" {
+			if msg.Message.Event.Target == "room" || msg.Message.Event.Target == "participants" {
 				// Can happen mostly during tests where an older room async message
 				// could be received by a subscriber that joined after it was sent.
 				if joined := s.getRoomJoinTime(); joined.IsZero() || msg.SendTime.Before(joined) {
