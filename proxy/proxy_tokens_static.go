@@ -30,7 +30,7 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v5"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -64,8 +64,8 @@ func (t *tokensStatic) Get(id string) (*ProxyToken, error) {
 	return token, nil
 }
 
-func (t *tokensStatic) load(config *goconf.ConfigFile, ignoreErrors bool) error {
-	options, err := signaling.GetStringOptions(config, "tokens", ignoreErrors)
+func (t *tokensStatic) load(cfg *goconf.ConfigFile, ignoreErrors bool) error {
+	options, err := config.GetStringOptions(cfg, "tokens", ignoreErrors)
 	if err != nil {
 		return err
 	}

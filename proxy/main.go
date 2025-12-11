@@ -37,7 +37,7 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -78,7 +78,7 @@ func main() {
 
 	logger.Printf("Starting up version %s/%s as pid %d", version, runtime.Version(), os.Getpid())
 
-	config, err := goconf.ReadConfigFile(*configFlag)
+	cfg, err := goconf.ReadConfigFile(*configFlag)
 	if err != nil {
 		logger.Fatal("Could not read configuration: ", err)
 	}
@@ -87,22 +87,22 @@ func main() {
 
 	r := mux.NewRouter()
 
-	proxy, err := NewProxyServer(stopCtx, r, version, config)
+	proxy, err := NewProxyServer(stopCtx, r, version, cfg)
 	if err != nil {
 		logger.Fatal(err)
 	}
 
-	if err := proxy.Start(config); err != nil {
+	if err := proxy.Start(cfg); err != nil {
 		logger.Fatal(err)
 	}
 	defer proxy.Stop()
 
-	if addr, _ := signaling.GetStringOptionWithEnv(config, "http", "listen"); addr != "" {
-		readTimeout, _ := config.GetInt("http", "readtimeout")
+	if addr, _ := config.GetStringOptionWithEnv(cfg, "http", "listen"); addr != "" {
+		readTimeout, _ := cfg.GetInt("http", "readtimeout")
 		if readTimeout <= 0 {
 			readTimeout = defaultReadTimeout
 		}
-		writeTimeout, _ := config.GetInt("http", "writetimeout")
+		writeTimeout, _ := cfg.GetInt("http", "writetimeout")
 		if writeTimeout <= 0 {
 			writeTimeout = defaultWriteTimeout
 		}

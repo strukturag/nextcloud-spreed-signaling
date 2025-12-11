@@ -50,6 +50,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -87,11 +88,11 @@ type BackendServer struct {
 	buffers pool.BufferPool
 }
 
-func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
+func NewBackendServer(ctx context.Context, cfg *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
 	logger := log.LoggerFromContext(ctx)
-	turnapikey, _ := GetStringOptionWithEnv(config, "turn", "apikey")
-	turnsecret, _ := GetStringOptionWithEnv(config, "turn", "secret")
-	turnservers, _ := config.GetString("turn", "servers")
+	turnapikey, _ := config.GetStringOptionWithEnv(cfg, "turn", "apikey")
+	turnsecret, _ := config.GetStringOptionWithEnv(cfg, "turn", "secret")
+	turnservers, _ := cfg.GetString("turn", "servers")
 	// TODO(jojo): Make the validity for TURN credentials configurable.
 	turnvalid := 24 * time.Hour
 
@@ -111,7 +112,7 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 		}
 	}
 
-	statsAllowed, _ := config.GetString("stats", "allowed_ips")
+	statsAllowed, _ := cfg.GetString("stats", "allowed_ips")
 	statsAllowedIps, err := container.ParseIPList(statsAllowed)
 	if err != nil {
 		return nil, err
@@ -129,7 +130,7 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 		return nil, err
 	}
 
-	debug, _ := config.GetBool("app", "debug")
+	debug, _ := cfg.GetBool("app", "debug")
 
 	result := &BackendServer{
 		logger:       logger,
