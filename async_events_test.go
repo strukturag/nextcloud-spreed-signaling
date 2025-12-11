@@ -83,3 +83,21 @@ func getLoopbackAsyncEventsForTest(t *testing.T) AsyncEvents {
 	})
 	return events
 }
+
+func waitForAsyncEventsFlushed(ctx context.Context, t *testing.T, events AsyncEvents) {
+	t.Helper()
+
+	nats, ok := (events.(*asyncEventsNats))
+	if !ok {
+		// Only can wait for NATS events.
+		return
+	}
+
+	client, ok := nats.client.(*natsClient)
+	if !ok {
+		// The loopback NATS clients is executing all events synchronously.
+		return
+	}
+
+	assert.NoError(t, client.conn.FlushWithContext(ctx))
+}
