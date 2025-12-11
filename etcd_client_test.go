@@ -25,14 +25,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"errors"
 	"net"
 	"net/url"
 	"os"
 	"path"
-	"runtime"
 	"strconv"
-	"syscall"
 	"testing"
 	"time"
 
@@ -48,30 +45,12 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 var (
 	etcdListenUrl = "http://localhost:8080"
 )
-
-func isErrorAddressAlreadyInUse(err error) bool {
-	var eOsSyscall *os.SyscallError
-	if !errors.As(err, &eOsSyscall) {
-		return false
-	}
-	var errErrno syscall.Errno // doesn't need a "*" (ptr) because it's already a ptr (uintptr)
-	if !errors.As(eOsSyscall, &errErrno) {
-		return false
-	}
-	if errErrno == syscall.EADDRINUSE {
-		return true
-	}
-	const WSAEADDRINUSE = 10048
-	if runtime.GOOS == "windows" && errErrno == WSAEADDRINUSE {
-		return true
-	}
-	return false
-}
 
 func NewEtcdForTestWithTls(t *testing.T, withTLS bool) (*embed.Etcd, string, string) {
 	t.Helper()
@@ -124,7 +103,7 @@ func NewEtcdForTestWithTls(t *testing.T, withTLS bool) (*embed.Etcd, string, str
 		cfg.AdvertisePeerUrls = []url.URL{*peerListener}
 		cfg.InitialCluster = "signalingtest=" + peerListener.String()
 		etcd, err = embed.StartEtcd(cfg)
-		if isErrorAddressAlreadyInUse(err) {
+		if test.IsErrorAddressAlreadyInUse(err) {
 			continue
 		}
 

@@ -27,13 +27,10 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"net"
 	"net/url"
 	"os"
-	"runtime"
 	"strconv"
-	"syscall"
 	"testing"
 
 	"github.com/dlintw/goconf"
@@ -45,30 +42,12 @@ import (
 	"go.uber.org/zap/zaptest"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 var (
 	etcdListenUrl = "http://localhost:8080"
 )
-
-func isErrorAddressAlreadyInUse(err error) bool {
-	var eOsSyscall *os.SyscallError
-	if !errors.As(err, &eOsSyscall) {
-		return false
-	}
-	var errErrno syscall.Errno // doesn't need a "*" (ptr) because it's already a ptr (uintptr)
-	if !errors.As(eOsSyscall, &errErrno) {
-		return false
-	}
-	if errErrno == syscall.EADDRINUSE {
-		return true
-	}
-	const WSAEADDRINUSE = 10048
-	if runtime.GOOS == "windows" && errErrno == WSAEADDRINUSE {
-		return true
-	}
-	return false
-}
 
 func newEtcdForTesting(t *testing.T) *embed.Etcd {
 	cfg := embed.NewConfig()
@@ -92,7 +71,7 @@ func newEtcdForTesting(t *testing.T) *embed.Etcd {
 		peerListener.Host = net.JoinHostPort("localhost", strconv.Itoa(port+2))
 		cfg.ListenPeerUrls = []url.URL{*peerListener}
 		etcd, err = embed.StartEtcd(cfg)
-		if isErrorAddressAlreadyInUse(err) {
+		if test.IsErrorAddressAlreadyInUse(err) {
 			continue
 		}
 
