@@ -23,6 +23,8 @@ package signaling
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
 )
 
 var (
@@ -224,21 +226,21 @@ var (
 )
 
 func RegisterJanusMcuStats() {
-	registerAll(commonMcuStats...)
-	registerAll(janusMcuStats...)
+	metrics.RegisterAll(commonMcuStats...)
+	metrics.RegisterAll(janusMcuStats...)
 }
 
 func UnregisterJanusMcuStats() {
-	unregisterAll(commonMcuStats...)
-	unregisterAll(janusMcuStats...)
+	metrics.UnregisterAll(commonMcuStats...)
+	metrics.UnregisterAll(janusMcuStats...)
 }
 
 func RegisterProxyMcuStats() {
-	registerAll(commonMcuStats...)
-	registerAll(proxyMcuStats...)
+	metrics.RegisterAll(commonMcuStats...)
+	metrics.RegisterAll(proxyMcuStats...)
 }
 
 func UnregisterProxyMcuStats() {
-	unregisterAll(commonMcuStats...)
-	unregisterAll(proxyMcuStats...)
+	metrics.UnregisterAll(commonMcuStats...)
+	metrics.UnregisterAll(proxyMcuStats...)
 }

@@ -53,8 +53,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 const (
@@ -223,10 +229,10 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		server2.Close()
 	})
 
-	nats1, _ := startLocalNatsServer(t)
+	nats1, _ := nats.StartLocalServer(t)
 	var nats2 *server.Server
 	if strings.Contains(t.Name(), "Federation") {
-		nats2, _ = startLocalNatsServer(t)
+		nats2, _ = nats.StartLocalServer(t)
 	} else {
 		nats2 = nats1
 	}
@@ -320,7 +326,7 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 		case <-ctx.Done():
 			h.mu.Lock()
 			h.ru.Lock()
-			dumpGoroutines("", os.Stderr)
+			test.DumpGoroutines("", os.Stderr)
 			assert.Fail(t, "Error waiting for hub to terminate", "clients %+v / rooms %+v / sessions %+v / remoteSessions %v / federatedSessions %v / federationClients %v / %d read / %d write: %s",
 				h.clients,
 				h.rooms,
@@ -370,9 +376,9 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 		assert.NoError(err)
 
 		if r.Header.Get("OCS-APIRequest") != "" {
-			var ocs OcsResponse
-			ocs.Ocs = &OcsBody{
-				Meta: OcsMeta{
+			var ocs talk.OcsResponse
+			ocs.Ocs = &talk.OcsBody{
+				Meta: talk.OcsMeta{
 					Status:     "ok",
 					StatusCode: http.StatusOK,
 					Message:    http.StatusText(http.StatusOK),
@@ -439,7 +445,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	case "test-invalid-room":
 		response := &BackendClientResponse{
 			Type: "error",
-			Error: &Error{
+			Error: &api.Error{
 				Code:    "no_such_room",
 				Message: "The user is not invited to this room.",
 			},
@@ -450,7 +456,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	if strings.Contains(t.Name(), "Federation") {
 		// Check additional fields present for federated sessions.
 		if strings.Contains(string(request.Room.SessionId), "@federated") {
-			assert.Equal(ActorTypeFederatedUsers, request.Room.ActorType)
+			assert.Equal(api.ActorTypeFederatedUsers, request.Room.ActorType)
 			assert.NotEmpty(request.Room.ActorId)
 		} else {
 			assert.Empty(request.Room.ActorType)
@@ -774,8 +780,8 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			"config":   config,
 		})
 		assert.NoError(t, err)
-		response := &CapabilitiesResponse{
-			Version: CapabilitiesVersion{
+		response := &talk.CapabilitiesResponse{
+			Version: talk.CapabilitiesVersion{
 				Major: 20,
 			},
 			Capabilities: map[string]json.RawMessage{
@@ -786,9 +792,9 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		data, err := json.Marshal(response)
 		assert.NoError(t, err, "Could not marshal %+v", response)
 
-		var ocs OcsResponse
-		ocs.Ocs = &OcsBody{
-			Meta: OcsMeta{
+		var ocs talk.OcsResponse
+		ocs.Ocs = &talk.OcsBody{
+			Meta: talk.OcsMeta{
 				Status:     "ok",
 				StatusCode: http.StatusOK,
 				Message:    http.StatusText(http.StatusOK),
@@ -812,13 +818,11 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 
 func Benchmark_DecodePrivateSessionIdCached(b *testing.B) {
 	require := require.New(b)
-	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
+	decodeCaches := make([]*container.LruCache[*SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
+		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
 	}
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	data := &SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),
@@ -841,13 +845,11 @@ func Benchmark_DecodePrivateSessionIdCached(b *testing.B) {
 
 func Benchmark_DecodePublicSessionIdCached(b *testing.B) {
 	require := require.New(b)
-	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
+	decodeCaches := make([]*container.LruCache[*SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
+		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
 	}
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	data := &SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),
@@ -885,7 +887,7 @@ func TestWebsocketFeatures(t *testing.T) {
 	assert.True(strings.HasPrefix(serverHeader, "nextcloud-spreed-signaling/"), "expected valid server header, got \"%s\"", serverHeader)
 	features := response.Header.Get("X-Spreed-Signaling-Features")
 	featuresList := make(map[string]bool)
-	for f := range SplitEntries(features, ",") {
+	for f := range internal.SplitEntries(features, ",") {
 		_, found := featuresList[f]
 		assert.False(found, "duplicate feature id \"%s\" in \"%s\"", f, features)
 		featuresList[f] = true
@@ -1296,7 +1298,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params1 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId,
 			}
-			require.NoError(client.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params1))
+			require.NoError(client.SendHelloParams(server1.URL+"/one", api.HelloVersionV1, "client", nil, params1))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
@@ -1313,12 +1315,12 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params2 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId + "2",
 			}
-			require.NoError(client2.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params2))
+			require.NoError(client2.SendHelloParams(server1.URL+"/one", api.HelloVersionV1, "client", nil, params2))
 
 			client2.RunUntilError(ctx, "session_limit_exceeded") //nolint
 
 			// The client can connect to a different backend.
-			require.NoError(client2.SendHelloParams(server1.URL+"/two", HelloVersionV1, "client", nil, params2))
+			require.NoError(client2.SendHelloParams(server1.URL+"/two", api.HelloVersionV1, "client", nil, params2))
 
 			if hello, ok := client2.RunUntilHello(ctx); ok {
 				assert.Equal(testDefaultUserId+"2", hello.Hello.UserId, "%+v", hello.Hello)
@@ -1335,7 +1337,7 @@ func TestClientHelloSessionLimit(t *testing.T) {
 			params3 := TestBackendClientAuthParams{
 				UserId: testDefaultUserId + "3",
 			}
-			require.NoError(client3.SendHelloParams(server1.URL+"/one", HelloVersionV1, "client", nil, params3))
+			require.NoError(client3.SendHelloParams(server1.URL+"/one", api.HelloVersionV1, "client", nil, params3))
 
 			if hello, ok := client3.RunUntilHello(ctx); ok {
 				assert.Equal(testDefaultUserId+"3", hello.Hello.UserId, "%+v", hello.Hello)
@@ -1352,7 +1354,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 	hub, _, _, server := CreateHubForTest(t)
 
 	var mu sync.Mutex
-	var publicSessionIds []PublicSessionId
+	var publicSessionIds []api.PublicSessionId
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Add(1)
@@ -1392,7 +1394,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 
 	larger := 0
 	smaller := 0
-	var prevSid PublicSessionId
+	var prevSid api.PublicSessionId
 	for i, sid := range publicSessionIds {
 		if i > 0 {
 			if sid > prevSid {
@@ -1439,6 +1441,22 @@ func TestClientHelloResume(t *testing.T) {
 	}
 }
 
+type throttlerTiming struct {
+	t *testing.T
+
+	now           time.Time
+	expectedSleep time.Duration
+}
+
+func (t *throttlerTiming) getNow() time.Time {
+	return t.now
+}
+
+func (t *throttlerTiming) doDelay(ctx context.Context, duration time.Duration) {
+	t.t.Helper()
+	assert.Equal(t.t, t.expectedSleep, duration)
+}
+
 func TestClientHelloResumeThrottle(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -1449,12 +1467,12 @@ func TestClientHelloResumeThrottle(t *testing.T) {
 		t:   t,
 		now: time.Now(),
 	}
-	throttler := newMemoryThrottlerForTest(t)
-	th, ok := throttler.(*memoryThrottler)
-	require.True(ok, "expected memoryThrottler, got %T", throttler)
-	th.getNow = timing.getNow
-	th.doDelay = timing.doDelay
-	hub.throttler = th
+	throttler, err := async.NewCustomMemoryThrottler(timing.getNow, timing.doDelay)
+	require.NoError(err)
+	t.Cleanup(func() {
+		throttler.Close()
+	})
+	hub.throttler = throttler
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1621,7 +1639,7 @@ func TestClientHelloResumePublicId(t *testing.T) {
 	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
-	recipient2 := MessageClientMessageRecipient{
+	recipient2 := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
 	}
@@ -1630,7 +1648,7 @@ func TestClientHelloResumePublicId(t *testing.T) {
 	client1.SendMessage(recipient2, data) // nolint
 
 	var payload string
-	var sender *MessageServerMessageSender
+	var sender *api.MessageServerMessageSender
 	if checkReceiveClientMessageWithSender(ctx, t, client2, "session", hello1.Hello, &payload, &sender) {
 		assert.Equal(data, payload)
 	}
@@ -1642,7 +1660,7 @@ func TestClientHelloResumePublicId(t *testing.T) {
 	defer client1.CloseWithBye()
 
 	// Can't resume a session with the id received from messages of a client.
-	require.NoError(client1.SendHelloResume(PrivateSessionId(sender.SessionId)))
+	require.NoError(client1.SendHelloResume(api.PrivateSessionId(sender.SessionId)))
 	client1.RunUntilError(ctx, "no_such_session") // nolint
 
 	// Expire old sessions
@@ -1752,7 +1770,7 @@ func runGrpcProxyTest(t *testing.T, f func(hub1, hub2 *Hub, server1, server2 *ht
 }
 
 func TestClientHelloResumeProxy(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
 			assert := assert.New(t)
@@ -1802,7 +1820,7 @@ func TestClientHelloResumeProxy(t *testing.T) { // nolint:paralleltest
 }
 
 func TestClientHelloResumeProxy_Takeover(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
 			assert := assert.New(t)
@@ -1856,7 +1874,7 @@ func TestClientHelloResumeProxy_Takeover(t *testing.T) { // nolint:paralleltest
 }
 
 func TestClientHelloResumeProxy_Disconnect(t *testing.T) { // nolint:paralleltest
-	ensureNoGoroutinesLeak(t, func(t *testing.T) {
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		runGrpcProxyTest(t, func(hub1, hub2 *Hub, server1, server2 *httptest.Server) {
 			require := require.New(t)
 			assert := assert.New(t)
@@ -1916,7 +1934,7 @@ func TestClientHelloClient_V3Api(t *testing.T) {
 	}
 	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
 	// feature is returned by the capabilities endpoint.
-	require.NoError(client.SendHelloParams(server.URL, HelloVersionV1, "client", nil, params))
+	require.NoError(client.SendHelloParams(server.URL, api.HelloVersionV1, "client", nil, params))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1989,11 +2007,11 @@ func TestClientMessageToSessionId(t *testing.T) {
 			waitForAsyncEventsFlushed(ctx, t, hub1.events)
 			waitForAsyncEventsFlushed(ctx, t, hub2.events)
 
-			recipient1 := MessageClientMessageRecipient{
+			recipient1 := api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
 			}
-			recipient2 := MessageClientMessageRecipient{
+			recipient2 := api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello2.Hello.SessionId,
 			}
@@ -2050,11 +2068,11 @@ func TestClientControlToSessionId(t *testing.T) {
 			waitForAsyncEventsFlushed(ctx, t, hub1.events)
 			waitForAsyncEventsFlushed(ctx, t, hub2.events)
 
-			recipient1 := MessageClientMessageRecipient{
+			recipient1 := api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
 			}
-			recipient2 := MessageClientMessageRecipient{
+			recipient2 := api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello2.Hello.SessionId,
 			}
@@ -2105,11 +2123,11 @@ func TestClientControlMissingPermissions(t *testing.T) {
 		PERMISSION_MAY_CONTROL,
 	})
 
-	recipient1 := MessageClientMessageRecipient{
+	recipient1 := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}
-	recipient2 := MessageClientMessageRecipient{
+	recipient2 := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
 	}
@@ -2144,11 +2162,11 @@ func TestClientMessageToUserId(t *testing.T) {
 	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
 
-	recipient1 := MessageClientMessageRecipient{
+	recipient1 := api.MessageClientMessageRecipient{
 		Type:   "user",
 		UserId: hello1.Hello.UserId,
 	}
-	recipient2 := MessageClientMessageRecipient{
+	recipient2 := api.MessageClientMessageRecipient{
 		Type:   "user",
 		UserId: hello2.Hello.UserId,
 	}
@@ -2182,11 +2200,11 @@ func TestClientControlToUserId(t *testing.T) {
 	require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 	require.NotEqual(hello1.Hello.UserId, hello2.Hello.UserId)
 
-	recipient1 := MessageClientMessageRecipient{
+	recipient1 := api.MessageClientMessageRecipient{
 		Type:   "user",
 		UserId: hello1.Hello.UserId,
 	}
-	recipient2 := MessageClientMessageRecipient{
+	recipient2 := api.MessageClientMessageRecipient{
 		Type:   "user",
 		UserId: hello2.Hello.UserId,
 	}
@@ -2227,7 +2245,7 @@ func TestClientMessageToUserIdMultipleSessions(t *testing.T) {
 	require.NotEqual(hello1.Hello.UserId, hello2b.Hello.UserId)
 	require.Equal(hello2a.Hello.UserId, hello2b.Hello.UserId)
 
-	recipient := MessageClientMessageRecipient{
+	recipient := api.MessageClientMessageRecipient{
 		Type:   "user",
 		UserId: hello2a.Hello.UserId,
 	}
@@ -2287,7 +2305,7 @@ func TestClientMessageToRoom(t *testing.T) {
 
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
-			recipient := MessageClientMessageRecipient{
+			recipient := api.MessageClientMessageRecipient{
 				Type: "room",
 			}
 
@@ -2350,7 +2368,7 @@ func TestClientControlToRoom(t *testing.T) {
 
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
-			recipient := MessageClientMessageRecipient{
+			recipient := api.MessageClientMessageRecipient{
 				Type: "room",
 			}
 
@@ -2426,7 +2444,7 @@ func TestClientMessageToCall(t *testing.T) {
 			checkReceiveClientEvent(ctx, t, client1, "update", nil)
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
-			recipient := MessageClientMessageRecipient{
+			recipient := api.MessageClientMessageRecipient{
 				Type: "call",
 			}
 
@@ -2531,7 +2549,7 @@ func TestClientControlToCall(t *testing.T) {
 			checkReceiveClientEvent(ctx, t, client1, "update", nil)
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
-			recipient := MessageClientMessageRecipient{
+			recipient := api.MessageClientMessageRecipient{
 				Type: "call",
 			}
 
@@ -2722,12 +2740,12 @@ func TestJoinInvalidRoom(t *testing.T) {
 
 	// Join room by id.
 	roomId := "test-invalid-room"
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "ABCD",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    roomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
 		},
 	}
 	require.NoError(client.WriteJSON(msg))
@@ -2760,12 +2778,12 @@ func TestJoinRoomTwice(t *testing.T) {
 	// We will receive a "joined" event.
 	client.RunUntilJoined(ctx, hello.Hello)
 
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "ABCD",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    roomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s-2", roomId, client.publicId)),
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s-2", roomId, client.publicId)),
 		},
 	}
 	require.NoError(client.WriteJSON(msg))
@@ -2775,7 +2793,7 @@ func TestJoinRoomTwice(t *testing.T) {
 		if checkMessageType(t, message, "error") {
 			assert.Equal("already_joined", message.Error.Code)
 			if assert.NotEmpty(message.Error.Details) {
-				var roomDetails RoomErrorDetails
+				var roomDetails api.RoomErrorDetails
 				if err := json.Unmarshal(message.Error.Details, &roomDetails); assert.NoError(err) {
 					if assert.NotNil(roomDetails.Room, "%+v", message) {
 						assert.Equal(roomId, roomDetails.Room.RoomId)
@@ -3022,12 +3040,12 @@ func TestJoinRoomSwitchClient(t *testing.T) {
 
 	// Join room by id.
 	roomId := "test-room-slow"
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "ABCD",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    roomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
 		},
 	}
 	require.NoError(client.WriteJSON(msg))
@@ -3276,7 +3294,7 @@ func TestGetRealUserIP(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		trustedProxies, err := ParseAllowedIps(tc.trusted)
+		trustedProxies, err := container.ParseIPList(tc.trusted)
 		if !assert.NoError(t, err, "invalid trusted proxies in %+v", tc) {
 			continue
 		}
@@ -3304,7 +3322,7 @@ func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	client2.Close()
 	assert.NoError(client2.WaitForClientRemoved(ctx))
 
-	recipient2 := MessageClientMessageRecipient{
+	recipient2 := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
 	}
@@ -3452,7 +3470,7 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	// Give asynchronous events some time to be processed.
 	time.Sleep(100 * time.Millisecond)
 
-	recipient2 := MessageClientMessageRecipient{
+	recipient2 := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
 	}
@@ -3519,7 +3537,7 @@ func RunTestClientTakeoverRoomSession(t *testing.T) {
 
 	// Join room by id.
 	roomId := "test-room-takeover-room-session"
-	roomSessionid := RoomSessionId("room-session-id")
+	roomSessionid := api.RoomSessionId("room-session-id")
 	roomMsg := MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId, roomSessionid)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -3614,10 +3632,10 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	session2.SetPermissions([]Permission{})
 
 	// Client 2 may not send an offer (he doesn't have the necessary permissions).
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "sendoffer",
 		Sid:      "12345",
 		RoomType: "screen",
@@ -3626,25 +3644,25 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	msg := MustSucceed1(t, client2.RunUntilMessage, ctx)
 	require.True(checkMessageError(t, msg, "not_allowed"))
 
-	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		Sid:      "12345",
 		RoomType: "screen",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+	client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo)
 
 	// Client 1 may send an offer.
-	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "sendoffer",
 		Sid:      "54321",
 		RoomType: "screen",
@@ -3657,7 +3675,7 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	client1.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 
 	// ...but the other peer will get an offer.
-	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+	client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioAndVideo)
 }
 
 func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
@@ -3690,15 +3708,15 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 	session.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_AUDIO})
 
 	// Client may not send an offer with audio and video.
-	require.NoError(client.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
@@ -3706,19 +3724,19 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 	require.True(checkMessageError(t, msg, "not_allowed"))
 
 	// Client may send an offer (audio only).
-	require.NoError(client.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioOnly,
+			"sdp": mock.MockSdpOfferAudioOnly,
 		},
 	}))
 
-	client.RunUntilAnswer(ctx, MockSdpAnswerAudioOnly)
+	client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioOnly)
 }
 
 func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
@@ -3751,19 +3769,19 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	// Client is allowed to send audio and video.
 	session.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO})
 
-	require.NoError(client.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	require.True(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+	require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
 	// Client is no longer allowed to send video, this will stop the publisher.
 	msg := &BackendServerRoomRequest{
@@ -3848,19 +3866,19 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	session.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_MEDIA})
 
 	// Client may send an offer (audio and video).
-	require.NoError(client.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	require.True(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+	require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
 	// Client is no longer allowed to send video, this will stop the publisher.
 	msg := &BackendServerRoomRequest{
@@ -3956,25 +3974,25 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			// We will receive a "joined" event.
 			client1.RunUntilJoined(ctx, hello1.Hello)
 
-			require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "offer",
 				Sid:      "54321",
 				RoomType: "screen",
 				Payload: api.StringMap{
-					"sdp": MockSdpOfferAudioAndVideo,
+					"sdp": mock.MockSdpOfferAudioAndVideo,
 				},
 			}))
 
-			require.True(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+			require.True(client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
 			// Client 2 may not request an offer (he is not in the room yet).
-			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "requestoffer",
 				Sid:      "12345",
 				RoomType: "screen",
@@ -3991,10 +4009,10 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			require.True(client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello))
 
 			// Client 2 may not request an offer (he is not in the call yet).
-			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "requestoffer",
 				Sid:      "12345",
 				RoomType: "screen",
@@ -4017,10 +4035,10 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
 			// Client 2 may not request an offer (recipient is not in the call yet).
-			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "requestoffer",
 				Sid:      "12345",
 				RoomType: "screen",
@@ -4043,26 +4061,26 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
 			// Client 2 may request an offer now (both are in the same room and call).
-			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "requestoffer",
 				Sid:      "12345",
 				RoomType: "screen",
 			}))
 
-			require.True(client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo))
+			require.True(client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioAndVideo))
 
-			require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "answer",
 				Sid:      "12345",
 				RoomType: "screen",
 				Payload: api.StringMap{
-					"sdp": MockSdpAnswerAudioAndVideo,
+					"sdp": mock.MockSdpAnswerAudioAndVideo,
 				},
 			}))
 
@@ -4090,7 +4108,7 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	require.NoError(client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1))
+	require.NoError(client1.SendHelloParams(server.URL+"/one", api.HelloVersionV1, "client", nil, params1))
 	hello1 := MustSucceed1(t, client1.RunUntilHello, ctx)
 
 	client2 := NewTestClient(t, server, hub)
@@ -4099,14 +4117,14 @@ func TestNoSendBetweenSessionsOnDifferentBackends(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	require.NoError(client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2))
+	require.NoError(client2.SendHelloParams(server.URL+"/two", api.HelloVersionV1, "client", nil, params2))
 	hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
 
-	recipient1 := MessageClientMessageRecipient{
+	recipient1 := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}
-	recipient2 := MessageClientMessageRecipient{
+	recipient2 := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
 	}
@@ -4142,7 +4160,7 @@ func TestSendBetweenDifferentUrls(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	require.NoError(client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1))
+	require.NoError(client1.SendHelloParams(server.URL+"/one", api.HelloVersionV1, "client", nil, params1))
 	hello1 := MustSucceed1(t, client1.RunUntilHello, ctx)
 
 	client2 := NewTestClient(t, server, hub)
@@ -4151,14 +4169,14 @@ func TestSendBetweenDifferentUrls(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	require.NoError(client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2))
+	require.NoError(client2.SendHelloParams(server.URL+"/two", api.HelloVersionV1, "client", nil, params2))
 	hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
 
-	recipient1 := MessageClientMessageRecipient{
+	recipient1 := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}
-	recipient2 := MessageClientMessageRecipient{
+	recipient2 := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
 	}
@@ -4192,7 +4210,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	require.NoError(client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1))
+	require.NoError(client1.SendHelloParams(server.URL+"/one", api.HelloVersionV1, "client", nil, params1))
 	hello1 := MustSucceed1(t, client1.RunUntilHello, ctx)
 
 	client2 := NewTestClient(t, server, hub)
@@ -4201,7 +4219,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	require.NoError(client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2))
+	require.NoError(client2.SendHelloParams(server.URL+"/two", api.HelloVersionV1, "client", nil, params2))
 	hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
 
 	// Join room by id.
@@ -4230,7 +4248,7 @@ func TestNoSameRoomOnDifferentBackends(t *testing.T) {
 		assert.False(rooms[0].IsEqual(rooms[1]), "Rooms should be different: %+v", rooms)
 	}
 
-	recipient := MessageClientMessageRecipient{
+	recipient := api.MessageClientMessageRecipient{
 		Type: "room",
 	}
 
@@ -4265,7 +4283,7 @@ func TestSameRoomOnDifferentUrls(t *testing.T) {
 	params1 := TestBackendClientAuthParams{
 		UserId: "user1",
 	}
-	require.NoError(client1.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params1))
+	require.NoError(client1.SendHelloParams(server.URL+"/one", api.HelloVersionV1, "client", nil, params1))
 	hello1 := MustSucceed1(t, client1.RunUntilHello, ctx)
 
 	client2 := NewTestClient(t, server, hub)
@@ -4274,7 +4292,7 @@ func TestSameRoomOnDifferentUrls(t *testing.T) {
 	params2 := TestBackendClientAuthParams{
 		UserId: "user2",
 	}
-	require.NoError(client2.SendHelloParams(server.URL+"/two", HelloVersionV1, "client", nil, params2))
+	require.NoError(client2.SendHelloParams(server.URL+"/two", api.HelloVersionV1, "client", nil, params2))
 	hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
 
 	// Join room by id.
@@ -4297,7 +4315,7 @@ func TestSameRoomOnDifferentUrls(t *testing.T) {
 
 	assert.Len(rooms, 1)
 
-	recipient := MessageClientMessageRecipient{
+	recipient := api.MessageClientMessageRecipient{
 		Type: "room",
 	}
 
@@ -4360,24 +4378,24 @@ func TestClientSendOffer(t *testing.T) {
 
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
-			require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "offer",
 				Sid:      "12345",
 				RoomType: "video",
 				Payload: api.StringMap{
-					"sdp": MockSdpOfferAudioAndVideo,
+					"sdp": mock.MockSdpOfferAudioAndVideo,
 				},
 			}))
 
-			require.True(client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+			require.True(client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
-			require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello2.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "sendoffer",
 				RoomType: "video",
 			}))
@@ -4389,7 +4407,7 @@ func TestClientSendOffer(t *testing.T) {
 			client1.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 
 			// ...but the other peer will get an offer.
-			client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+			client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioAndVideo)
 		})
 	}
 }
@@ -4420,19 +4438,19 @@ func TestClientUnshareScreen(t *testing.T) {
 	session := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
 	require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
-	require.NoError(client.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "screen",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioOnly,
+			"sdp": mock.MockSdpOfferAudioOnly,
 		},
 	}))
 
-	client.RunUntilAnswer(ctx, MockSdpAnswerAudioOnly)
+	client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioOnly)
 
 	publisher := mcu.GetPublisher(hello.Hello.SessionId)
 	require.NotNil(publisher, "No publisher for %s found", hello.Hello.SessionId)
@@ -4444,10 +4462,10 @@ func TestClientUnshareScreen(t *testing.T) {
 		cleanupScreenPublisherDelay = old
 	}()
 
-	require.NoError(client.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "unshareScreen",
 		Sid:      "54321",
 		RoomType: "screen",
@@ -4529,7 +4547,7 @@ func TestVirtualClientSessions(t *testing.T) {
 
 			calledCtx, calledCancel := context.WithTimeout(ctx, time.Second)
 
-			virtualSessionId := PublicSessionId("virtual-session-id")
+			virtualSessionId := api.PublicSessionId("virtual-session-id")
 			virtualUserId := "virtual-user-id"
 			generatedSessionId := GetVirtualSessionId(session2, virtualSessionId)
 
@@ -4541,8 +4559,8 @@ func TestVirtualClientSessions(t *testing.T) {
 				assert.Equal(virtualUserId, request.UserId, "%+v", request)
 			})
 
-			require.NoError(client2.SendInternalAddSession(&AddSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			require.NoError(client2.SendInternalAddSession(&api.AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: virtualSessionId,
 					RoomId:    roomId,
 				},
@@ -4615,8 +4633,8 @@ func TestVirtualClientSessions(t *testing.T) {
 			}
 
 			updatedFlags := uint32(0)
-			require.NoError(client2.SendInternalUpdateSession(&UpdateSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			require.NoError(client2.SendInternalUpdateSession(&api.UpdateSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: virtualSessionId,
 					RoomId:    roomId,
 				},
@@ -4651,7 +4669,7 @@ func TestVirtualClientSessions(t *testing.T) {
 			})
 
 			// Messages to virtual sessions are sent to the associated client session.
-			virtualRecipient := MessageClientMessageRecipient{
+			virtualRecipient := api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: virtualSession.PublicId(),
 			}
@@ -4660,8 +4678,8 @@ func TestVirtualClientSessions(t *testing.T) {
 			client1.SendMessage(virtualRecipient, data) // nolint
 
 			var payload string
-			var sender *MessageServerMessageSender
-			var recipient *MessageClientMessageRecipient
+			var sender *api.MessageServerMessageSender
+			var recipient *api.MessageClientMessageRecipient
 			if checkReceiveClientMessageWithSenderAndRecipient(ctx, t, client2, "session", hello1.Hello, &payload, &sender, &recipient) {
 				assert.Equal(virtualSessionId, recipient.SessionId, "%+v", recipient)
 				assert.Equal(data, payload)
@@ -4675,8 +4693,8 @@ func TestVirtualClientSessions(t *testing.T) {
 				assert.Equal(data, payload)
 			}
 
-			require.NoError(client2.SendInternalRemoveSession(&RemoveSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			require.NoError(client2.SendInternalRemoveSession(&api.RemoveSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: virtualSessionId,
 					RoomId:    roomId,
 				},
@@ -4771,7 +4789,7 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 
 			calledCtx, calledCancel := context.WithTimeout(ctx, time.Second)
 
-			virtualSessionId := PublicSessionId("virtual-session-id")
+			virtualSessionId := api.PublicSessionId("virtual-session-id")
 			virtualUserId := "virtual-user-id"
 			generatedSessionId := GetVirtualSessionId(session2, virtualSessionId)
 
@@ -4783,8 +4801,8 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				assert.Equal(virtualUserId, request.UserId, "%+v", request)
 			})
 
-			require.NoError(client2.SendInternalAddSession(&AddSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			require.NoError(client2.SendInternalAddSession(&api.AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: virtualSessionId,
 					RoomId:    roomId,
 				},
@@ -4999,12 +5017,12 @@ func DoTestSwitchToOne(t *testing.T, details api.StringMap) {
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
 
-			roomSessionId1 := RoomSessionId("roomsession1")
+			roomSessionId1 := api.RoomSessionId("roomsession1")
 			roomId1 := "test-room"
 			roomMsg := MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId1)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
-			roomSessionId2 := RoomSessionId("roomsession2")
+			roomSessionId2 := api.RoomSessionId("roomsession2")
 			roomMsg = MustSucceed3(t, client2.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId2)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
@@ -5014,12 +5032,12 @@ func DoTestSwitchToOne(t *testing.T, details api.StringMap) {
 			var sessions json.RawMessage
 			var err error
 			if details != nil {
-				sessions, err = json.Marshal(map[RoomSessionId]any{
+				sessions, err = json.Marshal(map[api.RoomSessionId]any{
 					roomSessionId1: details,
 				})
 				require.NoError(err)
 			} else {
-				sessions, err = json.Marshal([]RoomSessionId{
+				sessions, err = json.Marshal([]api.RoomSessionId{
 					roomSessionId1,
 				})
 				require.NoError(err)
@@ -5099,12 +5117,12 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
 			defer client2.CloseWithBye()
 
-			roomSessionId1 := RoomSessionId("roomsession1")
+			roomSessionId1 := api.RoomSessionId("roomsession1")
 			roomId1 := "test-room"
 			roomMsg := MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId1)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
-			roomSessionId2 := RoomSessionId("roomsession2")
+			roomSessionId2 := api.RoomSessionId("roomsession2")
 			roomMsg = MustSucceed3(t, client2.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId2)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
@@ -5114,13 +5132,13 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 			var sessions json.RawMessage
 			var err error
 			if details1 != nil || details2 != nil {
-				sessions, err = json.Marshal(map[RoomSessionId]any{
+				sessions, err = json.Marshal(map[api.RoomSessionId]any{
 					roomSessionId1: details1,
 					roomSessionId2: details2,
 				})
 				require.NoError(err)
 			} else {
-				sessions, err = json.Marshal([]RoomSessionId{
+				sessions, err = json.Marshal([]api.RoomSessionId{
 					roomSessionId1,
 					roomSessionId2,
 				})
@@ -5250,15 +5268,15 @@ func TestDialoutStatus(t *testing.T) {
 
 		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 
-		response := &ClientMessage{
+		response := &api.ClientMessage{
 			Id:   msg.Id,
 			Type: "internal",
-			Internal: &InternalClientMessage{
+			Internal: &api.InternalClientMessage{
 				Type: "dialout",
-				Dialout: &DialoutInternalClientMessage{
+				Dialout: &api.DialoutInternalClientMessage{
 					Type:   "status",
 					RoomId: msg.Internal.Dialout.RoomId,
-					Status: &DialoutStatusInternalClientMessage{
+					Status: &api.DialoutStatusInternalClientMessage{
 						Status: "accepted",
 						CallId: callId,
 					},
@@ -5305,10 +5323,10 @@ func TestDialoutStatus(t *testing.T) {
 		}, nil)
 	}
 
-	require.NoError(internalClient.SendInternalDialout(&DialoutInternalClientMessage{
+	require.NoError(internalClient.SendInternalDialout(&api.DialoutInternalClientMessage{
 		RoomId: roomId,
 		Type:   "status",
-		Status: &DialoutStatusInternalClientMessage{
+		Status: &api.DialoutStatusInternalClientMessage{
 			CallId: callId,
 			Status: "ringing",
 		},
@@ -5331,10 +5349,10 @@ func TestDialoutStatus(t *testing.T) {
 	removeCallStatusTTL = 500 * time.Millisecond
 
 	clearedCause := "cleared-call"
-	require.NoError(internalClient.SendInternalDialout(&DialoutInternalClientMessage{
+	require.NoError(internalClient.SendInternalDialout(&api.DialoutInternalClientMessage{
 		RoomId: roomId,
 		Type:   "status",
-		Status: &DialoutStatusInternalClientMessage{
+		Status: &api.DialoutStatusInternalClientMessage{
 			CallId: callId,
 			Status: "cleared",
 			Cause:  clearedCause,

@@ -24,6 +24,8 @@ package signaling
 import (
 	"context"
 	"errors"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 var (
@@ -31,9 +33,9 @@ var (
 )
 
 type RoomSessions interface {
-	SetRoomSession(session Session, roomSessionId RoomSessionId) error
+	SetRoomSession(session Session, roomSessionId api.RoomSessionId) error
 	DeleteRoomSession(session Session)
 
-	GetSessionId(roomSessionId RoomSessionId) (PublicSessionId, error)
-	LookupSessionId(ctx context.Context, roomSessionId RoomSessionId, disconnectReason string) (PublicSessionId, error)
+	GetSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error)
+	LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error)
 }

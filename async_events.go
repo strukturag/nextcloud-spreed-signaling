@@ -25,7 +25,10 @@ import (
 	"context"
 	"sync"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type AsyncBackendRoomEventListener interface {
@@ -47,26 +50,26 @@ type AsyncSessionEventListener interface {
 type AsyncEvents interface {
 	Close(ctx context.Context) error
 
-	RegisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener) error
-	UnregisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener)
+	RegisterBackendRoomListener(roomId string, backend *talk.Backend, listener AsyncBackendRoomEventListener) error
+	UnregisterBackendRoomListener(roomId string, backend *talk.Backend, listener AsyncBackendRoomEventListener)
 
-	RegisterRoomListener(roomId string, backend *Backend, listener AsyncRoomEventListener) error
-	UnregisterRoomListener(roomId string, backend *Backend, listener AsyncRoomEventListener)
+	RegisterRoomListener(roomId string, backend *talk.Backend, listener AsyncRoomEventListener) error
+	UnregisterRoomListener(roomId string, backend *talk.Backend, listener AsyncRoomEventListener)
 
-	RegisterUserListener(userId string, backend *Backend, listener AsyncUserEventListener) error
-	UnregisterUserListener(userId string, backend *Backend, listener AsyncUserEventListener)
+	RegisterUserListener(userId string, backend *talk.Backend, listener AsyncUserEventListener) error
+	UnregisterUserListener(userId string, backend *talk.Backend, listener AsyncUserEventListener)
 
-	RegisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) error
-	UnregisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener)
+	RegisterSessionListener(sessionId api.PublicSessionId, backend *talk.Backend, listener AsyncSessionEventListener) error
+	UnregisterSessionListener(sessionId api.PublicSessionId, backend *talk.Backend, listener AsyncSessionEventListener)
 
-	PublishBackendRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error
-	PublishRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error
-	PublishUserMessage(userId string, backend *Backend, message *AsyncMessage) error
-	PublishSessionMessage(sessionId PublicSessionId, backend *Backend, message *AsyncMessage) error
+	PublishBackendRoomMessage(roomId string, backend *talk.Backend, message *AsyncMessage) error
+	PublishRoomMessage(roomId string, backend *talk.Backend, message *AsyncMessage) error
+	PublishUserMessage(userId string, backend *talk.Backend, message *AsyncMessage) error
+	PublishSessionMessage(sessionId api.PublicSessionId, backend *talk.Backend, message *AsyncMessage) error
 }
 
 func NewAsyncEvents(ctx context.Context, url string) (AsyncEvents, error) {
-	client, err := NewNatsClient(ctx, url)
+	client, err := nats.NewClient(ctx, url)
 	if err != nil {
 		return nil, err
 	}

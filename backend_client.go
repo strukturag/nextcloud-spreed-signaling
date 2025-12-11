@@ -34,10 +34,11 @@ import (
 	"github.com/dlintw/goconf"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
-	ErrNotRedirecting         = errors.New("not redirecting to different host")
 	ErrUnsupportedContentType = errors.New("unsupported_content_type")
 
 	ErrIncompleteResponse = errors.New("incomplete OCS response")
@@ -53,9 +54,9 @@ type BackendClient struct {
 	version  string
 	backends *BackendConfiguration
 
-	pool         *HttpClientPool
-	capabilities *Capabilities
-	buffers      BufferPool
+	pool         *pool.HttpClientPool
+	capabilities *talk.Capabilities
+	buffers      pool.BufferPool
 }
 
 func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient *EtcdClient) (*BackendClient, error) {
@@ -70,12 +71,12 @@ func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurr
 		logger.Println("WARNING: Backend verification is disabled!")
 	}
 
-	pool, err := NewHttpClientPool(maxConcurrentRequestsPerHost, skipverify)
+	pool, err := pool.NewHttpClientPool(maxConcurrentRequestsPerHost, skipverify)
 	if err != nil {
 		return nil, err
 	}
 
-	capabilities, err := NewCapabilities(version, pool)
+	capabilities, err := talk.NewCapabilities(version, pool)
 	if err != nil {
 		return nil, err
 	}
@@ -97,24 +98,20 @@ func (b *BackendClient) Reload(config *goconf.ConfigFile) {
 	b.backends.Reload(config)
 }
 
-func (b *BackendClient) GetCompatBackend() *Backend {
+func (b *BackendClient) GetCompatBackend() *talk.Backend {
 	return b.backends.GetCompatBackend()
 }
 
-func (b *BackendClient) GetBackend(u *url.URL) *Backend {
+func (b *BackendClient) GetBackend(u *url.URL) *talk.Backend {
 	return b.backends.GetBackend(u)
 }
 
-func (b *BackendClient) GetBackends() []*Backend {
+func (b *BackendClient) GetBackends() []*talk.Backend {
 	return b.backends.GetBackends()
 }
 
 func (b *BackendClient) IsUrlAllowed(u *url.URL) bool {
 	return b.backends.IsUrlAllowed(u)
-}
-
-func isOcsRequest(u *url.URL) bool {
-	return strings.Contains(u.Path, "/ocs/v2.php") || strings.Contains(u.Path, "/ocs/v1.php")
 }
 
 // PerformJSONRequest sends a JSON POST request to the given url and decodes
@@ -131,7 +128,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	}
 
 	var requestUrl *url.URL
-	if b.capabilities.HasCapabilityFeature(ctx, u, FeatureSignalingV3Api) {
+	if b.capabilities.HasCapabilityFeature(ctx, u, talk.FeatureSignalingV3Api) {
 		newUrl := *u
 		newUrl.Path = strings.ReplaceAll(newUrl.Path, "/spreed/api/v1/signaling/", "/spreed/api/v3/signaling/")
 		newUrl.Path = strings.ReplaceAll(newUrl.Path, "/spreed/api/v2/signaling/", "/spreed/api/v3/signaling/")
@@ -205,7 +202,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	defer b.buffers.Put(body)
 
-	if isOcsRequest(u) || req.Header.Get("OCS-APIRequest") != "" {
+	if talk.IsOcsRequest(u) || req.Header.Get("OCS-APIRequest") != "" {
 		// OCS response are wrapped in an OCS container that needs to be parsed
 		// to get the actual contents:
 		// {
@@ -214,7 +211,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		//     "data": { ... }
 		//   }
 		// }
-		var ocs OcsResponse
+		var ocs talk.OcsResponse
 		if err := json.Unmarshal(body.Bytes(), &ocs); err != nil {
 			logger.Printf("Could not decode OCS response %s from %s: %s", body.String(), req.URL, err)
 			statsBackendClientError.WithLabelValues(backend.Id(), "error_decoding_ocs").Inc()

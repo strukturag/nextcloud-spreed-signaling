@@ -26,52 +26,53 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
-
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
-func GetSubjectForBackendRoomId(roomId string, backend *Backend) string {
+func GetSubjectForBackendRoomId(roomId string, backend *talk.Backend) string {
 	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("backend.room", roomId)
+		return nats.GetEncodedSubject("backend.room", roomId)
 	}
 
-	return GetEncodedSubject("backend.room", roomId+"|"+backend.Id())
+	return nats.GetEncodedSubject("backend.room", roomId+"|"+backend.Id())
 }
 
-func GetSubjectForRoomId(roomId string, backend *Backend) string {
+func GetSubjectForRoomId(roomId string, backend *talk.Backend) string {
 	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("room", roomId)
+		return nats.GetEncodedSubject("room", roomId)
 	}
 
-	return GetEncodedSubject("room", roomId+"|"+backend.Id())
+	return nats.GetEncodedSubject("room", roomId+"|"+backend.Id())
 }
 
-func GetSubjectForUserId(userId string, backend *Backend) string {
+func GetSubjectForUserId(userId string, backend *talk.Backend) string {
 	if backend == nil || backend.IsCompat() {
-		return GetEncodedSubject("user", userId)
+		return nats.GetEncodedSubject("user", userId)
 	}
 
-	return GetEncodedSubject("user", userId+"|"+backend.Id())
+	return nats.GetEncodedSubject("user", userId+"|"+backend.Id())
 }
 
-func GetSubjectForSessionId(sessionId PublicSessionId, backend *Backend) string {
+func GetSubjectForSessionId(sessionId api.PublicSessionId, backend *talk.Backend) string {
 	return string("session." + sessionId)
 }
 
 type asyncSubscriberNats struct {
 	key    string
-	client NatsClient
+	client nats.Client
 	logger log.Logger
 
 	receiver     chan *nats.Msg
 	closeChan    chan struct{}
-	subscription NatsSubscription
+	subscription nats.Subscription
 
 	processMessage func(*nats.Msg)
 }
 
-func newAsyncSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncSubscriberNats, error) {
+func newAsyncSubscriberNats(logger log.Logger, key string, client nats.Client) (*asyncSubscriberNats, error) {
 	receiver := make(chan *nats.Msg, 64)
 	sub, err := client.Subscribe(key, receiver)
 	if err != nil {
@@ -119,7 +120,7 @@ type asyncBackendRoomSubscriberNats struct {
 	asyncBackendRoomSubscriber
 }
 
-func newAsyncBackendRoomSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncBackendRoomSubscriberNats, error) {
+func newAsyncBackendRoomSubscriberNats(logger log.Logger, key string, client nats.Client) (*asyncBackendRoomSubscriberNats, error) {
 	sub, err := newAsyncSubscriberNats(logger, key, client)
 	if err != nil {
 		return nil, err
@@ -148,7 +149,7 @@ type asyncRoomSubscriberNats struct {
 	*asyncSubscriberNats
 }
 
-func newAsyncRoomSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncRoomSubscriberNats, error) {
+func newAsyncRoomSubscriberNats(logger log.Logger, key string, client nats.Client) (*asyncRoomSubscriberNats, error) {
 	sub, err := newAsyncSubscriberNats(logger, key, client)
 	if err != nil {
 		return nil, err
@@ -177,7 +178,7 @@ type asyncUserSubscriberNats struct {
 	asyncUserSubscriber
 }
 
-func newAsyncUserSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncUserSubscriberNats, error) {
+func newAsyncUserSubscriberNats(logger log.Logger, key string, client nats.Client) (*asyncUserSubscriberNats, error) {
 	sub, err := newAsyncSubscriberNats(logger, key, client)
 	if err != nil {
 		return nil, err
@@ -206,7 +207,7 @@ type asyncSessionSubscriberNats struct {
 	asyncSessionSubscriber
 }
 
-func newAsyncSessionSubscriberNats(logger log.Logger, key string, client NatsClient) (*asyncSessionSubscriberNats, error) {
+func newAsyncSessionSubscriberNats(logger log.Logger, key string, client nats.Client) (*asyncSessionSubscriberNats, error) {
 	sub, err := newAsyncSubscriberNats(logger, key, client)
 	if err != nil {
 		return nil, err
@@ -232,7 +233,7 @@ func (s *asyncSessionSubscriberNats) doProcessMessage(msg *nats.Msg) {
 
 type asyncEventsNats struct {
 	mu     sync.Mutex
-	client NatsClient
+	client nats.Client
 	logger log.Logger // +checklocksignore
 
 	// +checklocks:mu
@@ -245,7 +246,7 @@ type asyncEventsNats struct {
 	sessionSubscriptions map[string]*asyncSessionSubscriberNats
 }
 
-func NewAsyncEventsNats(logger log.Logger, client NatsClient) (AsyncEvents, error) {
+func NewAsyncEventsNats(logger log.Logger, client nats.Client) (AsyncEvents, error) {
 	events := &asyncEventsNats{
 		client: client,
 		logger: logger,
@@ -259,28 +260,29 @@ func NewAsyncEventsNats(logger log.Logger, client NatsClient) (AsyncEvents, erro
 }
 
 func (e *asyncEventsNats) GetServerInfoNats() *BackendServerInfoNats {
-	var nats *BackendServerInfoNats
+	// TODO: This should call a method on "e.client" directly instead of having a type switch.
+	var result *BackendServerInfoNats
 	switch n := e.client.(type) {
-	case *natsClient:
-		nats = &BackendServerInfoNats{
-			Urls: n.conn.Servers(),
+	case *nats.NativeClient:
+		result = &BackendServerInfoNats{
+			Urls: n.URLs(),
 		}
-		if c := n.conn; c.IsConnected() {
-			nats.Connected = true
-			nats.ServerUrl = c.ConnectedUrl()
-			nats.ServerID = c.ConnectedServerId()
-			nats.ServerVersion = c.ConnectedServerVersion()
-			nats.ClusterName = c.ConnectedClusterName()
+		if n.IsConnected() {
+			result.Connected = true
+			result.ServerUrl = n.ConnectedUrl()
+			result.ServerID = n.ConnectedServerId()
+			result.ServerVersion = n.ConnectedServerVersion()
+			result.ClusterName = n.ConnectedClusterName()
 		}
-	case *LoopbackNatsClient:
-		nats = &BackendServerInfoNats{
-			Urls:      []string{NatsLoopbackUrl},
+	case *nats.LoopbackClient:
+		result = &BackendServerInfoNats{
+			Urls:      []string{nats.LoopbackUrl},
 			Connected: true,
-			ServerUrl: NatsLoopbackUrl,
+			ServerUrl: nats.LoopbackUrl,
 		}
 	}
 
-	return nats
+	return result
 }
 
 func (e *asyncEventsNats) Close(ctx context.Context) error {
@@ -325,7 +327,7 @@ func (e *asyncEventsNats) Close(ctx context.Context) error {
 	return e.client.Close(ctx)
 }
 
-func (e *asyncEventsNats) RegisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener) error {
+func (e *asyncEventsNats) RegisterBackendRoomListener(roomId string, backend *talk.Backend, listener AsyncBackendRoomEventListener) error {
 	key := GetSubjectForBackendRoomId(roomId, backend)
 
 	e.mu.Lock()
@@ -343,7 +345,7 @@ func (e *asyncEventsNats) RegisterBackendRoomListener(roomId string, backend *Ba
 	return nil
 }
 
-func (e *asyncEventsNats) UnregisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener) {
+func (e *asyncEventsNats) UnregisterBackendRoomListener(roomId string, backend *talk.Backend, listener AsyncBackendRoomEventListener) {
 	key := GetSubjectForBackendRoomId(roomId, backend)
 
 	e.mu.Lock()
@@ -359,7 +361,7 @@ func (e *asyncEventsNats) UnregisterBackendRoomListener(roomId string, backend *
 	}
 }
 
-func (e *asyncEventsNats) RegisterRoomListener(roomId string, backend *Backend, listener AsyncRoomEventListener) error {
+func (e *asyncEventsNats) RegisterRoomListener(roomId string, backend *talk.Backend, listener AsyncRoomEventListener) error {
 	key := GetSubjectForRoomId(roomId, backend)
 
 	e.mu.Lock()
@@ -377,7 +379,7 @@ func (e *asyncEventsNats) RegisterRoomListener(roomId string, backend *Backend, 
 	return nil
 }
 
-func (e *asyncEventsNats) UnregisterRoomListener(roomId string, backend *Backend, listener AsyncRoomEventListener) {
+func (e *asyncEventsNats) UnregisterRoomListener(roomId string, backend *talk.Backend, listener AsyncRoomEventListener) {
 	key := GetSubjectForRoomId(roomId, backend)
 
 	e.mu.Lock()
@@ -393,7 +395,7 @@ func (e *asyncEventsNats) UnregisterRoomListener(roomId string, backend *Backend
 	}
 }
 
-func (e *asyncEventsNats) RegisterUserListener(roomId string, backend *Backend, listener AsyncUserEventListener) error {
+func (e *asyncEventsNats) RegisterUserListener(roomId string, backend *talk.Backend, listener AsyncUserEventListener) error {
 	key := GetSubjectForUserId(roomId, backend)
 
 	e.mu.Lock()
@@ -411,7 +413,7 @@ func (e *asyncEventsNats) RegisterUserListener(roomId string, backend *Backend, 
 	return nil
 }
 
-func (e *asyncEventsNats) UnregisterUserListener(roomId string, backend *Backend, listener AsyncUserEventListener) {
+func (e *asyncEventsNats) UnregisterUserListener(roomId string, backend *talk.Backend, listener AsyncUserEventListener) {
 	key := GetSubjectForUserId(roomId, backend)
 
 	e.mu.Lock()
@@ -427,7 +429,7 @@ func (e *asyncEventsNats) UnregisterUserListener(roomId string, backend *Backend
 	}
 }
 
-func (e *asyncEventsNats) RegisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) error {
+func (e *asyncEventsNats) RegisterSessionListener(sessionId api.PublicSessionId, backend *talk.Backend, listener AsyncSessionEventListener) error {
 	key := GetSubjectForSessionId(sessionId, backend)
 
 	e.mu.Lock()
@@ -445,7 +447,7 @@ func (e *asyncEventsNats) RegisterSessionListener(sessionId PublicSessionId, bac
 	return nil
 }
 
-func (e *asyncEventsNats) UnregisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) {
+func (e *asyncEventsNats) UnregisterSessionListener(sessionId api.PublicSessionId, backend *talk.Backend, listener AsyncSessionEventListener) {
 	key := GetSubjectForSessionId(sessionId, backend)
 
 	e.mu.Lock()
@@ -466,22 +468,22 @@ func (e *asyncEventsNats) publish(subject string, message *AsyncMessage) error {
 	return e.client.Publish(subject, message)
 }
 
-func (e *asyncEventsNats) PublishBackendRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error {
+func (e *asyncEventsNats) PublishBackendRoomMessage(roomId string, backend *talk.Backend, message *AsyncMessage) error {
 	subject := GetSubjectForBackendRoomId(roomId, backend)
 	return e.publish(subject, message)
 }
 
-func (e *asyncEventsNats) PublishRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error {
+func (e *asyncEventsNats) PublishRoomMessage(roomId string, backend *talk.Backend, message *AsyncMessage) error {
 	subject := GetSubjectForRoomId(roomId, backend)
 	return e.publish(subject, message)
 }
 
-func (e *asyncEventsNats) PublishUserMessage(userId string, backend *Backend, message *AsyncMessage) error {
+func (e *asyncEventsNats) PublishUserMessage(userId string, backend *talk.Backend, message *AsyncMessage) error {
 	subject := GetSubjectForUserId(userId, backend)
 	return e.publish(subject, message)
 }
 
-func (e *asyncEventsNats) PublishSessionMessage(sessionId PublicSessionId, backend *Backend, message *AsyncMessage) error {
+func (e *asyncEventsNats) PublishSessionMessage(sessionId api.PublicSessionId, backend *talk.Backend, message *AsyncMessage) error {
 	subject := GetSubjectForSessionId(sessionId, backend)
 	return e.publish(subject, message)
 }

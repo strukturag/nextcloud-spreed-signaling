@@ -38,6 +38,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/connectivity"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -108,7 +109,7 @@ func (c *EtcdClient) getConfigStringWithFallback(config *goconf.ConfigFile, opti
 func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 	var endpoints []string
 	if endpointsString := c.getConfigStringWithFallback(config, "endpoints"); endpointsString != "" {
-		endpoints = slices.Collect(SplitEntries(endpointsString, ","))
+		endpoints = slices.Collect(internal.SplitEntries(endpointsString, ","))
 	} else if discoverySrv := c.getConfigStringWithFallback(config, "discoverysrv"); discoverySrv != "" {
 		discoveryService := c.getConfigStringWithFallback(config, "discoveryservice")
 		clients, err := srv.GetClient("etcd-client", discoverySrv, discoveryService)
@@ -247,7 +248,7 @@ func (c *EtcdClient) RemoveListener(listener EtcdClientListener) {
 }
 
 func (c *EtcdClient) WaitForConnection(ctx context.Context) error {
-	backoff, err := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+	backoff, err := async.NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 	if err != nil {
 		return err
 	}

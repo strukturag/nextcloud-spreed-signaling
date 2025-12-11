@@ -23,21 +23,11 @@ package signaling
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
 )
 
 var (
-	statsBackendLimit = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "signaling",
-		Subsystem: "backend",
-		Name:      "session_limit",
-		Help:      "The session limit of a backend",
-	}, []string{"backend"})
-	statsBackendLimitExceededTotal = prometheus.NewCounterVec(prometheus.CounterOpts{ // +checklocksignore: Global readonly variable.
-		Namespace: "signaling",
-		Subsystem: "backend",
-		Name:      "session_limit_exceeded_total",
-		Help:      "The number of times the session limit exceeded",
-	}, []string{"backend"})
 	statsBackendsCurrent = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "signaling",
 		Subsystem: "backend",
@@ -46,24 +36,10 @@ var (
 	})
 
 	backendConfigurationStats = []prometheus.Collector{
-		statsBackendLimit,
-		statsBackendLimitExceededTotal,
 		statsBackendsCurrent,
 	}
 )
 
 func RegisterBackendConfigurationStats() {
-	registerAll(backendConfigurationStats...)
-}
-
-func updateBackendStats(backend *Backend) {
-	if backend.sessionLimit > 0 {
-		statsBackendLimit.WithLabelValues(backend.id).Set(float64(backend.sessionLimit))
-	} else {
-		statsBackendLimit.DeleteLabelValues(backend.id)
-	}
-}
-
-func deleteBackendStats(backend *Backend) {
-	statsBackendLimit.DeleteLabelValues(backend.id)
+	metrics.RegisterAll(backendConfigurationStats...)
 }

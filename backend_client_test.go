@@ -36,12 +36,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
-	response := OcsResponse{
-		Ocs: &OcsBody{
-			Meta: OcsMeta{
+	response := talk.OcsResponse{
+		Ocs: &talk.OcsBody{
+			Meta: talk.OcsMeta{
 				Status:     "OK",
 				StatusCode: http.StatusOK,
 				Message:    "OK",
@@ -50,7 +52,7 @@ func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
 		},
 	}
 	if strings.Contains(t.Name(), "Throttled") {
-		response.Ocs.Meta = OcsMeta{
+		response.Ocs.Meta = talk.OcsMeta{
 			Status:     "failure",
 			StatusCode: 429,
 			Message:    "Reached maximum delay",
@@ -145,7 +147,7 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 	err = client.PerformJSONRequest(ctx, u, request, &response)
 	if err != nil {
 		// The redirect to a different host should have failed.
-		require.ErrorIs(err, ErrNotRedirecting)
+		require.ErrorIs(err, pool.ErrNotRedirecting)
 	} else {
 		require.Fail("The redirect should have failed")
 	}

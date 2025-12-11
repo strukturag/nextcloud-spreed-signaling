@@ -38,6 +38,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 )
 
 func TestMcuJanusStats(t *testing.T) {
@@ -329,7 +330,7 @@ func (g *TestJanusGateway) processMessage(session *JanusSession, handle *TestJan
 					},
 					Jsep: map[string]any{
 						"type": "offer",
-						"sdp":  MockSdpOfferAudioOnly,
+						"sdp":  mock.MockSdpOfferAudioOnly,
 					},
 				})
 			}
@@ -612,10 +613,10 @@ func newMcuJanusForTesting(t *testing.T) (*mcuJanus, *TestJanusGateway) {
 }
 
 type TestMcuListener struct {
-	id PublicSessionId
+	id api.PublicSessionId
 }
 
-func (t *TestMcuListener) PublicId() PublicSessionId {
+func (t *TestMcuListener) PublicId() api.PublicSessionId {
 	return t.id
 }
 
@@ -644,10 +645,10 @@ func (t *TestMcuListener) SubscriberClosed(subscriber McuSubscriber) {
 }
 
 type TestMcuController struct {
-	id PublicSessionId
+	id api.PublicSessionId
 }
 
-func (c *TestMcuController) PublisherId() PublicSessionId {
+func (c *TestMcuController) PublisherId() api.PublicSessionId {
 	return c.id
 }
 
@@ -695,14 +696,14 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 				if sdpValue, found := jsep["sdp"]; assert.True(found) {
 					sdpText, ok := sdpValue.(string)
 					if assert.True(ok) {
-						assert.Equal(MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+						assert.Equal(mock.MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(sdpText, "\r\n", "\n"))
 					}
 				}
 			}
 
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
-					"sdp": MockSdpAnswerAudioOnly,
+					"sdp": mock.MockSdpAnswerAudioOnly,
 				},
 			}, nil
 		},
@@ -715,7 +716,7 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("publisher-id")
+	pubId := api.PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -730,31 +731,31 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 	defer pub.Close(context.Background())
 
 	// Send offer containing candidates that will be blocked / filtered.
-	data := &MessageClientMessageData{
+	data := &api.MessageClientMessageData{
 		Type: "offer",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioOnly,
+			"sdp": mock.MockSdpOfferAudioOnly,
 		},
 	}
 	require.NoError(data.CheckValid())
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+	pub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		if assert.NoError(err) {
 			if sdpValue, found := m["sdp"]; assert.True(found) {
 				sdpText, ok := sdpValue.(string)
 				if assert.True(ok) {
-					assert.Equal(MockSdpAnswerAudioOnly, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+					assert.Equal(mock.MockSdpAnswerAudioOnly, strings.ReplaceAll(sdpText, "\r\n", "\n"))
 				}
 			}
 		}
 	})
 	wg.Wait()
 
-	data = &MessageClientMessageData{
+	data = &api.MessageClientMessageData{
 		Type: "candidate",
 		Payload: api.StringMap{
 			"candidate": api.StringMap{
@@ -764,7 +765,7 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 	}
 	require.NoError(data.CheckValid())
 	wg.Add(1)
-	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+	pub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		assert.ErrorContains(err, "filtered")
@@ -772,7 +773,7 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 	})
 	wg.Wait()
 
-	data = &MessageClientMessageData{
+	data = &api.MessageClientMessageData{
 		Type: "candidate",
 		Payload: api.StringMap{
 			"candidate": api.StringMap{
@@ -782,7 +783,7 @@ func Test_JanusPublisherFilterOffer(t *testing.T) {
 	}
 	require.NoError(data.CheckValid())
 	wg.Add(1)
-	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+	pub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		assert.NoError(err)
@@ -805,7 +806,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 				if sdpValue, found := jsep["sdp"]; assert.True(found) {
 					sdpText, ok := sdpValue.(string)
 					if assert.True(ok) {
-						assert.Equal(MockSdpAnswerAudioOnlyNoFilter, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+						assert.Equal(mock.MockSdpAnswerAudioOnlyNoFilter, strings.ReplaceAll(sdpText, "\r\n", "\n"))
 					}
 				}
 			}
@@ -830,7 +831,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("publisher-id")
+	pubId := api.PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -856,17 +857,17 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	defer sub.Close(context.Background())
 
 	// Send answer containing candidates that will be blocked / filtered.
-	data := &MessageClientMessageData{
+	data := &api.MessageClientMessageData{
 		Type: "answer",
 		Payload: api.StringMap{
-			"sdp": MockSdpAnswerAudioOnly,
+			"sdp": mock.MockSdpAnswerAudioOnly,
 		},
 	}
 	require.NoError(data.CheckValid())
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+	sub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		if assert.NoError(err) {
@@ -875,7 +876,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	})
 	wg.Wait()
 
-	data = &MessageClientMessageData{
+	data = &api.MessageClientMessageData{
 		Type: "candidate",
 		Payload: api.StringMap{
 			"candidate": api.StringMap{
@@ -885,7 +886,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	}
 	require.NoError(data.CheckValid())
 	wg.Add(1)
-	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+	sub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		assert.ErrorContains(err, "filtered")
@@ -893,7 +894,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	})
 	wg.Wait()
 
-	data = &MessageClientMessageData{
+	data = &api.MessageClientMessageData{
 		Type: "candidate",
 		Payload: api.StringMap{
 			"candidate": api.StringMap{
@@ -903,7 +904,7 @@ func Test_JanusSubscriberFilterAnswer(t *testing.T) {
 	}
 	require.NoError(data.CheckValid())
 	wg.Add(1)
-	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+	sub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer wg.Done()
 
 		assert.NoError(err)
@@ -925,14 +926,14 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 				if sdpValue, found := jsep["sdp"]; assert.True(found) {
 					sdpText, ok := sdpValue.(string)
 					if assert.True(ok) {
-						assert.Equal(MockSdpOfferAudioOnly, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+						assert.Equal(mock.MockSdpOfferAudioOnly, strings.ReplaceAll(sdpText, "\r\n", "\n"))
 					}
 				}
 			}
 
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
-					"sdp": MockSdpAnswerAudioOnly,
+					"sdp": mock.MockSdpAnswerAudioOnly,
 				},
 			}, nil
 		},
@@ -941,7 +942,7 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("publisher-id")
+	pubId := api.PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -955,23 +956,23 @@ func Test_JanusPublisherGetStreamsAudioOnly(t *testing.T) {
 	require.NoError(err)
 	defer pub.Close(context.Background())
 
-	data := &MessageClientMessageData{
+	data := &api.MessageClientMessageData{
 		Type: "offer",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioOnly,
+			"sdp": mock.MockSdpOfferAudioOnly,
 		},
 	}
 	require.NoError(data.CheckValid())
 
 	done := make(chan struct{})
-	pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+	pub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer close(done)
 
 		if assert.NoError(err) {
 			if sdpValue, found := m["sdp"]; assert.True(found) {
 				sdpText, ok := sdpValue.(string)
 				if assert.True(ok) {
-					assert.Equal(MockSdpAnswerAudioOnly, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+					assert.Equal(mock.MockSdpAnswerAudioOnly, strings.ReplaceAll(sdpText, "\r\n", "\n"))
 				}
 			}
 		}
@@ -1011,7 +1012,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
-					"sdp": MockSdpAnswerAudioAndVideo,
+					"sdp": mock.MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
 		},
@@ -1020,7 +1021,7 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("publisher-id")
+	pubId := api.PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1034,10 +1035,10 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	require.NoError(err)
 	defer pub.Close(context.Background())
 
-	data := &MessageClientMessageData{
+	data := &api.MessageClientMessageData{
 		Type: "offer",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}
 	require.NoError(data.CheckValid())
@@ -1045,14 +1046,14 @@ func Test_JanusPublisherGetStreamsAudioVideo(t *testing.T) {
 	// Defer sending of offer / answer so "GetStreams" will wait.
 	go func() {
 		done := make(chan struct{})
-		pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+		pub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 			defer close(done)
 
 			if assert.NoError(err) {
 				if sdpValue, found := m["sdp"]; assert.True(found) {
 					sdpText, ok := sdpValue.(string)
 					if assert.True(ok) {
-						assert.Equal(MockSdpAnswerAudioAndVideo, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+						assert.Equal(mock.MockSdpAnswerAudioAndVideo, strings.ReplaceAll(sdpText, "\r\n", "\n"))
 					}
 				}
 			}
@@ -1114,7 +1115,7 @@ func Test_JanusPublisherSubscriber(t *testing.T) {
 	assert.EqualValues(0, stats.incoming)
 	assert.EqualValues(0, stats.outgoing)
 
-	pubId := PublicSessionId("publisher-id")
+	pubId := api.PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1188,7 +1189,7 @@ func Test_JanusSubscriberPublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("publisher-id")
+	pubId := api.PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1248,7 +1249,7 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
-					"sdp": MockSdpAnswerAudioAndVideo,
+					"sdp": mock.MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
 		},
@@ -1257,7 +1258,7 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("publisher-id")
+	pubId := api.PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}
@@ -1283,10 +1284,10 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	defer sub.Close(context.Background())
 
 	go func() {
-		data := &MessageClientMessageData{
+		data := &api.MessageClientMessageData{
 			Type: "offer",
 			Payload: api.StringMap{
-				"sdp": MockSdpOfferAudioAndVideo,
+				"sdp": mock.MockSdpOfferAudioAndVideo,
 			},
 		}
 		if !assert.NoError(data.CheckValid()) {
@@ -1294,14 +1295,14 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 		}
 
 		done := make(chan struct{})
-		pub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+		pub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 			defer close(done)
 
 			if assert.NoError(err) {
 				if sdpValue, found := m["sdp"]; assert.True(found) {
 					sdpText, ok := sdpValue.(string)
 					if assert.True(ok) {
-						assert.Equal(MockSdpAnswerAudioAndVideo, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+						assert.Equal(mock.MockSdpAnswerAudioAndVideo, strings.ReplaceAll(sdpText, "\r\n", "\n"))
 					}
 				}
 			}
@@ -1309,13 +1310,13 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 		<-done
 	}()
 
-	data := &MessageClientMessageData{
+	data := &api.MessageClientMessageData{
 		Type: "requestoffer",
 	}
 	require.NoError(data.CheckValid())
 
 	done := make(chan struct{})
-	sub.SendMessage(ctx, &MessageClientMessage{}, data, func(err error, m api.StringMap) {
+	sub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
 		defer close(done)
 
 		if assert.NoError(err) {
@@ -1477,7 +1478,7 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
 					"type": "answer",
-					"sdp":  MockSdpAnswerAudioAndVideo,
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
 		},
@@ -1524,38 +1525,38 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
-	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+	client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo)
 
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "requestoffer",
 		RoomType: "video",
 	}))
 
 	MustSucceed2(t, client2.RunUntilError, ctx, "processing_failed") // nolint
 
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "requestoffer",
 		RoomType: "video",
 	}))
 
-	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+	client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioAndVideo)
 }
 
 func test_JanusSubscriberAlreadyJoined(t *testing.T) {
@@ -1579,7 +1580,7 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
 					"type": "answer",
-					"sdp":  MockSdpAnswerAudioAndVideo,
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
 		},
@@ -1626,23 +1627,23 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
-	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+	client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo)
 
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "requestoffer",
 		RoomType: "video",
 	}))
@@ -1650,16 +1651,16 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	if strings.Contains(t.Name(), "AttachError") {
 		MustSucceed2(t, client2.RunUntilError, ctx, "processing_failed") // nolint
 
-		require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+		require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 			Type:      "session",
 			SessionId: hello1.Hello.SessionId,
-		}, MessageClientMessageData{
+		}, api.MessageClientMessageData{
 			Type:     "requestoffer",
 			RoomType: "video",
 		}))
 	}
 
-	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+	client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioAndVideo)
 }
 
 func Test_JanusSubscriberAlreadyJoined(t *testing.T) {
@@ -1694,7 +1695,7 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
 					"type": "answer",
-					"sdp":  MockSdpAnswerAudioAndVideo,
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
 		},
@@ -1741,25 +1742,25 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
-	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+	client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo)
 
 	oldTimeout := mcu.settings.timeout.Swap(100 * int64(time.Millisecond))
 
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "requestoffer",
 		RoomType: "video",
 	}))
@@ -1768,15 +1769,15 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 
 	mcu.settings.timeout.Store(oldTimeout)
 
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "requestoffer",
 		RoomType: "video",
 	}))
 
-	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+	client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioAndVideo)
 }
 
 func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
@@ -1801,7 +1802,7 @@ func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
 					"type": "answer",
-					"sdp":  MockSdpAnswerAudioAndVideo,
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
 		},
@@ -1848,28 +1849,28 @@ func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
-	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+	client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo)
 
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "requestoffer",
 		RoomType: "video",
 	}))
 
-	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+	client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioAndVideo)
 
 	sess2 := hub.GetSessionByPublicId(hello2.Hello.SessionId)
 	require.NotNil(sess2)
@@ -1915,7 +1916,7 @@ func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
 					"type": "answer",
-					"sdp":  MockSdpAnswerAudioAndVideo,
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
 		},
@@ -1962,28 +1963,28 @@ func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
-	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+	client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo)
 
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "requestoffer",
 		RoomType: "video",
 	}))
 
-	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+	client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioAndVideo)
 
 	sess2 := hub.GetSessionByPublicId(hello2.Hello.SessionId)
 	require.NotNil(sess2)
@@ -2029,7 +2030,7 @@ func Test_JanusSubscriberUpdateOffer(t *testing.T) {
 			return &janus.EventMsg{
 				Jsep: api.StringMap{
 					"type": "answer",
-					"sdp":  MockSdpAnswerAudioAndVideo,
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
 				},
 			}, nil
 		},
@@ -2076,29 +2077,29 @@ func Test_JanusSubscriberUpdateOffer(t *testing.T) {
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
-	require.NoError(client1.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		RoomType: "video",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	client1.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo)
+	client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo)
 
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "requestoffer",
 		RoomType: "video",
 	}))
 
-	client2.RunUntilOffer(ctx, MockSdpOfferAudioAndVideo)
+	client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioAndVideo)
 
 	// Test MCU will trigger an updated offer.
-	client2.RunUntilOffer(ctx, MockSdpOfferAudioOnly)
+	client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioOnly)
 }

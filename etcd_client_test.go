@@ -25,14 +25,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"errors"
 	"net"
 	"net/url"
 	"os"
 	"path"
-	"runtime"
 	"strconv"
-	"syscall"
 	"testing"
 	"time"
 
@@ -46,31 +43,14 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 var (
 	etcdListenUrl = "http://localhost:8080"
 )
-
-func isErrorAddressAlreadyInUse(err error) bool {
-	var eOsSyscall *os.SyscallError
-	if !errors.As(err, &eOsSyscall) {
-		return false
-	}
-	var errErrno syscall.Errno // doesn't need a "*" (ptr) because it's already a ptr (uintptr)
-	if !errors.As(eOsSyscall, &errErrno) {
-		return false
-	}
-	if errErrno == syscall.EADDRINUSE {
-		return true
-	}
-	const WSAEADDRINUSE = 10048
-	if runtime.GOOS == "windows" && errErrno == WSAEADDRINUSE {
-		return true
-	}
-	return false
-}
 
 func NewEtcdForTestWithTls(t *testing.T, withTLS bool) (*embed.Etcd, string, string) {
 	t.Helper()
@@ -95,13 +75,13 @@ func NewEtcdForTestWithTls(t *testing.T, withTLS bool) (*embed.Etcd, string, str
 		key, err := rsa.GenerateKey(rand.Reader, 1024)
 		require.NoError(err)
 		keyfile = path.Join(tmpdir, "etcd.key")
-		require.NoError(WritePrivateKey(key, keyfile))
+		require.NoError(internal.WritePrivateKey(key, keyfile))
 		cfg.ClientTLSInfo.KeyFile = keyfile
 		cfg.PeerTLSInfo.KeyFile = keyfile
 
-		cert := GenerateSelfSignedCertificateForTesting(t, 1024, "etcd", key)
+		cert := internal.GenerateSelfSignedCertificateForTesting(t, "etcd", key)
 		certfile = path.Join(tmpdir, "etcd.pem")
-		require.NoError(os.WriteFile(certfile, cert, 0755))
+		require.NoError(internal.WriteCertificate(cert, certfile))
 		cfg.ClientTLSInfo.CertFile = certfile
 		cfg.ClientTLSInfo.TrustedCAFile = certfile
 		cfg.PeerTLSInfo.CertFile = certfile
@@ -123,7 +103,7 @@ func NewEtcdForTestWithTls(t *testing.T, withTLS bool) (*embed.Etcd, string, str
 		cfg.AdvertisePeerUrls = []url.URL{*peerListener}
 		cfg.InitialCluster = "signalingtest=" + peerListener.String()
 		etcd, err = embed.StartEtcd(cfg)
-		if isErrorAddressAlreadyInUse(err) {
+		if test.IsErrorAddressAlreadyInUse(err) {
 			continue
 		}
 

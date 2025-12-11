@@ -48,6 +48,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 var (
@@ -143,7 +144,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		server2.Close()
 	})
 
-	nats, _ := startLocalNatsServer(t)
+	nats, _ := nats.StartLocalServer(t)
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
 
@@ -241,7 +242,7 @@ func performBackendRequest(requestUrl string, body []byte) (*http.Response, erro
 	return client.Do(request)
 }
 
-func expectRoomlistEvent(t *testing.T, ch chan *AsyncMessage, msgType string) (*EventServerMessage, bool) {
+func expectRoomlistEvent(t *testing.T, ch chan *AsyncMessage, msgType string) (*api.EventServerMessage, bool) {
 	assert := assert.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -510,8 +511,8 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 			UserIds: []string{
 				testDefaultUserId,
 			},
-			SessionIds: []RoomSessionId{
-				RoomSessionId(fmt.Sprintf("%s-%s"+roomId, hello.Hello.SessionId)),
+			SessionIds: []api.RoomSessionId{
+				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId, hello.Hello.SessionId)),
 			},
 			AllUserIds: []string{},
 			Properties: roomProperties,
@@ -570,8 +571,8 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 			UserIds: []string{
 				testDefaultUserId,
 			},
-			SessionIds: []RoomSessionId{
-				RoomSessionId(fmt.Sprintf("%s-%s"+roomId1, hello1.Hello.SessionId)),
+			SessionIds: []api.RoomSessionId{
+				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId1, hello1.Hello.SessionId)),
 			},
 			AllUserIds: []string{},
 		},
@@ -1510,15 +1511,15 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 		assert.Equal(server.URL+"/", msg.Internal.Dialout.Backend)
 
-		response := &ClientMessage{
+		response := &api.ClientMessage{
 			Id:   msg.Id,
 			Type: "internal",
-			Internal: &InternalClientMessage{
+			Internal: &api.InternalClientMessage{
 				Type: "dialout",
-				Dialout: &DialoutInternalClientMessage{
+				Dialout: &api.DialoutInternalClientMessage{
 					Type:   "status",
 					RoomId: msg.Internal.Dialout.RoomId,
-					Status: &DialoutStatusInternalClientMessage{
+					Status: &api.DialoutStatusInternalClientMessage{
 						Status: "accepted",
 						CallId: callId,
 					},
@@ -1597,15 +1598,15 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 		assert.Equal(server.URL+"/", msg.Internal.Dialout.Backend)
 
-		response := &ClientMessage{
+		response := &api.ClientMessage{
 			Id:   msg.Id,
 			Type: "internal",
-			Internal: &InternalClientMessage{
+			Internal: &api.InternalClientMessage{
 				Type: "dialout",
-				Dialout: &DialoutInternalClientMessage{
+				Dialout: &api.DialoutInternalClientMessage{
 					Type:   "status",
 					RoomId: msg.Internal.Dialout.RoomId,
-					Status: &DialoutStatusInternalClientMessage{
+					Status: &api.DialoutStatusInternalClientMessage{
 						Status: "accepted",
 						CallId: callId,
 					},
@@ -1685,14 +1686,14 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 		assert.Equal(server.URL+"/", msg.Internal.Dialout.Backend)
 
-		response := &ClientMessage{
+		response := &api.ClientMessage{
 			Id:   msg.Id,
 			Type: "internal",
-			Internal: &InternalClientMessage{
+			Internal: &api.InternalClientMessage{
 				Type: "dialout",
-				Dialout: &DialoutInternalClientMessage{
+				Dialout: &api.DialoutInternalClientMessage{
 					Type:  "error",
-					Error: NewError(errorCode, errorMessage),
+					Error: api.NewError(errorCode, errorMessage),
 				},
 			},
 		}
@@ -1776,31 +1777,31 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 		assert.Equal(server.URL+"/", msg.Internal.Dialout.Backend)
 
-		var dialout *DialoutInternalClientMessage
+		var dialout *api.DialoutInternalClientMessage
 		// The first session should return an error to make sure the second is retried afterwards.
 		if returnedError.CompareAndSwap(false, true) {
 			errorCode := "error-code"
 			errorMessage := "rejected call"
 
-			dialout = &DialoutInternalClientMessage{
+			dialout = &api.DialoutInternalClientMessage{
 				Type:  "error",
-				Error: NewError(errorCode, errorMessage),
+				Error: api.NewError(errorCode, errorMessage),
 			}
 		} else {
-			dialout = &DialoutInternalClientMessage{
+			dialout = &api.DialoutInternalClientMessage{
 				Type:   "status",
 				RoomId: msg.Internal.Dialout.RoomId,
-				Status: &DialoutStatusInternalClientMessage{
+				Status: &api.DialoutStatusInternalClientMessage{
 					Status: "accepted",
 					CallId: callId,
 				},
 			}
 		}
 
-		response := &ClientMessage{
+		response := &api.ClientMessage{
 			Id:   msg.Id,
 			Type: "internal",
-			Internal: &InternalClientMessage{
+			Internal: &api.InternalClientMessage{
 				Type:    "dialout",
 				Dialout: dialout,
 			},

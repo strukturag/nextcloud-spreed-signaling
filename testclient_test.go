@@ -70,7 +70,7 @@ func getWebsocketUrl(url string) string {
 	}
 }
 
-func getPubliceSessionIdData(h *Hub, publicId PublicSessionId) *SessionIdData {
+func getPubliceSessionIdData(h *Hub, publicId api.PublicSessionId) *SessionIdData {
 	decodedPublic := h.decodePublicSessionId(publicId)
 	if decodedPublic == nil {
 		panic("invalid public session id")
@@ -78,7 +78,7 @@ func getPubliceSessionIdData(h *Hub, publicId PublicSessionId) *SessionIdData {
 	return decodedPublic
 }
 
-func checkMessageType(t *testing.T, message *ServerMessage, expectedType string) bool {
+func checkMessageType(t *testing.T, message *api.ServerMessage, expectedType string) bool {
 	assert := assert.New(t)
 	if !assert.NotNil(message, "no message received") {
 		return false
@@ -115,7 +115,7 @@ func checkMessageType(t *testing.T, message *ServerMessage, expectedType string)
 	return !failed
 }
 
-func checkMessageSender(t *testing.T, hub *Hub, sender *MessageServerMessageSender, senderType string, hello *HelloServerMessage) bool {
+func checkMessageSender(t *testing.T, hub *Hub, sender *api.MessageServerMessageSender, senderType string, hello *api.HelloServerMessage) bool {
 	assert := assert.New(t)
 	return assert.Equal(senderType, sender.Type, "invalid sender type in %+v", sender) &&
 		assert.Equal(hello.SessionId, sender.SessionId, "invalid session id, expectd %+v, got %+v in %+v",
@@ -126,7 +126,7 @@ func checkMessageSender(t *testing.T, hub *Hub, sender *MessageServerMessageSend
 		assert.Equal(hello.UserId, sender.UserId, "invalid userid in %+v", sender)
 }
 
-func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) bool {
+func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *api.HelloServerMessage, payload any, sender **api.MessageServerMessageSender, recipient **api.MessageClientMessageRecipient) bool {
 	assert := assert.New(t)
 	message, ok := client.RunUntilMessage(ctx)
 	if !ok ||
@@ -145,15 +145,15 @@ func checkReceiveClientMessageWithSenderAndRecipient(ctx context.Context, t *tes
 	return true
 }
 
-func checkReceiveClientMessageWithSender(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender) bool {
+func checkReceiveClientMessageWithSender(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *api.HelloServerMessage, payload any, sender **api.MessageServerMessageSender) bool {
 	return checkReceiveClientMessageWithSenderAndRecipient(ctx, t, client, senderType, hello, payload, sender, nil)
 }
 
-func checkReceiveClientMessage(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any) bool {
+func checkReceiveClientMessage(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *api.HelloServerMessage, payload any) bool {
 	return checkReceiveClientMessageWithSenderAndRecipient(ctx, t, client, senderType, hello, payload, nil, nil)
 }
 
-func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender, recipient **MessageClientMessageRecipient) bool {
+func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *api.HelloServerMessage, payload any, sender **api.MessageServerMessageSender, recipient **api.MessageClientMessageRecipient) bool {
 	assert := assert.New(t)
 	message, ok := client.RunUntilMessage(ctx)
 	if !ok ||
@@ -172,15 +172,15 @@ func checkReceiveClientControlWithSenderAndRecipient(ctx context.Context, t *tes
 	return true
 }
 
-func checkReceiveClientControlWithSender(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any, sender **MessageServerMessageSender) bool { // nolint
+func checkReceiveClientControlWithSender(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *api.HelloServerMessage, payload any, sender **api.MessageServerMessageSender) bool { // nolint
 	return checkReceiveClientControlWithSenderAndRecipient(ctx, t, client, senderType, hello, payload, sender, nil)
 }
 
-func checkReceiveClientControl(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *HelloServerMessage, payload any) bool {
+func checkReceiveClientControl(ctx context.Context, t *testing.T, client *TestClient, senderType string, hello *api.HelloServerMessage, payload any) bool {
 	return checkReceiveClientControlWithSenderAndRecipient(ctx, t, client, senderType, hello, payload, nil, nil)
 }
 
-func checkReceiveClientEvent(ctx context.Context, t *testing.T, client *TestClient, eventType string, msg **EventServerMessage) bool {
+func checkReceiveClientEvent(ctx context.Context, t *testing.T, client *TestClient, eventType string, msg **api.EventServerMessage) bool {
 	assert := assert.New(t)
 	message, ok := client.RunUntilMessage(ctx)
 	if !ok ||
@@ -210,7 +210,7 @@ type TestClient struct {
 	messageChan   chan []byte
 	readErrorChan chan error
 
-	publicId PublicSessionId
+	publicId api.PublicSessionId
 }
 
 func NewTestClientContext(ctx context.Context, t *testing.T, server *httptest.Server, hub *Hub) *TestClient {
@@ -272,7 +272,7 @@ func NewTestClient(t *testing.T, server *httptest.Server, hub *Hub) *TestClient 
 	return client
 }
 
-func NewTestClientWithHello(ctx context.Context, t *testing.T, server *httptest.Server, hub *Hub, userId string) (*TestClient, *ServerMessage) {
+func NewTestClientWithHello(ctx context.Context, t *testing.T, server *httptest.Server, hub *Hub, userId string) (*TestClient, *api.ServerMessage) {
 	client := NewTestClient(t, server, hub)
 	t.Cleanup(func() {
 		client.CloseWithBye()
@@ -345,7 +345,7 @@ func (c *TestClient) WaitForClientRemoved(ctx context.Context) error {
 	return nil
 }
 
-func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId PublicSessionId) error {
+func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId api.PublicSessionId) error {
 	data := c.hub.decodePublicSessionId(sessionId)
 	if data == nil {
 		return errors.New("Invalid session id passed")
@@ -374,7 +374,7 @@ func (c *TestClient) WaitForSessionRemoved(ctx context.Context, sessionId Public
 
 func (c *TestClient) WriteJSON(data any) error {
 	if !strings.Contains(c.t.Name(), "HelloUnsupportedVersion") {
-		if msg, ok := data.(*ClientMessage); ok {
+		if msg, ok := data.(*api.ClientMessage); ok {
 			if err := msg.CheckValid(); err != nil {
 				return err
 			}
@@ -398,7 +398,7 @@ func (c *TestClient) SendHelloV1(userid string) error {
 	params := TestBackendClientAuthParams{
 		UserId: userid,
 	}
-	return c.SendHelloParams(c.server.URL, HelloVersionV1, "", nil, params)
+	return c.SendHelloParams(c.server.URL, api.HelloVersionV1, "", nil, params)
 }
 
 func (c *TestClient) SendHelloV2(userid string) error {
@@ -416,7 +416,7 @@ func (c *TestClient) CreateHelloV2TokenWithUserdata(userid string, issuedAt time
 		return "", err
 	}
 
-	claims := &HelloV2TokenClaims{
+	claims := &api.HelloV2TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:  c.server.URL,
 			Subject: userid,
@@ -458,18 +458,18 @@ func (c *TestClient) SendHelloV2WithTimesAndFeatures(userid string, issuedAt tim
 	tokenString, err := c.CreateHelloV2Token(userid, issuedAt, expiresAt)
 	require.NoError(c.t, err)
 
-	params := HelloV2AuthParams{
+	params := api.HelloV2AuthParams{
 		Token: tokenString,
 	}
-	return c.SendHelloParams(c.server.URL, HelloVersionV2, "", features, params)
+	return c.SendHelloParams(c.server.URL, api.HelloVersionV2, "", features, params)
 }
 
-func (c *TestClient) SendHelloResume(resumeId PrivateSessionId) error {
-	hello := &ClientMessage{
+func (c *TestClient) SendHelloResume(resumeId api.PrivateSessionId) error {
+	hello := &api.ClientMessage{
 		Id:   "1234",
 		Type: "hello",
-		Hello: &HelloClientMessage{
-			Version:  HelloVersionV1,
+		Hello: &api.HelloClientMessage{
+			Version:  api.HelloVersionV1,
 			ResumeId: resumeId,
 		},
 	}
@@ -484,7 +484,7 @@ func (c *TestClient) SendHelloClientWithFeatures(userid string, features []strin
 	params := TestBackendClientAuthParams{
 		UserId: userid,
 	}
-	return c.SendHelloParams(c.server.URL, HelloVersionV1, "client", features, params)
+	return c.SendHelloParams(c.server.URL, api.HelloVersionV1, "client", features, params)
 }
 
 func (c *TestClient) SendHelloInternal() error {
@@ -498,25 +498,25 @@ func (c *TestClient) SendHelloInternalWithFeatures(features []string) error {
 	token := hex.EncodeToString(mac.Sum(nil))
 	backend := c.server.URL
 
-	params := ClientTypeInternalAuthParams{
+	params := api.ClientTypeInternalAuthParams{
 		Random:  random,
 		Token:   token,
 		Backend: backend,
 	}
-	return c.SendHelloParams("", HelloVersionV1, "internal", features, params)
+	return c.SendHelloParams("", api.HelloVersionV1, "internal", features, params)
 }
 
-func (c *TestClient) SendHelloParams(url string, version string, clientType ClientType, features []string, params any) error {
+func (c *TestClient) SendHelloParams(url string, version string, clientType api.ClientType, features []string, params any) error {
 	data, err := json.Marshal(params)
 	require.NoError(c.t, err)
 
-	hello := &ClientMessage{
+	hello := &api.ClientMessage{
 		Id:   "1234",
 		Type: "hello",
-		Hello: &HelloClientMessage{
+		Hello: &api.HelloClientMessage{
 			Version:  version,
 			Features: features,
-			Auth: &HelloClientMessageAuth{
+			Auth: &api.HelloClientMessageAuth{
 				Type:   clientType,
 				Url:    url,
 				Params: data,
@@ -527,22 +527,22 @@ func (c *TestClient) SendHelloParams(url string, version string, clientType Clie
 }
 
 func (c *TestClient) SendBye() error {
-	hello := &ClientMessage{
+	hello := &api.ClientMessage{
 		Id:   "9876",
 		Type: "bye",
-		Bye:  &ByeClientMessage{},
+		Bye:  &api.ByeClientMessage{},
 	}
 	return c.WriteJSON(hello)
 }
 
-func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data any) error {
+func (c *TestClient) SendMessage(recipient api.MessageClientMessageRecipient, data any) error {
 	payload, err := json.Marshal(data)
 	require.NoError(c.t, err)
 
-	message := &ClientMessage{
+	message := &api.ClientMessage{
 		Id:   "abcd",
 		Type: "message",
-		Message: &MessageClientMessage{
+		Message: &api.MessageClientMessage{
 			Recipient: recipient,
 			Data:      payload,
 		},
@@ -550,15 +550,15 @@ func (c *TestClient) SendMessage(recipient MessageClientMessageRecipient, data a
 	return c.WriteJSON(message)
 }
 
-func (c *TestClient) SendControl(recipient MessageClientMessageRecipient, data any) error {
+func (c *TestClient) SendControl(recipient api.MessageClientMessageRecipient, data any) error {
 	payload, err := json.Marshal(data)
 	require.NoError(c.t, err)
 
-	message := &ClientMessage{
+	message := &api.ClientMessage{
 		Id:   "abcd",
 		Type: "control",
-		Control: &ControlClientMessage{
-			MessageClientMessage: MessageClientMessage{
+		Control: &api.ControlClientMessage{
+			MessageClientMessage: api.MessageClientMessage{
 				Recipient: recipient,
 				Data:      payload,
 			},
@@ -567,11 +567,11 @@ func (c *TestClient) SendControl(recipient MessageClientMessageRecipient, data a
 	return c.WriteJSON(message)
 }
 
-func (c *TestClient) SendInternalAddSession(msg *AddSessionInternalClientMessage) error {
-	message := &ClientMessage{
+func (c *TestClient) SendInternalAddSession(msg *api.AddSessionInternalClientMessage) error {
+	message := &api.ClientMessage{
 		Id:   "abcd",
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type:       "addsession",
 			AddSession: msg,
 		},
@@ -579,11 +579,11 @@ func (c *TestClient) SendInternalAddSession(msg *AddSessionInternalClientMessage
 	return c.WriteJSON(message)
 }
 
-func (c *TestClient) SendInternalUpdateSession(msg *UpdateSessionInternalClientMessage) error {
-	message := &ClientMessage{
+func (c *TestClient) SendInternalUpdateSession(msg *api.UpdateSessionInternalClientMessage) error {
+	message := &api.ClientMessage{
 		Id:   "abcd",
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type:          "updatesession",
 			UpdateSession: msg,
 		},
@@ -591,11 +591,11 @@ func (c *TestClient) SendInternalUpdateSession(msg *UpdateSessionInternalClientM
 	return c.WriteJSON(message)
 }
 
-func (c *TestClient) SendInternalRemoveSession(msg *RemoveSessionInternalClientMessage) error {
-	message := &ClientMessage{
+func (c *TestClient) SendInternalRemoveSession(msg *api.RemoveSessionInternalClientMessage) error {
+	message := &api.ClientMessage{
 		Id:   "abcd",
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type:          "removesession",
 			RemoveSession: msg,
 		},
@@ -603,11 +603,11 @@ func (c *TestClient) SendInternalRemoveSession(msg *RemoveSessionInternalClientM
 	return c.WriteJSON(message)
 }
 
-func (c *TestClient) SendInternalDialout(msg *DialoutInternalClientMessage) error {
-	message := &ClientMessage{
+func (c *TestClient) SendInternalDialout(msg *api.DialoutInternalClientMessage) error {
+	message := &api.ClientMessage{
 		Id:   "abcd",
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type:    "dialout",
 			Dialout: msg,
 		},
@@ -619,10 +619,10 @@ func (c *TestClient) SetTransientData(key string, value any, ttl time.Duration) 
 	payload, err := json.Marshal(value)
 	require.NoError(c.t, err)
 
-	message := &ClientMessage{
+	message := &api.ClientMessage{
 		Id:   "efgh",
 		Type: "transient",
-		TransientData: &TransientDataClientMessage{
+		TransientData: &api.TransientDataClientMessage{
 			Type:  "set",
 			Key:   key,
 			Value: payload,
@@ -633,10 +633,10 @@ func (c *TestClient) SetTransientData(key string, value any, ttl time.Duration) 
 }
 
 func (c *TestClient) RemoveTransientData(key string) error {
-	message := &ClientMessage{
+	message := &api.ClientMessage{
 		Id:   "ijkl",
 		Type: "transient",
-		TransientData: &TransientDataClientMessage{
+		TransientData: &api.TransientDataClientMessage{
 			Type: "remove",
 			Key:  key,
 		},
@@ -659,20 +659,20 @@ func (c *TestClient) DrainMessages(ctx context.Context) error {
 	return nil
 }
 
-func (c *TestClient) GetPendingMessages(ctx context.Context) ([]*ServerMessage, error) {
-	var result []*ServerMessage
+func (c *TestClient) GetPendingMessages(ctx context.Context) ([]*api.ServerMessage, error) {
+	var result []*api.ServerMessage
 	select {
 	case err := <-c.readErrorChan:
 		return nil, err
 	case msg := <-c.messageChan:
-		var m ServerMessage
+		var m api.ServerMessage
 		if err := json.Unmarshal(msg, &m); err != nil {
 			return nil, err
 		}
 		result = append(result, &m)
 		n := len(c.messageChan)
 		for range n {
-			var m ServerMessage
+			var m api.ServerMessage
 			msg = <-c.messageChan
 			if err := json.Unmarshal(msg, &m); err != nil {
 				return nil, err
@@ -694,7 +694,7 @@ func (c *TestClient) RunUntilClosed(ctx context.Context) bool {
 
 		c.assert.NoError(err, "Received unexpected error")
 	case msg := <-c.messageChan:
-		var m ServerMessage
+		var m api.ServerMessage
 		if err := json.Unmarshal(msg, &m); c.assert.NoError(err, "error decoding received message") {
 			c.assert.Fail("Server should have closed the connection", "received %+v", m)
 		}
@@ -709,7 +709,7 @@ func (c *TestClient) RunUntilErrorIs(ctx context.Context, targets ...error) bool
 	select {
 	case err = <-c.readErrorChan:
 	case msg := <-c.messageChan:
-		var m ServerMessage
+		var m api.ServerMessage
 		if err := json.Unmarshal(msg, &m); c.assert.NoError(err, "error decoding received message") {
 			c.assert.Fail("received message", "expected one of errors %+v, got message %+v", targets, m)
 		}
@@ -731,13 +731,13 @@ func (c *TestClient) RunUntilErrorIs(ctx context.Context, targets ...error) bool
 	return false
 }
 
-func (c *TestClient) RunUntilMessage(ctx context.Context) (*ServerMessage, bool) {
+func (c *TestClient) RunUntilMessage(ctx context.Context) (*api.ServerMessage, bool) {
 	select {
 	case err := <-c.readErrorChan:
 		c.assert.NoError(err, "error reading while waiting for message")
 		return nil, false
 	case msg := <-c.messageChan:
-		var m ServerMessage
+		var m api.ServerMessage
 		if err := json.Unmarshal(msg, &m); c.assert.NoError(err, "error decoding received message") {
 			return &m, true
 		}
@@ -747,7 +747,7 @@ func (c *TestClient) RunUntilMessage(ctx context.Context) (*ServerMessage, bool)
 	return nil, false
 }
 
-func (c *TestClient) RunUntilMessageOrClosed(ctx context.Context) (*ServerMessage, bool) {
+func (c *TestClient) RunUntilMessageOrClosed(ctx context.Context) (*api.ServerMessage, bool) {
 	select {
 	case err := <-c.readErrorChan:
 		if c.assert.Error(err) && websocket.IsCloseError(err, websocket.CloseNoStatusReceived) {
@@ -757,7 +757,7 @@ func (c *TestClient) RunUntilMessageOrClosed(ctx context.Context) (*ServerMessag
 		c.assert.NoError(err, "Received unexpected error")
 		return nil, false
 	case msg := <-c.messageChan:
-		var m ServerMessage
+		var m api.ServerMessage
 		if err := json.Unmarshal(msg, &m); c.assert.NoError(err, "error decoding received message") {
 			return &m, true
 		}
@@ -767,7 +767,7 @@ func (c *TestClient) RunUntilMessageOrClosed(ctx context.Context) (*ServerMessag
 	return nil, false
 }
 
-func (c *TestClient) RunUntilError(ctx context.Context, code string) (*Error, bool) {
+func (c *TestClient) RunUntilError(ctx context.Context, code string) (*api.Error, bool) {
 	message, ok := c.RunUntilMessage(ctx)
 	if !ok ||
 		!checkMessageType(c.t, message, "error") ||
@@ -778,7 +778,7 @@ func (c *TestClient) RunUntilError(ctx context.Context, code string) (*Error, bo
 	return message.Error, true
 }
 
-func (c *TestClient) RunUntilHello(ctx context.Context) (*ServerMessage, bool) {
+func (c *TestClient) RunUntilHello(ctx context.Context) (*api.ServerMessage, bool) {
 	message, ok := c.RunUntilMessage(ctx)
 	if !ok ||
 		!checkMessageType(c.t, message, "hello") {
@@ -789,15 +789,15 @@ func (c *TestClient) RunUntilHello(ctx context.Context) (*ServerMessage, bool) {
 	return message, true
 }
 
-func (c *TestClient) JoinRoom(ctx context.Context, roomId string) (*ServerMessage, bool) {
-	return c.JoinRoomWithRoomSession(ctx, roomId, RoomSessionId(fmt.Sprintf("%s-%s", roomId, c.publicId)))
+func (c *TestClient) JoinRoom(ctx context.Context, roomId string) (*api.ServerMessage, bool) {
+	return c.JoinRoomWithRoomSession(ctx, roomId, api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, c.publicId)))
 }
 
-func (c *TestClient) JoinRoomWithRoomSession(ctx context.Context, roomId string, roomSessionId RoomSessionId) (message *ServerMessage, ok bool) {
-	msg := &ClientMessage{
+func (c *TestClient) JoinRoomWithRoomSession(ctx context.Context, roomId string, roomSessionId api.RoomSessionId) (message *api.ServerMessage, ok bool) {
+	msg := &api.ClientMessage{
 		Id:   "ABCD",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    roomId,
 			SessionId: roomSessionId,
 		},
@@ -815,7 +815,7 @@ func (c *TestClient) JoinRoomWithRoomSession(ctx context.Context, roomId string,
 	return message, true
 }
 
-func checkMessageRoomId(t *testing.T, message *ServerMessage, roomId string) bool {
+func checkMessageRoomId(t *testing.T, message *api.ServerMessage, roomId string) bool {
 	return checkMessageType(t, message, "room") &&
 		assert.Equal(t, roomId, message.Room.RoomId, "invalid room id in %+v", message)
 }
@@ -825,18 +825,18 @@ func (c *TestClient) RunUntilRoom(ctx context.Context, roomId string) bool {
 	return ok && checkMessageRoomId(c.t, message, roomId)
 }
 
-func (c *TestClient) checkMessageJoined(message *ServerMessage, hello *HelloServerMessage) bool {
+func (c *TestClient) checkMessageJoined(message *api.ServerMessage, hello *api.HelloServerMessage) bool {
 	return c.checkMessageJoinedSession(message, hello.SessionId, hello.UserId)
 }
 
-func (c *TestClient) checkSingleMessageJoined(message *ServerMessage) bool {
+func (c *TestClient) checkSingleMessageJoined(message *api.ServerMessage) bool {
 	return checkMessageType(c.t, message, "event") &&
 		c.assert.Equal("room", message.Event.Target, "invalid event target in %+v", message) &&
 		c.assert.Equal("join", message.Event.Type, "invalid event type in %+v", message) &&
 		c.assert.Len(message.Event.Join, 1, "invalid number of join event entries in %+v", message)
 }
 
-func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId PublicSessionId, userId string) bool {
+func (c *TestClient) checkMessageJoinedSession(message *api.ServerMessage, sessionId api.PublicSessionId, userId string) bool {
 	if !c.checkSingleMessageJoined(message) {
 		return false
 	}
@@ -858,10 +858,10 @@ func (c *TestClient) checkMessageJoinedSession(message *ServerMessage, sessionId
 	return !failed
 }
 
-func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*HelloServerMessage) ([]EventServerMessageSessionEntry, []*ServerMessage, bool) {
-	received := make([]EventServerMessageSessionEntry, len(hello))
-	var ignored []*ServerMessage
-	hellos := make(map[*HelloServerMessage]int, len(hello))
+func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*api.HelloServerMessage) ([]api.EventServerMessageSessionEntry, []*api.ServerMessage, bool) {
+	received := make([]api.EventServerMessageSessionEntry, len(hello))
+	var ignored []*api.ServerMessage
+	hellos := make(map[*api.HelloServerMessage]int, len(hello))
 	for idx, h := range hello {
 		hellos[h] = idx
 	}
@@ -905,16 +905,16 @@ func (c *TestClient) RunUntilJoinedAndReturn(ctx context.Context, hello ...*Hell
 	return received, ignored, true
 }
 
-func (c *TestClient) RunUntilJoined(ctx context.Context, hello ...*HelloServerMessage) bool {
+func (c *TestClient) RunUntilJoined(ctx context.Context, hello ...*api.HelloServerMessage) bool {
 	_, unexpected, ok := c.RunUntilJoinedAndReturn(ctx, hello...)
 	return ok && c.assert.Empty(unexpected, "Received unexpected messages: %+v", unexpected)
 }
 
-func (c *TestClient) checkMessageRoomLeave(message *ServerMessage, hello *HelloServerMessage) bool {
+func (c *TestClient) checkMessageRoomLeave(message *api.ServerMessage, hello *api.HelloServerMessage) bool {
 	return c.checkMessageRoomLeaveSession(message, hello.SessionId)
 }
 
-func (c *TestClient) checkMessageRoomLeaveSession(message *ServerMessage, sessionId PublicSessionId) bool {
+func (c *TestClient) checkMessageRoomLeaveSession(message *api.ServerMessage, sessionId api.PublicSessionId) bool {
 	return checkMessageType(c.t, message, "event") &&
 		c.assert.Equal("room", message.Event.Target, "invalid target in %+v", message) &&
 		c.assert.Equal("leave", message.Event.Type, "invalid event type in %+v", message) &&
@@ -926,12 +926,12 @@ func (c *TestClient) checkMessageRoomLeaveSession(message *ServerMessage, sessio
 		)
 }
 
-func (c *TestClient) RunUntilLeft(ctx context.Context, hello *HelloServerMessage) bool {
+func (c *TestClient) RunUntilLeft(ctx context.Context, hello *api.HelloServerMessage) bool {
 	message, ok := c.RunUntilMessage(ctx)
 	return ok && c.checkMessageRoomLeave(message, hello)
 }
 
-func checkMessageRoomlistUpdate(t *testing.T, message *ServerMessage) (*RoomEventServerMessage, bool) {
+func checkMessageRoomlistUpdate(t *testing.T, message *api.ServerMessage) (*api.RoomEventServerMessage, bool) {
 	assert := assert.New(t)
 	if !checkMessageType(t, message, "event") ||
 		!assert.Equal("roomlist", message.Event.Target, "invalid event target in %+v", message) ||
@@ -943,7 +943,7 @@ func checkMessageRoomlistUpdate(t *testing.T, message *ServerMessage) (*RoomEven
 	return message.Event.Update, true
 }
 
-func (c *TestClient) RunUntilRoomlistUpdate(ctx context.Context) (*RoomEventServerMessage, bool) {
+func (c *TestClient) RunUntilRoomlistUpdate(ctx context.Context) (*api.RoomEventServerMessage, bool) {
 	message, ok := c.RunUntilMessage(ctx)
 	if !ok {
 		return nil, false
@@ -952,7 +952,7 @@ func (c *TestClient) RunUntilRoomlistUpdate(ctx context.Context) (*RoomEventServ
 	return checkMessageRoomlistUpdate(c.t, message)
 }
 
-func checkMessageRoomlistDisinvite(t *testing.T, message *ServerMessage) (*RoomDisinviteEventServerMessage, bool) {
+func checkMessageRoomlistDisinvite(t *testing.T, message *api.ServerMessage) (*api.RoomDisinviteEventServerMessage, bool) {
 	assert := assert.New(t)
 	if !checkMessageType(t, message, "event") ||
 		!assert.Equal("roomlist", message.Event.Target, "invalid event target in %+v", message) ||
@@ -964,7 +964,7 @@ func checkMessageRoomlistDisinvite(t *testing.T, message *ServerMessage) (*RoomD
 	return message.Event.Disinvite, true
 }
 
-func (c *TestClient) RunUntilRoomlistDisinvite(ctx context.Context) (*RoomDisinviteEventServerMessage, bool) {
+func (c *TestClient) RunUntilRoomlistDisinvite(ctx context.Context) (*api.RoomDisinviteEventServerMessage, bool) {
 	message, ok := c.RunUntilMessage(ctx)
 	if !ok {
 		return nil, false
@@ -973,7 +973,7 @@ func (c *TestClient) RunUntilRoomlistDisinvite(ctx context.Context) (*RoomDisinv
 	return checkMessageRoomlistDisinvite(c.t, message)
 }
 
-func checkMessageParticipantsInCall(t *testing.T, message *ServerMessage) (*RoomEventServerMessage, bool) {
+func checkMessageParticipantsInCall(t *testing.T, message *api.ServerMessage) (*api.RoomEventServerMessage, bool) {
 	assert := assert.New(t)
 	if !checkMessageType(t, message, "event") ||
 		!assert.Equal("participants", message.Event.Target, "invalid event target in %+v", message) ||
@@ -985,7 +985,7 @@ func checkMessageParticipantsInCall(t *testing.T, message *ServerMessage) (*Room
 	return message.Event.Update, true
 }
 
-func checkMessageParticipantFlags(t *testing.T, message *ServerMessage) (*RoomFlagsServerMessage, bool) {
+func checkMessageParticipantFlags(t *testing.T, message *api.ServerMessage) (*api.RoomFlagsServerMessage, bool) {
 	assert := assert.New(t)
 	if !checkMessageType(t, message, "event") ||
 		!assert.Equal("participants", message.Event.Target, "invalid event target in %+v", message) ||
@@ -997,7 +997,7 @@ func checkMessageParticipantFlags(t *testing.T, message *ServerMessage) (*RoomFl
 	return message.Event.Flags, true
 }
 
-func checkMessageRoomMessage(t *testing.T, message *ServerMessage) (*RoomEventMessage, bool) {
+func checkMessageRoomMessage(t *testing.T, message *api.ServerMessage) (*api.RoomEventMessage, bool) {
 	assert := assert.New(t)
 	if !checkMessageType(t, message, "event") ||
 		!assert.Equal("room", message.Event.Target, "invalid event target in %+v", message) ||
@@ -1009,7 +1009,7 @@ func checkMessageRoomMessage(t *testing.T, message *ServerMessage) (*RoomEventMe
 	return message.Event.Message, true
 }
 
-func (c *TestClient) RunUntilRoomMessage(ctx context.Context) (*RoomEventMessage, bool) {
+func (c *TestClient) RunUntilRoomMessage(ctx context.Context) (*api.RoomEventMessage, bool) {
 	message, ok := c.RunUntilMessage(ctx)
 	if !ok {
 		return nil, false
@@ -1018,7 +1018,7 @@ func (c *TestClient) RunUntilRoomMessage(ctx context.Context) (*RoomEventMessage
 	return checkMessageRoomMessage(c.t, message)
 }
 
-func checkMessageError(t *testing.T, message *ServerMessage, msgid string) bool {
+func checkMessageError(t *testing.T, message *api.ServerMessage, msgid string) bool {
 	return checkMessageType(t, message, "error") &&
 		assert.Equal(t, msgid, message.Error.Code, "invalid error code in %+v", message)
 }
@@ -1059,14 +1059,14 @@ func (c *TestClient) RunUntilAnswer(ctx context.Context, answer string) bool {
 	return c.RunUntilAnswerFromSender(ctx, answer, nil)
 }
 
-func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string, sender *MessageServerMessageSender) bool {
+func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string, sender *api.MessageServerMessageSender) bool {
 	message, ok := c.RunUntilMessage(ctx)
 	if !ok || !checkMessageType(c.t, message, "message") {
 		return false
 	}
 
 	if sender != nil {
-		if !checkMessageSender(c.t, c.hub, message.Message.Sender, sender.Type, &HelloServerMessage{
+		if !checkMessageSender(c.t, c.hub, message.Message.Sender, sender.Type, &api.HelloServerMessage{
 			SessionId: sender.SessionId,
 			UserId:    sender.UserId,
 		}) {
@@ -1100,7 +1100,7 @@ func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string
 	return true
 }
 
-func checkMessageTransientSet(t *testing.T, message *ServerMessage, key string, value any, oldValue any) bool {
+func checkMessageTransientSet(t *testing.T, message *api.ServerMessage, key string, value any, oldValue any) bool {
 	assert := assert.New(t)
 	return checkMessageType(t, message, "transient") &&
 		assert.Equal("set", message.TransientData.Type, "invalid message type in %+v", message) &&
@@ -1109,7 +1109,7 @@ func checkMessageTransientSet(t *testing.T, message *ServerMessage, key string, 
 		assert.EqualValues(oldValue, message.TransientData.OldValue, "invalid old value in %+v", message)
 }
 
-func checkMessageTransientRemove(t *testing.T, message *ServerMessage, key string, oldValue any) bool {
+func checkMessageTransientRemove(t *testing.T, message *api.ServerMessage, key string, oldValue any) bool {
 	assert := assert.New(t)
 	return checkMessageType(t, message, "transient") &&
 		assert.Equal("remove", message.TransientData.Type, "invalid message type in %+v", message) &&
@@ -1117,14 +1117,14 @@ func checkMessageTransientRemove(t *testing.T, message *ServerMessage, key strin
 		assert.EqualValues(oldValue, message.TransientData.OldValue, "invalid old value in %+v", message)
 }
 
-func checkMessageTransientInitial(t *testing.T, message *ServerMessage, data api.StringMap) bool {
+func checkMessageTransientInitial(t *testing.T, message *api.ServerMessage, data api.StringMap) bool {
 	assert := assert.New(t)
 	return checkMessageType(t, message, "transient") &&
 		assert.Equal("initial", message.TransientData.Type, "invalid message type in %+v", message) &&
 		assert.Equal(data, message.TransientData.Data, "invalid initial data in %+v", message)
 }
 
-func checkMessageInCallAll(t *testing.T, message *ServerMessage, roomId string, inCall int) bool {
+func checkMessageInCallAll(t *testing.T, message *api.ServerMessage, roomId string, inCall int) bool {
 	assert := assert.New(t)
 	return checkMessageType(t, message, "event") &&
 		assert.Equal("update", message.Event.Type, "invalid event type, got %+v", message.Event) &&
@@ -1134,7 +1134,7 @@ func checkMessageInCallAll(t *testing.T, message *ServerMessage, roomId string, 
 		assert.EqualValues(strconv.FormatInt(int64(inCall), 10), message.Event.Update.InCall, "expected incall flags %d, got %+v", inCall, message.Event.Update)
 }
 
-func checkMessageSwitchTo(t *testing.T, message *ServerMessage, roomId string, details json.RawMessage) (*EventServerMessageSwitchTo, bool) {
+func checkMessageSwitchTo(t *testing.T, message *api.ServerMessage, roomId string, details json.RawMessage) (*api.EventServerMessageSwitchTo, bool) {
 	assert := assert.New(t)
 	if !checkMessageType(t, message, "event") ||
 		!assert.Equal("switchto", message.Event.Type, "invalid event type, got %+v", message.Event) ||
@@ -1153,7 +1153,7 @@ func checkMessageSwitchTo(t *testing.T, message *ServerMessage, roomId string, d
 	return message.Event.SwitchTo, true
 }
 
-func (c *TestClient) RunUntilSwitchTo(ctx context.Context, roomId string, details json.RawMessage) (*EventServerMessageSwitchTo, bool) {
+func (c *TestClient) RunUntilSwitchTo(ctx context.Context, roomId string, details json.RawMessage) (*api.EventServerMessageSwitchTo, bool) {
 	message, ok := c.RunUntilMessage(ctx)
 	if !ok {
 		return nil, false

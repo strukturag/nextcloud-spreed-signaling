@@ -28,6 +28,7 @@ import (
 	"sync"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type Permission string
@@ -51,29 +52,30 @@ var (
 
 type Session interface {
 	Context() context.Context
-	PrivateId() PrivateSessionId
-	PublicId() PublicSessionId
-	ClientType() ClientType
+	PrivateId() api.PrivateSessionId
+	PublicId() api.PublicSessionId
+	ClientType() api.ClientType
 	Data() *SessionIdData
 
 	UserId() string
 	UserData() json.RawMessage
 	ParsedUserData() (api.StringMap, error)
 
-	Backend() *Backend
+	Backend() *talk.Backend
 	BackendUrl() string
 	ParsedBackendUrl() *url.URL
 
 	SetRoom(room *Room)
 	GetRoom() *Room
 	LeaveRoom(notify bool) *Room
+	IsInRoom(id string) bool
 
 	Close()
 
 	HasPermission(permission Permission) bool
 
-	SendError(e *Error) bool
-	SendMessage(message *ServerMessage) bool
+	SendError(e *api.Error) bool
+	SendMessage(message *api.ServerMessage) bool
 }
 
 type SessionWithInCall interface {
