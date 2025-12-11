@@ -1985,6 +1985,10 @@ func TestClientMessageToSessionId(t *testing.T) {
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
 			require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
+			// Make sure the session subscription events are processed.
+			waitForAsyncEventsFlushed(ctx, t, hub1.events)
+			waitForAsyncEventsFlushed(ctx, t, hub2.events)
+
 			recipient1 := MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello1.Hello.SessionId,
@@ -2041,6 +2045,10 @@ func TestClientControlToSessionId(t *testing.T) {
 			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
 			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
 			require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
+
+			// Make sure the session subscription events are processed.
+			waitForAsyncEventsFlushed(ctx, t, hub1.events)
+			waitForAsyncEventsFlushed(ctx, t, hub2.events)
 
 			recipient1 := MessageClientMessageRecipient{
 				Type:      "session",
