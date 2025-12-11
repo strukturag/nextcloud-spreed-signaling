@@ -39,6 +39,7 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/oschwald/maxminddb-golang"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -274,9 +275,9 @@ func IsValidContinent(continent string) bool {
 	}
 }
 
-func LoadGeoIPOverrides(ctx context.Context, config *goconf.ConfigFile, ignoreErrors bool) (map[*net.IPNet]string, error) {
+func LoadGeoIPOverrides(ctx context.Context, cfg *goconf.ConfigFile, ignoreErrors bool) (map[*net.IPNet]string, error) {
 	logger := log.LoggerFromContext(ctx)
-	options, _ := GetStringOptions(config, "geoip-overrides", true)
+	options, _ := config.GetStringOptions(cfg, "geoip-overrides", true)
 	if len(options) == 0 {
 		return nil, nil
 	}
