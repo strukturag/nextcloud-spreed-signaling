@@ -236,7 +236,7 @@ retry:
 			switch error_code {
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM:
 				p.logger.Printf("Publisher %s not created yet for %s, not joining room %d as subscriber", p.publisher, p.streamType, p.roomId)
-				go p.Close(context.Background())
+				p.Close(context.Background())
 				callback(fmt.Errorf("Publisher %s not created yet for %s", p.publisher, p.streamType), nil)
 				return
 			case JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED:
@@ -249,7 +249,7 @@ retry:
 			}
 
 			if err := waiter.Wait(ctx); err != nil {
-				go p.Close(context.Background())
+				p.Close(context.Background())
 				callback(err, nil)
 				return
 			}
