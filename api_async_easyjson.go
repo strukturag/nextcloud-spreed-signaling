@@ -7,6 +7,7 @@ import (
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
+	api "github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 // suppress unused package warning
@@ -41,7 +42,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling(in *jlexe
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.SessionId = PublicSessionId(in.String())
+				out.SessionId = api.PublicSessionId(in.String())
 			}
 		case "data":
 			if in.IsNull() {
@@ -49,7 +50,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling(in *jlexe
 				out.Data = nil
 			} else {
 				if out.Data == nil {
-					out.Data = new(MessageClientMessageData)
+					out.Data = new(api.MessageClientMessageData)
 				}
 				if in.IsNull() {
 					in.Skip()
@@ -146,13 +147,13 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.SessionId = PublicSessionId(in.String())
+				out.SessionId = api.PublicSessionId(in.String())
 			}
 		case "clienttype":
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.ClientType = ClientType(in.String())
+				out.ClientType = api.ClientType(in.String())
 			}
 		default:
 			in.SkipRecursive()
@@ -243,7 +244,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				out.Message = nil
 			} else {
 				if out.Message == nil {
-					out.Message = new(ServerMessage)
+					out.Message = new(api.ServerMessage)
 				}
 				if in.IsNull() {
 					in.Skip()

@@ -245,7 +245,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling1(in *jlex
 				out.Error = nil
 			} else {
 				if out.Error == nil {
-					out.Error = new(Error)
+					out.Error = new(api.Error)
 				}
 				if in.IsNull() {
 					in.Skip()
@@ -1065,7 +1065,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling7(in *jlex
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.SessionId = PublicSessionId(in.String())
+				out.SessionId = api.PublicSessionId(in.String())
 			}
 		case "server":
 			if in.IsNull() {
@@ -1073,7 +1073,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling7(in *jlex
 				out.Server = nil
 			} else {
 				if out.Server == nil {
-					out.Server = new(WelcomeServerMessage)
+					out.Server = new(api.WelcomeServerMessage)
 				}
 				if in.IsNull() {
 					in.Skip()
@@ -1160,7 +1160,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling8(in *jlex
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.ResumeId = PublicSessionId(in.String())
+				out.ResumeId = api.PublicSessionId(in.String())
 			}
 		case "features":
 			if in.IsNull() {
@@ -1882,7 +1882,7 @@ func easyjson1c8542dbDecodeGithubComStrukturagNextcloudSpreedSignaling13(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.PublisherId = PublicSessionId(in.String())
+				out.PublisherId = api.PublicSessionId(in.String())
 			}
 		case "clientId":
 			if in.IsNull() {
