@@ -93,7 +93,7 @@ func (m *ProxyClientMessage) CheckValid() error {
 	return nil
 }
 
-func (m *ProxyClientMessage) NewErrorServerMessage(e *Error) *ProxyServerMessage {
+func (m *ProxyClientMessage) NewErrorServerMessage(e *api.Error) *ProxyServerMessage {
 	return &ProxyServerMessage{
 		Id:    m.Id,
 		Type:  "error",
@@ -102,7 +102,7 @@ func (m *ProxyClientMessage) NewErrorServerMessage(e *Error) *ProxyServerMessage
 }
 
 func (m *ProxyClientMessage) NewWrappedErrorServerMessage(e error) *ProxyServerMessage {
-	return m.NewErrorServerMessage(NewError("internal_error", e.Error()))
+	return m.NewErrorServerMessage(api.NewError("internal_error", e.Error()))
 }
 
 // ProxyServerMessage is a message that is sent from the server to a client.
@@ -114,7 +114,7 @@ type ProxyServerMessage struct {
 
 	Type string `json:"type"`
 
-	Error *Error `json:"error,omitempty"`
+	Error *api.Error `json:"error,omitempty"`
 
 	Hello *HelloProxyServerMessage `json:"hello,omitempty"`
 
@@ -135,7 +135,7 @@ func (r *ProxyServerMessage) String() string {
 	return string(data)
 }
 
-func (r *ProxyServerMessage) CloseAfterSend(session Session) bool {
+func (r *ProxyServerMessage) CloseAfterSend(session api.RoomAware) bool {
 	switch r.Type {
 	case "bye":
 		return true
@@ -153,7 +153,7 @@ type TokenClaims struct {
 type HelloProxyClientMessage struct {
 	Version string `json:"version"`
 
-	ResumeId PublicSessionId `json:"resumeid"`
+	ResumeId api.PublicSessionId `json:"resumeid"`
 
 	Features []string `json:"features,omitempty"`
 
@@ -162,7 +162,7 @@ type HelloProxyClientMessage struct {
 }
 
 func (m *HelloProxyClientMessage) CheckValid() error {
-	if m.Version != HelloVersionV1 {
+	if m.Version != api.HelloVersionV1 {
 		return fmt.Errorf("unsupported hello version: %s", m.Version)
 	}
 	if m.ResumeId == "" {
@@ -176,8 +176,8 @@ func (m *HelloProxyClientMessage) CheckValid() error {
 type HelloProxyServerMessage struct {
 	Version string `json:"version"`
 
-	SessionId PublicSessionId       `json:"sessionid"`
-	Server    *WelcomeServerMessage `json:"server,omitempty"`
+	SessionId api.PublicSessionId       `json:"sessionid"`
+	Server    *api.WelcomeServerMessage `json:"server,omitempty"`
 }
 
 // Type "bye"
@@ -209,10 +209,10 @@ type NewPublisherSettings struct {
 type CommandProxyClientMessage struct {
 	Type string `json:"type"`
 
-	Sid         string          `json:"sid,omitempty"`
-	StreamType  StreamType      `json:"streamType,omitempty"`
-	PublisherId PublicSessionId `json:"publisherId,omitempty"`
-	ClientId    string          `json:"clientId,omitempty"`
+	Sid         string              `json:"sid,omitempty"`
+	StreamType  StreamType          `json:"streamType,omitempty"`
+	PublisherId api.PublicSessionId `json:"publisherId,omitempty"`
+	ClientId    string              `json:"clientId,omitempty"`
 
 	// Deprecated: use PublisherSettings instead.
 	Bitrate api.Bandwidth `json:"bitrate,omitempty"`

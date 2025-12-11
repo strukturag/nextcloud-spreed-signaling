@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package api
 
 import (
 	"encoding/json"
@@ -36,7 +36,6 @@ import (
 	"github.com/pion/ice/v4"
 	"github.com/pion/sdp/v3"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
@@ -53,6 +52,9 @@ const (
 )
 
 var (
+	// InvalidHelloVersion is returned if the version in the "hello" message is not supported.
+	InvalidHelloVersion = NewError("invalid_hello_version", "The hello version is not supported.")
+
 	ErrNoSdp      = NewError("no_sdp", "Payload does not contain a SDP.") // +checklocksignore: Global readonly variable.
 	ErrInvalidSdp = NewError("invalid_sdp", "Payload does not contain a valid SDP.")
 
@@ -67,6 +69,10 @@ type PrivateSessionId string
 type PublicSessionId string
 
 type RoomSessionId string
+
+const (
+	FederatedRoomSessionIdPrefix = "federated|"
+)
 
 func (s RoomSessionId) IsFederated() bool {
 	return strings.HasPrefix(string(s), FederatedRoomSessionIdPrefix)
@@ -205,7 +211,11 @@ type ServerMessage struct {
 	Dialout *DialoutInternalClientMessage `json:"dialout,omitempty"`
 }
 
-func (r *ServerMessage) CloseAfterSend(session Session) bool {
+type RoomAware interface {
+	IsInRoom(id string) bool
+}
+
+func (r *ServerMessage) CloseAfterSend(session RoomAware) bool {
 	if r.Type == "bye" {
 		return true
 	}
@@ -214,10 +224,8 @@ func (r *ServerMessage) CloseAfterSend(session Session) bool {
 		if evt := r.Event; evt != nil && evt.Target == "roomlist" && evt.Type == "disinvite" {
 			// Only close session / connection if the disinvite was for the room
 			// the session is currently in.
-			if session != nil && evt.Disinvite != nil {
-				if room := session.GetRoom(); room != nil && evt.Disinvite.RoomId == room.Id() {
-					return true
-				}
+			if session != nil && evt.Disinvite != nil && session.IsInRoom(evt.Disinvite.RoomId) {
+				return true
 			}
 		}
 	}
@@ -357,8 +365,8 @@ type ClientTypeInternalAuthParams struct {
 	Random string `json:"random"`
 	Token  string `json:"token"`
 
-	Backend       string `json:"backend"`
-	parsedBackend *url.URL
+	Backend       string   `json:"backend"`
+	ParsedBackend *url.URL `json:"-"`
 }
 
 func (p *ClientTypeInternalAuthParams) CheckValid() error {
@@ -377,7 +385,7 @@ func (p *ClientTypeInternalAuthParams) CheckValid() error {
 			p.Backend = u.String()
 		}
 
-		p.parsedBackend = u
+		p.ParsedBackend = u
 	}
 	return nil
 }
@@ -437,12 +445,12 @@ type HelloClientMessageAuth struct {
 
 	Params json.RawMessage `json:"params"`
 
-	Url       string `json:"url"`
-	parsedUrl *url.URL
+	Url       string   `json:"url"`
+	ParsedUrl *url.URL `json:"-"`
 
-	internalParams   ClientTypeInternalAuthParams
-	helloV2Params    HelloV2AuthParams
-	federationParams FederationAuthParams
+	InternalParams   ClientTypeInternalAuthParams `json:"-"`
+	HelloV2Params    HelloV2AuthParams            `json:"-"`
+	FederationParams FederationAuthParams         `json:"-"`
 }
 
 // Type "hello"
@@ -492,7 +500,7 @@ func (m *HelloClientMessage) CheckValid() error {
 					m.Auth.Url = u.String()
 				}
 
-				m.Auth.parsedUrl = u
+				m.Auth.ParsedUrl = u
 			}
 
 			switch m.Version {
@@ -501,23 +509,23 @@ func (m *HelloClientMessage) CheckValid() error {
 			case HelloVersionV2:
 				switch m.Auth.Type {
 				case HelloClientTypeClient:
-					if err := json.Unmarshal(m.Auth.Params, &m.Auth.helloV2Params); err != nil {
+					if err := json.Unmarshal(m.Auth.Params, &m.Auth.HelloV2Params); err != nil {
 						return err
-					} else if err := m.Auth.helloV2Params.CheckValid(); err != nil {
+					} else if err := m.Auth.HelloV2Params.CheckValid(); err != nil {
 						return err
 					}
 				case HelloClientTypeFederation:
-					if err := json.Unmarshal(m.Auth.Params, &m.Auth.federationParams); err != nil {
+					if err := json.Unmarshal(m.Auth.Params, &m.Auth.FederationParams); err != nil {
 						return err
-					} else if err := m.Auth.federationParams.CheckValid(); err != nil {
+					} else if err := m.Auth.FederationParams.CheckValid(); err != nil {
 						return err
 					}
 				}
 			}
 		case HelloClientTypeInternal:
-			if err := json.Unmarshal(m.Auth.Params, &m.Auth.internalParams); err != nil {
+			if err := json.Unmarshal(m.Auth.Params, &m.Auth.InternalParams); err != nil {
 				return err
-			} else if err := m.Auth.internalParams.CheckValid(); err != nil {
+			} else if err := m.Auth.InternalParams.CheckValid(); err != nil {
 				return err
 			}
 		default:
@@ -654,11 +662,11 @@ func (m *RoomClientMessage) CheckValid() error {
 }
 
 type RoomFederationMessage struct {
-	SignalingUrl       string `json:"signaling"`
-	parsedSignalingUrl *url.URL
+	SignalingUrl       string   `json:"signaling"`
+	ParsedSignalingUrl *url.URL `json:"-"`
 
-	NextcloudUrl       string `json:"url"`
-	parsedNextcloudUrl *url.URL
+	NextcloudUrl       string   `json:"url"`
+	ParsedNextcloudUrl *url.URL `json:"-"`
 
 	RoomId string `json:"roomid,omitempty"`
 	Token  string `json:"token"`
@@ -675,14 +683,14 @@ func (m *RoomFederationMessage) CheckValid() error {
 	if u, err := url.Parse(m.SignalingUrl); err != nil {
 		return fmt.Errorf("invalid signaling url: %w", err)
 	} else {
-		m.parsedSignalingUrl = u
+		m.ParsedSignalingUrl = u
 	}
 	if m.NextcloudUrl == "" {
 		return errors.New("nextcloud url missing")
 	} else if u, err := url.Parse(m.NextcloudUrl); err != nil {
 		return fmt.Errorf("invalid nextcloud url: %w", err)
 	} else {
-		m.parsedNextcloudUrl = u
+		m.ParsedNextcloudUrl = u
 	}
 	if m.Token == "" {
 		return errors.New("token missing")
@@ -698,8 +706,8 @@ type RoomServerMessage struct {
 }
 
 type RoomBandwidth struct {
-	MaxStreamBitrate api.Bandwidth `json:"maxstreambitrate"`
-	MaxScreenBitrate api.Bandwidth `json:"maxscreenbitrate"`
+	MaxStreamBitrate Bandwidth `json:"maxstreambitrate"`
+	MaxScreenBitrate Bandwidth `json:"maxscreenbitrate"`
 }
 
 type RoomErrorDetails struct {
@@ -732,21 +740,21 @@ type MessageClientMessageData struct {
 	json.Marshaler
 	json.Unmarshaler
 
-	Type     string        `json:"type"`
-	Sid      string        `json:"sid"`
-	RoomType string        `json:"roomType"`
-	Payload  api.StringMap `json:"payload"`
+	Type     string    `json:"type"`
+	Sid      string    `json:"sid"`
+	RoomType string    `json:"roomType"`
+	Payload  StringMap `json:"payload"`
 
 	// Only supported if Type == "offer"
-	Bitrate     api.Bandwidth `json:"bitrate,omitempty"`
-	AudioCodec  string        `json:"audiocodec,omitempty"`
-	VideoCodec  string        `json:"videocodec,omitempty"`
-	VP9Profile  string        `json:"vp9profile,omitempty"`
-	H264Profile string        `json:"h264profile,omitempty"`
+	Bitrate     Bandwidth `json:"bitrate,omitempty"`
+	AudioCodec  string    `json:"audiocodec,omitempty"`
+	VideoCodec  string    `json:"videocodec,omitempty"`
+	VP9Profile  string    `json:"vp9profile,omitempty"`
+	H264Profile string    `json:"h264profile,omitempty"`
 
-	offerSdp  *sdp.SessionDescription // Only set if Type == "offer"
-	answerSdp *sdp.SessionDescription // Only set if Type == "answer"
-	candidate ice.Candidate           // Only set if Type == "candidate"
+	OfferSdp  *sdp.SessionDescription `json:"-"` // Only set if Type == "offer"
+	AnswerSdp *sdp.SessionDescription `json:"-"` // Only set if Type == "answer"
+	Candidate ice.Candidate           `json:"-"` // Only set if Type == "candidate"
 }
 
 func (m *MessageClientMessageData) String() string {
@@ -757,10 +765,10 @@ func (m *MessageClientMessageData) String() string {
 	return string(data)
 }
 
-func parseSDP(s string) (*sdp.SessionDescription, error) {
+func ParseSDP(s string) (*sdp.SessionDescription, error) {
 	var sdp sdp.SessionDescription
 	if err := sdp.UnmarshalString(s); err != nil {
-		return nil, NewErrorDetail("invalid_sdp", "Error parsing SDP from payload.", api.StringMap{
+		return nil, NewErrorDetail("invalid_sdp", "Error parsing SDP from payload.", StringMap{
 			"error": err.Error(),
 		})
 	}
@@ -772,7 +780,7 @@ func parseSDP(s string) (*sdp.SessionDescription, error) {
 			}
 
 			if _, err := ice.UnmarshalCandidate(a.Value); err != nil {
-				return nil, NewErrorDetail("invalid_sdp", "Error parsing candidate from media description.", api.StringMap{
+				return nil, NewErrorDetail("invalid_sdp", "Error parsing candidate from media description.", StringMap{
 					"media": m.MediaName.Media,
 					"idx":   idx,
 					"error": err.Error(),
@@ -788,52 +796,66 @@ var (
 	emptyCandidate = &ice.CandidateHost{}
 )
 
+// TODO: Use shared method from "mcu_common.go".
+func isValidStreamType(s string) bool {
+	switch s {
+	case "audio":
+		fallthrough
+	case "video":
+		fallthrough
+	case "screen":
+		return true
+	default:
+		return false
+	}
+}
+
 func (m *MessageClientMessageData) CheckValid() error {
-	if m.RoomType != "" && !IsValidStreamType(m.RoomType) {
+	if m.RoomType != "" && !isValidStreamType(m.RoomType) {
 		return fmt.Errorf("invalid room type: %s", m.RoomType)
 	}
 	switch m.Type {
 	case "offer", "answer":
-		sdpText, ok := api.GetStringMapEntry[string](m.Payload, "sdp")
+		sdpText, ok := GetStringMapEntry[string](m.Payload, "sdp")
 		if !ok {
 			return ErrInvalidSdp
 		}
 
-		sdp, err := parseSDP(sdpText)
+		sdp, err := ParseSDP(sdpText)
 		if err != nil {
 			return err
 		}
 
 		switch m.Type {
 		case "offer":
-			m.offerSdp = sdp
+			m.OfferSdp = sdp
 		case "answer":
-			m.answerSdp = sdp
+			m.AnswerSdp = sdp
 		}
 	case "candidate":
 		candValue, found := m.Payload["candidate"]
 		if !found {
 			return ErrNoCandidate
 		}
-		candItem, ok := api.ConvertStringMap(candValue)
+		candItem, ok := ConvertStringMap(candValue)
 		if !ok {
 			return ErrInvalidCandidate
 		}
-		candText, ok := api.GetStringMapEntry[string](candItem, "candidate")
+		candText, ok := GetStringMapEntry[string](candItem, "candidate")
 		if !ok {
 			return ErrInvalidCandidate
 		}
 
 		if candText == "" {
-			m.candidate = emptyCandidate
+			m.Candidate = emptyCandidate
 		} else {
 			cand, err := ice.UnmarshalCandidate(candText)
 			if err != nil {
-				return NewErrorDetail("invalid_candidate", "Error parsing candidate from payload.", api.StringMap{
+				return NewErrorDetail("invalid_candidate", "Error parsing candidate from payload.", StringMap{
 					"error": err.Error(),
 				})
 			}
-			m.candidate = cand
+			m.Candidate = cand
 		}
 	}
 	return nil
@@ -1113,11 +1135,18 @@ func (m *InternalClientMessage) CheckValid() error {
 	return nil
 }
 
+type InternalServerDialoutRequestContents struct {
+	// E.164 number to dial (e.g. "+1234567890")
+	Number string `json:"number"`
+
+	Options json.RawMessage `json:"options,omitempty"`
+}
+
 type InternalServerDialoutRequest struct {
 	RoomId  string `json:"roomid"`
 	Backend string `json:"backend"`
 
-	Request *BackendRoomDialoutRequest `json:"request"`
+	Request *InternalServerDialoutRequestContents `json:"request"`
 }
 
 type InternalServerMessage struct {
@@ -1133,8 +1162,8 @@ type RoomEventServerMessage struct {
 	Properties json.RawMessage `json:"properties,omitempty"`
 	// TODO(jojo): Change "InCall" to "int" when #914 has landed in NC Talk.
 	InCall  json.RawMessage `json:"incall,omitempty"`
-	Changed []api.StringMap `json:"changed,omitempty"`
-	Users   []api.StringMap `json:"users,omitempty"`
+	Changed []StringMap     `json:"changed,omitempty"`
+	Users   []StringMap     `json:"users,omitempty"`
 
 	All bool `json:"all,omitempty"`
 }
@@ -1158,7 +1187,7 @@ type RoomDisinviteEventServerMessage struct {
 	Reason string `json:"reason"`
 }
 
-type ChatComment api.StringMap
+type ChatComment StringMap
 
 type RoomEventMessageDataChat struct {
 	// Refresh will be included if the client does not support the "chat-relay" feature.
@@ -1260,7 +1289,7 @@ type AnswerOfferMessage struct {
 	From     PublicSessionId `json:"from"`
 	Type     string          `json:"type"`
 	RoomType string          `json:"roomType"`
-	Payload  api.StringMap   `json:"payload"`
+	Payload  StringMap       `json:"payload"`
 	Sid      string          `json:"sid,omitempty"`
 }
 
@@ -1292,8 +1321,8 @@ func (m *TransientDataClientMessage) CheckValid() error {
 type TransientDataServerMessage struct {
 	Type string `json:"type"`
 
-	Key      string        `json:"key,omitempty"`
-	OldValue any           `json:"oldvalue,omitempty"`
-	Value    any           `json:"value,omitempty"`
-	Data     api.StringMap `json:"data,omitempty"`
+	Key      string    `json:"key,omitempty"`
+	OldValue any       `json:"oldvalue,omitempty"`
+	Value    any       `json:"value,omitempty"`
+	Data     StringMap `json:"data,omitempty"`
 }

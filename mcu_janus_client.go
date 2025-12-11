@@ -86,7 +86,7 @@ func (c *mcuJanusClient) MaxBitrate() api.Bandwidth {
 func (c *mcuJanusClient) Close(ctx context.Context) {
 }
 
-func (c *mcuJanusClient) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
+func (c *mcuJanusClient) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 }
 
 func (c *mcuJanusClient) UpdateBandwidth(media string, sent api.Bandwidth, received api.Bandwidth) {

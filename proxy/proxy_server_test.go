@@ -391,16 +391,16 @@ func (m *TestMCU) GetServerInfoSfu() *signaling.BackendServerInfoSfu {
 	return nil
 }
 
-func (m *TestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *TestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *TestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher signaling.PublicSessionId, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
+func (m *TestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher api.PublicSessionId, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
 	return nil, errors.New("not implemented")
 }
 
 type TestMCUPublisher struct {
-	id         signaling.PublicSessionId
+	id         api.PublicSessionId
 	sid        string
 	streamType signaling.StreamType
 }
@@ -409,7 +409,7 @@ func (p *TestMCUPublisher) Id() string {
 	return string(p.id)
 }
 
-func (p *TestMCUPublisher) PublisherId() signaling.PublicSessionId {
+func (p *TestMCUPublisher) PublisherId() api.PublicSessionId {
 	return p.id
 }
 
@@ -428,7 +428,7 @@ func (p *TestMCUPublisher) MaxBitrate() api.Bandwidth {
 func (p *TestMCUPublisher) Close(ctx context.Context) {
 }
 
-func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, api.StringMap)) {
+func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 	callback(errors.New("not implemented"), nil)
 }
 
@@ -443,11 +443,11 @@ func (p *TestMCUPublisher) GetStreams(ctx context.Context) ([]signaling.Publishe
 	return nil, errors.New("not implemented")
 }
 
-func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId signaling.PublicSessionId, hostname string, port int, rtcpPort int) error {
+func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("not implemented")
 }
 
-func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId signaling.PublicSessionId, hostname string, port int, rtcpPort int) error {
+func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("not implemented")
 }
 
@@ -465,7 +465,7 @@ func (p *TestPublisherWithBandwidth) Bandwidth() *signaling.McuClientBandwidthIn
 	return p.bandwidth
 }
 
-func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	publisher := &TestPublisherWithBandwidth{
 		TestMCUPublisher: TestMCUPublisher{
 			id:         id,
@@ -573,7 +573,7 @@ func NewHangingTestMCU(t *testing.T) *HangingTestMCU {
 	}
 }
 
-func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	ctx2, cancel := context.WithTimeout(m.ctx, testTimeout*2)
 	defer cancel()
 
@@ -591,7 +591,7 @@ func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.Mc
 	}
 }
 
-func (m *HangingTestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher signaling.PublicSessionId, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
+func (m *HangingTestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher api.PublicSessionId, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
 	ctx2, cancel := context.WithTimeout(m.ctx, testTimeout*2)
 	defer cancel()
 
@@ -678,7 +678,7 @@ func NewCodecsTestMCU(t *testing.T) *CodecsTestMCU {
 	}
 }
 
-func (m *CodecsTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *CodecsTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	assert.Equal(m.t, "opus,g722", settings.AudioCodec)
 	assert.Equal(m.t, "vp9,vp8,av1", settings.VideoCodec)
 	return &TestMCUPublisher{
@@ -745,7 +745,7 @@ type StreamsTestPublisher struct {
 	streams []signaling.PublisherStream
 }
 
-func (m *StreamTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *StreamTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	return &StreamsTestPublisher{
 		TestMCUPublisher: TestMCUPublisher{
 			id:         id,
@@ -878,7 +878,7 @@ func (p *TestRemotePublisher) Id() string {
 	return "id"
 }
 
-func (p *TestRemotePublisher) PublisherId() signaling.PublicSessionId {
+func (p *TestRemotePublisher) PublisherId() api.PublicSessionId {
 	return "id"
 }
 
@@ -907,7 +907,7 @@ func (p *TestRemotePublisher) Close(ctx context.Context) {
 	}
 }
 
-func (p *TestRemotePublisher) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, api.StringMap)) {
+func (p *TestRemotePublisher) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 	callback(errors.New("not implemented"), nil)
 }
 
@@ -972,12 +972,12 @@ func (s *TestRemoteSubscriber) Close(ctx context.Context) {
 	s.closeFunc()
 }
 
-func (s *TestRemoteSubscriber) SendMessage(ctx context.Context, message *signaling.MessageClientMessage, data *signaling.MessageClientMessageData, callback func(error, api.StringMap)) {
+func (s *TestRemoteSubscriber) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 	callback(errors.New("not implemented"), nil)
 }
 
-func (s *TestRemoteSubscriber) Publisher() signaling.PublicSessionId {
-	return signaling.PublicSessionId(s.publisher.Id())
+func (s *TestRemoteSubscriber) Publisher() api.PublicSessionId {
+	return api.PublicSessionId(s.publisher.Id())
 }
 
 func (m *RemoteSubscriberTestMCU) NewRemoteSubscriber(ctx context.Context, listener signaling.McuListener, publisher signaling.McuRemotePublisher) (signaling.McuRemoteSubscriber, error) {
@@ -1024,7 +1024,7 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 	_, err := client.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := signaling.PublicSessionId("the-publisher-id")
+	publisherId := api.PublicSessionId("the-publisher-id")
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
@@ -1119,7 +1119,7 @@ func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
 	_, err := client.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := signaling.PublicSessionId("the-publisher-id")
+	publisherId := api.PublicSessionId("the-publisher-id")
 	claims := &signaling.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
@@ -1188,12 +1188,12 @@ type UnpublishRemoteTestPublisher struct {
 
 	mu sync.RWMutex
 	// +checklocks:mu
-	remoteId signaling.PublicSessionId
+	remoteId api.PublicSessionId
 	// +checklocks:mu
 	remoteData *remotePublisherData
 }
 
-func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
 	publisher := &UnpublishRemoteTestPublisher{
 		TestMCUPublisher: TestMCUPublisher{
 			id:         id,
@@ -1207,7 +1207,7 @@ func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener sign
 	return publisher, nil
 }
 
-func (p *UnpublishRemoteTestPublisher) getRemoteId() signaling.PublicSessionId {
+func (p *UnpublishRemoteTestPublisher) getRemoteId() api.PublicSessionId {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.remoteId
@@ -1226,7 +1226,7 @@ func (p *UnpublishRemoteTestPublisher) clearRemote() {
 	p.remoteData = nil
 }
 
-func (p *UnpublishRemoteTestPublisher) PublishRemote(ctx context.Context, remoteId signaling.PublicSessionId, hostname string, port int, rtcpPort int) error {
+func (p *UnpublishRemoteTestPublisher) PublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if assert.Empty(p.t, p.remoteId) {
@@ -1240,7 +1240,7 @@ func (p *UnpublishRemoteTestPublisher) PublishRemote(ctx context.Context, remote
 	return nil
 }
 
-func (p *UnpublishRemoteTestPublisher) UnpublishRemote(ctx context.Context, remoteId signaling.PublicSessionId, hostname string, port int, rtcpPort int) error {
+func (p *UnpublishRemoteTestPublisher) UnpublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	assert.Equal(p.t, remoteId, p.remoteId)
@@ -1278,7 +1278,7 @@ func TestProxyUnpublishRemote(t *testing.T) {
 	_, err := client1.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := signaling.PublicSessionId("the-publisher-id")
+	publisherId := api.PublicSessionId("the-publisher-id")
 	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
 		Id:   "2345",
 		Type: "command",
@@ -1395,7 +1395,7 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 	_, err := client1.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := signaling.PublicSessionId("the-publisher-id")
+	publisherId := api.PublicSessionId("the-publisher-id")
 	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
 		Id:   "2345",
 		Type: "command",
@@ -1527,7 +1527,7 @@ func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
 	_, err := client1.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	publisherId := signaling.PublicSessionId("the-publisher-id")
+	publisherId := api.PublicSessionId("the-publisher-id")
 	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
 		Id:   "2345",
 		Type: "command",

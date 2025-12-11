@@ -25,6 +25,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 type AsyncMessage struct {
@@ -32,7 +34,7 @@ type AsyncMessage struct {
 
 	Type string `json:"type"`
 
-	Message *ServerMessage `json:"message,omitempty"`
+	Message *api.ServerMessage `json:"message,omitempty"`
 
 	Room *BackendServerRoomRequest `json:"room,omitempty"`
 
@@ -56,12 +58,12 @@ func (m *AsyncMessage) String() string {
 type AsyncRoomMessage struct {
 	Type string `json:"type"`
 
-	SessionId  PublicSessionId `json:"sessionid,omitempty"`
-	ClientType ClientType      `json:"clienttype,omitempty"`
+	SessionId  api.PublicSessionId `json:"sessionid,omitempty"`
+	ClientType api.ClientType      `json:"clienttype,omitempty"`
 }
 
 type SendOfferMessage struct {
-	MessageId string                    `json:"messageid,omitempty"`
-	SessionId PublicSessionId           `json:"sessionid"`
-	Data      *MessageClientMessageData `json:"data"`
+	MessageId string                        `json:"messageid,omitempty"`
+	SessionId api.PublicSessionId           `json:"sessionid"`
+	Data      *api.MessageClientMessageData `json:"data"`
 }

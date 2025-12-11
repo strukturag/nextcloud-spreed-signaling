@@ -110,7 +110,7 @@ func TestJanusPublisherRemote(t *testing.T) {
 
 	var remotePublishId atomic.Value
 
-	remoteId := PublicSessionId("the-remote-id")
+	remoteId := api.PublicSessionId("the-remote-id")
 	hostname := "remote.server"
 	port := 12345
 	rtcpPort := 23456
@@ -155,7 +155,7 @@ func TestJanusPublisherRemote(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("publisher-id")
+	pubId := api.PublicSessionId("publisher-id")
 	listener1 := &TestMcuListener{
 		id: pubId,
 	}

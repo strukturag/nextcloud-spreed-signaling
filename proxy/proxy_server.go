@@ -92,24 +92,24 @@ type ContextKey string
 var (
 	ContextKeySession = ContextKey("session")
 
-	TimeoutCreatingPublisher      = signaling.NewError("timeout", "Timeout creating publisher.")
-	TimeoutCreatingSubscriber     = signaling.NewError("timeout", "Timeout creating subscriber.")
-	TokenAuthFailed               = signaling.NewError("auth_failed", "The token could not be authenticated.")
-	TokenExpired                  = signaling.NewError("token_expired", "The token is expired.")
-	TokenNotValidYet              = signaling.NewError("token_not_valid_yet", "The token is not valid yet.")
-	UnknownClient                 = signaling.NewError("unknown_client", "Unknown client id given.")
-	UnsupportedCommand            = signaling.NewError("bad_request", "Unsupported command received.")
-	UnsupportedMessage            = signaling.NewError("bad_request", "Unsupported message received.")
-	UnsupportedPayload            = signaling.NewError("unsupported_payload", "Unsupported payload type.")
-	ShutdownScheduled             = signaling.NewError("shutdown_scheduled", "The server is scheduled to shutdown.")
-	RemoteSubscribersNotSupported = signaling.NewError("unsupported_subscriber", "Remote subscribers are not supported.")
+	TimeoutCreatingPublisher      = api.NewError("timeout", "Timeout creating publisher.")
+	TimeoutCreatingSubscriber     = api.NewError("timeout", "Timeout creating subscriber.")
+	TokenAuthFailed               = api.NewError("auth_failed", "The token could not be authenticated.")
+	TokenExpired                  = api.NewError("token_expired", "The token is expired.")
+	TokenNotValidYet              = api.NewError("token_not_valid_yet", "The token is not valid yet.")
+	UnknownClient                 = api.NewError("unknown_client", "Unknown client id given.")
+	UnsupportedCommand            = api.NewError("bad_request", "Unsupported command received.")
+	UnsupportedMessage            = api.NewError("bad_request", "Unsupported message received.")
+	UnsupportedPayload            = api.NewError("unsupported_payload", "Unsupported payload type.")
+	ShutdownScheduled             = api.NewError("shutdown_scheduled", "The server is scheduled to shutdown.")
+	RemoteSubscribersNotSupported = api.NewError("unsupported_subscriber", "Remote subscribers are not supported.")
 )
 
 type ProxyServer struct {
 	version        string
 	country        string
 	welcomeMessage string
-	welcomeMsg     *signaling.WelcomeServerMessage
+	welcomeMsg     *api.WelcomeServerMessage
 	config         *goconf.ConfigFile
 	mcuTimeout     time.Duration
 	logger         log.Logger
@@ -349,7 +349,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		version:        version,
 		country:        country,
 		welcomeMessage: string(welcomeMessage) + "\n",
-		welcomeMsg: &signaling.WelcomeServerMessage{
+		welcomeMsg: &api.WelcomeServerMessage{
 			Version:  version,
 			Country:  country,
 			Features: defaultProxyFeatures,
@@ -783,7 +783,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 		}
 
 		var session *ProxySession
-		if resumeId := signaling.PublicSessionId(message.Hello.ResumeId); resumeId != "" {
+		if resumeId := api.PublicSessionId(message.Hello.ResumeId); resumeId != "" {
 			if data, err := s.cookie.DecodePublic(resumeId); err == nil {
 				session = s.GetSession(data.Sid)
 			}
@@ -804,7 +804,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 		} else {
 			var err error
 			if session, err = s.NewSession(message.Hello); err != nil {
-				if e, ok := err.(*signaling.Error); ok {
+				if e, ok := err.(*api.Error); ok {
 					client.SendMessage(message.NewErrorServerMessage(e))
 				} else {
 					client.SendMessage(message.NewWrappedErrorServerMessage(err))
@@ -827,7 +827,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			Id:   message.Id,
 			Type: "hello",
 			Hello: &signaling.HelloProxyServerMessage{
-				Version:   signaling.HelloVersionV1,
+				Version:   api.HelloVersionV1,
 				SessionId: session.PublicId(),
 				Server:    s.welcomeMsg,
 			},
@@ -866,10 +866,10 @@ type proxyRemotePublisher struct {
 	proxy     *ProxyServer
 	remoteUrl string
 
-	publisherId signaling.PublicSessionId
+	publisherId api.PublicSessionId
 }
 
-func (p *proxyRemotePublisher) PublisherId() signaling.PublicSessionId {
+func (p *proxyRemotePublisher) PublisherId() api.PublicSessionId {
 	return p.publisherId
 }
 
@@ -1009,7 +1009,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				MediaTypes: cmd.MediaTypes, // nolint
 			}
 		}
-		publisher, err := s.mcu.NewPublisher(ctx2, session, signaling.PublicSessionId(id), cmd.Sid, cmd.StreamType, *settings, &emptyInitiator{})
+		publisher, err := s.mcu.NewPublisher(ctx2, session, api.PublicSessionId(id), cmd.Sid, cmd.StreamType, *settings, &emptyInitiator{})
 		if err == context.DeadlineExceeded {
 			s.logger.Printf("Timeout while creating %s publisher %s for %s", cmd.StreamType, id, session.PublicId())
 			session.sendMessage(message.NewErrorServerMessage(TimeoutCreatingPublisher))
@@ -1069,7 +1069,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 
 			claims, _, err := s.parseToken(cmd.RemoteToken)
 			if err != nil {
-				if e, ok := err.(*signaling.Error); ok {
+				if e, ok := err.(*api.Error); ok {
 					client.SendMessage(message.NewErrorServerMessage(e))
 				} else {
 					client.SendMessage(message.NewWrappedErrorServerMessage(err))
@@ -1339,7 +1339,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 
 	statsPayloadMessagesTotal.WithLabelValues(payload.Type).Inc()
 
-	var mcuData *signaling.MessageClientMessageData
+	var mcuData *api.MessageClientMessageData
 	switch payload.Type {
 	case "offer":
 		fallthrough
@@ -1348,7 +1348,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 	case "selectStream":
 		fallthrough
 	case "candidate":
-		mcuData = &signaling.MessageClientMessageData{
+		mcuData = &api.MessageClientMessageData{
 			RoomType: string(mcuClient.StreamType()),
 			Type:     payload.Type,
 			Sid:      payload.Sid,
@@ -1368,7 +1368,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 	case "requestoffer":
 		fallthrough
 	case "sendoffer":
-		mcuData = &signaling.MessageClientMessageData{
+		mcuData = &api.MessageClientMessageData{
 			RoomType: string(mcuClient.StreamType()),
 			Type:     payload.Type,
 			Sid:      payload.Sid,
@@ -1389,7 +1389,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 
 	mcuClient.SendMessage(ctx2, nil, mcuData, func(err error, response api.StringMap) {
 		var responseMsg *signaling.ProxyServerMessage
-		if errors.Is(err, signaling.ErrCandidateFiltered) {
+		if errors.Is(err, api.ErrCandidateFiltered) {
 			// Silently ignore filtered candidates.
 			err = nil
 		}
@@ -1717,7 +1717,7 @@ func (s *ProxyServer) PublisherDeleted(publisher signaling.McuPublisher) {
 	}
 }
 
-func (s *ProxyServer) RemotePublisherDeleted(publisherId signaling.PublicSessionId) {
+func (s *ProxyServer) RemotePublisherDeleted(publisherId api.PublicSessionId) {
 	s.sessionsLock.RLock()
 	defer s.sessionsLock.RUnlock()
 

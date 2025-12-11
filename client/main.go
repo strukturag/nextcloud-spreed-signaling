@@ -48,6 +48,7 @@ import (
 	"github.com/mailru/easyjson/jwriter"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
@@ -138,9 +139,9 @@ type SignalingClient struct {
 
 	lock sync.Mutex
 	// +checklocks:lock
-	privateSessionId signaling.PrivateSessionId
+	privateSessionId api.PrivateSessionId
 	// +checklocks:lock
-	publicSessionId signaling.PublicSessionId
+	publicSessionId api.PublicSessionId
 	// +checklocks:lock
 	userId string
 }
@@ -183,9 +184,9 @@ func (c *SignalingClient) Close() {
 	c.lock.Lock()
 	c.publicSessionId = ""
 	c.privateSessionId = ""
-	c.writeInternal(&signaling.ClientMessage{
+	c.writeInternal(&api.ClientMessage{
 		Type: "bye",
-		Bye:  &signaling.ByeClientMessage{},
+		Bye:  &api.ByeClientMessage{},
 	})
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait))                                                          // nolint
 	c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) // nolint
@@ -194,7 +195,7 @@ func (c *SignalingClient) Close() {
 	c.lock.Unlock()
 }
 
-func (c *SignalingClient) Send(message *signaling.ClientMessage) {
+func (c *SignalingClient) Send(message *api.ClientMessage) {
 	c.lock.Lock()
 	if c.conn == nil {
 		c.lock.Unlock()
@@ -209,7 +210,7 @@ func (c *SignalingClient) Send(message *signaling.ClientMessage) {
 	c.lock.Unlock()
 }
 
-func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
+func (c *SignalingClient) processMessage(message *api.ServerMessage) {
 	c.stats.numRecvMessages.Add(1)
 	switch message.Type {
 	case "welcome":
@@ -229,7 +230,7 @@ func (c *SignalingClient) processMessage(message *signaling.ServerMessage) {
 	}
 }
 
-func (c *SignalingClient) processHelloMessage(message *signaling.ServerMessage) {
+func (c *SignalingClient) processHelloMessage(message *api.ServerMessage) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.privateSessionId = message.Hello.ResumeId
@@ -239,13 +240,13 @@ func (c *SignalingClient) processHelloMessage(message *signaling.ServerMessage) 
 	c.readyWg.Done()
 }
 
-func (c *SignalingClient) PublicSessionId() signaling.PublicSessionId {
+func (c *SignalingClient) PublicSessionId() api.PublicSessionId {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	return c.publicSessionId
 }
 
-func (c *SignalingClient) processMessageMessage(message *signaling.ServerMessage) {
+func (c *SignalingClient) processMessageMessage(message *api.ServerMessage) {
 	var msg MessagePayload
 	if err := msg.UnmarshalJSON(message.Message.Data); err != nil {
 		log.Println("Error in unmarshal", err)
@@ -304,7 +305,7 @@ func (c *SignalingClient) readPump() {
 
 		c.stats.numRecvBytes.Add(uint64(decodeBuffer.Len()))
 
-		var message signaling.ServerMessage
+		var message api.ServerMessage
 		if err := message.UnmarshalJSON(decodeBuffer.Bytes()); err != nil {
 			log.Printf("Error: %v", err)
 			break
@@ -314,7 +315,7 @@ func (c *SignalingClient) readPump() {
 	}
 }
 
-func (c *SignalingClient) writeInternal(message *signaling.ClientMessage) bool {
+func (c *SignalingClient) writeInternal(message *api.ClientMessage) bool {
 	var closeData []byte
 
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
@@ -383,7 +384,7 @@ func (c *SignalingClient) writePump() {
 }
 
 func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
-	sessionIds := make(map[*SignalingClient]signaling.PublicSessionId)
+	sessionIds := make(map[*SignalingClient]api.PublicSessionId)
 	for _, c := range clients {
 		sessionIds[c] = c.PublicSessionId()
 	}
@@ -402,10 +403,10 @@ func (c *SignalingClient) SendMessages(clients []*SignalingClient) {
 			Now: now,
 		}
 		data, _ := msgdata.MarshalJSON()
-		msg := &signaling.ClientMessage{
+		msg := &api.ClientMessage{
 			Type: "message",
-			Message: &signaling.MessageClientMessage{
-				Recipient: signaling.MessageClientMessageRecipient{
+			Message: &api.MessageClientMessage{
+				Recipient: api.MessageClientMessageRecipient{
 					Type:      "session",
 					SessionId: sessionIds[recipient],
 				},
@@ -599,11 +600,11 @@ func main() {
 		defer client.Close()
 		readyWg.Add(1)
 
-		request := &signaling.ClientMessage{
+		request := &api.ClientMessage{
 			Type: "hello",
-			Hello: &signaling.HelloClientMessage{
-				Version: signaling.HelloVersionV1,
-				Auth: &signaling.HelloClientMessageAuth{
+			Hello: &api.HelloClientMessage{
+				Version: api.HelloVersionV1,
+				Auth: &api.HelloClientMessageAuth{
 					Url:    backendUrl,
 					Params: json.RawMessage("{}"),
 				},

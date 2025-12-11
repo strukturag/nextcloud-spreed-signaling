@@ -43,6 +43,7 @@ import (
 	"google.golang.org/grpc/resolver"
 	status "google.golang.org/grpc/status"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -202,7 +203,7 @@ func (c *GrpcClient) GetServerId(ctx context.Context) (string, string, error) {
 	return response.GetServerId(), response.GetVersion(), nil
 }
 
-func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId PrivateSessionId) (*LookupResumeIdReply, error) {
+func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId api.PrivateSessionId) (*LookupResumeIdReply, error) {
 	statsGrpcClientCalls.WithLabelValues("LookupResumeId").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Lookup resume id %s on %s", resumeId, c.Target())
@@ -222,7 +223,7 @@ func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId PrivateSession
 	return response, nil
 }
 
-func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId RoomSessionId, disconnectReason string) (PublicSessionId, error) {
+func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
 	statsGrpcClientCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Lookup room session %s on %s", roomSessionId, c.Target())
@@ -241,10 +242,10 @@ func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId RoomSess
 		return "", ErrNoSuchRoomSession
 	}
 
-	return PublicSessionId(sessionId), nil
+	return api.PublicSessionId(sessionId), nil
 }
 
-func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId PublicSessionId, room *Room, backendUrl string) (bool, error) {
+func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId api.PublicSessionId, room *Room, backendUrl string) (bool, error) {
 	statsGrpcClientCalls.WithLabelValues("IsSessionInCall").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Check if session %s is in call %s on %s", sessionId, room.Id(), c.Target())
@@ -262,7 +263,7 @@ func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId PublicSessio
 	return response.GetInCall(), nil
 }
 
-func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, backendUrls []string) (internal map[PublicSessionId]*InternalSessionData, virtual map[PublicSessionId]*VirtualSessionData, err error) {
+func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, backendUrls []string) (internal map[api.PublicSessionId]*InternalSessionData, virtual map[api.PublicSessionId]*VirtualSessionData, err error) {
 	statsGrpcClientCalls.WithLabelValues("GetInternalSessions").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Get internal sessions for %s on %s", roomId, c.Target())
@@ -282,22 +283,22 @@ func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, bac
 	}
 
 	if len(response.InternalSessions) > 0 {
-		internal = make(map[PublicSessionId]*InternalSessionData, len(response.InternalSessions))
+		internal = make(map[api.PublicSessionId]*InternalSessionData, len(response.InternalSessions))
 		for _, s := range response.InternalSessions {
-			internal[PublicSessionId(s.SessionId)] = s
+			internal[api.PublicSessionId(s.SessionId)] = s
 		}
 	}
 	if len(response.VirtualSessions) > 0 {
-		virtual = make(map[PublicSessionId]*VirtualSessionData, len(response.VirtualSessions))
+		virtual = make(map[api.PublicSessionId]*VirtualSessionData, len(response.VirtualSessions))
 		for _, s := range response.VirtualSessions {
-			virtual[PublicSessionId(s.SessionId)] = s
+			virtual[api.PublicSessionId(s.SessionId)] = s
 		}
 	}
 
 	return
 }
 
-func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId PublicSessionId, streamType StreamType) (PublicSessionId, string, net.IP, string, string, error) {
+func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId api.PublicSessionId, streamType StreamType) (api.PublicSessionId, string, net.IP, string, string, error) {
 	statsGrpcClientCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Get %s publisher id %s on %s", streamType, sessionId, c.Target())
@@ -311,7 +312,7 @@ func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId PublicSession
 		return "", "", nil, "", "", err
 	}
 
-	return PublicSessionId(response.GetPublisherId()), response.GetProxyUrl(), net.ParseIP(response.GetIp()), response.GetConnectToken(), response.GetPublisherToken(), nil
+	return api.PublicSessionId(response.GetPublisherId()), response.GetProxyUrl(), net.ParseIP(response.GetIp()), response.GetConnectToken(), response.GetPublisherToken(), nil
 }
 
 func (c *GrpcClient) GetSessionCount(ctx context.Context, url string) (uint32, error) {
@@ -375,7 +376,7 @@ type ProxySessionReceiver interface {
 
 type SessionProxy struct {
 	logger    log.Logger
-	sessionId PublicSessionId
+	sessionId api.PublicSessionId
 	receiver  ProxySessionReceiver
 
 	sendMu sync.Mutex
@@ -421,7 +422,7 @@ func (p *SessionProxy) Close() error {
 	return p.client.CloseSend()
 }
 
-func (c *GrpcClient) ProxySession(ctx context.Context, sessionId PublicSessionId, receiver ProxySessionReceiver) (*SessionProxy, error) {
+func (c *GrpcClient) ProxySession(ctx context.Context, sessionId api.PublicSessionId, receiver ProxySessionReceiver) (*SessionProxy, error) {
 	statsGrpcClientCalls.WithLabelValues("ProxySession").Inc()
 	md := metadata.Pairs(
 		"sessionId", string(sessionId),

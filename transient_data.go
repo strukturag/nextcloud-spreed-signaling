@@ -36,7 +36,7 @@ const (
 )
 
 type TransientListener interface {
-	SendMessage(message *ServerMessage) bool
+	SendMessage(message *api.ServerMessage) bool
 }
 
 type TransientDataEntry struct {
@@ -103,7 +103,7 @@ func NewTransientData() *TransientData {
 }
 
 // +checklocks:t.mu
-func (t *TransientData) sendMessageToListener(listener TransientListener, message *ServerMessage) {
+func (t *TransientData) sendMessageToListener(listener TransientListener, message *api.ServerMessage) {
 	t.mu.Unlock()
 	defer t.mu.Lock()
 
@@ -112,9 +112,9 @@ func (t *TransientData) sendMessageToListener(listener TransientListener, messag
 
 // +checklocks:t.mu
 func (t *TransientData) notifySet(key string, prev, value any) {
-	msg := &ServerMessage{
+	msg := &api.ServerMessage{
 		Type: "transient",
-		TransientData: &TransientDataServerMessage{
+		TransientData: &api.TransientDataServerMessage{
 			Type:     "set",
 			Key:      key,
 			Value:    value,
@@ -128,9 +128,9 @@ func (t *TransientData) notifySet(key string, prev, value any) {
 
 // +checklocks:t.mu
 func (t *TransientData) notifyDeleted(key string, prev *TransientDataEntry) {
-	msg := &ServerMessage{
+	msg := &api.ServerMessage{
 		Type: "transient",
-		TransientData: &TransientDataServerMessage{
+		TransientData: &api.TransientDataServerMessage{
 			Type: "remove",
 			Key:  key,
 		},
@@ -157,9 +157,9 @@ func (t *TransientData) AddListener(listener TransientListener) {
 		for k, v := range t.data {
 			data[k] = v.Value
 		}
-		msg := &ServerMessage{
+		msg := &api.ServerMessage{
 			Type: "transient",
-			TransientData: &TransientDataServerMessage{
+			TransientData: &api.TransientDataServerMessage{
 				Type: "initial",
 				Data: data,
 			},
@@ -385,9 +385,9 @@ func (t *TransientData) SetInitial(data TransientDataEntries) {
 	if len(msgData) == 0 {
 		return
 	}
-	msg := &ServerMessage{
+	msg := &api.ServerMessage{
 		Type: "transient",
-		TransientData: &TransientDataServerMessage{
+		TransientData: &api.TransientDataServerMessage{
 			Type: "initial",
 			Data: msgData,
 		},

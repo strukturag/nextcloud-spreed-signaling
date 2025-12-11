@@ -37,6 +37,8 @@ import (
 	"unsafe"
 
 	"google.golang.org/protobuf/proto"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 const (
@@ -235,14 +237,14 @@ func (c *SessionIdCodec) decodeRaw(name string, value []byte) (*SessionIdData, e
 	return data, nil
 }
 
-func (c *SessionIdCodec) EncodePrivate(sessionData *SessionIdData) (PrivateSessionId, error) {
+func (c *SessionIdCodec) EncodePrivate(sessionData *SessionIdData) (api.PrivateSessionId, error) {
 	id, err := c.encodeRaw(privateSessionName, sessionData)
 	if err != nil {
 		return "", err
 	}
 
 	defer c.bytesPool.Put(id)
-	return PrivateSessionId(c.encodeToString(id)), nil
+	return api.PrivateSessionId(c.encodeToString(id)), nil
 }
 
 func (c *SessionIdCodec) reverseSessionId(data []byte) {
@@ -251,7 +253,7 @@ func (c *SessionIdCodec) reverseSessionId(data []byte) {
 	}
 }
 
-func (c *SessionIdCodec) EncodePublic(sessionData *SessionIdData) (PublicSessionId, error) {
+func (c *SessionIdCodec) EncodePublic(sessionData *SessionIdData) (api.PublicSessionId, error) {
 	encoded, err := c.encodeRaw(publicSessionName, sessionData)
 	if err != nil {
 		return "", err
@@ -265,10 +267,10 @@ func (c *SessionIdCodec) EncodePublic(sessionData *SessionIdData) (PublicSession
 	c.reverseSessionId(encoded)
 
 	defer c.bytesPool.Put(encoded)
-	return PublicSessionId(c.encodeToString(encoded)), nil
+	return api.PublicSessionId(c.encodeToString(encoded)), nil
 }
 
-func (c *SessionIdCodec) DecodePrivate(encodedData PrivateSessionId) (*SessionIdData, error) {
+func (c *SessionIdCodec) DecodePrivate(encodedData api.PrivateSessionId) (*SessionIdData, error) {
 	decoded, err := c.decodeFromString(string(encodedData))
 	if err != nil {
 		return nil, fmt.Errorf("invalid session id: %w", err)
@@ -278,7 +280,7 @@ func (c *SessionIdCodec) DecodePrivate(encodedData PrivateSessionId) (*SessionId
 	return c.decodeRaw(privateSessionName, decoded)
 }
 
-func (c *SessionIdCodec) DecodePublic(encodedData PublicSessionId) (*SessionIdData, error) {
+func (c *SessionIdCodec) DecodePublic(encodedData api.PublicSessionId) (*SessionIdData, error) {
 	decoded, err := c.decodeFromString(string(encodedData))
 	if err != nil {
 		return nil, fmt.Errorf("invalid session id: %w", err)

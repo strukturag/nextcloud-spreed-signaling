@@ -34,7 +34,9 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
 var (
@@ -52,7 +54,7 @@ type ProxyTestClient struct {
 	messageChan   chan []byte
 	readErrorChan chan error
 
-	sessionId signaling.PublicSessionId
+	sessionId api.PublicSessionId
 }
 
 func NewProxyTestClient(ctx context.Context, t *testing.T, url string) *ProxyTestClient {

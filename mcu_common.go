@@ -56,7 +56,7 @@ const (
 )
 
 type McuListener interface {
-	PublicId() PublicSessionId
+	PublicId() api.PublicSessionId
 
 	OnUpdateOffer(client McuClient, offer api.StringMap)
 
@@ -137,8 +137,8 @@ type Mcu interface {
 	GetServerInfoSfu() *BackendServerInfoSfu
 	GetBandwidthLimits() (api.Bandwidth, api.Bandwidth)
 
-	NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)
-	NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)
+	NewPublisher(ctx context.Context, listener McuListener, id api.PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)
+	NewSubscriber(ctx context.Context, listener McuListener, publisher api.PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error)
 }
 
 // PublisherStream contains the available properties when creating a
@@ -171,7 +171,7 @@ type PublisherStream struct {
 }
 
 type RemotePublisherController interface {
-	PublisherId() PublicSessionId
+	PublisherId() api.PublicSessionId
 
 	StartPublishing(ctx context.Context, publisher McuRemotePublisherProperties) error
 	StopPublishing(ctx context.Context, publisher McuRemotePublisherProperties) error
@@ -220,7 +220,7 @@ type McuClient interface {
 
 	Close(ctx context.Context)
 
-	SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap))
+	SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap))
 }
 
 type McuClientWithBandwidth interface {
@@ -232,7 +232,7 @@ type McuClientWithBandwidth interface {
 type McuPublisher interface {
 	McuClient
 
-	PublisherId() PublicSessionId
+	PublisherId() api.PublicSessionId
 
 	HasMedia(MediaType) bool
 	SetMedia(MediaType)
@@ -247,14 +247,14 @@ type McuPublisherWithStreams interface {
 type McuRemoteAwarePublisher interface {
 	McuPublisher
 
-	PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error
-	UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error
+	PublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error
+	UnpublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error
 }
 
 type McuSubscriber interface {
 	McuClient
 
-	Publisher() PublicSessionId
+	Publisher() api.PublicSessionId
 }
 
 type McuRemotePublisherProperties interface {

@@ -49,7 +49,7 @@ const (
 type mcuJanusPublisher struct {
 	mcuJanusClient
 
-	id        PublicSessionId
+	id        api.PublicSessionId
 	settings  NewPublisherSettings
 	stats     publisherStatsCounter
 	sdpFlags  Flags
@@ -58,7 +58,7 @@ type mcuJanusPublisher struct {
 	answerSdp atomic.Pointer[sdp.SessionDescription]
 }
 
-func (p *mcuJanusPublisher) PublisherId() PublicSessionId {
+func (p *mcuJanusPublisher) PublisherId() api.PublicSessionId {
 	return p.id
 }
 
@@ -173,21 +173,21 @@ func (p *mcuJanusPublisher) Close(ctx context.Context) {
 	p.mcuJanusClient.Close(ctx)
 }
 
-func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
+func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 	statsMcuMessagesTotal.WithLabelValues(data.Type).Inc()
 	jsep_msg := data.Payload
 	switch data.Type {
 	case "offer":
 		p.deferred <- func() {
-			if data.offerSdp == nil {
+			if data.OfferSdp == nil {
 				// Should have been checked before.
 				go callback(errors.New("no sdp found in offer"), nil)
 				return
 			}
 
-			if FilterSDPCandidates(data.offerSdp, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
+			if api.FilterSDPCandidates(data.OfferSdp, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
 				// Update request with filtered SDP.
-				marshalled, err := data.offerSdp.Marshal()
+				marshalled, err := data.OfferSdp.Marshal()
 				if err != nil {
 					go callback(fmt.Errorf("could not marshal filtered offer: %w", err), nil)
 					return
@@ -196,7 +196,7 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 				jsep_msg["sdp"] = string(marshalled)
 			}
 
-			p.offerSdp.Store(data.offerSdp)
+			p.offerSdp.Store(data.OfferSdp)
 			p.sdpFlags.Add(sdpHasOffer)
 			if p.sdpFlags.Get() == sdpHasAnswer|sdpHasOffer {
 				p.sdpReady.Close()
@@ -216,7 +216,7 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 				sdpString, found := api.GetStringMapEntry[string](jsep, "sdp")
 				if !found {
 					p.logger.Printf("No/invalid sdp found in answer %+v", jsep)
-				} else if answerSdp, err := parseSDP(sdpString); err != nil {
+				} else if answerSdp, err := api.ParseSDP(sdpString); err != nil {
 					p.logger.Printf("Error parsing answer sdp %+v: %s", sdpString, err)
 					p.answerSdp.Store(nil)
 					p.sdpFlags.Remove(sdpHasAnswer)
@@ -233,8 +233,8 @@ func (p *mcuJanusPublisher) SendMessage(ctx context.Context, message *MessageCli
 			})
 		}
 	case "candidate":
-		if FilterCandidate(data.candidate, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
-			go callback(ErrCandidateFiltered, nil)
+		if api.FilterCandidate(data.Candidate, p.mcu.settings.allowedCandidates.Load(), p.mcu.settings.blockedCandidates.Load()) {
+			go callback(api.ErrCandidateFiltered, nil)
 			return
 		}
 
@@ -399,11 +399,11 @@ func (p *mcuJanusPublisher) GetStreams(ctx context.Context) ([]PublisherStream, 
 	return streams, nil
 }
 
-func getPublisherRemoteId(id PublicSessionId, remoteId PublicSessionId, hostname string, port int, rtcpPort int) string {
+func getPublisherRemoteId(id api.PublicSessionId, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) string {
 	return fmt.Sprintf("%s-%s@%s:%d:%d", id, remoteId, hostname, port, rtcpPort)
 }
 
-func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
+func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	handle := p.handle.Load()
 	if handle == nil {
 		return ErrNotConnected
@@ -445,7 +445,7 @@ func (p *mcuJanusPublisher) PublishRemote(ctx context.Context, remoteId PublicSe
 	return nil
 }
 
-func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
+func (p *mcuJanusPublisher) UnpublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	handle := p.handle.Load()
 	if handle == nil {
 		return ErrNotConnected

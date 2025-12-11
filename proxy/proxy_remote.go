@@ -40,6 +40,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -84,7 +85,7 @@ type RemoteConnection struct {
 	// +checklocks:mu
 	helloMsgId string
 	// +checklocks:mu
-	sessionId signaling.PublicSessionId
+	sessionId api.PublicSessionId
 	// +checklocks:mu
 	helloReceived bool
 
@@ -128,7 +129,7 @@ func (c *RemoteConnection) String() string {
 	return c.url.String()
 }
 
-func (c *RemoteConnection) SessionId() signaling.PublicSessionId {
+func (c *RemoteConnection) SessionId() api.PublicSessionId {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.sessionId
@@ -546,7 +547,7 @@ func (c *RemoteConnection) processEvent(msg *signaling.ProxyServerMessage) {
 		// Ignore
 	case "publisher-closed":
 		c.logger.Printf("Remote publisher %s was closed on %s", msg.Event.ClientId, c)
-		c.p.RemotePublisherDeleted(signaling.PublicSessionId(msg.Event.ClientId))
+		c.p.RemotePublisherDeleted(api.PublicSessionId(msg.Event.ClientId))
 	default:
 		c.logger.Printf("Received unsupported event %+v from %s", msg, c)
 	}

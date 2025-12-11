@@ -37,6 +37,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/pool"
@@ -84,7 +85,7 @@ func IsValidCountry(country string) bool {
 }
 
 var (
-	InvalidFormat = NewError("invalid_format", "Invalid data format.")
+	InvalidFormat = api.NewError("invalid_format", "Invalid data format.")
 
 	bufferPool pool.BufferPool
 )
@@ -92,7 +93,7 @@ var (
 type WritableClientMessage interface {
 	json.Marshaler
 
-	CloseAfterSend(session Session) bool
+	CloseAfterSend(session api.RoomAware) bool
 }
 
 type HandlerClient interface {
@@ -106,9 +107,9 @@ type HandlerClient interface {
 	GetSession() Session
 	SetSession(session Session)
 
-	SendError(e *Error) bool
-	SendByeResponse(message *ClientMessage) bool
-	SendByeResponseWithReason(message *ClientMessage, reason string) bool
+	SendError(e *api.Error) bool
+	SendByeResponse(message *api.ClientMessage) bool
+	SendByeResponseWithReason(message *api.ClientMessage, reason string) bool
 	SendMessage(message WritableClientMessage) bool
 
 	Close()
@@ -139,7 +140,7 @@ type Client struct {
 	handler ClientHandler
 
 	session   atomic.Pointer[Session]
-	sessionId atomic.Pointer[PublicSessionId]
+	sessionId atomic.Pointer[api.PublicSessionId]
 
 	mu sync.Mutex
 
@@ -219,11 +220,11 @@ func (c *Client) SetSession(session Session) {
 	}
 }
 
-func (c *Client) SetSessionId(sessionId PublicSessionId) {
+func (c *Client) SetSessionId(sessionId api.PublicSessionId) {
 	c.sessionId.Store(&sessionId)
 }
 
-func (c *Client) GetSessionId() PublicSessionId {
+func (c *Client) GetSessionId() api.PublicSessionId {
 	sessionId := c.sessionId.Load()
 	if sessionId == nil {
 		session := c.GetSession()
@@ -293,20 +294,20 @@ func (c *Client) doClose() {
 	}
 }
 
-func (c *Client) SendError(e *Error) bool {
-	message := &ServerMessage{
+func (c *Client) SendError(e *api.Error) bool {
+	message := &api.ServerMessage{
 		Type:  "error",
 		Error: e,
 	}
 	return c.SendMessage(message)
 }
 
-func (c *Client) SendByeResponse(message *ClientMessage) bool {
+func (c *Client) SendByeResponse(message *api.ClientMessage) bool {
 	return c.SendByeResponseWithReason(message, "")
 }
 
-func (c *Client) SendByeResponseWithReason(message *ClientMessage, reason string) bool {
-	response := &ServerMessage{
+func (c *Client) SendByeResponseWithReason(message *api.ClientMessage, reason string) bool {
+	response := &api.ServerMessage{
 		Type: "bye",
 	}
 	if message != nil {
@@ -314,7 +315,7 @@ func (c *Client) SendByeResponseWithReason(message *ClientMessage, reason string
 	}
 	if reason != "" {
 		if response.Bye == nil {
-			response.Bye = &ByeServerMessage{}
+			response.Bye = &api.ByeServerMessage{}
 		}
 		response.Bye.Reason = reason
 	}
@@ -497,9 +498,9 @@ close:
 }
 
 func (c *Client) writeError(e error) bool { // nolint
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type:  "error",
-		Error: NewError("internal_error", e.Error()),
+		Error: api.NewError("internal_error", e.Error()),
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
