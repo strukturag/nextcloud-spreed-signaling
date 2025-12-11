@@ -33,6 +33,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -159,20 +160,20 @@ func (c *remoteGrpcClient) SetSession(session Session) {
 	}
 }
 
-func (c *remoteGrpcClient) SendError(e *Error) bool {
-	message := &ServerMessage{
+func (c *remoteGrpcClient) SendError(e *api.Error) bool {
+	message := &api.ServerMessage{
 		Type:  "error",
 		Error: e,
 	}
 	return c.SendMessage(message)
 }
 
-func (c *remoteGrpcClient) SendByeResponse(message *ClientMessage) bool {
+func (c *remoteGrpcClient) SendByeResponse(message *api.ClientMessage) bool {
 	return c.SendByeResponseWithReason(message, "")
 }
 
-func (c *remoteGrpcClient) SendByeResponseWithReason(message *ClientMessage, reason string) bool {
-	response := &ServerMessage{
+func (c *remoteGrpcClient) SendByeResponseWithReason(message *api.ClientMessage, reason string) bool {
+	response := &api.ServerMessage{
 		Type: "bye",
 	}
 	if message != nil {
@@ -180,7 +181,7 @@ func (c *remoteGrpcClient) SendByeResponseWithReason(message *ClientMessage, rea
 	}
 	if reason != "" {
 		if response.Bye == nil {
-			response.Bye = &ByeServerMessage{}
+			response.Bye = &api.ByeServerMessage{}
 		}
 		response.Bye.Reason = reason
 	}

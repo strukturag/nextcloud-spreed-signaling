@@ -51,9 +51,9 @@ var (
 
 type Session interface {
 	Context() context.Context
-	PrivateId() PrivateSessionId
-	PublicId() PublicSessionId
-	ClientType() ClientType
+	PrivateId() api.PrivateSessionId
+	PublicId() api.PublicSessionId
+	ClientType() api.ClientType
 	Data() *SessionIdData
 
 	UserId() string
@@ -67,13 +67,14 @@ type Session interface {
 	SetRoom(room *Room)
 	GetRoom() *Room
 	LeaveRoom(notify bool) *Room
+	IsInRoom(id string) bool
 
 	Close()
 
 	HasPermission(permission Permission) bool
 
-	SendError(e *Error) bool
-	SendMessage(message *ServerMessage) bool
+	SendError(e *api.Error) bool
+	SendMessage(message *api.ServerMessage) bool
 }
 
 type SessionWithInCall interface {

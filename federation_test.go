@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 )
 
 func Test_FederationInvalidToken(t *testing.T) {
@@ -51,13 +52,13 @@ func Test_FederationInvalidToken(t *testing.T) {
 
 	MustSucceed1(t, client.RunUntilHello, ctx)
 
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "join-room-fed",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    "test-room",
 			SessionId: "room-session-id",
-			Federation: &RoomFederationMessage{
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				Token:        "invalid-token",
@@ -115,13 +116,13 @@ func Test_Federation(t *testing.T) {
 	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
 	require.NoError(err)
 
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "join-room-fed",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
@@ -138,7 +139,7 @@ func Test_Federation(t *testing.T) {
 	}
 
 	// The client1 will see the remote session id for client2.
-	var remoteSessionId PublicSessionId
+	var remoteSessionId api.PublicSessionId
 	if message, ok := client1.RunUntilMessage(ctx); ok {
 		client1.checkSingleMessageJoined(message)
 		evt := message.Event.Join[0]
@@ -174,7 +175,7 @@ func Test_Federation(t *testing.T) {
 			assert.Equal("1.0", ping.Version)
 			assert.Len(ping.Entries, 2)
 			// The order of entries is not defined
-			if ping.Entries[0].SessionId == RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)) {
+			if ping.Entries[0].SessionId == api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)) {
 				assert.Equal(hello2.Hello.UserId, ping.Entries[0].UserId)
 
 				assert.EqualValues(fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId), ping.Entries[1].SessionId)
@@ -217,7 +218,7 @@ func Test_Federation(t *testing.T) {
 		assert.Equal(roomId, room.Room.RoomId)
 	}
 
-	client1.RunUntilJoined(ctx, hello1.Hello, &HelloServerMessage{
+	client1.RunUntilJoined(ctx, hello1.Hello, &api.HelloServerMessage{
 		SessionId: remoteSessionId,
 		UserId:    hello2.Hello.UserId,
 	})
@@ -228,7 +229,7 @@ func Test_Federation(t *testing.T) {
 		assert.Empty(room.Room.RoomId)
 	}
 
-	client1.RunUntilLeft(ctx, &HelloServerMessage{
+	client1.RunUntilLeft(ctx, &api.HelloServerMessage{
 		SessionId: remoteSessionId,
 		UserId:    hello2.Hello.UserId,
 	})
@@ -262,7 +263,7 @@ func Test_Federation(t *testing.T) {
 	// Test sending messages between sessions.
 	data1 := "from-1-to-2"
 	data2 := "from-2-to-1"
-	if assert.NoError(client1.SendMessage(MessageClientMessageRecipient{
+	if assert.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: remoteSessionId,
 	}, data1)) {
@@ -272,7 +273,7 @@ func Test_Federation(t *testing.T) {
 		}
 	}
 
-	if assert.NoError(client1.SendControl(MessageClientMessageRecipient{
+	if assert.NoError(client1.SendControl(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: remoteSessionId,
 	}, data1)) {
@@ -282,12 +283,12 @@ func Test_Federation(t *testing.T) {
 		}
 	}
 
-	if assert.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	if assert.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, data2)) {
 		var payload string
-		if checkReceiveClientMessage(ctx, t, client1, "session", &HelloServerMessage{
+		if checkReceiveClientMessage(ctx, t, client1, "session", &api.HelloServerMessage{
 			SessionId: remoteSessionId,
 			UserId:    testDefaultUserId + "2",
 		}, &payload) {
@@ -295,12 +296,12 @@ func Test_Federation(t *testing.T) {
 		}
 	}
 
-	if assert.NoError(client2.SendControl(MessageClientMessageRecipient{
+	if assert.NoError(client2.SendControl(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, data2)) {
 		var payload string
-		if checkReceiveClientControl(ctx, t, client1, "session", &HelloServerMessage{
+		if checkReceiveClientControl(ctx, t, client1, "session", &api.HelloServerMessage{
 			SessionId: remoteSessionId,
 			UserId:    testDefaultUserId + "2",
 		}, &payload) {
@@ -313,7 +314,7 @@ func Test_Federation(t *testing.T) {
 		"action": "forceMute",
 		"peerId": remoteSessionId,
 	}
-	if assert.NoError(client1.SendControl(MessageClientMessageRecipient{
+	if assert.NoError(client1.SendControl(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: remoteSessionId,
 	}, forceMute)) {
@@ -327,7 +328,7 @@ func Test_Federation(t *testing.T) {
 
 	data3 := "from-2-to-2"
 	// Clients can't send to their own (local) session id.
-	if assert.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	if assert.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
 	}, data3)) {
@@ -338,7 +339,7 @@ func Test_Federation(t *testing.T) {
 	}
 
 	// Clients can't send to their own (remote) session id.
-	if assert.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	if assert.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: remoteSessionId,
 	}, data3)) {
@@ -358,7 +359,7 @@ func Test_Federation(t *testing.T) {
 		},
 	}
 	room.PublishUsersInCallChanged(users, users)
-	var event *EventServerMessage
+	var event *api.EventServerMessage
 	// For the local user, it's a federated user on server 2 that joined.
 	if checkReceiveClientEvent(ctx, t, client1, "update", &event) {
 		assert.EqualValues(remoteSessionId, event.Update.Users[0]["sessionId"])
@@ -414,7 +415,7 @@ func Test_Federation(t *testing.T) {
 	client1.RunUntilJoined(ctx, hello3.Hello)
 	client2.RunUntilJoined(ctx, hello3.Hello)
 
-	client3.RunUntilJoined(ctx, hello1.Hello, &HelloServerMessage{
+	client3.RunUntilJoined(ctx, hello1.Hello, &api.HelloServerMessage{
 		SessionId: remoteSessionId,
 		UserId:    hello2.Hello.UserId,
 	}, hello3.Hello)
@@ -435,13 +436,13 @@ func Test_Federation(t *testing.T) {
 	token, err = client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"4", now, now.Add(time.Minute), userdata)
 	require.NoError(err)
 
-	msg = &ClientMessage{
+	msg = &api.ClientMessage{
 		Id:   "join-room-fed",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello4.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello4.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
@@ -458,7 +459,7 @@ func Test_Federation(t *testing.T) {
 	}
 
 	// The client1 will see the remote session id for client4.
-	var remoteSessionId4 PublicSessionId
+	var remoteSessionId4 api.PublicSessionId
 	if message, ok := client1.RunUntilMessage(ctx); ok {
 		client1.checkSingleMessageJoined(message)
 		evt := message.Event.Join[0]
@@ -469,17 +470,17 @@ func Test_Federation(t *testing.T) {
 		assert.Equal(features2, evt.Features)
 	}
 
-	client2.RunUntilJoined(ctx, &HelloServerMessage{
+	client2.RunUntilJoined(ctx, &api.HelloServerMessage{
 		SessionId: remoteSessionId4,
 		UserId:    hello4.Hello.UserId,
 	})
 
-	client3.RunUntilJoined(ctx, &HelloServerMessage{
+	client3.RunUntilJoined(ctx, &api.HelloServerMessage{
 		SessionId: remoteSessionId4,
 		UserId:    hello4.Hello.UserId,
 	})
 
-	client4.RunUntilJoined(ctx, hello1.Hello, &HelloServerMessage{
+	client4.RunUntilJoined(ctx, hello1.Hello, &api.HelloServerMessage{
 		SessionId: remoteSessionId,
 		UserId:    hello2.Hello.UserId,
 	}, hello3.Hello, hello4.Hello)
@@ -526,13 +527,13 @@ func Test_FederationJoinRoomTwice(t *testing.T) {
 	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
 	require.NoError(err)
 
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "join-room-fed",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
@@ -549,7 +550,7 @@ func Test_FederationJoinRoomTwice(t *testing.T) {
 	}
 
 	// The client1 will see the remote session id for client2.
-	var remoteSessionId PublicSessionId
+	var remoteSessionId api.PublicSessionId
 	if message, ok := client1.RunUntilMessage(ctx); ok {
 		client1.checkSingleMessageJoined(message)
 		evt := message.Event.Join[0]
@@ -562,13 +563,13 @@ func Test_FederationJoinRoomTwice(t *testing.T) {
 	// The client2 will see its own session id, not the one from the remote server.
 	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 
-	msg2 := &ClientMessage{
+	msg2 := &api.ClientMessage{
 		Id:   "join-room-fed-2",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
@@ -584,7 +585,7 @@ func Test_FederationJoinRoomTwice(t *testing.T) {
 			assert.Equal("already_joined", message.Error.Code)
 		}
 		if assert.NotNil(message.Error.Details) {
-			var roomMsg RoomErrorDetails
+			var roomMsg api.RoomErrorDetails
 			if assert.NoError(json.Unmarshal(message.Error.Details, &roomMsg)) {
 				if assert.NotNil(roomMsg.Room) {
 					assert.Equal(federatedRoomId, roomMsg.Room.RoomId)
@@ -632,13 +633,13 @@ func Test_FederationChangeRoom(t *testing.T) {
 	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
 	require.NoError(err)
 
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "join-room-fed",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
@@ -660,7 +661,7 @@ func Test_FederationChangeRoom(t *testing.T) {
 	localAddr := fed.LocalAddr()
 
 	// The client1 will see the remote session id for client2.
-	var remoteSessionId PublicSessionId
+	var remoteSessionId api.PublicSessionId
 	if message, ok := client1.RunUntilMessage(ctx); ok {
 		client1.checkSingleMessageJoined(message)
 		evt := message.Event.Join[0]
@@ -675,13 +676,13 @@ func Test_FederationChangeRoom(t *testing.T) {
 
 	roomId2 := roomId + "-2"
 	federatedRoomId2 := roomId2 + "@federated"
-	msg2 := &ClientMessage{
+	msg2 := &api.ClientMessage{
 		Id:   "join-room-fed-2",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId2,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId2, hello2.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId2, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId2,
@@ -752,13 +753,13 @@ func Test_FederationMedia(t *testing.T) {
 	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
 	require.NoError(err)
 
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "join-room-fed",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
@@ -775,7 +776,7 @@ func Test_FederationMedia(t *testing.T) {
 	}
 
 	// The client1 will see the remote session id for client2.
-	var remoteSessionId PublicSessionId
+	var remoteSessionId api.PublicSessionId
 	if message, ok := client1.RunUntilMessage(ctx); ok {
 		client1.checkSingleMessageJoined(message)
 		evt := message.Event.Join[0]
@@ -788,19 +789,19 @@ func Test_FederationMedia(t *testing.T) {
 	// The client2 will see its own session id, not the one from the remote server.
 	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 
-	require.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		Sid:      "12345",
 		RoomType: "screen",
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	client2.RunUntilAnswerFromSender(ctx, MockSdpAnswerAudioAndVideo, &MessageServerMessageSender{
+	client2.RunUntilAnswerFromSender(ctx, mock.MockSdpAnswerAudioAndVideo, &api.MessageServerMessageSender{
 		Type:      "session",
 		SessionId: hello2.Hello.SessionId,
 		UserId:    hello2.Hello.UserId,
@@ -844,13 +845,13 @@ func Test_FederationResume(t *testing.T) {
 	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
 	require.NoError(err)
 
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "join-room-fed",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
@@ -867,7 +868,7 @@ func Test_FederationResume(t *testing.T) {
 	}
 
 	// The client1 will see the remote session id for client2.
-	var remoteSessionId PublicSessionId
+	var remoteSessionId api.PublicSessionId
 	if message, ok := client1.RunUntilMessage(ctx); ok {
 		client1.checkSingleMessageJoined(message)
 		evt := message.Event.Join[0]
@@ -887,7 +888,7 @@ func Test_FederationResume(t *testing.T) {
 	err = fed2.conn.Close()
 
 	data2 := "from-2-to-1"
-	assert.NoError(client2.SendMessage(MessageClientMessageRecipient{
+	assert.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello1.Hello.SessionId,
 	}, data2))
@@ -912,7 +913,7 @@ func Test_FederationResume(t *testing.T) {
 	defer cancel1()
 
 	var payload string
-	if checkReceiveClientMessage(ctx, t, client1, "session", &HelloServerMessage{
+	if checkReceiveClientMessage(ctx, t, client1, "session", &api.HelloServerMessage{
 		SessionId: remoteSessionId,
 		UserId:    testDefaultUserId + "2",
 	}, &payload) {
@@ -964,13 +965,13 @@ func Test_FederationResumeNewSession(t *testing.T) {
 	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
 	require.NoError(err)
 
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "join-room-fed",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
@@ -987,7 +988,7 @@ func Test_FederationResumeNewSession(t *testing.T) {
 	}
 
 	// The client1 will see the remote session id for client2.
-	var remoteSessionId PublicSessionId
+	var remoteSessionId api.PublicSessionId
 	if message, ok := client1.RunUntilMessage(ctx); ok {
 		client1.checkSingleMessageJoined(message)
 		evt := message.Event.Join[0]
@@ -1024,7 +1025,7 @@ func Test_FederationResumeNewSession(t *testing.T) {
 
 	// Client1 will get a "leave" for the expired session and a "join" with the
 	// new remote session id.
-	client1.RunUntilLeft(ctx, &HelloServerMessage{
+	client1.RunUntilLeft(ctx, &api.HelloServerMessage{
 		SessionId: remoteSessionId,
 		UserId:    hello2.Hello.UserId,
 	})
@@ -1087,13 +1088,13 @@ func Test_FederationTransientData(t *testing.T) {
 	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
 	require.NoError(err)
 
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   "join-room-fed",
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    federatedRoomId,
-			SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-			Federation: &RoomFederationMessage{
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
 				SignalingUrl: server1.URL,
 				NextcloudUrl: server1.URL,
 				RoomId:       roomId,
@@ -1110,7 +1111,7 @@ func Test_FederationTransientData(t *testing.T) {
 	}
 
 	// The client1 will see the remote session id for client2.
-	var remoteSessionId PublicSessionId
+	var remoteSessionId api.PublicSessionId
 	if message, ok := client1.RunUntilMessage(ctx); ok {
 		client1.checkSingleMessageJoined(message)
 		evt := message.Event.Join[0]

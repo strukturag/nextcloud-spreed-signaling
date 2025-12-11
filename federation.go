@@ -48,7 +48,7 @@ const (
 )
 
 var (
-	ErrFederationNotSupported = NewError("federation_unsupported", "The target server does not support federation.")
+	ErrFederationNotSupported = api.NewError("federation_unsupported", "The target server does not support federation.")
 
 	federationWriteBufferPool = &sync.Pool{}
 )
@@ -81,12 +81,12 @@ type FederationClient struct {
 	logger  log.Logger
 	hub     *Hub
 	session *ClientSession
-	message atomic.Pointer[ClientMessage]
+	message atomic.Pointer[api.ClientMessage]
 
 	roomId       atomic.Value
 	remoteRoomId atomic.Value
 	changeRoomId atomic.Bool
-	federation   atomic.Pointer[RoomFederationMessage]
+	federation   atomic.Pointer[api.RoomFederationMessage]
 
 	mu     sync.Mutex
 	dialer *websocket.Dialer
@@ -104,18 +104,18 @@ type FederationClient struct {
 	// +checklocks:helloMu
 	helloMsgId string
 	// +checklocks:helloMu
-	helloAuth *FederationAuthParams
+	helloAuth *api.FederationAuthParams
 	// +checklocks:helloMu
-	resumeId PrivateSessionId
-	hello    atomic.Pointer[HelloServerMessage]
+	resumeId api.PrivateSessionId
+	hello    atomic.Pointer[api.HelloServerMessage]
 
 	// +checklocks:helloMu
-	pendingMessages []*ClientMessage
+	pendingMessages []*api.ClientMessage
 
 	closeOnLeave atomic.Bool
 }
 
-func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, message *ClientMessage) (*FederationClient, error) {
+func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, message *api.ClientMessage) (*FederationClient, error) {
 	if message.Type != "room" || message.Room == nil || message.Room.Federation == nil {
 		return nil, fmt.Errorf("expected federation room message, got %+v", message)
 	}
@@ -130,7 +130,7 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 	}
 
 	room := message.Room
-	u := *room.Federation.parsedSignalingUrl
+	u := *room.Federation.ParsedSignalingUrl
 	switch u.Scheme {
 	case "http":
 		u.Scheme = "ws"
@@ -187,7 +187,7 @@ func (c *FederationClient) LocalAddr() net.Addr {
 }
 
 func (c *FederationClient) URL() string {
-	return c.federation.Load().parsedSignalingUrl.String()
+	return c.federation.Load().ParsedSignalingUrl.String()
 }
 
 func (c *FederationClient) RoomId() string {
@@ -198,7 +198,7 @@ func (c *FederationClient) RemoteRoomId() string {
 	return c.remoteRoomId.Load().(string)
 }
 
-func (c *FederationClient) CanReuse(federation *RoomFederationMessage) bool {
+func (c *FederationClient) CanReuse(federation *api.RoomFederationMessage) bool {
 	fed := c.federation.Load()
 	return fed.NextcloudUrl == federation.NextcloudUrl &&
 		fed.SignalingUrl == federation.SignalingUrl
@@ -215,7 +215,7 @@ func (c *FederationClient) connect(ctx context.Context) error {
 	supportsFederation := false
 	for _, f := range features {
 		f = strings.TrimSpace(f)
-		if f == ServerFeatureFederation {
+		if f == api.ServerFeatureFederation {
 			supportsFederation = true
 			break
 		}
@@ -250,7 +250,7 @@ func (c *FederationClient) connect(ctx context.Context) error {
 	return nil
 }
 
-func (c *FederationClient) ChangeRoom(message *ClientMessage) error {
+func (c *FederationClient) ChangeRoom(message *api.ClientMessage) error {
 	if message.Room == nil || message.Room.Federation == nil {
 		return fmt.Errorf("expected federation room message, got %+v", message)
 	} else if !c.CanReuse(message.Room.Federation) {
@@ -261,14 +261,14 @@ func (c *FederationClient) ChangeRoom(message *ClientMessage) error {
 	return c.joinRoom()
 }
 
-func (c *FederationClient) Leave(message *ClientMessage) error {
+func (c *FederationClient) Leave(message *api.ClientMessage) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if message == nil {
-		message = &ClientMessage{
+		message = &api.ClientMessage{
 			Type: "room",
-			Room: &RoomClientMessage{
+			Room: &api.RoomClientMessage{
 				RoomId: "",
 			},
 		}
@@ -302,7 +302,7 @@ func (c *FederationClient) closeConnection(withBye bool) {
 	}
 
 	if withBye {
-		if err := c.sendMessageLocked(&ClientMessage{
+		if err := c.sendMessageLocked(&api.ClientMessage{
 			Type: "bye",
 		}); err != nil && !isClosedError(err) {
 			c.logger.Printf("Error sending bye on federation connection to %s: %s", c.URL(), err)
@@ -339,9 +339,9 @@ func (c *FederationClient) scheduleReconnect() {
 func (c *FederationClient) scheduleReconnectLocked() {
 	c.reconnecting.Store(true)
 	if c.hello.Swap(nil) != nil {
-		c.session.SendMessage(&ServerMessage{
+		c.session.SendMessage(&api.ServerMessage{
 			Type: "event",
-			Event: &EventServerMessage{
+			Event: &api.EventServerMessage{
 				Target: "room",
 				Type:   "federation_interrupted",
 			},
@@ -404,7 +404,7 @@ func (c *FederationClient) readPump(conn *websocket.Conn) {
 			continue
 		}
 
-		var msg ServerMessage
+		var msg api.ServerMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			c.logger.Printf("Error unmarshalling %s from %s: %s", string(data), c.URL(), err)
 			continue
@@ -456,9 +456,9 @@ func (c *FederationClient) writePump() {
 
 func (c *FederationClient) closeWithError(err error) {
 	c.Close()
-	var e *Error
+	var e *api.Error
 	if !errors.As(err, &e) {
-		e = NewError("federation_error", err.Error())
+		e = api.NewError("federation_error", err.Error())
 	}
 
 	var id string
@@ -466,14 +466,14 @@ func (c *FederationClient) closeWithError(err error) {
 		id = message.Id
 	}
 
-	c.session.SendMessage(&ServerMessage{
+	c.session.SendMessage(&api.ServerMessage{
 		Id:    id,
 		Type:  "error",
 		Error: e,
 	})
 }
 
-func (c *FederationClient) sendHello(auth *FederationAuthParams) error {
+func (c *FederationClient) sendHello(auth *api.FederationAuthParams) error {
 	c.helloMu.Lock()
 	defer c.helloMu.Unlock()
 
@@ -481,7 +481,7 @@ func (c *FederationClient) sendHello(auth *FederationAuthParams) error {
 }
 
 // +checklocks:c.helloMu
-func (c *FederationClient) sendHelloLocked(auth *FederationAuthParams) error {
+func (c *FederationClient) sendHelloLocked(auth *api.FederationAuthParams) error {
 	c.helloMsgId = newRandomString(8)
 
 	authData, err := json.Marshal(auth)
@@ -490,19 +490,19 @@ func (c *FederationClient) sendHelloLocked(auth *FederationAuthParams) error {
 	}
 
 	c.helloAuth = auth
-	msg := &ClientMessage{
+	msg := &api.ClientMessage{
 		Id:   c.helloMsgId,
 		Type: "hello",
-		Hello: &HelloClientMessage{
-			Version:  HelloVersionV2,
+		Hello: &api.HelloClientMessage{
+			Version:  api.HelloVersionV2,
 			Features: c.session.GetFeatures(),
 		},
 	}
 	if resumeId := c.resumeId; resumeId != "" {
 		msg.Hello.ResumeId = resumeId
 	} else {
-		msg.Hello.Auth = &HelloClientMessageAuth{
-			Type:   HelloClientTypeFederation,
+		msg.Hello.Auth = &api.HelloClientMessageAuth{
+			Type:   api.HelloClientTypeFederation,
 			Url:    c.federation.Load().NextcloudUrl,
 			Params: authData,
 		}
@@ -510,13 +510,13 @@ func (c *FederationClient) sendHelloLocked(auth *FederationAuthParams) error {
 	return c.SendMessage(msg)
 }
 
-func (c *FederationClient) processWelcome(msg *ServerMessage) {
-	if !msg.Welcome.HasFeature(ServerFeatureFederation) {
+func (c *FederationClient) processWelcome(msg *api.ServerMessage) {
+	if !msg.Welcome.HasFeature(api.ServerFeatureFederation) {
 		c.closeWithError(ErrFederationNotSupported)
 		return
 	}
 
-	federationParams := &FederationAuthParams{
+	federationParams := &api.FederationAuthParams{
 		Token: c.federation.Load().Token,
 	}
 	if err := c.sendHello(federationParams); err != nil {
@@ -525,7 +525,7 @@ func (c *FederationClient) processWelcome(msg *ServerMessage) {
 	}
 }
 
-func (c *FederationClient) processHello(msg *ServerMessage) {
+func (c *FederationClient) processHello(msg *api.ServerMessage) {
 	c.resetReconnect()
 
 	c.helloMu.Lock()
@@ -567,9 +567,9 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 	if c.resumeId == "" {
 		c.resumeId = msg.Hello.ResumeId
 		if c.reconnecting.Load() {
-			c.session.SendMessage(&ServerMessage{
+			c.session.SendMessage(&api.ServerMessage{
 				Type: "event",
-				Event: &EventServerMessage{
+				Event: &api.EventServerMessage{
 					Target:  "room",
 					Type:    "federation_resumed",
 					Resumed: internal.MakePtr(false),
@@ -584,9 +584,9 @@ func (c *FederationClient) processHello(msg *ServerMessage) {
 			c.closeWithError(err)
 		}
 	} else {
-		c.session.SendMessage(&ServerMessage{
+		c.session.SendMessage(&api.ServerMessage{
 			Type: "event",
-			Event: &EventServerMessage{
+			Event: &api.EventServerMessage{
 				Target:  "room",
 				Type:    "federation_resumed",
 				Resumed: internal.MakePtr(true),
@@ -627,10 +627,10 @@ func (c *FederationClient) joinRoom() error {
 		remoteRoomId = room.RoomId
 	}
 
-	return c.SendMessage(&ClientMessage{
+	return c.SendMessage(&api.ClientMessage{
 		Id:   message.Id,
 		Type: "room",
-		Room: &RoomClientMessage{
+		Room: &api.RoomClientMessage{
 			RoomId:    remoteRoomId,
 			SessionId: room.SessionId,
 		},
@@ -641,15 +641,15 @@ func (c *FederationClient) updateActor(u api.StringMap, actorIdKey, actorTypeKey
 	if actorType, found := api.GetStringMapEntry[string](u, actorTypeKey); found {
 		if actorId, found := api.GetStringMapEntry[string](u, actorIdKey); found {
 			switch actorType {
-			case ActorTypeFederatedUsers:
+			case api.ActorTypeFederatedUsers:
 				if strings.HasSuffix(actorId, localCloudUrl) {
 					u[actorIdKey] = actorId[:len(actorId)-len(localCloudUrl)]
-					u[actorTypeKey] = ActorTypeUsers
+					u[actorTypeKey] = api.ActorTypeUsers
 					changed = true
 				}
-			case ActorTypeUsers:
+			case api.ActorTypeUsers:
 				u[actorIdKey] = actorId + remoteCloudUrl
-				u[actorTypeKey] = ActorTypeFederatedUsers
+				u[actorTypeKey] = api.ActorTypeFederatedUsers
 				changed = true
 			}
 		}
@@ -713,7 +713,7 @@ func (c *FederationClient) updateComment(comment api.StringMap, localCloudUrl st
 	return changed
 }
 
-func (c *FederationClient) updateEventUsers(users []api.StringMap, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
+func (c *FederationClient) updateEventUsers(users []api.StringMap, localSessionId api.PublicSessionId, remoteSessionId api.PublicSessionId) {
 	localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
 	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
 	checkSessionId := true
@@ -722,10 +722,10 @@ func (c *FederationClient) updateEventUsers(users []api.StringMap, localSessionI
 
 		if checkSessionId {
 			key := "sessionId"
-			sid, found := api.GetStringMapString[PublicSessionId](u, key)
+			sid, found := api.GetStringMapString[api.PublicSessionId](u, key)
 			if !found {
 				key := "sessionid"
-				sid, found = api.GetStringMapString[PublicSessionId](u, key)
+				sid, found = api.GetStringMapString[api.PublicSessionId](u, key)
 			}
 			if found && sid == remoteSessionId {
 				u[key] = localSessionId
@@ -735,21 +735,21 @@ func (c *FederationClient) updateEventUsers(users []api.StringMap, localSessionI
 	}
 }
 
-func (c *FederationClient) updateSessionRecipient(recipient *MessageClientMessageRecipient, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
-	if recipient != nil && recipient.Type == RecipientTypeSession && remoteSessionId != "" && recipient.SessionId == remoteSessionId {
+func (c *FederationClient) updateSessionRecipient(recipient *api.MessageClientMessageRecipient, localSessionId api.PublicSessionId, remoteSessionId api.PublicSessionId) {
+	if recipient != nil && recipient.Type == api.RecipientTypeSession && remoteSessionId != "" && recipient.SessionId == remoteSessionId {
 		recipient.SessionId = localSessionId
 	}
 }
 
-func (c *FederationClient) updateSessionSender(sender *MessageServerMessageSender, localSessionId PublicSessionId, remoteSessionId PublicSessionId) {
-	if sender != nil && sender.Type == RecipientTypeSession && remoteSessionId != "" && sender.SessionId == remoteSessionId {
+func (c *FederationClient) updateSessionSender(sender *api.MessageServerMessageSender, localSessionId api.PublicSessionId, remoteSessionId api.PublicSessionId) {
+	if sender != nil && sender.Type == api.RecipientTypeSession && remoteSessionId != "" && sender.SessionId == remoteSessionId {
 		sender.SessionId = localSessionId
 	}
 }
 
-func (c *FederationClient) processMessage(msg *ServerMessage) {
+func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 	localSessionId := c.session.PublicId()
-	var remoteSessionId PublicSessionId
+	var remoteSessionId api.PublicSessionId
 	if hello := c.hello.Load(); hello != nil {
 		remoteSessionId = hello.SessionId
 	}
@@ -767,7 +767,7 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 			var data api.StringMap
 			if err := json.Unmarshal(msg.Control.Data, &data); err == nil {
 				if action, found := data["action"]; found && action == "forceMute" {
-					if peerId, found := api.GetStringMapString[PublicSessionId](data, "peerId"); found && peerId == remoteSessionId {
+					if peerId, found := api.GetStringMapString[api.PublicSessionId](data, "peerId"); found && peerId == remoteSessionId {
 						data["peerId"] = localSessionId
 						if d, err := json.Marshal(data); err == nil {
 							msg.Control.Data = d
@@ -874,7 +874,7 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 	case "error":
 		if c.changeRoomId.Load() && msg.Error.Code == "already_joined" {
 			if len(msg.Error.Details) > 0 {
-				var details RoomErrorDetails
+				var details api.RoomErrorDetails
 				if err := json.Unmarshal(msg.Error.Details, &details); err == nil && details.Room != nil {
 					if details.Room.RoomId == remoteRoomId {
 						details.Room.RoomId = roomId
@@ -916,7 +916,7 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 		c.updateSessionRecipient(msg.Message.Recipient, localSessionId, remoteSessionId)
 		c.updateSessionSender(msg.Message.Sender, localSessionId, remoteSessionId)
 		if remoteSessionId != "" && len(msg.Message.Data) > 0 {
-			var ao AnswerOfferMessage
+			var ao api.AnswerOfferMessage
 			if json.Unmarshal(msg.Message.Data, &ao) == nil && (ao.Type == "offer" || ao.Type == "answer") {
 				changed := false
 				if ao.From == remoteSessionId {
@@ -947,7 +947,7 @@ func (c *FederationClient) processMessage(msg *ServerMessage) {
 	}
 }
 
-func (c *FederationClient) ProxyMessage(message *ClientMessage) error {
+func (c *FederationClient) ProxyMessage(message *api.ClientMessage) error {
 	switch message.Type {
 	case "message":
 		if hello := c.hello.Load(); hello != nil {
@@ -964,14 +964,14 @@ func (c *FederationClient) ProxyMessage(message *ClientMessage) error {
 	return c.SendMessage(message)
 }
 
-func (c *FederationClient) SendMessage(message *ClientMessage) error {
+func (c *FederationClient) SendMessage(message *api.ClientMessage) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	return c.sendMessageLocked(message)
 }
 
-func (c *FederationClient) deferMessage(message *ClientMessage) {
+func (c *FederationClient) deferMessage(message *api.ClientMessage) {
 	c.helloMu.Lock()
 	defer c.helloMu.Unlock()
 	if c.resumeId == "" {
@@ -985,7 +985,7 @@ func (c *FederationClient) deferMessage(message *ClientMessage) {
 }
 
 // +checklocks:c.mu
-func (c *FederationClient) sendMessageLocked(message *ClientMessage) error {
+func (c *FederationClient) sendMessageLocked(message *api.ClientMessage) error {
 	if c.conn == nil {
 		if message.Type != "room" {
 			// Join requests will be automatically sent after the hello response has

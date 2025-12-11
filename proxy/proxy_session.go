@@ -39,7 +39,7 @@ const (
 )
 
 type remotePublisherData struct {
-	id       signaling.PublicSessionId
+	id       api.PublicSessionId
 	hostname string
 	port     int
 	rtcpPort int
@@ -48,7 +48,7 @@ type remotePublisherData struct {
 type ProxySession struct {
 	logger    log.Logger
 	proxy     *ProxyServer
-	id        signaling.PublicSessionId
+	id        api.PublicSessionId
 	sid       uint64
 	lastUsed  atomic.Int64
 	ctx       context.Context
@@ -77,7 +77,7 @@ type ProxySession struct {
 	remotePublishers map[signaling.McuRemoteAwarePublisher]map[string]*remotePublisherData
 }
 
-func NewProxySession(proxy *ProxyServer, sid uint64, id signaling.PublicSessionId) *ProxySession {
+func NewProxySession(proxy *ProxyServer, sid uint64, id api.PublicSessionId) *ProxySession {
 	ctx, closeFunc := context.WithCancel(context.Background())
 	result := &ProxySession{
 		logger:    proxy.logger,
@@ -101,7 +101,7 @@ func (s *ProxySession) Context() context.Context {
 	return s.ctx
 }
 
-func (s *ProxySession) PublicId() signaling.PublicSessionId {
+func (s *ProxySession) PublicId() api.PublicSessionId {
 	return s.id
 }
 
@@ -469,7 +469,7 @@ func (s *ProxySession) OnRemoteAwarePublisherDeleted(publisher signaling.McuRemo
 	}
 }
 
-func (s *ProxySession) OnRemotePublisherDeleted(publisherId signaling.PublicSessionId) {
+func (s *ProxySession) OnRemotePublisherDeleted(publisherId api.PublicSessionId) {
 	s.subscribersLock.Lock()
 	defer s.subscribersLock.Unlock()
 

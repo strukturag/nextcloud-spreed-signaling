@@ -46,6 +46,10 @@ component_management:
       name: metrics
       paths:
         - metrics/**
+    - component_id: module_mock
+      name: mock
+      paths:
+        - mock/**
     - component_id: module_nats
       name: nats
       paths:

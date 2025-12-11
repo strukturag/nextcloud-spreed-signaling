@@ -33,10 +33,10 @@ func TestCommonMcuStats(t *testing.T) {
 }
 
 type MockMcuListener struct {
-	publicId PublicSessionId
+	publicId api.PublicSessionId
 }
 
-func (m *MockMcuListener) PublicId() PublicSessionId {
+func (m *MockMcuListener) PublicId() api.PublicSessionId {
 	return m.publicId
 }
 

@@ -61,30 +61,28 @@ import (
 
 var (
 	// HelloExpected is returned if a client sends a message before the "hello" request.
-	HelloExpected = NewError("hello_expected", "Expected Hello request.")
-	// InvalidHelloVersion is returned if the version in the "hello" message is not supported.
-	InvalidHelloVersion = NewError("invalid_hello_version", "The hello version is not supported.")
+	HelloExpected = api.NewError("hello_expected", "Expected Hello request.")
 	// UserAuthFailed is returned if the Talk response to a v1 hello is not an error but also not a valid auth response.
-	UserAuthFailed = NewError("auth_failed", "The user could not be authenticated.")
+	UserAuthFailed = api.NewError("auth_failed", "The user could not be authenticated.")
 	// RoomJoinFailed is returned if the Talk response to a room join request is not an error and not a valid join response.
-	RoomJoinFailed = NewError("room_join_failed", "Could not join the room.")
+	RoomJoinFailed = api.NewError("room_join_failed", "Could not join the room.")
 	// InvalidClientType is returned if the client type in the "hello" request is not supported.
-	InvalidClientType = NewError("invalid_client_type", "The client type is not supported.")
+	InvalidClientType = api.NewError("invalid_client_type", "The client type is not supported.")
 	// InvalidBackendUrl is returned if no backend is configured for URL in the "hello" request.
-	InvalidBackendUrl = NewError("invalid_backend", "The backend URL is not supported.")
+	InvalidBackendUrl = api.NewError("invalid_backend", "The backend URL is not supported.")
 	// InvalidToken is returned if the token in a "hello" request could not be validated.
-	InvalidToken = NewError("invalid_token", "The passed token is invalid.")
+	InvalidToken = api.NewError("invalid_token", "The passed token is invalid.")
 	// NoSuchSession is returned if the session to be resumed is unknown or expired.
-	NoSuchSession = NewError("no_such_session", "The session to resume does not exist.")
+	NoSuchSession = api.NewError("no_such_session", "The session to resume does not exist.")
 	// TokenNotValidYet is returned if the token in a "hello" request could be authenticated but is not valid yet.
 	// This hints to a mismatch in the time between the server running Talk and the server running the signaling server.
-	TokenNotValidYet = NewError("token_not_valid_yet", "The token is not valid yet.")
+	TokenNotValidYet = api.NewError("token_not_valid_yet", "The token is not valid yet.")
 	// TokenExpired is returned if the token in a "hello" request could be authenticated but is expired.
 	// This hints to a mismatch in the time between the server running Talk and the server running the signaling server,
 	// but could also be a client trying to connect with an old token.
-	TokenExpired = NewError("token_expired", "The token is expired.")
+	TokenExpired = api.NewError("token_expired", "The token is expired.")
 	// TooManyRequests is returned if brute force detection reports too many failed "hello" requests.
-	TooManyRequests = NewError("too_many_requests", "Too many requests.")
+	TooManyRequests = api.NewError("too_many_requests", "Too many requests.")
 
 	// Maximum number of concurrent requests to a backend.
 	defaultMaxConcurrentRequestsPerHost = 8
@@ -148,9 +146,9 @@ type Hub struct {
 	events       AsyncEvents
 	upgrader     websocket.Upgrader
 	sessionIds   *SessionIdCodec
-	info         *WelcomeServerMessage
-	infoInternal *WelcomeServerMessage
-	welcome      atomic.Value // *ServerMessage
+	info         *api.WelcomeServerMessage
+	infoInternal *api.WelcomeServerMessage
+	welcome      atomic.Value // *api.ServerMessage
 
 	closer          *internal.Closer
 	readPumpActive  atomic.Int32
@@ -178,7 +176,7 @@ type Hub struct {
 	roomSessions RoomSessions
 	roomPing     *RoomPing
 	// +checklocks:mu
-	virtualSessions map[PublicSessionId]uint64
+	virtualSessions map[api.PublicSessionId]uint64
 
 	decodeCaches []*container.LruCache[*SessionIdData]
 
@@ -372,8 +370,8 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 			},
 		},
 		sessionIds:   sessionIds,
-		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
-		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
+		info:         api.NewWelcomeServerMessage(version, api.DefaultFeatures...),
+		infoInternal: api.NewWelcomeServerMessage(version, api.DefaultFeaturesInternal...),
 
 		closer:   internal.NewCloser(),
 		shutdown: internal.NewCloser(),
@@ -389,7 +387,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 
 		roomSessions:    roomSessions,
 		roomPing:        roomPing,
-		virtualSessions: make(map[PublicSessionId]uint64),
+		virtualSessions: make(map[api.PublicSessionId]uint64),
 
 		decodeCaches: decodeCaches,
 
@@ -447,9 +445,9 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 	if len(geoipOverrides) > 0 {
 		hub.geoipOverrides.Store(&geoipOverrides)
 	}
-	hub.setWelcomeMessage(&ServerMessage{
+	hub.setWelcomeMessage(&api.ServerMessage{
 		Type:    "welcome",
-		Welcome: NewWelcomeServerMessage(version, DefaultWelcomeFeatures...),
+		Welcome: api.NewWelcomeServerMessage(version, api.DefaultWelcomeFeatures...),
 	})
 	backend.hub = hub
 	if rpcServer != nil {
@@ -463,12 +461,12 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 	return hub, nil
 }
 
-func (h *Hub) setWelcomeMessage(msg *ServerMessage) {
+func (h *Hub) setWelcomeMessage(msg *api.ServerMessage) {
 	h.welcome.Store(msg)
 }
 
-func (h *Hub) getWelcomeMessage() *ServerMessage {
-	return h.welcome.Load().(*ServerMessage)
+func (h *Hub) getWelcomeMessage() *api.ServerMessage {
+	return h.welcome.Load().(*api.ServerMessage)
 }
 
 func (h *Hub) SetMcu(mcu Mcu) {
@@ -476,16 +474,16 @@ func (h *Hub) SetMcu(mcu Mcu) {
 	// Create copy of message so it can be updated concurrently.
 	welcome := *h.getWelcomeMessage()
 	if mcu == nil {
-		h.info.RemoveFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
-		h.infoInternal.RemoveFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		h.info.RemoveFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
+		h.infoInternal.RemoveFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 
-		welcome.Welcome.RemoveFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		welcome.Welcome.RemoveFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 	} else {
 		h.logger.Printf("Using a timeout of %s for MCU requests", h.mcuTimeout)
-		h.info.AddFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
-		h.infoInternal.AddFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		h.info.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
+		h.infoInternal.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 
-		welcome.Welcome.AddFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		welcome.Welcome.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 	}
 	h.setWelcomeMessage(&welcome)
 }
@@ -495,8 +493,8 @@ func (h *Hub) checkOrigin(r *http.Request) bool {
 	return true
 }
 
-func (h *Hub) GetServerInfo(session Session) *WelcomeServerMessage {
-	if session.ClientType() == HelloClientTypeInternal {
+func (h *Hub) GetServerInfo(session Session) *api.WelcomeServerMessage {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		return h.infoInternal
 	}
 
@@ -633,11 +631,11 @@ func (h *Hub) getDecodeCache(cache_key string) *container.LruCache[*SessionIdDat
 	return h.decodeCaches[idx]
 }
 
-func (h *Hub) invalidatePublicSessionId(id PublicSessionId) {
+func (h *Hub) invalidatePublicSessionId(id api.PublicSessionId) {
 	h.invalidateSessionId(string(id))
 }
 
-func (h *Hub) invalidatePrivateSessionId(id PrivateSessionId) {
+func (h *Hub) invalidatePrivateSessionId(id api.PrivateSessionId) {
 	h.invalidateSessionId(string(id))
 }
 
@@ -650,11 +648,11 @@ func (h *Hub) invalidateSessionId(id string) {
 	cache.Remove(id)
 }
 
-func (h *Hub) setDecodedPublicSessionId(id PublicSessionId, data *SessionIdData) {
+func (h *Hub) setDecodedPublicSessionId(id api.PublicSessionId, data *SessionIdData) {
 	h.setDecodedSessionId(string(id), data)
 }
 
-func (h *Hub) setDecodedPrivateSessionId(id PrivateSessionId, data *SessionIdData) {
+func (h *Hub) setDecodedPrivateSessionId(id api.PrivateSessionId, data *SessionIdData) {
 	h.setDecodedSessionId(string(id), data)
 }
 
@@ -667,7 +665,7 @@ func (h *Hub) setDecodedSessionId(id string, data *SessionIdData) {
 	cache.Set(id, data)
 }
 
-func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
+func (h *Hub) decodePrivateSessionId(id api.PrivateSessionId) *SessionIdData {
 	if len(id) == 0 {
 		return nil
 	}
@@ -687,7 +685,7 @@ func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
 	return data
 }
 
-func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
+func (h *Hub) decodePublicSessionId(id api.PublicSessionId) *SessionIdData {
 	if len(id) == 0 {
 		return nil
 	}
@@ -707,7 +705,7 @@ func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
 	return data
 }
 
-func (h *Hub) GetSessionByPublicId(sessionId PublicSessionId) Session {
+func (h *Hub) GetSessionByPublicId(sessionId api.PublicSessionId) Session {
 	data := h.decodePublicSessionId(sessionId)
 	if data == nil {
 		return nil
@@ -723,7 +721,7 @@ func (h *Hub) GetSessionByPublicId(sessionId PublicSessionId) Session {
 	return session
 }
 
-func (h *Hub) GetSessionByResumeId(resumeId PrivateSessionId) Session {
+func (h *Hub) GetSessionByResumeId(resumeId api.PrivateSessionId) Session {
 	data := h.decodePrivateSessionId(resumeId)
 	if data == nil {
 		return nil
@@ -739,7 +737,7 @@ func (h *Hub) GetSessionByResumeId(resumeId PrivateSessionId) Session {
 	return session
 }
 
-func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId RoomSessionId) (PublicSessionId, error) {
+func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
 	return h.roomSessions.GetSessionId(roomSessionId)
 }
 
@@ -866,7 +864,7 @@ func (h *Hub) hasSessionsLocked(withInternal bool) bool {
 	}
 
 	for _, s := range h.sessions {
-		if s.ClientType() != HelloClientTypeInternal {
+		if s.ClientType() != api.HelloClientTypeInternal {
 			return true
 		}
 	}
@@ -883,7 +881,7 @@ func (h *Hub) startWaitAnonymousSessionRoom(session *ClientSession) {
 
 // +checklocks:h.mu
 func (h *Hub) startWaitAnonymousSessionRoomLocked(session *ClientSession) {
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients don't need to join a room.
 		return
 	}
@@ -956,7 +954,7 @@ func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
 	return sessionIdData
 }
 
-func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *Backend, auth *BackendClientResponse) {
+func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backend *Backend, auth *BackendClientResponse) {
 	if !c.IsConnected() {
 		// Client disconnected while waiting for "hello" response.
 		return
@@ -992,7 +990,7 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 	userId := auth.Auth.UserId
 	if userId != "" {
 		h.logger.Printf("Register user %s@%s from %s in %s (%s) %s (private=%s)", userId, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
-	} else if message.Hello.Auth.Type != HelloClientTypeClient {
+	} else if message.Hello.Auth.Type != api.HelloClientTypeClient {
 		h.logger.Printf("Register %s@%s from %s in %s (%s) %s (private=%s)", message.Hello.Auth.Type, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
 	} else {
 		h.logger.Printf("Register anonymous@%s from %s in %s (%s) %s (private=%s)", backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
@@ -1057,9 +1055,9 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 	h.sessions[sessionIdData.Sid] = session
 	h.clients[sessionIdData.Sid] = client
 	delete(h.expectHelloClients, client)
-	if userId == "" && session.ClientType() != HelloClientTypeInternal {
+	if userId == "" && session.ClientType() != api.HelloClientTypeInternal {
 		h.startWaitAnonymousSessionRoomLocked(session)
-	} else if session.ClientType() == HelloClientTypeInternal && session.HasFeature(ClientFeatureStartDialout) {
+	} else if session.ClientType() == api.HelloClientTypeInternal && session.HasFeature(api.ClientFeatureStartDialout) {
 		// TODO: There is a small race condition for sessions that take some time
 		// between connecting and joining a room.
 		h.dialoutSessions[session] = true
@@ -1102,7 +1100,7 @@ func (h *Hub) processUnregister(client HandlerClient) Session {
 }
 
 func (h *Hub) processMessage(client HandlerClient, data []byte) {
-	var message ClientMessage
+	var message api.ClientMessage
 	if err := message.UnmarshalJSON(data); err != nil {
 		if session := client.GetSession(); session != nil {
 			h.logger.Printf("Error decoding message from client %s: %v", session.PublicId(), err)
@@ -1117,14 +1115,14 @@ func (h *Hub) processMessage(client HandlerClient, data []byte) {
 	if err := message.CheckValid(); err != nil {
 		if session := client.GetSession(); session != nil {
 			h.logger.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
-			if err, ok := err.(*Error); ok {
+			if err, ok := err.(*api.Error); ok {
 				session.SendMessage(message.NewErrorServerMessage(err))
 			} else {
 				session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
 			}
 		} else {
 			h.logger.Printf("Invalid message %+v from %s: %v", message, client.RemoteAddr(), err)
-			if err, ok := err.(*Error); ok {
+			if err, ok := err.(*api.Error); ok {
 				client.SendMessage(message.NewErrorServerMessage(err))
 			} else {
 				client.SendMessage(message.NewErrorServerMessage(InvalidFormat))
@@ -1178,11 +1176,11 @@ func (h *Hub) processMessage(client HandlerClient, data []byte) {
 	}
 }
 
-func (h *Hub) sendHelloResponse(session *ClientSession, message *ClientMessage) bool {
-	response := &ServerMessage{
+func (h *Hub) sendHelloResponse(session *ClientSession, message *api.ClientMessage) bool {
+	response := &api.ServerMessage{
 		Id:   message.Id,
 		Type: "hello",
-		Hello: &HelloServerMessage{
+		Hello: &api.HelloServerMessage{
 			Version:   message.Hello.Version,
 			SessionId: session.PublicId(),
 			ResumeId:  session.PrivateId(),
@@ -1198,7 +1196,7 @@ type remoteClientInfo struct {
 	response *LookupResumeIdReply
 }
 
-func (h *Hub) tryProxyResume(c HandlerClient, resumeId PrivateSessionId, message *ClientMessage) bool {
+func (h *Hub) tryProxyResume(c HandlerClient, resumeId api.PrivateSessionId, message *api.ClientMessage) bool {
 	client, ok := c.(*Client)
 	if !ok {
 		return false
@@ -1254,7 +1252,7 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId PrivateSessionId, message
 		return false
 	}
 
-	rs, err := NewRemoteSession(h, client, info.client, PublicSessionId(info.response.SessionId))
+	rs, err := NewRemoteSession(h, client, info.client, api.PublicSessionId(info.response.SessionId))
 	if err != nil {
 		h.logger.Printf("Could not create remote session %s on %s: %s", info.response.SessionId, info.client.Target(), err)
 		return false
@@ -1274,7 +1272,7 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId PrivateSessionId, message
 	return true
 }
 
-func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
+func (h *Hub) processHello(client HandlerClient, message *api.ClientMessage) {
 	ctx := log.NewLoggerContext(client.Context(), h.logger)
 	resumeId := message.Hello.ResumeId
 	if resumeId != "" {
@@ -1354,11 +1352,11 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 	h.mu.Unlock()
 
 	switch message.Hello.Auth.Type {
-	case HelloClientTypeClient:
+	case api.HelloClientTypeClient:
 		fallthrough
-	case HelloClientTypeFederation:
+	case api.HelloClientTypeFederation:
 		h.processHelloClient(client, message)
-	case HelloClientTypeInternal:
+	case api.HelloClientTypeInternal:
 		h.processHelloInternal(client, message)
 	default:
 		h.startExpectHello(client)
@@ -1366,8 +1364,8 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 	}
 }
 
-func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
-	url := message.Hello.Auth.parsedUrl
+func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*Backend, *BackendClientResponse, error) {
+	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
 		return nil, nil, InvalidBackendUrl
@@ -1390,8 +1388,8 @@ func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message 
 	return backend, &auth, nil
 }
 
-func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
-	url := message.Hello.Auth.parsedUrl
+func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*Backend, *BackendClientResponse, error) {
+	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
 		return nil, nil, InvalidBackendUrl
@@ -1400,16 +1398,16 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 	var tokenString string
 	var tokenClaims jwt.Claims
 	switch message.Hello.Auth.Type {
-	case HelloClientTypeClient:
-		tokenString = message.Hello.Auth.helloV2Params.Token
-		tokenClaims = &HelloV2TokenClaims{}
-	case HelloClientTypeFederation:
+	case api.HelloClientTypeClient:
+		tokenString = message.Hello.Auth.HelloV2Params.Token
+		tokenClaims = &api.HelloV2TokenClaims{}
+	case api.HelloClientTypeFederation:
 		if !h.backend.capabilities.HasCapabilityFeature(ctx, url, talk.FeatureFederationV2) {
 			return nil, nil, ErrFederationNotSupported
 		}
 
-		tokenString = message.Hello.Auth.federationParams.Token
-		tokenClaims = &FederationTokenClaims{}
+		tokenString = message.Hello.Auth.FederationParams.Token
+		tokenClaims = &api.FederationTokenClaims{}
 	default:
 		return nil, nil, InvalidClientType
 	}
@@ -1494,16 +1492,16 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		return nil, nil, InvalidToken
 	}
 
-	var authTokenClaims AuthTokenClaims
+	var authTokenClaims api.AuthTokenClaims
 	switch message.Hello.Auth.Type {
-	case HelloClientTypeClient:
-		claims, ok := token.Claims.(*HelloV2TokenClaims)
+	case api.HelloClientTypeClient:
+		claims, ok := token.Claims.(*api.HelloV2TokenClaims)
 		if !ok || !token.Valid {
 			return nil, nil, InvalidToken
 		}
 		authTokenClaims = claims
-	case HelloClientTypeFederation:
-		claims, ok := token.Claims.(*FederationTokenClaims)
+	case api.HelloClientTypeFederation:
+		claims, ok := token.Claims.(*api.FederationTokenClaims)
 		if !ok || !token.Valid {
 			return nil, nil, InvalidToken
 		}
@@ -1543,27 +1541,27 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 	return backend, auth, nil
 }
 
-func (h *Hub) processHelloClient(client HandlerClient, message *ClientMessage) {
+func (h *Hub) processHelloClient(client HandlerClient, message *api.ClientMessage) {
 	// Make sure the client must send another "hello" in case of errors.
 	defer h.startExpectHello(client)
 
-	var authFunc func(context.Context, HandlerClient, *ClientMessage) (*Backend, *BackendClientResponse, error)
+	var authFunc func(context.Context, HandlerClient, *api.ClientMessage) (*Backend, *BackendClientResponse, error)
 	switch message.Hello.Version {
-	case HelloVersionV1:
+	case api.HelloVersionV1:
 		// Auth information contains a ticket that must be validated against the
 		// Nextcloud instance.
 		authFunc = h.processHelloV1
-	case HelloVersionV2:
+	case api.HelloVersionV2:
 		// Auth information contains a JWT that contains all information of the user.
 		authFunc = h.processHelloV2
 	default:
-		client.SendMessage(message.NewErrorServerMessage(InvalidHelloVersion))
+		client.SendMessage(message.NewErrorServerMessage(api.InvalidHelloVersion))
 		return
 	}
 
 	backend, auth, err := authFunc(client.Context(), client, message)
 	if err != nil {
-		if e, ok := err.(*Error); ok {
+		if e, ok := err.(*api.Error); ok {
 			client.SendMessage(message.NewErrorServerMessage(e))
 		} else {
 			client.SendMessage(message.NewWrappedErrorServerMessage(err))
@@ -1574,7 +1572,7 @@ func (h *Hub) processHelloClient(client HandlerClient, message *ClientMessage) {
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage) {
+func (h *Hub) processHelloInternal(client HandlerClient, message *api.ClientMessage) {
 	defer h.startExpectHello(client)
 	if len(h.internalClientsSecret) == 0 {
 		client.SendMessage(message.NewErrorServerMessage(InvalidClientType))
@@ -1593,17 +1591,17 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage)
 	}
 
 	// Validate internal connection.
-	rnd := message.Hello.Auth.internalParams.Random
+	rnd := message.Hello.Auth.InternalParams.Random
 	mac := hmac.New(sha256.New, h.internalClientsSecret)
 	mac.Write([]byte(rnd)) // nolint
 	check := hex.EncodeToString(mac.Sum(nil))
-	if len(rnd) < minTokenRandomLength || check != message.Hello.Auth.internalParams.Token {
+	if len(rnd) < minTokenRandomLength || check != message.Hello.Auth.InternalParams.Token {
 		throttle(ctx)
 		client.SendMessage(message.NewErrorServerMessage(InvalidToken))
 		return
 	}
 
-	backend := h.backend.GetBackend(message.Hello.Auth.internalParams.parsedBackend)
+	backend := h.backend.GetBackend(message.Hello.Auth.InternalParams.ParsedBackend)
 	if backend == nil {
 		throttle(ctx)
 		client.SendMessage(message.NewErrorServerMessage(InvalidBackendUrl))
@@ -1617,7 +1615,7 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage)
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId RoomSessionId, backend *Backend) {
+func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, backend *Backend) {
 	sessionId, err := h.roomSessions.LookupSessionId(ctx, roomSessionId, "room_session_reconnected")
 	if err == ErrNoSuchRoomSession {
 		return
@@ -1632,9 +1630,9 @@ func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId RoomS
 		// but send "bye" again as additional safeguard.
 		msg := &AsyncMessage{
 			Type: "message",
-			Message: &ServerMessage{
+			Message: &api.ServerMessage{
 				Type: "bye",
-				Bye: &ByeServerMessage{
+				Bye: &api.ByeServerMessage{
 					Reason: "room_session_reconnected",
 				},
 			},
@@ -1656,19 +1654,19 @@ func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId RoomS
 	session.Close()
 }
 
-func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Room) bool {
-	response := &ServerMessage{
+func (h *Hub) sendRoom(session *ClientSession, message *api.ClientMessage, room *Room) bool {
+	response := &api.ServerMessage{
 		Type: "room",
 	}
 	if message != nil {
 		response.Id = message.Id
 	}
 	if room == nil {
-		response.Room = &RoomServerMessage{
+		response.Room = &api.RoomServerMessage{
 			RoomId: "",
 		}
 	} else {
-		response.Room = &RoomServerMessage{
+		response.Room = &api.RoomServerMessage{
 			RoomId:     room.id,
 			Properties: room.Properties(),
 		}
@@ -1704,7 +1702,7 @@ func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Roo
 		}
 
 		if maxStreamBitrate != 0 || maxScreenBitrate != 0 {
-			response.Room.Bandwidth = &RoomBandwidth{
+			response.Room.Bandwidth = &api.RoomBandwidth{
 				MaxStreamBitrate: maxStreamBitrate,
 				MaxScreenBitrate: maxScreenBitrate,
 			}
@@ -1713,7 +1711,7 @@ func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Roo
 	return session.SendMessage(response)
 }
 
-func (h *Hub) processRoom(sess Session, message *ClientMessage) {
+func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 	session, ok := sess.(*ClientSession)
 	if !ok {
 		return
@@ -1723,7 +1721,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 	if roomId == "" {
 		// We can handle leaving a room directly.
 		if session.LeaveRoomWithMessage(true, message) != nil {
-			if session.UserId() == "" && session.ClientType() != HelloClientTypeInternal {
+			if session.UserId() == "" && session.ClientType() != api.HelloClientTypeInternal {
 				h.startWaitAnonymousSessionRoom(session)
 			}
 			// User was in a room before, so need to notify about leaving it.
@@ -1762,7 +1760,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 			if session.UserId() == "" && client == nil {
 				h.startWaitAnonymousSessionRoom(session)
 			}
-			var ae *Error
+			var ae *api.Error
 			if errors.As(err, &ae) {
 				session.SendMessage(message.NewErrorServerMessage(ae))
 				return
@@ -1800,7 +1798,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 
 			h.logger.Printf("Error creating federation client to %s for %s to join room %s: %s", federation.SignalingUrl, session.PublicId(), roomId, err)
 			session.SendMessage(message.NewErrorServerMessage(
-				NewErrorDetail("federation_error", "Failed to create federation client.", details),
+				api.NewErrorDetail("federation_error", "Failed to create federation client.", details),
 			))
 			return
 		}
@@ -1811,12 +1809,12 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		if roomSessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
 			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			roomSessionId = RoomSessionId(session.PublicId())
+			roomSessionId = api.RoomSessionId(session.PublicId())
 		}
 
 		// Prefix room session id to allow using the same signaling server for two Nextcloud instances during development.
 		// Otherwise the same room session id will be detected and the other session will be kicked.
-		if err := session.UpdateRoomSessionId(FederatedRoomSessionIdPrefix + roomSessionId); err != nil {
+		if err := session.UpdateRoomSessionId(api.FederatedRoomSessionIdPrefix + roomSessionId); err != nil {
 			h.logger.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
 		}
 
@@ -1833,15 +1831,15 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		if roomSessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
 			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			roomSessionId = RoomSessionId(session.PublicId())
+			roomSessionId = api.RoomSessionId(session.PublicId())
 		}
 
 		if err := session.UpdateRoomSessionId(roomSessionId); err != nil {
 			h.logger.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
 		}
 		session.SendMessage(message.NewErrorServerMessage(
-			NewErrorDetail("already_joined", "Already joined this room.", &RoomErrorDetails{
-				Room: &RoomServerMessage{
+			api.NewErrorDetail("already_joined", "Already joined this room.", &api.RoomErrorDetails{
+				Room: &api.RoomServerMessage{
 					RoomId:     room.id,
 					Properties: room.Properties(),
 				},
@@ -1851,7 +1849,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 	}
 
 	var room BackendClientResponse
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients can join any room.
 		room = BackendClientResponse{
 			Type: "room",
@@ -1868,7 +1866,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		if sessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
 			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			sessionId = RoomSessionId(session.PublicId())
+			sessionId = api.RoomSessionId(session.PublicId())
 		}
 		request := NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
 		request.Room.UpdateFromSession(session)
@@ -1914,7 +1912,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 			continue
 		}
 
-		var sid RoomSessionId
+		var sid api.RoomSessionId
 		var uid string
 		// Use Nextcloud session id and user id
 		if sid = session.RoomSessionId().WithoutFederation(); sid == "" {
@@ -2008,7 +2006,7 @@ func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *B
 	return room, nil
 }
 
-func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, room *BackendClientResponse) {
+func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage, room *BackendClientResponse) {
 	if room.Type == "error" {
 		session.SendMessage(message.NewErrorServerMessage(room.Error))
 		return
@@ -2049,7 +2047,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	h.mu.Lock()
 	// The session now joined a room, don't expire if it is anonymous.
 	delete(h.anonymousSessions, session)
-	if session.ClientType() == HelloClientTypeInternal && session.HasFeature(ClientFeatureStartDialout) {
+	if session.ClientType() == api.HelloClientTypeInternal && session.HasFeature(api.ClientFeatureStartDialout) {
 		// An internal session in a room can not be used for dialout.
 		delete(h.dialoutSessions, session)
 	}
@@ -2062,7 +2060,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	r.AddSession(session, room.Room.Session)
 }
 
-func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
+func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 	session, ok := sess.(*ClientSession)
 	if !ok {
 		// Client is not connected yet.
@@ -2072,19 +2070,19 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 	msg := message.Message
 	var recipient *ClientSession
 	var subject string
-	var clientData *MessageClientMessageData
-	var serverRecipient *MessageClientMessageRecipient
-	var recipientSessionId PublicSessionId
+	var clientData *api.MessageClientMessageData
+	var serverRecipient *api.MessageClientMessageRecipient
+	var recipientSessionId api.PublicSessionId
 	var room *Room
 	switch msg.Recipient.Type {
-	case RecipientTypeSession:
+	case api.RecipientTypeSession:
 		if h.mcu != nil {
 			// Maybe this is a message to be processed by the MCU.
-			var data MessageClientMessageData
+			var data api.MessageClientMessageData
 			if err := data.UnmarshalJSON(msg.Data); err == nil {
 				if err := data.CheckValid(); err != nil {
 					h.logger.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
-					if err, ok := err.(*Error); ok {
+					if err, ok := err.(*api.Error); ok {
 						session.SendMessage(message.NewErrorServerMessage(err))
 					} else {
 						session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
@@ -2161,14 +2159,14 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 			}
 
 			// Send to client connection for virtual sessions.
-			if sess.ClientType() == HelloClientTypeVirtual {
+			if sess.ClientType() == api.HelloClientTypeVirtual {
 				virtualSession := sess.(*VirtualSession)
 				clientSession := virtualSession.Session()
 				subject = GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
 				recipientSessionId = clientSession.PublicId()
 				recipient = clientSession
 				// The client should see his session id as recipient.
-				serverRecipient = &MessageClientMessageRecipient{
+				serverRecipient = &api.MessageClientMessageRecipient{
 					Type:      "session",
 					SessionId: virtualSession.SessionId(),
 				}
@@ -2178,7 +2176,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 			recipientSessionId = msg.Recipient.SessionId
 			serverRecipient = &msg.Recipient
 		}
-	case RecipientTypeUser:
+	case api.RecipientTypeUser:
 		if msg.Recipient.UserId != "" {
 			if msg.Recipient.UserId == session.UserId() {
 				// Don't loop messages to the sender.
@@ -2189,19 +2187,19 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 
 			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
-	case RecipientTypeRoom:
+	case api.RecipientTypeRoom:
 		fallthrough
-	case RecipientTypeCall:
+	case api.RecipientTypeCall:
 		if session != nil {
 			if room = session.GetRoom(); room != nil {
 				subject = GetSubjectForRoomId(room.Id(), room.Backend())
 
 				if h.mcu != nil {
-					var data MessageClientMessageData
+					var data api.MessageClientMessageData
 					if err := data.UnmarshalJSON(msg.Data); err == nil {
 						if err := data.CheckValid(); err != nil {
 							h.logger.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
-							if err, ok := err.(*Error); ok {
+							if err, ok := err.(*api.Error); ok {
 								session.SendMessage(message.NewErrorServerMessage(err))
 							} else {
 								session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
@@ -2220,10 +2218,10 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 		return
 	}
 
-	response := &ServerMessage{
+	response := &api.ServerMessage{
 		Type: "message",
-		Message: &MessageServerMessage{
-			Sender: &MessageServerMessageSender{
+		Message: &api.MessageServerMessage{
+			Sender: &api.MessageServerMessageSender{
 				Type:      msg.Recipient.Type,
 				SessionId: session.PublicId(),
 				UserId:    session.UserId(),
@@ -2307,13 +2305,13 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 		}
 		var err error
 		switch msg.Recipient.Type {
-		case RecipientTypeSession:
+		case api.RecipientTypeSession:
 			err = h.events.PublishSessionMessage(recipientSessionId, session.Backend(), async)
-		case RecipientTypeUser:
+		case api.RecipientTypeUser:
 			err = h.events.PublishUserMessage(msg.Recipient.UserId, session.Backend(), async)
-		case RecipientTypeRoom:
+		case api.RecipientTypeRoom:
 			fallthrough
-		case RecipientTypeCall:
+		case api.RecipientTypeCall:
 			err = h.events.PublishRoomMessage(room.Id(), session.Backend(), async)
 		default:
 			err = fmt.Errorf("unsupported recipient type: %s", msg.Recipient.Type)
@@ -2326,7 +2324,7 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 }
 
 func isAllowedToControl(session Session) bool {
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients are allowed to send any control message.
 		return true
 	}
@@ -2339,7 +2337,7 @@ func isAllowedToControl(session Session) bool {
 	return false
 }
 
-func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
+func (h *Hub) processControlMsg(session Session, message *api.ClientMessage) {
 	msg := message.Control
 	if !isAllowedToControl(session) {
 		h.logger.Printf("Ignore control message %+v from %s", msg, session.PublicId())
@@ -2348,11 +2346,11 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 
 	var recipient *ClientSession
 	var subject string
-	var serverRecipient *MessageClientMessageRecipient
-	var recipientSessionId PublicSessionId
+	var serverRecipient *api.MessageClientMessageRecipient
+	var recipientSessionId api.PublicSessionId
 	var room *Room
 	switch msg.Recipient.Type {
-	case RecipientTypeSession:
+	case api.RecipientTypeSession:
 		data := h.decodePublicSessionId(msg.Recipient.SessionId)
 		if data != nil {
 			if msg.Recipient.SessionId == session.PublicId() {
@@ -2370,14 +2368,14 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 				}
 
 				// Send to client connection for virtual sessions.
-				if sess.ClientType() == HelloClientTypeVirtual {
+				if sess.ClientType() == api.HelloClientTypeVirtual {
 					virtualSession := sess.(*VirtualSession)
 					clientSession := virtualSession.Session()
 					subject = GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
 					recipientSessionId = clientSession.PublicId()
 					recipient = clientSession
 					// The client should see his session id as recipient.
-					serverRecipient = &MessageClientMessageRecipient{
+					serverRecipient = &api.MessageClientMessageRecipient{
 						Type:      "session",
 						SessionId: virtualSession.SessionId(),
 					}
@@ -2389,7 +2387,7 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 		} else {
 			serverRecipient = &msg.Recipient
 		}
-	case RecipientTypeUser:
+	case api.RecipientTypeUser:
 		if msg.Recipient.UserId != "" {
 			if msg.Recipient.UserId == session.UserId() {
 				// Don't loop messages to the sender.
@@ -2400,9 +2398,9 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 
 			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
-	case RecipientTypeRoom:
+	case api.RecipientTypeRoom:
 		fallthrough
-	case RecipientTypeCall:
+	case api.RecipientTypeCall:
 		if session != nil {
 			if room = session.GetRoom(); room != nil {
 				subject = GetSubjectForRoomId(room.Id(), room.Backend())
@@ -2414,10 +2412,10 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 		return
 	}
 
-	response := &ServerMessage{
+	response := &api.ServerMessage{
 		Type: "control",
-		Control: &ControlServerMessage{
-			Sender: &MessageServerMessageSender{
+		Control: &api.ControlServerMessage{
+			Sender: &api.MessageServerMessageSender{
 				Type:      msg.Recipient.Type,
 				SessionId: session.PublicId(),
 				UserId:    session.UserId(),
@@ -2435,13 +2433,13 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 		}
 		var err error
 		switch msg.Recipient.Type {
-		case RecipientTypeSession:
+		case api.RecipientTypeSession:
 			err = h.events.PublishSessionMessage(recipientSessionId, session.Backend(), async)
-		case RecipientTypeUser:
+		case api.RecipientTypeUser:
 			err = h.events.PublishUserMessage(msg.Recipient.UserId, session.Backend(), async)
-		case RecipientTypeRoom:
+		case api.RecipientTypeRoom:
 			fallthrough
-		case RecipientTypeCall:
+		case api.RecipientTypeCall:
 			err = h.events.PublishRoomMessage(room.Id(), room.Backend(), async)
 		default:
 			err = fmt.Errorf("unsupported recipient type: %s", msg.Recipient.Type)
@@ -2452,13 +2450,13 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 	}
 }
 
-func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
+func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 	msg := message.Internal
 	session, ok := sess.(*ClientSession)
 	if !ok {
 		// Client is not connected yet.
 		return
-	} else if session.ClientType() != HelloClientTypeInternal {
+	} else if session.ClientType() != api.HelloClientTypeInternal {
 		h.logger.Printf("Ignore internal message %+v from %s", msg, session.PublicId())
 		return
 	}
@@ -2496,13 +2494,13 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		sess, err := NewVirtualSession(session, privateSessionId, publicSessionId, sessionIdData, msg)
 		if err != nil {
 			h.logger.Printf("Could not create virtual session %s: %s", virtualSessionId, err)
-			reply := message.NewErrorServerMessage(NewError("add_failed", "Could not create virtual session."))
+			reply := message.NewErrorServerMessage(api.NewError("add_failed", "Could not create virtual session."))
 			session.SendMessage(reply)
 			return
 		}
 
 		if options := msg.Options; options != nil && options.ActorId != "" && options.ActorType != "" {
-			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, RoomSessionId(publicSessionId))
+			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, api.RoomSessionId(publicSessionId))
 			request.Room.ActorId = options.ActorId
 			request.Room.ActorType = options.ActorType
 			request.Room.InCall = sess.GetInCall()
@@ -2511,7 +2509,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &response); err != nil {
 				sess.Close()
 				h.logger.Printf("Could not join virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
-				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not join virtual session."))
+				reply := message.NewErrorServerMessage(api.NewError("add_failed", "Could not join virtual session."))
 				session.SendMessage(reply)
 				return
 			}
@@ -2519,7 +2517,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 			if response.Type == "error" {
 				sess.Close()
 				h.logger.Printf("Could not join virtual session %s at backend %s: %+v", virtualSessionId, session.BackendUrl(), response.Error)
-				reply := message.NewErrorServerMessage(NewError("add_failed", response.Error.Error()))
+				reply := message.NewErrorServerMessage(api.NewError("add_failed", response.Error.Error()))
 				session.SendMessage(reply)
 				return
 			}
@@ -2529,7 +2527,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &response); err != nil {
 				sess.Close()
 				h.logger.Printf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
-				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not add virtual session."))
+				reply := message.NewErrorServerMessage(api.NewError("add_failed", "Could not add virtual session."))
 				session.SendMessage(reply)
 				return
 			}
@@ -2633,7 +2631,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 					},
 				},
 			}
-			if msg.Dialout.Status.Status == DialoutStatusCleared || msg.Dialout.Status.Status == DialoutStatusRejected {
+			if msg.Dialout.Status.Status == api.DialoutStatusCleared || msg.Dialout.Status.Status == api.DialoutStatusRejected {
 				asyncMessage.Room.Transient.TTL = removeCallStatusTTL
 			}
 			if err := h.events.PublishBackendRoomMessage(roomId, session.Backend(), asyncMessage); err != nil {
@@ -2642,7 +2640,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		} else {
 			if err := h.events.PublishRoomMessage(roomId, session.Backend(), &AsyncMessage{
 				Type: "message",
-				Message: &ServerMessage{
+				Message: &api.ServerMessage{
 					Type:    "dialout",
 					Dialout: msg.Dialout,
 				},
@@ -2657,7 +2655,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 }
 
 func isAllowedToUpdateTransientData(session Session) bool {
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients are always allowed.
 		return true
 	}
@@ -2670,7 +2668,7 @@ func isAllowedToUpdateTransientData(session Session) bool {
 }
 
 func isAllowedToUpdateTransientDataKey(session Session, key string) bool {
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients may update all transient keys.
 		return true
 	}
@@ -2683,10 +2681,10 @@ func isAllowedToUpdateTransientDataKey(session Session, key string) bool {
 	return true
 }
 
-func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
+func (h *Hub) processTransientMsg(session Session, message *api.ClientMessage) {
 	room := session.GetRoom()
 	if room == nil {
-		response := message.NewErrorServerMessage(NewError("not_in_room", "No room joined yet."))
+		response := message.NewErrorServerMessage(api.NewError("not_in_room", "No room joined yet."))
 		session.SendMessage(response)
 		return
 	}
@@ -2722,27 +2720,27 @@ func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
 			return
 		}
 	default:
-		response := message.NewErrorServerMessage(NewError("ignored", "Unsupported message type."))
+		response := message.NewErrorServerMessage(api.NewError("ignored", "Unsupported message type."))
 		session.SendMessage(response)
 	}
 }
 
-func sendNotAllowed(session Session, message *ClientMessage, reason string) {
-	response := message.NewErrorServerMessage(NewError("not_allowed", reason))
+func sendNotAllowed(session Session, message *api.ClientMessage, reason string) {
+	response := message.NewErrorServerMessage(api.NewError("not_allowed", reason))
 	session.SendMessage(response)
 }
 
-func sendMcuClientNotFound(session Session, message *ClientMessage) {
-	response := message.NewErrorServerMessage(NewError("client_not_found", "No MCU client found to send message to."))
+func sendMcuClientNotFound(session Session, message *api.ClientMessage) {
+	response := message.NewErrorServerMessage(api.NewError("client_not_found", "No MCU client found to send message to."))
 	session.SendMessage(response)
 }
 
-func sendMcuProcessingFailed(session Session, message *ClientMessage) {
-	response := message.NewErrorServerMessage(NewError("processing_failed", "Processing of the message failed, please check server logs."))
+func sendMcuProcessingFailed(session Session, message *api.ClientMessage) {
+	response := message.NewErrorServerMessage(api.NewError("processing_failed", "Processing of the message failed, please check server logs."))
 	session.SendMessage(response)
 }
 
-func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSession, senderRoom *Room, recipientSessionId PublicSessionId) bool {
+func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSession, senderRoom *Room, recipientSessionId api.PublicSessionId) bool {
 	clients := h.rpcClients.GetClients()
 	if len(clients) == 0 {
 		return false
@@ -2776,8 +2774,8 @@ func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSessi
 	return result.Load()
 }
 
-func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, recipientSessionId PublicSessionId) bool {
-	if senderSession.ClientType() == HelloClientTypeInternal {
+func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, recipientSessionId api.PublicSessionId) bool {
+	if senderSession.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients may subscribe all streams.
 		return true
 	}
@@ -2796,7 +2794,7 @@ func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, re
 
 	recipientRoom := recipientSession.GetRoom()
 	if recipientRoom == nil || !senderRoom.IsEqual(recipientRoom) ||
-		(recipientSession.ClientType() != HelloClientTypeInternal && !recipientRoom.IsSessionInCall(recipientSession)) {
+		(recipientSession.ClientType() != api.HelloClientTypeInternal && !recipientRoom.IsSessionInCall(recipientSession)) {
 		// Recipient is not in a room, a different room or not in the call.
 		return false
 	}
@@ -2804,7 +2802,7 @@ func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, re
 	return true
 }
 
-func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMessage, message *MessageClientMessage, data *MessageClientMessageData) {
+func (h *Hub) processMcuMessage(session *ClientSession, client_message *api.ClientMessage, message *api.MessageClientMessage, data *api.MessageClientMessageData) {
 	ctx, cancel := context.WithTimeout(session.Context(), h.mcuTimeout)
 	defer cancel()
 
@@ -2848,7 +2846,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 		clientType = "subscriber"
 		mc = session.GetSubscriber(message.Recipient.SessionId, StreamType(data.RoomType))
 	default:
-		if data.Type == "candidate" && FilterCandidate(data.candidate, h.allowedCandidates.Load(), h.blockedCandidates.Load()) {
+		if data.Type == "candidate" && api.FilterCandidate(data.Candidate, h.allowedCandidates.Load(), h.blockedCandidates.Load()) {
 			// Silently ignore filtered candidates.
 			return
 		}
@@ -2879,7 +2877,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 
 	mc.SendMessage(session.Context(), message, data, func(err error, response api.StringMap) {
 		if err != nil {
-			if !errors.Is(err, ErrCandidateFiltered) {
+			if !errors.Is(err, api.ErrCandidateFiltered) {
 				h.logger.Printf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
 				sendMcuProcessingFailed(session, client_message)
 			}
@@ -2893,11 +2891,11 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 	})
 }
 
-func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *MessageClientMessage, data *MessageClientMessageData, response api.StringMap) {
-	var response_message *ServerMessage
+func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *api.MessageClientMessage, data *api.MessageClientMessageData, response api.StringMap) {
+	var response_message *api.ServerMessage
 	switch response["type"] {
 	case "answer":
-		answer_message := &AnswerOfferMessage{
+		answer_message := &api.AnswerOfferMessage{
 			To:       session.PublicId(),
 			From:     session.PublicId(),
 			Type:     "answer",
@@ -2910,10 +2908,10 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 			h.logger.Printf("Could not serialize answer %+v to %s: %s", answer_message, session.PublicId(), err)
 			return
 		}
-		response_message = &ServerMessage{
+		response_message = &api.ServerMessage{
 			Type: "message",
-			Message: &MessageServerMessage{
-				Sender: &MessageServerMessageSender{
+			Message: &api.MessageServerMessage{
+				Sender: &api.MessageServerMessageSender{
 					Type:      "session",
 					SessionId: session.PublicId(),
 					UserId:    session.UserId(),
@@ -2922,7 +2920,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 			},
 		}
 	case "offer":
-		offer_message := &AnswerOfferMessage{
+		offer_message := &api.AnswerOfferMessage{
 			To:       session.PublicId(),
 			From:     message.Recipient.SessionId,
 			Type:     "offer",
@@ -2935,10 +2933,10 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 			h.logger.Printf("Could not serialize offer %+v to %s: %s", offer_message, session.PublicId(), err)
 			return
 		}
-		response_message = &ServerMessage{
+		response_message = &api.ServerMessage{
 			Type: "message",
-			Message: &MessageServerMessage{
-				Sender: &MessageServerMessageSender{
+			Message: &api.MessageServerMessage{
+				Sender: &api.MessageServerMessageSender{
 					Type:      "session",
 					SessionId: message.Recipient.SessionId,
 					// TODO(jojo): Set "UserId" field if known user.
@@ -2954,7 +2952,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 	session.SendMessage(response_message)
 }
 
-func (h *Hub) processByeMsg(client HandlerClient, message *ClientMessage) {
+func (h *Hub) processByeMsg(client HandlerClient, message *api.ClientMessage) {
 	client.SendByeResponse(message)
 	if session := h.processUnregister(client); session != nil {
 		session.Close()

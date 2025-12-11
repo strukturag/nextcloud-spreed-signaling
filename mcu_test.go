@@ -34,6 +34,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 )
 
 var (
@@ -45,7 +46,7 @@ type TestMCU struct {
 	t  *testing.T
 	mu sync.Mutex
 	// +checklocks:mu
-	publishers map[PublicSessionId]*TestMCUPublisher
+	publishers map[api.PublicSessionId]*TestMCUPublisher
 	// +checklocks:mu
 	subscribers map[string]*TestMCUSubscriber
 
@@ -57,7 +58,7 @@ func NewTestMCU(t *testing.T) *TestMCU {
 	return &TestMCU{
 		t: t,
 
-		publishers:  make(map[PublicSessionId]*TestMCUPublisher),
+		publishers:  make(map[api.PublicSessionId]*TestMCUPublisher),
 		subscribers: make(map[string]*TestMCUSubscriber),
 	}
 }
@@ -95,7 +96,7 @@ func (m *TestMCU) GetServerInfoSfu() *BackendServerInfoSfu {
 	return nil
 }
 
-func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
+func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id api.PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	var maxBitrate api.Bandwidth
 	if streamType == StreamTypeScreen {
 		maxBitrate = TestMaxBitrateScreen
@@ -125,7 +126,7 @@ func (m *TestMCU) NewPublisher(ctx context.Context, listener McuListener, id Pub
 	return pub, nil
 }
 
-func (m *TestMCU) GetPublishers() map[PublicSessionId]*TestMCUPublisher {
+func (m *TestMCU) GetPublishers() map[api.PublicSessionId]*TestMCUPublisher {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -133,14 +134,14 @@ func (m *TestMCU) GetPublishers() map[PublicSessionId]*TestMCUPublisher {
 	return result
 }
 
-func (m *TestMCU) GetPublisher(id PublicSessionId) *TestMCUPublisher {
+func (m *TestMCU) GetPublisher(id api.PublicSessionId) *TestMCUPublisher {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return m.publishers[id]
 }
 
-func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
+func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publisher api.PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -206,8 +207,8 @@ type TestMCUPublisher struct {
 	sdp string
 }
 
-func (p *TestMCUPublisher) PublisherId() PublicSessionId {
-	return PublicSessionId(p.id)
+func (p *TestMCUPublisher) PublisherId() api.PublicSessionId {
+	return api.PublicSessionId(p.id)
 }
 
 func (p *TestMCUPublisher) HasMedia(mt MediaType) bool {
@@ -218,7 +219,7 @@ func (p *TestMCUPublisher) SetMedia(mt MediaType) {
 	p.settings.MediaTypes = mt
 }
 
-func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
+func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 	go func() {
 		if p.isClosed() {
 			callback(errors.New("Already closed"), nil)
@@ -231,16 +232,16 @@ func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *MessageClie
 			if sdp, ok := sdp.(string); ok {
 				p.sdp = sdp
 				switch sdp {
-				case MockSdpOfferAudioOnly:
+				case mock.MockSdpOfferAudioOnly:
 					callback(nil, api.StringMap{
 						"type": "answer",
-						"sdp":  MockSdpAnswerAudioOnly,
+						"sdp":  mock.MockSdpAnswerAudioOnly,
 					})
 					return
-				case MockSdpOfferAudioAndVideo:
+				case mock.MockSdpOfferAudioAndVideo:
 					callback(nil, api.StringMap{
 						"type": "answer",
-						"sdp":  MockSdpAnswerAudioAndVideo,
+						"sdp":  mock.MockSdpAnswerAudioAndVideo,
 					})
 					return
 				}
@@ -256,11 +257,11 @@ func (p *TestMCUPublisher) GetStreams(ctx context.Context) ([]PublisherStream, e
 	return nil, errors.New("not implemented")
 }
 
-func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
+func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("remote publishing not supported")
 }
 
-func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
+func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("remote publishing not supported")
 }
 
@@ -270,11 +271,11 @@ type TestMCUSubscriber struct {
 	publisher *TestMCUPublisher
 }
 
-func (s *TestMCUSubscriber) Publisher() PublicSessionId {
+func (s *TestMCUSubscriber) Publisher() api.PublicSessionId {
 	return s.publisher.PublisherId()
 }
 
-func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
+func (s *TestMCUSubscriber) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 	go func() {
 		if s.isClosed() {
 			callback(errors.New("Already closed"), nil)
