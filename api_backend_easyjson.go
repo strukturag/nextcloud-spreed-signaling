@@ -1618,7 +1618,7 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling11(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.SessionId = PublicSessionId(in.String())
+				out.SessionId = api.PublicSessionId(in.String())
 			}
 		case "connected":
 			if in.IsNull() {
@@ -2261,11 +2261,11 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling15(in *jle
 					out.SessionsList = (out.SessionsList)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v31 PublicSessionId
+					var v31 api.PublicSessionId
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						v31 = PublicSessionId(in.String())
+						v31 = api.PublicSessionId(in.String())
 					}
 					out.SessionsList = append(out.SessionsList, v31)
 					in.WantComma()
@@ -2283,7 +2283,7 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling15(in *jle
 					out.SessionsMap = nil
 				}
 				for !in.IsDelim('}') {
-					key := PublicSessionId(in.String())
+					key := api.PublicSessionId(in.String())
 					in.WantColon()
 					var v32 json.RawMessage
 					if in.IsNull() {
@@ -3144,19 +3144,19 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling20(in *jle
 				in.Delim('[')
 				if out.SessionIds == nil {
 					if !in.IsDelim(']') {
-						out.SessionIds = make([]RoomSessionId, 0, 4)
+						out.SessionIds = make([]api.RoomSessionId, 0, 4)
 					} else {
-						out.SessionIds = []RoomSessionId{}
+						out.SessionIds = []api.RoomSessionId{}
 					}
 				} else {
 					out.SessionIds = (out.SessionIds)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v63 RoomSessionId
+					var v63 api.RoomSessionId
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						v63 = RoomSessionId(in.String())
+						v63 = api.RoomSessionId(in.String())
 					}
 					out.SessionIds = append(out.SessionIds, v63)
 					in.WantComma()
@@ -3327,7 +3327,7 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling21(in *jle
 				out.Error = nil
 			} else {
 				if out.Error == nil {
-					out.Error = new(Error)
+					out.Error = new(api.Error)
 				}
 				if in.IsNull() {
 					in.Skip()
@@ -3665,7 +3665,7 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling25(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.SessionId = RoomSessionId(in.String())
+				out.SessionId = api.RoomSessionId(in.String())
 			}
 		default:
 			in.SkipRecursive()
@@ -3996,7 +3996,7 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling28(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.SessionId = PublicSessionId(in.String())
+				out.SessionId = api.PublicSessionId(in.String())
 			}
 		case "userid":
 			if in.IsNull() {
@@ -4277,7 +4277,7 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling30(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.SessionId = RoomSessionId(in.String())
+				out.SessionId = api.RoomSessionId(in.String())
 			}
 		case "actorid":
 			if in.IsNull() {
@@ -4479,7 +4479,7 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling32(in *jle
 				out.Error = nil
 			} else {
 				if out.Error == nil {
-					out.Error = new(Error)
+					out.Error = new(api.Error)
 				}
 				if in.IsNull() {
 					in.Skip()
