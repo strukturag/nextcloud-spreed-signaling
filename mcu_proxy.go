@@ -47,6 +47,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -1589,8 +1590,8 @@ func (m *mcuProxy) GetBandwidthLimits() (api.Bandwidth, api.Bandwidth) {
 	return m.settings.MaxStreamBitrate(), m.settings.MaxScreenBitrate()
 }
 
-func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
-	options, err := GetStringOptions(config, "continent-overrides", false)
+func (m *mcuProxy) loadContinentsMap(cfg *goconf.ConfigFile) error {
+	options, err := config.GetStringOptions(cfg, "continent-overrides", false)
 	if err != nil {
 		return err
 	}

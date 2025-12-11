@@ -39,6 +39,7 @@ import (
 	status "google.golang.org/grpc/status"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -86,9 +87,9 @@ type GrpcServer struct {
 	hub GrpcServerHub
 }
 
-func NewGrpcServer(ctx context.Context, config *goconf.ConfigFile, version string) (*GrpcServer, error) {
+func NewGrpcServer(ctx context.Context, cfg *goconf.ConfigFile, version string) (*GrpcServer, error) {
 	var listener net.Listener
-	if addr, _ := GetStringOptionWithEnv(config, "grpc", "listen"); addr != "" {
+	if addr, _ := config.GetStringOptionWithEnv(cfg, "grpc", "listen"); addr != "" {
 		var err error
 		listener, err = net.Listen("tcp", addr)
 		if err != nil {
@@ -97,7 +98,7 @@ func NewGrpcServer(ctx context.Context, config *goconf.ConfigFile, version strin
 	}
 
 	logger := log.LoggerFromContext(ctx)
-	creds, err := NewReloadableCredentials(logger, config, true)
+	creds, err := NewReloadableCredentials(logger, cfg, true)
 	if err != nil {
 		return nil, err
 	}

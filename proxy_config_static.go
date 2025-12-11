@@ -30,6 +30,7 @@ import (
 
 	"github.com/dlintw/goconf"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -70,11 +71,11 @@ func NewProxyConfigStatic(logger log.Logger, config *goconf.ConfigFile, proxy Mc
 	return result, nil
 }
 
-func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool) error {
+func (p *proxyConfigStatic) configure(cfg *goconf.ConfigFile, fromReload bool) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	dnsDiscovery, _ := config.GetBool("mcu", "dnsdiscovery")
+	dnsDiscovery, _ := cfg.GetBool("mcu", "dnsdiscovery")
 	if dnsDiscovery != p.dnsDiscovery {
 		if !dnsDiscovery {
 			for _, ips := range p.connectionsMap {
@@ -89,7 +90,7 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 
 	remove := maps.Clone(p.connectionsMap)
 
-	mcuUrl, _ := GetStringOptionWithEnv(config, "mcu", "url")
+	mcuUrl, _ := config.GetStringOptionWithEnv(cfg, "mcu", "url")
 	for u := range internal.SplitEntries(mcuUrl, " ") {
 		if existing, found := remove[u]; found {
 			// Proxy connection still exists in new configuration
