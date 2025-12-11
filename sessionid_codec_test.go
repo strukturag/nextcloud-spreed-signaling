@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func TestReverseSessionId(t *testing.T) {
@@ -47,9 +48,7 @@ func TestReverseSessionId(t *testing.T) {
 
 func Benchmark_EncodePrivateSessionId(b *testing.B) {
 	require := require.New(b)
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	data := &SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),
@@ -66,9 +65,7 @@ func Benchmark_EncodePrivateSessionId(b *testing.B) {
 
 func Benchmark_DecodePrivateSessionId(b *testing.B) {
 	require := require.New(b)
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	data := &SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),
@@ -89,9 +86,7 @@ func Benchmark_DecodePrivateSessionId(b *testing.B) {
 
 func Benchmark_EncodePublicSessionId(b *testing.B) {
 	require := require.New(b)
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	data := &SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),
@@ -108,9 +103,7 @@ func Benchmark_EncodePublicSessionId(b *testing.B) {
 
 func Benchmark_DecodePublicSessionId(b *testing.B) {
 	require := require.New(b)
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	data := &SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),

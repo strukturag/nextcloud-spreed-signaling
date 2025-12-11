@@ -28,77 +28,53 @@ import (
 
 	"github.com/dlintw/goconf"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type backendStorageStatic struct {
 	backendStorageCommon
 
 	logger       log.Logger
-	backendsById map[string]*Backend
+	backendsById map[string]*talk.Backend
 
 	// Deprecated
 	allowAll      bool
 	commonSecret  []byte
-	compatBackend *Backend
+	compatBackend *talk.Backend
 }
 
 func NewBackendStorageStatic(logger log.Logger, cfg *goconf.ConfigFile, stats BackendStorageStats) (BackendStorage, error) {
 	allowAll, _ := cfg.GetBool("backend", "allowall")
-	allowHttp, _ := cfg.GetBool("backend", "allowhttp")
 	commonSecret, _ := config.GetStringOptionWithEnv(cfg, "backend", "secret")
-	sessionLimit, err := cfg.GetInt("backend", "sessionlimit")
-	if err != nil || sessionLimit < 0 {
-		sessionLimit = 0
-	}
-	backends := make(map[string][]*Backend)
-	backendsById := make(map[string]*Backend)
-	var compatBackend *Backend
+	backends := make(map[string][]*talk.Backend)
+	backendsById := make(map[string]*talk.Backend)
+	var compatBackend *talk.Backend
 	numBackends := 0
 	if allowAll {
 		logger.Println("WARNING: All backend hostnames are allowed, only use for development!")
-		maxStreamBitrate, err := cfg.GetInt("backend", "maxstreambitrate")
-		if err != nil || maxStreamBitrate < 0 {
-			maxStreamBitrate = 0
-		}
-		maxScreenBitrate, err := cfg.GetInt("backend", "maxscreenbitrate")
-		if err != nil || maxScreenBitrate < 0 {
-			maxScreenBitrate = 0
-		}
-		compatBackend = &Backend{
-			id:     "compat",
-			secret: []byte(commonSecret),
-
-			allowHttp: allowHttp,
-
-			sessionLimit: uint64(sessionLimit),
-			counted:      true,
-
-			maxStreamBitrate: api.BandwidthFromBits(uint64(maxStreamBitrate)),
-			maxScreenBitrate: api.BandwidthFromBits(uint64(maxScreenBitrate)),
-		}
-		if sessionLimit > 0 {
+		compatBackend = talk.NewCompatBackend(cfg)
+		if sessionLimit := compatBackend.Limit(); sessionLimit > 0 {
 			logger.Printf("Allow a maximum of %d sessions", sessionLimit)
 		}
-		updateBackendStats(compatBackend)
-		backendsById[compatBackend.id] = compatBackend
+		compatBackend.UpdateStats()
+		backendsById[compatBackend.Id()] = compatBackend
 		numBackends++
 	} else if backendIds, _ := cfg.GetString("backend", "backends"); backendIds != "" {
-		added := make(map[string]*Backend)
+		added := make(map[string]*talk.Backend)
 		for host, configuredBackends := range getConfiguredHosts(logger, backendIds, cfg, commonSecret) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
-				added[be.id] = be
+				added[be.Id()] = be
 			}
 		}
 		for _, be := range added {
-			logger.Printf("Backend %s added for %s", be.id, strings.Join(be.urls, ", "))
-			backendsById[be.id] = be
-			updateBackendStats(be)
-			be.counted = true
+			logger.Printf("Backend %s added for %s", be.Id(), strings.Join(be.Urls(), ", "))
+			backendsById[be.Id()] = be
+			be.UpdateStats()
+			be.Count()
 		}
 		numBackends += len(added)
 	} else if allowedUrls, _ := cfg.GetString("backend", "allowed"); allowedUrls != "" {
@@ -118,40 +94,21 @@ func NewBackendStorageStatic(logger log.Logger, cfg *goconf.ConfigFile, stats Ba
 		if len(allowMap) == 0 {
 			logger.Println("WARNING: No backend hostnames are allowed, check your configuration!")
 		} else {
-			maxStreamBitrate, err := cfg.GetInt("backend", "maxstreambitrate")
-			if err != nil || maxStreamBitrate < 0 {
-				maxStreamBitrate = 0
-			}
-			maxScreenBitrate, err := cfg.GetInt("backend", "maxscreenbitrate")
-			if err != nil || maxScreenBitrate < 0 {
-				maxScreenBitrate = 0
-			}
-			compatBackend = &Backend{
-				id:     "compat",
-				secret: []byte(commonSecret),
-
-				allowHttp: allowHttp,
-
-				sessionLimit: uint64(sessionLimit),
-				counted:      true,
-
-				maxStreamBitrate: api.BandwidthFromBits(uint64(maxStreamBitrate)),
-				maxScreenBitrate: api.BandwidthFromBits(uint64(maxScreenBitrate)),
-			}
+			compatBackend = talk.NewCompatBackend(cfg)
 			hosts := make([]string, 0, len(allowMap))
 			for host := range allowMap {
 				hosts = append(hosts, host)
-				backends[host] = []*Backend{compatBackend}
+				backends[host] = []*talk.Backend{compatBackend}
 			}
 			if len(hosts) > 1 {
 				logger.Println("WARNING: Using deprecated backend configuration. Please migrate the \"allowed\" setting to the new \"backends\" configuration.")
 			}
 			logger.Printf("Allowed backend hostnames: %s", hosts)
-			if sessionLimit > 0 {
+			if sessionLimit := compatBackend.Limit(); sessionLimit > 0 {
 				logger.Printf("Allow a maximum of %d sessions", sessionLimit)
 			}
-			updateBackendStats(compatBackend)
-			backendsById[compatBackend.id] = compatBackend
+			compatBackend.UpdateStats()
+			backendsById[compatBackend.Id()] = compatBackend
 			numBackends++
 		}
 	}
@@ -189,15 +146,14 @@ func (s *backendStorageStatic) RemoveBackendsForHost(host string, seen map[strin
 			}
 
 			seen[backend.Id()] = seenDeleted
-			urls := slices.DeleteFunc(backend.urls, func(s string) bool {
+			urls := slices.DeleteFunc(backend.Urls(), func(s string) bool {
 				return !strings.Contains(s, "://"+host)
 			})
-			s.logger.Printf("Backend %s removed for %s", backend.id, strings.Join(urls, ", "))
-			if len(urls) == len(backend.urls) && backend.counted {
-				deleteBackendStats(backend)
+			s.logger.Printf("Backend %s removed for %s", backend.Id(), strings.Join(urls, ", "))
+			if len(urls) == len(backend.Urls()) && backend.Uncount() {
+				backend.DeleteStats()
 				delete(s.backendsById, backend.Id())
 				deleted++
-				backend.counted = false
 			}
 		}
 		s.stats.RemoveBackends(deleted)
@@ -215,7 +171,7 @@ const (
 )
 
 // +checklocks:s.mu
-func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen map[string]seenState) {
+func (s *backendStorageStatic) UpsertHost(host string, backends []*talk.Backend, seen map[string]seenState) {
 	for existingIndex, existingBackend := range s.backends[host] {
 		found := false
 		index := 0
@@ -224,16 +180,16 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 				found = true
 				backends = slices.Delete(backends, index, index+1)
 				break
-			} else if newBackend.id == existingBackend.id {
+			} else if newBackend.Id() == existingBackend.Id() {
 				found = true
 				s.backends[host][existingIndex] = newBackend
 				backends = slices.Delete(backends, index, index+1)
-				if seen[newBackend.id] != seenUpdated {
-					seen[newBackend.id] = seenUpdated
-					s.logger.Printf("Backend %s updated for %s", newBackend.id, strings.Join(newBackend.urls, ", "))
-					updateBackendStats(newBackend)
-					newBackend.counted = existingBackend.counted
-					s.backendsById[newBackend.id] = newBackend
+				if seen[newBackend.Id()] != seenUpdated {
+					seen[newBackend.Id()] = seenUpdated
+					s.logger.Printf("Backend %s updated for %s", newBackend.Id(), strings.Join(newBackend.Urls(), ", "))
+					newBackend.UpdateStats()
+					newBackend.CopyCount(existingBackend)
+					s.backendsById[newBackend.Id()] = newBackend
 				}
 				break
 			}
@@ -242,17 +198,16 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 		if !found {
 			removed := s.backends[host][existingIndex]
 			s.backends[host] = slices.Delete(s.backends[host], existingIndex, existingIndex+1)
-			if seen[removed.id] != seenDeleted {
-				seen[removed.id] = seenDeleted
-				urls := slices.DeleteFunc(removed.urls, func(s string) bool {
+			if seen[removed.Id()] != seenDeleted {
+				seen[removed.Id()] = seenDeleted
+				urls := slices.DeleteFunc(removed.Urls(), func(s string) bool {
 					return !strings.Contains(s, "://"+host)
 				})
-				s.logger.Printf("Backend %s removed for %s", removed.id, strings.Join(urls, ", "))
-				if len(urls) == len(removed.urls) && removed.counted {
-					deleteBackendStats(removed)
+				s.logger.Printf("Backend %s removed for %s", removed.Id(), strings.Join(urls, ", "))
+				if len(urls) == len(removed.Urls()) && removed.Uncount() {
+					removed.DeleteStats()
 					delete(s.backendsById, removed.Id())
 					s.stats.DecBackends()
-					removed.counted = false
 				}
 			}
 		}
@@ -262,22 +217,21 @@ func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen
 
 	addedBackends := 0
 	for _, added := range backends {
-		if seen[added.id] == seenAdded {
+		if seen[added.Id()] == seenAdded {
 			continue
 		}
 
-		seen[added.id] = seenAdded
-		if prev, found := s.backendsById[added.id]; found {
-			added.counted = prev.counted
+		seen[added.Id()] = seenAdded
+		if prev, found := s.backendsById[added.Id()]; found {
+			added.CopyCount(prev)
 		} else {
-			s.backendsById[added.id] = added
+			s.backendsById[added.Id()] = added
 		}
 
-		s.logger.Printf("Backend %s added for %s", added.id, strings.Join(added.urls, ", "))
-		if !added.counted {
-			updateBackendStats(added)
+		s.logger.Printf("Backend %s added for %s", added.Id(), strings.Join(added.Urls(), ", "))
+		if added.Count() {
+			added.UpdateStats()
 			addedBackends++
-			added.counted = true
 		}
 	}
 	s.stats.AddBackends(addedBackends)
@@ -298,37 +252,10 @@ func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	return ids
 }
 
-func getConfiguredHosts(logger log.Logger, backendIds string, cfg *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
-	hosts = make(map[string][]*Backend)
+func getConfiguredHosts(logger log.Logger, backendIds string, cfg *goconf.ConfigFile, commonSecret string) (hosts map[string][]*talk.Backend) {
+	hosts = make(map[string][]*talk.Backend)
 	seenUrls := make(map[string]string)
 	for _, id := range getConfiguredBackendIDs(backendIds) {
-		secret, _ := config.GetStringOptionWithEnv(cfg, id, "secret")
-		if secret == "" && commonSecret != "" {
-			logger.Printf("Backend %s has no own shared secret set, using common shared secret", id)
-			secret = commonSecret
-		}
-		if secret == "" {
-			logger.Printf("Backend %s is missing or incomplete, skipping", id)
-			continue
-		}
-
-		sessionLimit, err := cfg.GetInt(id, "sessionlimit")
-		if err != nil || sessionLimit < 0 {
-			sessionLimit = 0
-		}
-		if sessionLimit > 0 {
-			logger.Printf("Backend %s allows a maximum of %d sessions", id, sessionLimit)
-		}
-
-		maxStreamBitrate, err := cfg.GetInt(id, "maxstreambitrate")
-		if err != nil || maxStreamBitrate < 0 {
-			maxStreamBitrate = 0
-		}
-		maxScreenBitrate, err := cfg.GetInt(id, "maxscreenbitrate")
-		if err != nil || maxScreenBitrate < 0 {
-			maxScreenBitrate = 0
-		}
-
 		var urls []string
 		if u, _ := config.GetStringOptionWithEnv(cfg, id, "urls"); u != "" {
 			urls = slices.Sorted(internal.SplitEntries(u, ","))
@@ -344,14 +271,14 @@ func getConfiguredHosts(logger log.Logger, backendIds string, cfg *goconf.Config
 			continue
 		}
 
-		backend := &Backend{
-			id:     id,
-			secret: []byte(secret),
+		backend, err := talk.NewBackendFromConfig(logger, id, cfg, commonSecret)
+		if err != nil {
+			logger.Printf("%s", err)
+			continue
+		}
 
-			maxStreamBitrate: api.BandwidthFromBits(uint64(maxStreamBitrate)),
-			maxScreenBitrate: api.BandwidthFromBits(uint64(maxScreenBitrate)),
-
-			sessionLimit: uint64(sessionLimit),
+		if sessionLimit := backend.Limit(); sessionLimit > 0 {
+			logger.Printf("Backend %s allows a maximum of %d sessions", id, sessionLimit)
 		}
 
 		added := make(map[string]bool)
@@ -377,10 +304,7 @@ func getConfiguredHosts(logger log.Logger, backendIds string, cfg *goconf.Config
 			}
 
 			seenUrls[u] = id
-			backend.urls = append(backend.urls, u)
-			if parsed.Scheme == "http" {
-				backend.allowHttp = true
-			}
+			backend.AddUrl(parsed)
 
 			if !added[parsed.Host] {
 				hosts[parsed.Host] = append(hosts[parsed.Host], backend)
@@ -427,14 +351,14 @@ func (s *backendStorageStatic) Reload(cfg *goconf.ConfigFile) {
 	}
 }
 
-func (s *backendStorageStatic) GetCompatBackend() *Backend {
+func (s *backendStorageStatic) GetCompatBackend() *talk.Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	return s.compatBackend
 }
 
-func (s *backendStorageStatic) GetBackend(u *url.URL) *Backend {
+func (s *backendStorageStatic) GetBackend(u *url.URL) *talk.Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

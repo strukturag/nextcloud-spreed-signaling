@@ -98,15 +98,15 @@ func (b *BackendClient) Reload(config *goconf.ConfigFile) {
 	b.backends.Reload(config)
 }
 
-func (b *BackendClient) GetCompatBackend() *Backend {
+func (b *BackendClient) GetCompatBackend() *talk.Backend {
 	return b.backends.GetCompatBackend()
 }
 
-func (b *BackendClient) GetBackend(u *url.URL) *Backend {
+func (b *BackendClient) GetBackend(u *url.URL) *talk.Backend {
 	return b.backends.GetBackend(u)
 }
 
-func (b *BackendClient) GetBackends() []*Backend {
+func (b *BackendClient) GetBackends() []*talk.Backend {
 	return b.backends.GetBackends()
 }
 

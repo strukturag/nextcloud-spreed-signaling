@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,6 +28,18 @@ import (
 )
 
 var (
+	statsBackendLimit = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "backend",
+		Name:      "session_limit",
+		Help:      "The session limit of a backend",
+	}, []string{"backend"})
+	statsBackendLimitExceededTotal = prometheus.NewCounterVec(prometheus.CounterOpts{ // +checklocksignore: Global readonly variable.
+		Namespace: "signaling",
+		Subsystem: "backend",
+		Name:      "session_limit_exceeded_total",
+		Help:      "The number of times the session limit exceeded",
+	}, []string{"backend"})
 	statsBackendsCurrent = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "signaling",
 		Subsystem: "backend",
@@ -35,11 +47,13 @@ var (
 		Help:      "The current number of configured backends",
 	})
 
-	backendConfigurationStats = []prometheus.Collector{
+	backendStats = []prometheus.Collector{
+		statsBackendLimit,
+		statsBackendLimitExceededTotal,
 		statsBackendsCurrent,
 	}
 )
 
-func RegisterBackendConfigurationStats() {
-	metrics.RegisterAll(backendConfigurationStats...)
+func registerBackendStats() {
+	metrics.RegisterAll(backendStats...)
 }
