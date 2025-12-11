@@ -43,6 +43,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func (s *GrpcServer) WaitForCertificateReload(ctx context.Context, counter uint64) error {
@@ -71,7 +72,7 @@ func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (se
 		config.AddOption("grpc", "listen", addr)
 		var err error
 		server, err = NewGrpcServer(ctx, config, "0.0.0")
-		if isErrorAddressAlreadyInUse(err) {
+		if test.IsErrorAddressAlreadyInUse(err) {
 			continue
 		}
 
