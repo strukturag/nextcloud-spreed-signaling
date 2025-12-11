@@ -55,6 +55,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/pool"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -327,7 +328,7 @@ func (b *BackendServer) parseRequestBody(f func(context.Context, http.ResponseWr
 	}
 }
 
-func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids []string, properties json.RawMessage) {
+func (b *BackendServer) sendRoomInvite(roomid string, backend *talk.Backend, userids []string, properties json.RawMessage) {
 	msg := &AsyncMessage{
 		Type: "message",
 		Message: &api.ServerMessage{
@@ -349,7 +350,7 @@ func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids 
 	}
 }
 
-func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reason string, userids []string, sessionids []api.RoomSessionId) {
+func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, reason string, userids []string, sessionids []api.RoomSessionId) {
 	msg := &AsyncMessage{
 		Type: "message",
 		Message: &api.ServerMessage{
@@ -398,7 +399,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 	wg.Wait()
 }
 
-func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified_userids []string, all_userids []string, properties json.RawMessage) {
+func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, notified_userids []string, all_userids []string, properties json.RawMessage) {
 	msg := &AsyncMessage{
 		Type: "message",
 		Message: &api.ServerMessage{
@@ -499,7 +500,7 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *container.
 	return result
 }
 
-func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, request *BackendServerRoomRequest) error {
 	if !request.InCall.All {
 		timeout := time.Second
 
@@ -524,7 +525,7 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request 
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
-func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid string, backend *Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid string, backend *talk.Backend, request *BackendServerRoomRequest) error {
 	timeout := time.Second
 
 	// Convert (Nextcloud) session ids to signaling session ids.
@@ -588,7 +589,7 @@ loop:
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
-func (b *BackendServer) sendRoomMessage(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomMessage(roomid string, backend *talk.Backend, request *BackendServerRoomRequest) error {
 	message := &AsyncMessage{
 		Type: "room",
 		Room: request,
@@ -596,7 +597,7 @@ func (b *BackendServer) sendRoomMessage(roomid string, backend *Backend, request
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
-func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, backend *Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, backend *talk.Backend, request *BackendServerRoomRequest) error {
 	timeout := time.Second
 
 	// Convert (Nextcloud) session ids to signaling session ids.
@@ -728,7 +729,7 @@ func isNumeric(s string) bool {
 	return checkNumeric.MatchString(s)
 }
 
-func (b *BackendServer) startDialoutInSession(ctx context.Context, session *ClientSession, roomid string, backend *Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
+func (b *BackendServer) startDialoutInSession(ctx context.Context, session *ClientSession, roomid string, backend *talk.Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
 	url := backendUrl
 	if url != "" && url[len(url)-1] != '/' {
 		url += "/"
@@ -809,7 +810,7 @@ func (b *BackendServer) startDialoutInSession(ctx context.Context, session *Clie
 	}
 }
 
-func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend *Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
+func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend *talk.Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
 	if err := request.Dialout.ValidateNumber(); err != nil {
 		return returnDialoutError(http.StatusBadRequest, err)
 	}
@@ -860,7 +861,7 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 	v := mux.Vars(r)
 	roomid := v["roomid"]
 
-	var backend *Backend
+	var backend *talk.Backend
 	backendUrl := r.Header.Get(HeaderBackendServer)
 	if backendUrl != "" {
 		if u, err := url.Parse(backendUrl); err == nil {

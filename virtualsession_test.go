@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func TestVirtualSession(t *testing.T) {
@@ -41,9 +42,7 @@ func TestVirtualSession(t *testing.T) {
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
@@ -224,9 +223,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
@@ -433,9 +430,7 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
@@ -574,9 +569,7 @@ func TestVirtualSessionCleanup(t *testing.T) {
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()

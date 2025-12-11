@@ -26,13 +26,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func Benchmark_GetSubjectForSessionId(b *testing.B) {
 	require := require.New(b)
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	data := &SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),

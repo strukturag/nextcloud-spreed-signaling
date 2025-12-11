@@ -105,8 +105,8 @@ func TestBandwidth_Backend(t *testing.T) {
 			backend := hub.backend.GetBackend(u)
 			require.NotNil(backend, "Could not get backend")
 
-			backend.maxScreenBitrate = 1000
-			backend.maxStreamBitrate = 2000
+			backend.SetMaxScreenBitrate(1000)
+			backend.SetMaxStreamBitrate(2000)
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
@@ -157,9 +157,9 @@ func TestBandwidth_Backend(t *testing.T) {
 
 			var expectBitrate api.Bandwidth
 			if streamType == StreamTypeVideo {
-				expectBitrate = backend.maxStreamBitrate
+				expectBitrate = backend.MaxStreamBitrate()
 			} else {
-				expectBitrate = backend.maxScreenBitrate
+				expectBitrate = backend.MaxScreenBitrate()
 			}
 			assert.Equal(expectBitrate, pub.settings.Bitrate)
 		})
