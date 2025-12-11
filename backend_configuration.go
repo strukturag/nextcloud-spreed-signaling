@@ -22,7 +22,6 @@
 package signaling
 
 import (
-	"bytes"
 	"fmt"
 	"net/url"
 	"slices"
@@ -31,9 +30,9 @@ import (
 
 	"github.com/dlintw/goconf"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -43,134 +42,13 @@ const (
 	DefaultBackendType = BackendTypeStatic
 )
 
-var (
-	SessionLimitExceeded = api.NewError("session_limit_exceeded", "Too many sessions connected for this backend.")
-)
-
-type Backend struct {
-	id     string
-	urls   []string
-	secret []byte
-
-	allowHttp bool
-
-	maxStreamBitrate api.Bandwidth
-	maxScreenBitrate api.Bandwidth
-
-	sessionLimit uint64
-	sessionsLock sync.Mutex
-	// +checklocks:sessionsLock
-	sessions map[api.PublicSessionId]bool
-
-	counted bool
-}
-
-func (b *Backend) Id() string {
-	return b.id
-}
-
-func (b *Backend) Secret() []byte {
-	return b.secret
-}
-
-func (b *Backend) IsCompat() bool {
-	return len(b.urls) == 0
-}
-
-func (b *Backend) Equal(other *Backend) bool {
-	if b == other {
-		return true
-	} else if b == nil || other == nil {
-		return false
-	}
-
-	return b.id == other.id &&
-		b.allowHttp == other.allowHttp &&
-		b.maxStreamBitrate == other.maxStreamBitrate &&
-		b.maxScreenBitrate == other.maxScreenBitrate &&
-		b.sessionLimit == other.sessionLimit &&
-		bytes.Equal(b.secret, other.secret) &&
-		slices.Equal(b.urls, other.urls)
-}
-
-func (b *Backend) IsUrlAllowed(u *url.URL) bool {
-	switch u.Scheme {
-	case "https":
-		return true
-	case "http":
-		return b.allowHttp
-	default:
-		return false
-	}
-}
-
-func (b *Backend) HasUrl(url string) bool {
-	if b.IsCompat() {
-		// Old-style configuration, only hosts are configured.
-		return true
-	}
-
-	for _, u := range b.urls {
-		if strings.HasPrefix(url, u) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (b *Backend) Urls() []string {
-	return b.urls
-}
-
-func (b *Backend) Limit() int {
-	return int(b.sessionLimit)
-}
-
-func (b *Backend) Len() int {
-	b.sessionsLock.Lock()
-	defer b.sessionsLock.Unlock()
-	return len(b.sessions)
-}
-
-func (b *Backend) AddSession(session Session) error {
-	if session.ClientType() == api.HelloClientTypeInternal || session.ClientType() == api.HelloClientTypeVirtual {
-		// Internal and virtual sessions are not counting to the limit.
-		return nil
-	}
-
-	if b.sessionLimit == 0 {
-		// Not limited
-		return nil
-	}
-
-	b.sessionsLock.Lock()
-	defer b.sessionsLock.Unlock()
-	if b.sessions == nil {
-		b.sessions = make(map[api.PublicSessionId]bool)
-	} else if uint64(len(b.sessions)) >= b.sessionLimit {
-		statsBackendLimitExceededTotal.WithLabelValues(b.id).Inc()
-		return SessionLimitExceeded
-	}
-
-	b.sessions[session.PublicId()] = true
-	return nil
-}
-
-func (b *Backend) RemoveSession(session Session) {
-	b.sessionsLock.Lock()
-	defer b.sessionsLock.Unlock()
-
-	delete(b.sessions, session.PublicId())
-}
-
 type BackendStorage interface {
 	Close()
-	Reload(config *goconf.ConfigFile)
+	Reload(cfg *goconf.ConfigFile)
 
-	GetCompatBackend() *Backend
-	GetBackend(u *url.URL) *Backend
-	GetBackends() []*Backend
+	GetCompatBackend() *talk.Backend
+	GetBackend(u *url.URL) *talk.Backend
+	GetBackends() []*talk.Backend
 }
 
 type BackendStorageStats interface {
@@ -183,29 +61,29 @@ type BackendStorageStats interface {
 type backendStorageCommon struct {
 	mu sync.RWMutex
 	// +checklocks:mu
-	backends map[string][]*Backend
+	backends map[string][]*talk.Backend
 
 	stats BackendStorageStats // +checklocksignore: Only written to from constructor
 }
 
-func (s *backendStorageCommon) GetBackends() []*Backend {
+func (s *backendStorageCommon) GetBackends() []*talk.Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var result []*Backend
+	var result []*talk.Backend
 	for _, entries := range s.backends {
 		result = append(result, entries...)
 	}
-	slices.SortFunc(result, func(a, b *Backend) int {
+	slices.SortFunc(result, func(a, b *talk.Backend) int {
 		return strings.Compare(a.Id(), b.Id())
 	})
-	result = slices.CompactFunc(result, func(a, b *Backend) bool {
+	result = slices.CompactFunc(result, func(a, b *talk.Backend) bool {
 		return a.Id() == b.Id()
 	})
 	return result
 }
 
-func (s *backendStorageCommon) getBackendLocked(u *url.URL) *Backend {
+func (s *backendStorageCommon) getBackendLocked(u *url.URL) *talk.Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -299,16 +177,16 @@ func (b *BackendConfiguration) Reload(config *goconf.ConfigFile) {
 	b.storage.Reload(config)
 }
 
-func (b *BackendConfiguration) GetCompatBackend() *Backend {
+func (b *BackendConfiguration) GetCompatBackend() *talk.Backend {
 	return b.storage.GetCompatBackend()
 }
 
-func (b *BackendConfiguration) GetBackend(u *url.URL) *Backend {
+func (b *BackendConfiguration) GetBackend(u *url.URL) *talk.Backend {
 	u, _ = internal.CanonicalizeUrl(u)
 	return b.storage.GetBackend(u)
 }
 
-func (b *BackendConfiguration) GetBackends() []*Backend {
+func (b *BackendConfiguration) GetBackends() []*talk.Backend {
 	return b.storage.GetBackends()
 }
 

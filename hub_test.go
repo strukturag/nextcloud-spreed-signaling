@@ -822,9 +822,7 @@ func Benchmark_DecodePrivateSessionIdCached(b *testing.B) {
 	for range numDecodeCaches {
 		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
 	}
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	data := &SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),
@@ -851,9 +849,7 @@ func Benchmark_DecodePublicSessionIdCached(b *testing.B) {
 	for range numDecodeCaches {
 		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
 	}
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	data := &SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),

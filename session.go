@@ -28,6 +28,7 @@ import (
 	"sync"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type Permission string
@@ -60,7 +61,7 @@ type Session interface {
 	UserData() json.RawMessage
 	ParsedUserData() (api.StringMap, error)
 
-	Backend() *Backend
+	Backend() *talk.Backend
 	BackendUrl() string
 	ParsedBackendUrl() *url.URL
 

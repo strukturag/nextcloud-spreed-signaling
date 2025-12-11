@@ -31,6 +31,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -138,7 +139,7 @@ func (s *VirtualSession) Data() *SessionIdData {
 	return s.data
 }
 
-func (s *VirtualSession) Backend() *Backend {
+func (s *VirtualSession) Backend() *talk.Backend {
 	return s.session.Backend()
 }
 
