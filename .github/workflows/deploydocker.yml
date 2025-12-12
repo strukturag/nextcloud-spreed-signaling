@@ -46,7 +46,7 @@ jobs:
             type=semver,pattern={{major}}
             type=sha,prefix=
       - name: Cache Docker layers
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-${{ github.sha }}
@@ -116,7 +116,7 @@ jobs:
             type=semver,pattern={{major}}
             type=sha,prefix=
       - name: Cache Docker layers
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-${{ github.sha }}
