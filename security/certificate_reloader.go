@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package security
 
 import (
 	"crypto/tls"
@@ -30,16 +30,17 @@ import (
 	"testing"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/security/internal"
 )
 
 type CertificateReloader struct {
 	logger log.Logger
 
 	certFile    string
-	certWatcher *FileWatcher
+	certWatcher *internal.FileWatcher
 
 	keyFile    string
-	keyWatcher *FileWatcher
+	keyWatcher *internal.FileWatcher
 
 	certificate atomic.Pointer[tls.Certificate]
 
@@ -52,7 +53,7 @@ func NewCertificateReloader(logger log.Logger, certFile string, keyFile string) 
 		return nil, fmt.Errorf("could not load certificate / key: %w", err)
 	}
 
-	deduplicate := defaultDeduplicateWatchEvents
+	deduplicate := internal.DefaultDeduplicateWatchEvents
 	if testing.Testing() {
 		deduplicate = 0
 	}
@@ -63,11 +64,11 @@ func NewCertificateReloader(logger log.Logger, certFile string, keyFile string) 
 		keyFile:  keyFile,
 	}
 	reloader.certificate.Store(&pair)
-	reloader.certWatcher, err = NewFileWatcher(reloader.logger, certFile, reloader.reload, deduplicate)
+	reloader.certWatcher, err = internal.NewFileWatcher(reloader.logger, certFile, reloader.reload, deduplicate)
 	if err != nil {
 		return nil, err
 	}
-	reloader.keyWatcher, err = NewFileWatcher(reloader.logger, keyFile, reloader.reload, deduplicate)
+	reloader.keyWatcher, err = internal.NewFileWatcher(reloader.logger, keyFile, reloader.reload, deduplicate)
 	if err != nil {
 		reloader.certWatcher.Close() // nolint
 		return nil, err
@@ -113,7 +114,7 @@ type CertPoolReloader struct {
 	logger log.Logger
 
 	certFile    string
-	certWatcher *FileWatcher
+	certWatcher *internal.FileWatcher
 
 	pool atomic.Pointer[x509.CertPool]
 
@@ -140,7 +141,7 @@ func NewCertPoolReloader(logger log.Logger, certFile string) (*CertPoolReloader,
 		return nil, err
 	}
 
-	deduplicate := defaultDeduplicateWatchEvents
+	deduplicate := internal.DefaultDeduplicateWatchEvents
 	if testing.Testing() {
 		deduplicate = 0
 	}
@@ -150,7 +151,7 @@ func NewCertPoolReloader(logger log.Logger, certFile string) (*CertPoolReloader,
 		certFile: certFile,
 	}
 	reloader.pool.Store(pool)
-	reloader.certWatcher, err = NewFileWatcher(reloader.logger, certFile, reloader.reload, deduplicate)
+	reloader.certWatcher, err = internal.NewFileWatcher(reloader.logger, certFile, reloader.reload, deduplicate)
 	if err != nil {
 		return nil, err
 	}
