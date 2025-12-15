@@ -49,6 +49,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
@@ -851,7 +852,7 @@ type proxyTestOptions struct {
 	servers []*TestProxyServerHandler
 }
 
-func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx int, lookup *mockDnsLookup) (*mcuProxy, *goconf.ConfigFile) {
+func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx int, lookup *dns.MockLookup) (*mcuProxy, *goconf.ConfigFile) {
 	t.Helper()
 	require := require.New(t)
 	if options.etcd == nil {
@@ -939,7 +940,7 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	return proxy, cfg
 }
 
-func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandler, idx int, lookup *mockDnsLookup) *mcuProxy {
+func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandler, idx int, lookup *dns.MockLookup) *mcuProxy {
 	t.Helper()
 
 	proxy, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
@@ -948,7 +949,7 @@ func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandl
 	return proxy
 }
 
-func newMcuProxyForTest(t *testing.T, idx int, lookup *mockDnsLookup) *mcuProxy {
+func newMcuProxyForTest(t *testing.T, idx int, lookup *dns.MockLookup) *mcuProxy {
 	t.Helper()
 	server := NewProxyServerForTest(t, "DE")
 
@@ -1034,7 +1035,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
 
-	lookup := newMockDnsLookupForTest(t)
+	lookup := dns.NewMockLookupForTest(t)
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server1.server.Start()
@@ -1091,7 +1092,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 		ip1,
 		ip2,
 	})
-	dnsMonitor.checkHostnames()
+	dnsMonitor.CheckHostnames()
 
 	// Wait until connection is established.
 	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
@@ -1121,7 +1122,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 	lookup.Set(u1.Hostname(), []net.IP{
 		ip2,
 	})
-	dnsMonitor.checkHostnames()
+	dnsMonitor.CheckHostnames()
 
 	// Removing the connections takes a short while (asynchronously, closed when unused).
 	waitCtx, cancel = context.WithTimeout(ctx, time.Second)

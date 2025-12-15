@@ -30,16 +30,17 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
-func newProxyConfigStatic(t *testing.T, proxy McuProxy, dns bool, lookup *mockDnsLookup, urls ...string) (ProxyConfig, *DnsMonitor) {
+func newProxyConfigStatic(t *testing.T, proxy McuProxy, dnsDiscovery bool, lookup *dns.MockLookup, urls ...string) (ProxyConfig, *dns.Monitor) {
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "url", strings.Join(urls, " "))
-	if dns {
+	if dnsDiscovery {
 		cfg.AddOption("mcu", "dnsdiscovery", "true")
 	}
-	dnsMonitor := newDnsMonitorForTest(t, time.Hour, lookup) // will be updated manually
+	dnsMonitor := dns.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
 	logger := log.NewLoggerForTest(t)
 	p, err := NewProxyConfigStatic(logger, cfg, proxy, dnsMonitor)
 	require.NoError(t, err)
@@ -77,7 +78,7 @@ func TestProxyConfigStaticSimple(t *testing.T) {
 
 func TestProxyConfigStaticDNS(t *testing.T) {
 	t.Parallel()
-	lookup := newMockDnsLookupForTest(t)
+	lookup := dns.NewMockLookupForTest(t)
 	proxy := newMcuProxyForConfig(t)
 	config, dnsMonitor := newProxyConfigStatic(t, proxy, true, lookup, "https://foo/")
 	require.NoError(t, config.Start())
@@ -89,7 +90,7 @@ func TestProxyConfigStaticDNS(t *testing.T) {
 		net.ParseIP("10.1.2.3"),
 	})
 	proxy.Expect("add", "https://foo/", lookup.Get("foo")...)
-	dnsMonitor.checkHostnames()
+	dnsMonitor.CheckHostnames()
 
 	lookup.Set("foo", []net.IP{
 		net.ParseIP("192.168.0.1"),
@@ -99,7 +100,7 @@ func TestProxyConfigStaticDNS(t *testing.T) {
 	proxy.Expect("keep", "https://foo/", net.ParseIP("192.168.0.1"))
 	proxy.Expect("add", "https://foo/", net.ParseIP("192.168.1.1"), net.ParseIP("192.168.1.2"))
 	proxy.Expect("remove", "https://foo/", net.ParseIP("10.1.2.3"))
-	dnsMonitor.checkHostnames()
+	dnsMonitor.CheckHostnames()
 
 	proxy.Expect("add", "https://bar/")
 	proxy.Expect("remove", "https://foo/", lookup.Get("foo")...)

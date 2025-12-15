@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package dns
 
 import (
 	"context"
@@ -35,22 +35,22 @@ import (
 )
 
 const (
-	defaultDnsMonitorInterval = time.Second
+	defaultMonitorInterval = time.Second
 )
 
-type DnsMonitorCallback = func(entry *DnsMonitorEntry, all []net.IP, add []net.IP, keep []net.IP, remove []net.IP)
+type MonitorCallback = func(entry *MonitorEntry, all []net.IP, add []net.IP, keep []net.IP, remove []net.IP)
 
-type DnsMonitorEntry struct {
-	entry    atomic.Pointer[dnsMonitorEntry]
+type MonitorEntry struct {
+	entry    atomic.Pointer[monitorEntry]
 	url      string
-	callback DnsMonitorCallback
+	callback MonitorCallback
 }
 
-func (e *DnsMonitorEntry) URL() string {
+func (e *MonitorEntry) URL() string {
 	return e.url
 }
 
-type dnsMonitorEntry struct {
+type monitorEntry struct {
 	hostname string
 	hostIP   net.IP
 
@@ -58,10 +58,10 @@ type dnsMonitorEntry struct {
 	// +checklocks:mu
 	ips []net.IP
 	// +checklocks:mu
-	entries map[*DnsMonitorEntry]bool
+	entries map[*MonitorEntry]bool
 }
 
-func (e *dnsMonitorEntry) clearRemoved() bool {
+func (e *monitorEntry) clearRemoved() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -76,7 +76,7 @@ func (e *dnsMonitorEntry) clearRemoved() bool {
 	return deleted && len(e.entries) == 0
 }
 
-func (e *dnsMonitorEntry) setIPs(ips []net.IP, fromIP bool) {
+func (e *monitorEntry) setIPs(ips []net.IP, fromIP bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -133,14 +133,14 @@ func (e *dnsMonitorEntry) setIPs(ips []net.IP, fromIP bool) {
 	}
 }
 
-func (e *dnsMonitorEntry) addEntry(entry *DnsMonitorEntry) {
+func (e *monitorEntry) addEntry(entry *MonitorEntry) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	e.entries[entry] = true
 }
 
-func (e *dnsMonitorEntry) removeEntry(entry *DnsMonitorEntry) bool {
+func (e *monitorEntry) removeEntry(entry *MonitorEntry) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -149,18 +149,18 @@ func (e *dnsMonitorEntry) removeEntry(entry *DnsMonitorEntry) bool {
 }
 
 // +checklocks:e.mu
-func (e *dnsMonitorEntry) runCallbacks(all []net.IP, add []net.IP, keep []net.IP, remove []net.IP) {
+func (e *monitorEntry) runCallbacks(all []net.IP, add []net.IP, keep []net.IP, remove []net.IP) {
 	for entry := range e.entries {
 		entry.callback(entry, all, add, keep, remove)
 	}
 }
 
-type DnsMonitorLookupFunc func(hostname string) ([]net.IP, error)
+type MonitorLookupFunc func(hostname string) ([]net.IP, error)
 
-type DnsMonitor struct {
+type Monitor struct {
 	logger     log.Logger
 	interval   time.Duration
-	lookupFunc DnsMonitorLookupFunc
+	lookupFunc MonitorLookupFunc
 
 	stopCtx  context.Context
 	stopFunc func()
@@ -168,25 +168,22 @@ type DnsMonitor struct {
 
 	mu        sync.RWMutex
 	cond      *sync.Cond
-	hostnames map[string]*dnsMonitorEntry
+	hostnames map[string]*monitorEntry
 
 	tickerWaiting atomic.Bool
 	hasRemoved    atomic.Bool
-
-	// Can be overwritten from tests.
-	checkHostnames func()
 }
 
-func NewDnsMonitor(logger log.Logger, interval time.Duration, lookupFunc DnsMonitorLookupFunc) (*DnsMonitor, error) {
+func NewMonitor(logger log.Logger, interval time.Duration, lookupFunc MonitorLookupFunc) (*Monitor, error) {
 	if interval < 0 {
-		interval = defaultDnsMonitorInterval
+		interval = defaultMonitorInterval
 	}
 	if lookupFunc == nil {
 		lookupFunc = net.LookupIP
 	}
 
 	stopCtx, stopFunc := context.WithCancel(context.Background())
-	monitor := &DnsMonitor{
+	monitor := &Monitor{
 		logger:     logger,
 		interval:   interval,
 		lookupFunc: lookupFunc,
@@ -195,25 +192,24 @@ func NewDnsMonitor(logger log.Logger, interval time.Duration, lookupFunc DnsMoni
 		stopFunc: stopFunc,
 		stopped:  make(chan struct{}),
 
-		hostnames: make(map[string]*dnsMonitorEntry),
+		hostnames: make(map[string]*monitorEntry),
 	}
 	monitor.cond = sync.NewCond(&monitor.mu)
-	monitor.checkHostnames = monitor.doCheckHostnames
 	return monitor, nil
 }
 
-func (m *DnsMonitor) Start() error {
+func (m *Monitor) Start() error {
 	go m.run()
 	return nil
 }
 
-func (m *DnsMonitor) Stop() {
+func (m *Monitor) Stop() {
 	m.stopFunc()
 	m.cond.Signal()
 	<-m.stopped
 }
 
-func (m *DnsMonitor) Add(target string, callback DnsMonitorCallback) (*DnsMonitorEntry, error) {
+func (m *Monitor) Add(target string, callback MonitorCallback) (*MonitorEntry, error) {
 	var hostname string
 	if strings.Contains(target, "://") {
 		// Full URL passed.
@@ -233,17 +229,17 @@ func (m *DnsMonitor) Add(target string, callback DnsMonitorCallback) (*DnsMonito
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	e := &DnsMonitorEntry{
+	e := &MonitorEntry{
 		url:      target,
 		callback: callback,
 	}
 
 	entry, found := m.hostnames[hostname]
 	if !found {
-		entry = &dnsMonitorEntry{
+		entry = &monitorEntry{
 			hostname: hostname,
 			hostIP:   net.ParseIP(hostname),
-			entries:  make(map[*DnsMonitorEntry]bool),
+			entries:  make(map[*MonitorEntry]bool),
 		}
 		m.hostnames[hostname] = entry
 	}
@@ -253,7 +249,7 @@ func (m *DnsMonitor) Add(target string, callback DnsMonitorCallback) (*DnsMonito
 	return e, nil
 }
 
-func (m *DnsMonitor) Remove(entry *DnsMonitorEntry) {
+func (m *Monitor) Remove(entry *MonitorEntry) {
 	oldEntry := entry.entry.Swap(nil)
 	if oldEntry == nil {
 		// Already removed.
@@ -283,7 +279,7 @@ func (m *DnsMonitor) Remove(entry *DnsMonitorEntry) {
 	}
 }
 
-func (m *DnsMonitor) clearRemoved() {
+func (m *Monitor) clearRemoved() {
 	if !m.hasRemoved.CompareAndSwap(true, false) {
 		return
 	}
@@ -298,7 +294,7 @@ func (m *DnsMonitor) clearRemoved() {
 	}
 }
 
-func (m *DnsMonitor) waitForEntries() (waited bool) {
+func (m *Monitor) waitForEntries() (waited bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -309,7 +305,7 @@ func (m *DnsMonitor) waitForEntries() (waited bool) {
 	return
 }
 
-func (m *DnsMonitor) run() {
+func (m *Monitor) run() {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 	defer close(m.stopped)
@@ -320,7 +316,7 @@ func (m *DnsMonitor) run() {
 			if m.stopCtx.Err() == nil {
 				// Initial check when a new entry was added. More checks will be
 				// triggered by the Ticker.
-				m.checkHostnames()
+				m.CheckHostnames()
 				continue
 			}
 		}
@@ -330,12 +326,12 @@ func (m *DnsMonitor) run() {
 		case <-m.stopCtx.Done():
 			return
 		case <-ticker.C:
-			m.checkHostnames()
+			m.CheckHostnames()
 		}
 	}
 }
 
-func (m *DnsMonitor) doCheckHostnames() {
+func (m *Monitor) CheckHostnames() {
 	m.clearRemoved()
 
 	m.mu.RLock()
@@ -346,7 +342,7 @@ func (m *DnsMonitor) doCheckHostnames() {
 	}
 }
 
-func (m *DnsMonitor) checkHostname(entry *dnsMonitorEntry) {
+func (m *Monitor) checkHostname(entry *monitorEntry) {
 	if len(entry.hostIP) > 0 {
 		entry.setIPs([]net.IP{entry.hostIP}, true)
 		return
@@ -361,7 +357,7 @@ func (m *DnsMonitor) checkHostname(entry *dnsMonitorEntry) {
 	entry.setIPs(ips, false)
 }
 
-func (m *DnsMonitor) waitForTicker(ctx context.Context) error {
+func (m *Monitor) WaitForTicker(ctx context.Context) error {
 	for !m.tickerWaiting.Load() {
 		time.Sleep(time.Millisecond)
 		if err := ctx.Err(); err != nil {

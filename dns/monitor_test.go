@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package dns
 
 import (
 	"context"
@@ -33,117 +33,50 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
-type mockDnsLookup struct {
-	sync.RWMutex
-
-	// +checklocks:RWMutex
-	ips map[string][]net.IP
-}
-
-func newMockDnsLookupForTest(t *testing.T) *mockDnsLookup {
-	t.Helper()
-	mock := &mockDnsLookup{
-		ips: make(map[string][]net.IP),
-	}
-	return mock
-}
-
-func (m *mockDnsLookup) Set(host string, ips []net.IP) {
-	m.Lock()
-	defer m.Unlock()
-
-	m.ips[host] = ips
-}
-
-func (m *mockDnsLookup) Get(host string) []net.IP {
-	m.Lock()
-	defer m.Unlock()
-
-	return m.ips[host]
-}
-
-func (m *mockDnsLookup) lookup(host string) ([]net.IP, error) {
-	m.RLock()
-	defer m.RUnlock()
-
-	ips, found := m.ips[host]
-	if !found {
-		return nil, &net.DNSError{
-			Err:        "could not resolve " + host,
-			Name:       host,
-			IsNotFound: true,
-		}
-	}
-
-	return append([]net.IP{}, ips...), nil
-}
-
-func newDnsMonitorForTest(t *testing.T, interval time.Duration, lookup *mockDnsLookup) *DnsMonitor {
-	t.Helper()
-	require := require.New(t)
-
-	logger := log.NewLoggerForTest(t)
-	var lookupFunc DnsMonitorLookupFunc
-	if lookup != nil {
-		lookupFunc = lookup.lookup
-	}
-	monitor, err := NewDnsMonitor(logger, interval, lookupFunc)
-	require.NoError(err)
-
-	t.Cleanup(func() {
-		monitor.Stop()
-	})
-
-	require.NoError(monitor.Start())
-	return monitor
-}
-
-type dnsMonitorReceiverRecord struct {
+type monitorReceiverRecord struct {
 	all    []net.IP
 	add    []net.IP
 	keep   []net.IP
 	remove []net.IP
 }
 
-func (r *dnsMonitorReceiverRecord) Equal(other *dnsMonitorReceiverRecord) bool {
+func (r *monitorReceiverRecord) Equal(other *monitorReceiverRecord) bool {
 	return r == other || (reflect.DeepEqual(r.add, other.add) &&
 		reflect.DeepEqual(r.keep, other.keep) &&
 		reflect.DeepEqual(r.remove, other.remove))
 }
 
-func (r *dnsMonitorReceiverRecord) String() string {
+func (r *monitorReceiverRecord) String() string {
 	return fmt.Sprintf("all=%v, add=%v, keep=%v, remove=%v", r.all, r.add, r.keep, r.remove)
 }
 
 var (
-	expectNone = &dnsMonitorReceiverRecord{} // +checklocksignore: Global readonly variable.
+	expectNone = &monitorReceiverRecord{} // +checklocksignore: Global readonly variable.
 )
 
-type dnsMonitorReceiver struct {
+type monitorReceiver struct {
 	sync.Mutex
 
 	t *testing.T
 	// +checklocks:Mutex
-	expected *dnsMonitorReceiverRecord
+	expected *monitorReceiverRecord
 	// +checklocks:Mutex
-	received *dnsMonitorReceiverRecord
+	received *monitorReceiverRecord
 }
 
-func newDnsMonitorReceiverForTest(t *testing.T) *dnsMonitorReceiver {
-	return &dnsMonitorReceiver{
+func newMonitorReceiverForTest(t *testing.T) *monitorReceiver {
+	return &monitorReceiver{
 		t: t,
 	}
 }
 
-func (r *dnsMonitorReceiver) OnLookup(entry *DnsMonitorEntry, all, add, keep, remove []net.IP) {
+func (r *monitorReceiver) OnLookup(entry *MonitorEntry, all, add, keep, remove []net.IP) {
 	r.Lock()
 	defer r.Unlock()
 
-	received := &dnsMonitorReceiverRecord{
+	received := &monitorReceiverRecord{
 		all:    all,
 		add:    add,
 		keep:   keep,
@@ -169,7 +102,7 @@ func (r *dnsMonitorReceiver) OnLookup(entry *DnsMonitorEntry, all, add, keep, re
 	r.expected = nil
 }
 
-func (r *dnsMonitorReceiver) WaitForExpected(ctx context.Context) {
+func (r *monitorReceiver) WaitForExpected(ctx context.Context) {
 	r.t.Helper()
 	r.Lock()
 	defer r.Unlock()
@@ -188,7 +121,7 @@ func (r *dnsMonitorReceiver) WaitForExpected(ctx context.Context) {
 	}
 }
 
-func (r *dnsMonitorReceiver) Expect(all, add, keep, remove []net.IP) {
+func (r *monitorReceiver) Expect(all, add, keep, remove []net.IP) {
 	r.t.Helper()
 	r.Lock()
 	defer r.Unlock()
@@ -197,7 +130,7 @@ func (r *dnsMonitorReceiver) Expect(all, add, keep, remove []net.IP) {
 		assert.Fail(r.t, "didn't get previous message", "expected %v", r.expected)
 	}
 
-	expected := &dnsMonitorReceiverRecord{
+	expected := &monitorReceiverRecord{
 		all:    all,
 		add:    add,
 		keep:   keep,
@@ -211,7 +144,7 @@ func (r *dnsMonitorReceiver) Expect(all, add, keep, remove []net.IP) {
 	r.expected = expected
 }
 
-func (r *dnsMonitorReceiver) ExpectNone() {
+func (r *monitorReceiver) ExpectNone() {
 	r.t.Helper()
 	r.Lock()
 	defer r.Unlock()
@@ -223,14 +156,14 @@ func (r *dnsMonitorReceiver) ExpectNone() {
 	r.expected = expectNone
 }
 
-func TestDnsMonitor(t *testing.T) {
+func TestMonitor(t *testing.T) {
 	t.Parallel()
-	lookup := newMockDnsLookupForTest(t)
+	lookup := NewMockLookupForTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
 	interval := time.Millisecond
-	monitor := newDnsMonitorForTest(t, interval, lookup)
+	monitor := NewMonitorForTest(t, interval, lookup)
 
 	ip1 := net.ParseIP("192.168.0.1")
 	ip2 := net.ParseIP("192.168.1.1")
@@ -241,7 +174,7 @@ func TestDnsMonitor(t *testing.T) {
 	}
 	lookup.Set("foo", ips1)
 
-	rec1 := newDnsMonitorReceiverForTest(t)
+	rec1 := newMonitorReceiverForTest(t)
 	rec1.Expect(ips1, ips1, nil, nil)
 
 	entry1, err := monitor.Add("https://foo:12345", rec1.OnLookup)
@@ -292,20 +225,20 @@ func TestDnsMonitor(t *testing.T) {
 	time.Sleep(5 * interval)
 }
 
-func TestDnsMonitorIP(t *testing.T) {
+func TestMonitorIP(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
 	interval := time.Millisecond
-	monitor := newDnsMonitorForTest(t, interval, nil)
+	monitor := NewMonitorForTest(t, interval, nil)
 
 	ip := "192.168.0.1"
 	ips := []net.IP{
 		net.ParseIP(ip),
 	}
 
-	rec1 := newDnsMonitorReceiverForTest(t)
+	rec1 := newMonitorReceiverForTest(t)
 	rec1.Expect(ips, ips, nil, nil)
 
 	entry, err := monitor.Add(ip+":12345", rec1.OnLookup)
@@ -318,15 +251,15 @@ func TestDnsMonitorIP(t *testing.T) {
 	time.Sleep(5 * interval)
 }
 
-func TestDnsMonitorNoLookupIfEmpty(t *testing.T) {
+func TestMonitorNoLookupIfEmpty(t *testing.T) {
 	t.Parallel()
 	interval := time.Millisecond
-	monitor := newDnsMonitorForTest(t, interval, nil)
+	monitor := NewMonitorForTest(t, interval, nil)
 
 	var checked atomic.Bool
-	monitor.checkHostnames = func() {
+	monitor.lookupFunc = func(hostname string) ([]net.IP, error) {
 		checked.Store(true)
-		monitor.doCheckHostnames()
+		return net.LookupIP(hostname)
 	}
 
 	time.Sleep(10 * interval)
@@ -335,20 +268,20 @@ func TestDnsMonitorNoLookupIfEmpty(t *testing.T) {
 
 type deadlockMonitorReceiver struct {
 	t       *testing.T
-	monitor *DnsMonitor // +checklocksignore: Only written to from constructor.
+	monitor *Monitor // +checklocksignore: Only written to from constructor.
 
 	mu sync.RWMutex
 	wg sync.WaitGroup
 
 	// +checklocks:mu
-	entry   *DnsMonitorEntry
+	entry   *MonitorEntry
 	started chan struct{}
 	// +checklocks:mu
 	triggered bool
 	closed    atomic.Bool
 }
 
-func newDeadlockMonitorReceiver(t *testing.T, monitor *DnsMonitor) *deadlockMonitorReceiver {
+func newDeadlockMonitorReceiver(t *testing.T, monitor *Monitor) *deadlockMonitorReceiver {
 	return &deadlockMonitorReceiver{
 		t:       t,
 		monitor: monitor,
@@ -356,7 +289,7 @@ func newDeadlockMonitorReceiver(t *testing.T, monitor *DnsMonitor) *deadlockMoni
 	}
 }
 
-func (r *deadlockMonitorReceiver) OnLookup(entry *DnsMonitorEntry, all []net.IP, add []net.IP, keep []net.IP, remove []net.IP) {
+func (r *deadlockMonitorReceiver) OnLookup(entry *MonitorEntry, all []net.IP, add []net.IP, keep []net.IP, remove []net.IP) {
 	if !assert.False(r.t, r.closed.Load(), "received lookup after closed") {
 		return
 	}
@@ -404,15 +337,15 @@ func (r *deadlockMonitorReceiver) Close() {
 	r.wg.Wait()
 }
 
-func TestDnsMonitorDeadlock(t *testing.T) {
+func TestMonitorDeadlock(t *testing.T) {
 	t.Parallel()
-	lookup := newMockDnsLookupForTest(t)
+	lookup := NewMockLookupForTest(t)
 	ip1 := net.ParseIP("192.168.0.1")
 	ip2 := net.ParseIP("192.168.0.2")
 	lookup.Set("foo", []net.IP{ip1})
 
 	interval := time.Millisecond
-	monitor := newDnsMonitorForTest(t, interval, lookup)
+	monitor := NewMonitorForTest(t, interval, lookup)
 
 	r := newDeadlockMonitorReceiver(t, monitor)
 	r.Start()

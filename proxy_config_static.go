@@ -31,6 +31,7 @@ import (
 	"github.com/dlintw/goconf"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -38,7 +39,7 @@ import (
 type ipList struct {
 	hostname string
 
-	entry *DnsMonitorEntry
+	entry *dns.MonitorEntry
 	ips   []net.IP
 }
 
@@ -47,7 +48,7 @@ type proxyConfigStatic struct {
 	mu     sync.Mutex
 	proxy  McuProxy
 
-	dnsMonitor *DnsMonitor
+	dnsMonitor *dns.Monitor
 	// +checklocks:mu
 	dnsDiscovery bool
 
@@ -55,7 +56,7 @@ type proxyConfigStatic struct {
 	connectionsMap map[string]*ipList
 }
 
-func NewProxyConfigStatic(logger log.Logger, config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *DnsMonitor) (ProxyConfig, error) {
+func NewProxyConfigStatic(logger log.Logger, config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *dns.Monitor) (ProxyConfig, error) {
 	result := &proxyConfigStatic{
 		logger:         logger,
 		proxy:          proxy,
@@ -192,7 +193,7 @@ func (p *proxyConfigStatic) Reload(config *goconf.ConfigFile) error {
 	return p.configure(config, true)
 }
 
-func (p *proxyConfigStatic) onLookup(entry *DnsMonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
+func (p *proxyConfigStatic) onLookup(entry *dns.MonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

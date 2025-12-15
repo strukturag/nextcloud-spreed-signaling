@@ -45,6 +45,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -450,7 +451,7 @@ func (c *GrpcClient) ProxySession(ctx context.Context, sessionId api.PublicSessi
 
 type grpcClientsList struct {
 	clients []*GrpcClient
-	entry   *DnsMonitorEntry
+	entry   *dns.MonitorEntry
 }
 
 type GrpcClients struct {
@@ -463,7 +464,7 @@ type GrpcClients struct {
 	// +checklocks:mu
 	clients []*GrpcClient
 
-	dnsMonitor *DnsMonitor
+	dnsMonitor *dns.Monitor
 	// +checklocks:mu
 	dnsDiscovery bool
 
@@ -483,7 +484,7 @@ type GrpcClients struct {
 	closeFunc context.CancelFunc // +checklocksignore: No locking necessary.
 }
 
-func NewGrpcClients(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd.Client, dnsMonitor *DnsMonitor, version string) (*GrpcClients, error) {
+func NewGrpcClients(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd.Client, dnsMonitor *dns.Monitor, version string) (*GrpcClients, error) {
 	initializedCtx, initializedFunc := context.WithCancel(context.Background())
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 	result := &GrpcClients{
@@ -743,7 +744,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 	return nil
 }
 
-func (c *GrpcClients) onLookup(entry *DnsMonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
+func (c *GrpcClients) onLookup(entry *dns.MonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
