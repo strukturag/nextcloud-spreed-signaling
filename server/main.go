@@ -43,6 +43,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -196,7 +197,7 @@ func main() {
 		}
 	}()
 
-	dnsMonitor, err := signaling.NewDnsMonitor(logger, dnsMonitorInterval, nil)
+	dnsMonitor, err := dns.NewMonitor(logger, dnsMonitorInterval, nil)
 	if err != nil {
 		logger.Fatal("Could not create DNS monitor: ", err)
 	}
