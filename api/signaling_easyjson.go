@@ -8,6 +8,7 @@ import (
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
+	geoip "github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	time "time"
 )
 
@@ -70,7 +71,7 @@ func easyjson6128dd2DecodeGithubComStrukturagNextcloudSpreedSignalingApi(in *jle
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Country = string(in.String())
+				out.Country = geoip.Country(in.String())
 			}
 		default:
 			in.SkipRecursive()

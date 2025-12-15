@@ -46,6 +46,10 @@ component_management:
       name: etcd
       paths:
         - etcd/**
+    - component_id: module_geoip
+      name: geoip
+      paths:
+        - geoip/**
     - component_id: module_internal
       name: internal
       paths:

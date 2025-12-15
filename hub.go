@@ -56,6 +56,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -207,8 +208,8 @@ type Hub struct {
 	backend        *BackendClient
 
 	trustedProxies atomic.Pointer[container.IPList]
-	geoip          *GeoLookup
-	geoipOverrides atomic.Pointer[map[*net.IPNet]string]
+	geoip          *geoip.Lookup
+	geoipOverrides geoip.AtomicOverrides
 	geoipUpdating  atomic.Bool
 
 	etcdClient etcd.Client
@@ -329,18 +330,18 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events AsyncEvents, rpc
 	}
 	if geoipUrl == "" {
 		if geoipLicense, _ := cfg.GetString("geoip", "license"); geoipLicense != "" {
-			geoipUrl = GetGeoIpDownloadUrl(geoipLicense)
+			geoipUrl = geoip.GetMaxMindDownloadUrl(geoipLicense)
 		}
 	}
 
-	var geoip *GeoLookup
+	var geoipLookup *geoip.Lookup
 	if geoipUrl != "" {
 		if geoipUrl, found := strings.CutPrefix(geoipUrl, "file://"); found {
 			logger.Printf("Using GeoIP database from %s", geoipUrl)
-			geoip, err = NewGeoLookupFromFile(logger, geoipUrl)
+			geoipLookup, err = geoip.NewLookupFromFile(logger, geoipUrl)
 		} else {
 			logger.Printf("Downloading GeoIP database from %s", geoipUrl)
-			geoip, err = NewGeoLookupFromUrl(logger, geoipUrl)
+			geoipLookup, err = geoip.NewLookupFromUrl(logger, geoipUrl)
 		}
 		if err != nil {
 			return nil, err
@@ -349,7 +350,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events AsyncEvents, rpc
 		logger.Printf("Not using GeoIP database")
 	}
 
-	geoipOverrides, err := LoadGeoIPOverrides(ctx, cfg, false)
+	geoipOverrides, err := geoip.LoadOverrides(ctx, cfg, false)
 	if err != nil {
 		return nil, err
 	}
@@ -409,7 +410,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events AsyncEvents, rpc
 		backendTimeout: backendTimeout,
 		backend:        backend,
 
-		geoip: geoip,
+		geoip: geoipLookup,
 
 		etcdClient: etcdClient,
 		rpcServer:  rpcServer,
@@ -444,9 +445,8 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events AsyncEvents, rpc
 	}
 
 	hub.trustedProxies.Store(trustedProxiesIps)
-	if len(geoipOverrides) > 0 {
-		hub.geoipOverrides.Store(&geoipOverrides)
-	}
+	hub.geoipOverrides.Store(geoipOverrides)
+
 	hub.setWelcomeMessage(&api.ServerMessage{
 		Type:    "welcome",
 		Welcome: api.NewWelcomeServerMessage(version, api.DefaultWelcomeFeatures...),
@@ -588,12 +588,8 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 		h.logger.Printf("Error parsing trusted proxies from \"%s\": %s", trustedProxies, err)
 	}
 
-	geoipOverrides, _ := LoadGeoIPOverrides(ctx, config, true)
-	if len(geoipOverrides) > 0 {
-		h.geoipOverrides.Store(&geoipOverrides)
-	} else {
-		h.geoipOverrides.Store(nil)
-	}
+	geoipOverrides, _ := geoip.LoadOverrides(ctx, config, true)
+	h.geoipOverrides.Store(geoipOverrides)
 
 	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
 		if allowed, err := container.ParseIPList(value); err != nil {
@@ -1066,8 +1062,8 @@ func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backe
 	}
 	h.mu.Unlock()
 
-	if country := client.Country(); IsValidCountry(country) {
-		statsClientCountries.WithLabelValues(country).Inc()
+	if country := client.Country(); geoip.IsValidCountry(country) {
+		statsClientCountries.WithLabelValues(string(country)).Inc()
 	}
 	statsHubSessionsCurrent.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
 	statsHubSessionsTotal.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
@@ -3157,35 +3153,31 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	client.ReadPump()
 }
 
-func (h *Hub) OnLookupCountry(client HandlerClient) string {
+func (h *Hub) OnLookupCountry(client HandlerClient) geoip.Country {
 	ip := net.ParseIP(client.RemoteAddr())
 	if ip == nil {
-		return noCountry
+		return geoip.NoCountry
 	}
 
-	if overrides := h.geoipOverrides.Load(); overrides != nil {
-		for overrideNet, country := range *overrides {
-			if overrideNet.Contains(ip) {
-				return country
-			}
-		}
+	if country, found := h.geoipOverrides.Load().Lookup(ip); found {
+		return country
 	}
 
 	if ip.IsLoopback() {
-		return loopback
+		return geoip.Loopback
 	}
 
-	country := unknownCountry
+	country := geoip.UnknownCountry
 	if h.geoip != nil {
 		var err error
 		country, err = h.geoip.LookupCountry(ip)
 		if err != nil {
 			h.logger.Printf("Could not lookup country for %s: %s", ip, err)
-			return unknownCountry
+			return geoip.UnknownCountry
 		}
 
 		if country == "" {
-			country = unknownCountry
+			country = geoip.UnknownCountry
 		}
 	}
 	return country

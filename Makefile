@@ -21,7 +21,7 @@ GRPC_PROTO_GO_FILES := $(addsuffix .pb.go,$(GRPC_PROTO_FILES)) $(addsuffix _grpc
 TEST_GO_FILES := $(wildcard *_test.go))
 EASYJSON_FILES := $(filter-out $(TEST_GO_FILES),$(wildcard api*.go api/signaling.go */api.go talk/ocs.go))
 EASYJSON_GO_FILES := $(patsubst %.go,%_easyjson.go,$(EASYJSON_FILES))
-COMMON_GO_FILES := $(filter-out continentmap.go $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES) $(EASYJSON_GO_FILES) $(TEST_GO_FILES),$(wildcard *.go))
+COMMON_GO_FILES := $(filter-out geoip/continentmap.go $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES) $(EASYJSON_GO_FILES) $(TEST_GO_FILES),$(wildcard *.go))
 CLIENT_TEST_GO_FILES := $(wildcard client/*_test.go))
 CLIENT_GO_FILES := $(filter-out $(CLIENT_TEST_GO_FILES),$(wildcard client/*.go))
 SERVER_TEST_GO_FILES := $(wildcard server/*_test.go))
@@ -92,7 +92,7 @@ $(GOPATHBIN)/protoc-gen-go-grpc: go.mod go.sum
 $(GOPATHBIN)/checklocks: go.mod go.sum
 	$(GO) install gvisor.dev/gvisor/tools/checklocks/cmd/checklocks@go
 
-continentmap.go:
+geoip/continentmap.go:
 	$(CURDIR)/scripts/get_continent_map.py $@
 
 check-continentmap:
@@ -100,7 +100,7 @@ check-continentmap:
 	TMP=$$(mktemp -d) ;\
 	echo Make sure to remove $$TMP on error ;\
 	$(CURDIR)/scripts/get_continent_map.py $$TMP/continentmap.go ;\
-	diff -u continentmap.go $$TMP/continentmap.go ;\
+	diff -u geoip/continentmap.go $$TMP/continentmap.go ;\
 	rm -rf $$TMP
 
 get:
@@ -215,6 +215,6 @@ tarball: vendor | $(TMPDIR)
 dist: tarball
 
 .NOTPARALLEL: $(EASYJSON_GO_FILES)
-.PHONY: continentmap.go common vendor
+.PHONY: geoip/continentmap.go common vendor
 .SECONDARY: $(EASYJSON_GO_FILES) $(PROTO_GO_FILES)
 .DELETE_ON_ERROR:
