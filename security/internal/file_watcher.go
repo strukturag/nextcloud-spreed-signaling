@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package internal
 
 import (
 	"context"
@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	defaultDeduplicateWatchEvents = 100 * time.Millisecond
+	DefaultDeduplicateWatchEvents = 100 * time.Millisecond
 )
 
 type FileWatcherCallback func(filename string)
