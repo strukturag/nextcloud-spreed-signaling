@@ -34,8 +34,9 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/server/v3/embed"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
@@ -54,7 +55,7 @@ func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
 	return ch
 }
 
-func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient *EtcdClient, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
+func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
 	dnsMonitor := newDnsMonitorForTest(t, time.Hour, lookup) // will be updated manually
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
@@ -75,15 +76,15 @@ func NewGrpcClientsForTest(t *testing.T, addr string, lookup *mockDnsLookup) (*G
 	return NewGrpcClientsForTestWithConfig(t, config, nil, lookup)
 }
 
-func NewGrpcClientsWithEtcdForTest(t *testing.T, etcd *embed.Etcd, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
+func NewGrpcClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
 	config := goconf.NewConfigFile()
-	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
+	config.AddOption("etcd", "endpoints", embedEtcd.URL().String())
 
 	config.AddOption("grpc", "targettype", "etcd")
 	config.AddOption("grpc", "targetprefix", "/grpctargets")
 
 	logger := log.NewLoggerForTest(t)
-	etcdClient, err := NewEtcdClient(logger, config, "")
+	etcdClient, err := etcd.NewClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, etcdClient.Close())
@@ -120,12 +121,12 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) { // nolint:paralleltest
 		_, addr1 := NewGrpcServerForTest(t)
 		_, addr2 := NewGrpcServerForTest(t)
 
-		etcd := NewEtcdForTest(t)
+		embedEtcd := etcdtest.NewServerForTest(t)
 
-		SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-		SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+		embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+		embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
-		client, _ := NewGrpcClientsWithEtcdForTest(t, etcd, nil)
+		client, _ := NewGrpcClientsWithEtcdForTest(t, embedEtcd, nil)
 		ctx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
 		require.NoError(t, client.WaitForInitialized(ctx))
@@ -140,8 +141,8 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
-	etcd := NewEtcdForTest(t)
-	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd, nil)
+	embedEtcd := etcdtest.NewServerForTest(t)
+	client, _ := NewGrpcClientsWithEtcdForTest(t, embedEtcd, nil)
 	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(ctx, testTimeout)
@@ -151,7 +152,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 
 	drainWakeupChannel(ch)
 	_, addr1 := NewGrpcServerForTest(t)
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	waitForEvent(ctx, t, ch)
 	if clients := client.GetClients(); assert.Len(clients, 1) {
 		assert.Equal(addr1, clients[0].Target())
@@ -159,7 +160,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 
 	drainWakeupChannel(ch)
 	_, addr2 := NewGrpcServerForTest(t)
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 	waitForEvent(ctx, t, ch)
 	if clients := client.GetClients(); assert.Len(clients, 2) {
 		assert.Equal(addr1, clients[0].Target())
@@ -167,7 +168,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	}
 
 	drainWakeupChannel(ch)
-	DeleteEtcdValue(etcd, "/grpctargets/one")
+	embedEtcd.DeleteValue("/grpctargets/one")
 	waitForEvent(ctx, t, ch)
 	if clients := client.GetClients(); assert.Len(clients, 1) {
 		assert.Equal(addr2, clients[0].Target())
@@ -175,7 +176,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 
 	drainWakeupChannel(ch)
 	_, addr3 := NewGrpcServerForTest(t)
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr3+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr3+"\"}"))
 	waitForEvent(ctx, t, ch)
 	if clients := client.GetClients(); assert.Len(clients, 1) {
 		assert.Equal(addr3, clients[0].Target())
@@ -187,8 +188,8 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
-	etcd := NewEtcdForTest(t)
-	client, _ := NewGrpcClientsWithEtcdForTest(t, etcd, nil)
+	embedEtcd := etcdtest.NewServerForTest(t)
+	client, _ := NewGrpcClientsWithEtcdForTest(t, embedEtcd, nil)
 	ch := client.getWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(ctx, testTimeout)
@@ -198,7 +199,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 
 	drainWakeupChannel(ch)
 	_, addr1 := NewGrpcServerForTest(t)
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	waitForEvent(ctx, t, ch)
 	if clients := client.GetClients(); assert.Len(clients, 1) {
 		assert.Equal(addr1, clients[0].Target())
@@ -207,7 +208,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	drainWakeupChannel(ch)
 	server2, addr2 := NewGrpcServerForTest(t)
 	server2.serverId = GrpcServerId
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 	waitForEvent(ctx, t, ch)
 	client.selfCheckWaitGroup.Wait()
 	if clients := client.GetClients(); assert.Len(clients, 1) {
@@ -215,7 +216,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	}
 
 	drainWakeupChannel(ch)
-	DeleteEtcdValue(etcd, "/grpctargets/two")
+	embedEtcd.DeleteValue("/grpctargets/two")
 	waitForEvent(ctx, t, ch)
 	if clients := client.GetClients(); assert.Len(clients, 1) {
 		assert.Equal(addr1, clients[0].Target())

@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package etcd
 
 import (
 	"context"
@@ -46,6 +46,10 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
+)
+
+const (
+	testTimeout = 10 * time.Second
 )
 
 var (
@@ -129,7 +133,7 @@ func NewEtcdForTest(t *testing.T) *embed.Etcd {
 	return etcd
 }
 
-func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
+func NewClientForTest(t *testing.T) (*embed.Etcd, Client) {
 	etcd := NewEtcdForTest(t)
 
 	config := goconf.NewConfigFile()
@@ -137,7 +141,7 @@ func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	config.AddOption("etcd", "loglevel", "error")
 
 	logger := log.NewLoggerForTest(t)
-	client, err := NewEtcdClient(logger, config, "")
+	client, err := NewClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, client.Close())
@@ -145,7 +149,7 @@ func NewEtcdClientForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	return etcd, client
 }
 
-func NewEtcdClientWithTLSForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
+func NewEtcdClientWithTLSForTest(t *testing.T) (*embed.Etcd, Client) {
 	etcd, keyfile, certfile := NewEtcdForTestWithTls(t, true)
 
 	config := goconf.NewConfigFile()
@@ -156,7 +160,7 @@ func NewEtcdClientWithTLSForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	config.AddOption("etcd", "cacert", certfile)
 
 	logger := log.NewLoggerForTest(t)
-	client, err := NewEtcdClient(logger, config, "")
+	client, err := NewClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, client.Close())
@@ -164,14 +168,14 @@ func NewEtcdClientWithTLSForTest(t *testing.T) (*embed.Etcd, *EtcdClient) {
 	return etcd, client
 }
 
-func SetEtcdValue(etcd *embed.Etcd, key string, value []byte) {
+func SetValue(etcd *embed.Etcd, key string, value []byte) {
 	if kv := etcd.Server.KV(); kv != nil {
 		kv.Put([]byte(key), value, lease.NoLease)
 		kv.Commit()
 	}
 }
 
-func DeleteEtcdValue(etcd *embed.Etcd, key string) {
+func DeleteValue(etcd *embed.Etcd, key string) {
 	if kv := etcd.Server.KV(); kv != nil {
 		kv.DeleteRange([]byte(key), nil)
 		kv.Commit()
@@ -184,7 +188,7 @@ func Test_EtcdClient_Get(t *testing.T) {
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	require := require.New(t)
-	etcd, client := NewEtcdClientForTest(t)
+	etcd, client := NewClientForTest(t)
 
 	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
@@ -194,9 +198,7 @@ func Test_EtcdClient_Get(t *testing.T) {
 		assert.Equal([]string{
 			etcd.Config().ListenClientUrls[0].String(),
 		}, info.Endpoints)
-		if connected := info.Connected; assert.NotNil(connected) {
-			assert.False(*connected)
-		}
+		assert.NotNil(info.Connected)
 	}
 
 	require.NoError(client.WaitForConnection(ctx))
@@ -215,7 +217,7 @@ func Test_EtcdClient_Get(t *testing.T) {
 		assert.EqualValues(0, response.Count)
 	}
 
-	SetEtcdValue(etcd, "foo", []byte("bar"))
+	SetValue(etcd, "foo", []byte("bar"))
 
 	if response, err := client.Get(ctx, "foo"); assert.NoError(err) {
 		if assert.EqualValues(1, response.Count) {
@@ -241,9 +243,7 @@ func Test_EtcdClientTLS_Get(t *testing.T) {
 		assert.Equal([]string{
 			etcd.Config().ListenClientUrls[0].String(),
 		}, info.Endpoints)
-		if connected := info.Connected; assert.NotNil(connected) {
-			assert.False(*connected)
-		}
+		assert.NotNil(info.Connected)
 	}
 
 	require.NoError(client.WaitForConnection(ctx))
@@ -262,7 +262,7 @@ func Test_EtcdClientTLS_Get(t *testing.T) {
 		assert.EqualValues(0, response.Count)
 	}
 
-	SetEtcdValue(etcd, "foo", []byte("bar"))
+	SetValue(etcd, "foo", []byte("bar"))
 
 	if response, err := client.Get(ctx, "foo"); assert.NoError(err) {
 		if assert.EqualValues(1, response.Count) {
@@ -277,15 +277,15 @@ func Test_EtcdClient_GetPrefix(t *testing.T) {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
-	etcd, client := NewEtcdClientForTest(t)
+	etcd, client := NewClientForTest(t)
 
 	if response, err := client.Get(ctx, "foo"); assert.NoError(err) {
 		assert.EqualValues(0, response.Count)
 	}
 
-	SetEtcdValue(etcd, "foo", []byte("1"))
-	SetEtcdValue(etcd, "foo/lala", []byte("2"))
-	SetEtcdValue(etcd, "lala/foo", []byte("3"))
+	SetValue(etcd, "foo", []byte("1"))
+	SetValue(etcd, "foo/lala", []byte("2"))
+	SetValue(etcd, "lala/foo", []byte("3"))
 
 	if response, err := client.Get(ctx, "foo", clientv3.WithPrefix()); assert.NoError(err) {
 		if assert.EqualValues(2, response.Count) {
@@ -332,7 +332,7 @@ func (l *EtcdClientTestListener) Close() {
 	l.cancel()
 }
 
-func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
+func (l *EtcdClientTestListener) EtcdClientCreated(client Client) {
 	go func() {
 		assert := assert.New(l.t)
 		if err := client.WaitForConnection(l.ctx); !assert.NoError(err) {
@@ -358,10 +358,10 @@ func (l *EtcdClientTestListener) EtcdClientCreated(client *EtcdClient) {
 	}()
 }
 
-func (l *EtcdClientTestListener) EtcdWatchCreated(client *EtcdClient, key string) {
+func (l *EtcdClientTestListener) EtcdWatchCreated(client Client, key string) {
 }
 
-func (l *EtcdClientTestListener) EtcdKeyUpdated(client *EtcdClient, key string, value []byte, prevValue []byte) {
+func (l *EtcdClientTestListener) EtcdKeyUpdated(client Client, key string, value []byte, prevValue []byte) {
 	evt := etcdEvent{
 		t:     clientv3.EventTypePut,
 		key:   string(key),
@@ -373,7 +373,7 @@ func (l *EtcdClientTestListener) EtcdKeyUpdated(client *EtcdClient, key string, 
 	l.events <- evt
 }
 
-func (l *EtcdClientTestListener) EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte) {
+func (l *EtcdClientTestListener) EtcdKeyDeleted(client Client, key string, prevValue []byte) {
 	evt := etcdEvent{
 		t:   clientv3.EventTypeDelete,
 		key: string(key),
@@ -389,9 +389,9 @@ func Test_EtcdClient_Watch(t *testing.T) {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
-	etcd, client := NewEtcdClientForTest(t)
+	etcd, client := NewClientForTest(t)
 
-	SetEtcdValue(etcd, "foo/a", []byte("1"))
+	SetValue(etcd, "foo/a", []byte("1"))
 
 	listener := NewEtcdClientTestListener(ctx, t)
 	defer listener.Close()
@@ -401,19 +401,19 @@ func Test_EtcdClient_Watch(t *testing.T) {
 
 	<-listener.initial
 
-	SetEtcdValue(etcd, "foo/b", []byte("2"))
+	SetValue(etcd, "foo/b", []byte("2"))
 	event := <-listener.events
 	assert.Equal(clientv3.EventTypePut, event.t)
 	assert.Equal("foo/b", event.key)
 	assert.Equal("2", event.value)
 
-	SetEtcdValue(etcd, "foo/a", []byte("3"))
+	SetValue(etcd, "foo/a", []byte("3"))
 	event = <-listener.events
 	assert.Equal(clientv3.EventTypePut, event.t)
 	assert.Equal("foo/a", event.key)
 	assert.Equal("3", event.value)
 
-	DeleteEtcdValue(etcd, "foo/a")
+	DeleteValue(etcd, "foo/a")
 	event = <-listener.events
 	assert.Equal(clientv3.EventTypeDelete, event.t)
 	assert.Equal("foo/a", event.key)

@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package etcd
 
 import (
 	"context"
@@ -43,28 +43,23 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
-type EtcdClientListener interface {
-	EtcdClientCreated(client *EtcdClient)
-}
+var (
+	initialWaitDelay = time.Second
+	maxWaitDelay     = 8 * time.Second
+)
 
-type EtcdClientWatcher interface {
-	EtcdWatchCreated(client *EtcdClient, key string)
-	EtcdKeyUpdated(client *EtcdClient, key string, value []byte, prevValue []byte)
-	EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte)
-}
-
-type EtcdClient struct {
+type etcdClient struct {
 	logger        log.Logger
 	compatSection string
 
 	mu     sync.Mutex
 	client atomic.Value
 	// +checklocks:mu
-	listeners map[EtcdClientListener]bool
+	listeners map[ClientListener]bool
 }
 
-func NewEtcdClient(logger log.Logger, config *goconf.ConfigFile, compatSection string) (*EtcdClient, error) {
-	result := &EtcdClient{
+func NewClient(logger log.Logger, config *goconf.ConfigFile, compatSection string) (Client, error) {
+	result := &etcdClient{
 		logger:        logger,
 		compatSection: compatSection,
 	}
@@ -75,7 +70,7 @@ func NewEtcdClient(logger log.Logger, config *goconf.ConfigFile, compatSection s
 	return result, nil
 }
 
-func (c *EtcdClient) GetServerInfoEtcd() *BackendServerInfoEtcd {
+func (c *etcdClient) GetServerInfoEtcd() *BackendServerInfoEtcd {
 	client := c.getEtcdClient()
 	if client == nil {
 		return nil
@@ -94,7 +89,7 @@ func (c *EtcdClient) GetServerInfoEtcd() *BackendServerInfoEtcd {
 	return result
 }
 
-func (c *EtcdClient) getConfigStringWithFallback(config *goconf.ConfigFile, option string) string {
+func (c *etcdClient) getConfigStringWithFallback(config *goconf.ConfigFile, option string) string {
 	value, _ := config.GetString("etcd", option)
 	if value == "" && c.compatSection != "" {
 		value, _ = config.GetString(c.compatSection, option)
@@ -106,7 +101,7 @@ func (c *EtcdClient) getConfigStringWithFallback(config *goconf.ConfigFile, opti
 	return value
 }
 
-func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
+func (c *etcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 	var endpoints []string
 	if endpointsString := c.getConfigStringWithFallback(config, "endpoints"); endpointsString != "" {
 		endpoints = slices.Collect(internal.SplitEntries(endpointsString, ","))
@@ -189,7 +184,7 @@ func (c *EtcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 	return nil
 }
 
-func (c *EtcdClient) Close() error {
+func (c *etcdClient) Close() error {
 	client := c.getEtcdClient()
 	if client != nil {
 		return client.Close()
@@ -198,11 +193,11 @@ func (c *EtcdClient) Close() error {
 	return nil
 }
 
-func (c *EtcdClient) IsConfigured() bool {
+func (c *etcdClient) IsConfigured() bool {
 	return c.getEtcdClient() != nil
 }
 
-func (c *EtcdClient) getEtcdClient() *clientv3.Client {
+func (c *etcdClient) getEtcdClient() *clientv3.Client {
 	client := c.client.Load()
 	if client == nil {
 		return nil
@@ -211,14 +206,14 @@ func (c *EtcdClient) getEtcdClient() *clientv3.Client {
 	return client.(*clientv3.Client)
 }
 
-func (c *EtcdClient) syncClient(ctx context.Context) error {
+func (c *etcdClient) syncClient(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return c.getEtcdClient().Sync(ctx)
 }
 
-func (c *EtcdClient) notifyListeners() {
+func (c *etcdClient) notifyListeners() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -227,12 +222,12 @@ func (c *EtcdClient) notifyListeners() {
 	}
 }
 
-func (c *EtcdClient) AddListener(listener EtcdClientListener) {
+func (c *etcdClient) AddListener(listener ClientListener) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.listeners == nil {
-		c.listeners = make(map[EtcdClientListener]bool)
+		c.listeners = make(map[ClientListener]bool)
 	}
 	c.listeners[listener] = true
 	if client := c.getEtcdClient(); client != nil {
@@ -240,14 +235,14 @@ func (c *EtcdClient) AddListener(listener EtcdClientListener) {
 	}
 }
 
-func (c *EtcdClient) RemoveListener(listener EtcdClientListener) {
+func (c *etcdClient) RemoveListener(listener ClientListener) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	delete(c.listeners, listener)
 }
 
-func (c *EtcdClient) WaitForConnection(ctx context.Context) error {
+func (c *etcdClient) WaitForConnection(ctx context.Context) error {
 	backoff, err := async.NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 	if err != nil {
 		return err
@@ -276,11 +271,11 @@ func (c *EtcdClient) WaitForConnection(ctx context.Context) error {
 	}
 }
 
-func (c *EtcdClient) Get(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
+func (c *etcdClient) Get(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 	return c.getEtcdClient().Get(ctx, key, opts...)
 }
 
-func (c *EtcdClient) Watch(ctx context.Context, key string, nextRevision int64, watcher EtcdClientWatcher, opts ...clientv3.OpOption) (int64, error) {
+func (c *etcdClient) Watch(ctx context.Context, key string, nextRevision int64, watcher ClientWatcher, opts ...clientv3.OpOption) (int64, error) {
 	c.logger.Printf("Wait for leader and start watching on %s (rev=%d)", key, nextRevision)
 	opts = append(opts, clientv3.WithRev(nextRevision), clientv3.WithPrevKV())
 	ch := c.getEtcdClient().Watch(clientv3.WithRequireLeader(ctx), key, opts...)

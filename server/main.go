@@ -43,6 +43,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
@@ -204,7 +205,7 @@ func main() {
 	}
 	defer dnsMonitor.Stop()
 
-	etcdClient, err := signaling.NewEtcdClient(logger, cfg, "mcu")
+	etcdClient, err := etcd.NewClient(logger, cfg, "mcu")
 	if err != nil {
 		logger.Fatalf("Could not create etcd client: %s", err)
 	}

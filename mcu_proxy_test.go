@@ -47,9 +47,10 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/server/v3/embed"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -846,7 +847,7 @@ func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler
 }
 
 type proxyTestOptions struct {
-	etcd    *embed.Etcd
+	etcd    *etcdtest.Server
 	servers []*TestProxyServerHandler
 }
 
@@ -854,7 +855,7 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	t.Helper()
 	require := require.New(t)
 	if options.etcd == nil {
-		options.etcd = NewEtcdForTest(t)
+		options.etcd = etcdtest.NewServerForTest(t)
 	}
 	grpcClients, dnsMonitor := NewGrpcClientsWithEtcdForTest(t, options.etcd, lookup)
 
@@ -891,12 +892,12 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	cfg.AddOption("mcu", "token_key", privkeyFile)
 
 	etcdConfig := goconf.NewConfigFile()
-	etcdConfig.AddOption("etcd", "endpoints", options.etcd.Config().ListenClientUrls[0].String())
+	etcdConfig.AddOption("etcd", "endpoints", options.etcd.URL().String())
 	etcdConfig.AddOption("etcd", "loglevel", "error")
 
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
-	etcdClient, err := NewEtcdClient(logger, etcdConfig, "")
+	etcdClient, err := etcd.NewClient(logger, etcdConfig, "")
 	require.NoError(err)
 	t.Cleanup(func() {
 		assert.NoError(t, etcdClient.Close())
@@ -1808,7 +1809,7 @@ func (h *mockGrpcServerHub) CreateProxyToken(publisherId string) (string, error)
 func Test_ProxyRemotePublisher(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -1818,14 +1819,14 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
 
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1833,7 +1834,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1887,7 +1888,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -1900,16 +1901,16 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	grpcServer2.hub = hub2
 	grpcServer3.hub = hub3
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/three", []byte("{\"address\":\""+addr3+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/three", []byte("{\"address\":\""+addr3+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "US")
 	server3 := NewProxyServerForTest(t, "US")
 
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1918,7 +1919,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1927,7 +1928,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	}, 2, nil)
 	hub2.proxy.Store(mcu2)
 	mcu3, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1993,7 +1994,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 func Test_ProxyRemotePublisherWait(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -2003,14 +2004,14 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
 
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -2018,7 +2019,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -2088,7 +2089,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -2098,21 +2099,21 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
 
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server2,
 		},
@@ -2196,7 +2197,7 @@ loop:
 func Test_ProxyConnectToken(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -2206,8 +2207,8 @@ func Test_ProxyConnectToken(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
@@ -2216,14 +2217,14 @@ func Test_ProxyConnectToken(t *testing.T) {
 	// i.e. they are only known to their local proxy, not the one of the other
 	// signaling server - so the connection token must be passed between them.
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server2,
 		},
@@ -2276,7 +2277,7 @@ func Test_ProxyConnectToken(t *testing.T) {
 func Test_ProxyPublisherToken(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -2286,8 +2287,8 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "US")
@@ -2298,14 +2299,14 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	// Also the subscriber is connecting from a different country, so a remote
 	// stream will be created that needs a valid token from the remote proxy.
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server2,
 		},
