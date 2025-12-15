@@ -42,7 +42,7 @@ type backendStorageEtcd struct {
 	backendStorageCommon
 
 	logger     log.Logger
-	etcdClient *EtcdClient
+	etcdClient etcd.Client
 	keyPrefix  string
 	keyInfos   map[string]*etcd.BackendInformationEtcd
 
@@ -54,7 +54,7 @@ type backendStorageEtcd struct {
 	closeFunc context.CancelFunc
 }
 
-func NewBackendStorageEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, stats BackendStorageStats) (BackendStorage, error) {
+func NewBackendStorageEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient etcd.Client, stats BackendStorageStats) (BackendStorage, error) {
 	if etcdClient == nil || !etcdClient.IsConfigured() {
 		return nil, errors.New("no etcd endpoints configured")
 	}
@@ -106,7 +106,7 @@ func (s *backendStorageEtcd) wakeupForTesting() {
 	}
 }
 
-func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
+func (s *backendStorageEtcd) EtcdClientCreated(client etcd.Client) {
 	go func() {
 		if err := client.WaitForConnection(s.closeCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -164,17 +164,17 @@ func (s *backendStorageEtcd) EtcdClientCreated(client *EtcdClient) {
 	}()
 }
 
-func (s *backendStorageEtcd) EtcdWatchCreated(client *EtcdClient, key string) {
+func (s *backendStorageEtcd) EtcdWatchCreated(client etcd.Client, key string) {
 }
 
-func (s *backendStorageEtcd) getBackends(ctx context.Context, client *EtcdClient, keyPrefix string) (*clientv3.GetResponse, error) {
+func (s *backendStorageEtcd) getBackends(ctx context.Context, client etcd.Client, keyPrefix string) (*clientv3.GetResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return client.Get(ctx, keyPrefix, clientv3.WithPrefix())
 }
 
-func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
+func (s *backendStorageEtcd) EtcdKeyUpdated(client etcd.Client, key string, data []byte, prevValue []byte) {
 	var info etcd.BackendInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
 		s.logger.Printf("Could not decode backend information %s: %s", string(data), err)
@@ -228,7 +228,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data
 	s.wakeupForTesting()
 }
 
-func (s *backendStorageEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte) {
+func (s *backendStorageEtcd) EtcdKeyDeleted(client etcd.Client, key string, prevValue []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

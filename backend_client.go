@@ -33,6 +33,7 @@ import (
 
 	"github.com/dlintw/goconf"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -59,7 +60,7 @@ type BackendClient struct {
 	buffers      pool.BufferPool
 }
 
-func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient *EtcdClient) (*BackendClient, error) {
+func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient etcd.Client) (*BackendClient, error) {
 	logger := log.LoggerFromContext(ctx)
 	backends, err := NewBackendConfiguration(logger, config, etcdClient)
 	if err != nil {

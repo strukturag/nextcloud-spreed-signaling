@@ -45,6 +45,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -466,7 +467,7 @@ type GrpcClients struct {
 	// +checklocks:mu
 	dnsDiscovery bool
 
-	etcdClient   *EtcdClient // +checklocksignore: Only written to from constructor.
+	etcdClient   etcd.Client // +checklocksignore: Only written to from constructor.
 	targetPrefix string
 	// +checklocks:mu
 	targetInformation map[string]*GrpcTargetInformationEtcd
@@ -482,7 +483,7 @@ type GrpcClients struct {
 	closeFunc context.CancelFunc // +checklocksignore: No locking necessary.
 }
 
-func NewGrpcClients(ctx context.Context, config *goconf.ConfigFile, etcdClient *EtcdClient, dnsMonitor *DnsMonitor, version string) (*GrpcClients, error) {
+func NewGrpcClients(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd.Client, dnsMonitor *DnsMonitor, version string) (*GrpcClients, error) {
 	initializedCtx, initializedFunc := context.WithCancel(context.Background())
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 	result := &GrpcClients{
@@ -823,7 +824,7 @@ func (c *GrpcClients) loadTargetsEtcd(config *goconf.ConfigFile, fromReload bool
 	return nil
 }
 
-func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
+func (c *GrpcClients) EtcdClientCreated(client etcd.Client) {
 	go func() {
 		if err := client.WaitForConnection(c.closeCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -879,17 +880,17 @@ func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
 	}()
 }
 
-func (c *GrpcClients) EtcdWatchCreated(client *EtcdClient, key string) {
+func (c *GrpcClients) EtcdWatchCreated(client etcd.Client, key string) {
 }
 
-func (c *GrpcClients) getGrpcTargets(ctx context.Context, client *EtcdClient, targetPrefix string) (*clientv3.GetResponse, error) {
+func (c *GrpcClients) getGrpcTargets(ctx context.Context, client etcd.Client, targetPrefix string) (*clientv3.GetResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return client.Get(ctx, targetPrefix, clientv3.WithPrefix())
 }
 
-func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
+func (c *GrpcClients) EtcdKeyUpdated(client etcd.Client, key string, data []byte, prevValue []byte) {
 	var info GrpcTargetInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
 		c.logger.Printf("Could not decode GRPC target %s=%s: %s", key, string(data), err)
@@ -938,7 +939,7 @@ func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte
 	c.wakeupForTesting()
 }
 
-func (c *GrpcClients) EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte) {
+func (c *GrpcClients) EtcdKeyDeleted(client etcd.Client, key string, prevValue []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

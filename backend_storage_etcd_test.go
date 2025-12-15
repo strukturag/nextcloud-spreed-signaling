@@ -26,8 +26,9 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/server/v3/embed"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
@@ -46,21 +47,20 @@ func (s *backendStorageEtcd) getWakeupChannelForTesting() <-chan struct{} {
 }
 
 type testListener struct {
-	etcd   *embed.Etcd
+	etcd   *etcdtest.TestServer
 	closed chan struct{}
 }
 
-func (tl *testListener) EtcdClientCreated(client *EtcdClient) {
-	tl.etcd.Server.Stop()
+func (tl *testListener) EtcdClientCreated(client etcd.Client) {
 	close(tl.closed)
 }
 
 func Test_BackendStorageEtcdNoLeak(t *testing.T) { // nolint:paralleltest
 	logger := log.NewLoggerForTest(t)
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
-		etcd, client := NewEtcdClientForTest(t)
+		embedEtcd, client := etcdtest.NewClientForTest(t)
 		tl := &testListener{
-			etcd:   etcd,
+			etcd:   embedEtcd,
 			closed: make(chan struct{}),
 		}
 		client.AddListener(tl)

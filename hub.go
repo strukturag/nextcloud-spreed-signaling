@@ -55,6 +55,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -210,7 +211,7 @@ type Hub struct {
 	geoipOverrides atomic.Pointer[map[*net.IPNet]string]
 	geoipUpdating  atomic.Bool
 
-	etcdClient *EtcdClient
+	etcdClient etcd.Client
 	rpcServer  *GrpcServer
 	rpcClients *GrpcClients
 
@@ -223,7 +224,7 @@ type Hub struct {
 	blockedCandidates atomic.Pointer[container.IPList]
 }
 
-func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
+func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
 	logger := log.LoggerFromContext(ctx)
 	hashKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "hashkey")
 	switch len(hashKey) {

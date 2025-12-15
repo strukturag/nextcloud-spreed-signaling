@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 )
 
 const (
@@ -503,13 +504,6 @@ type BackendServerInfoGrpc struct {
 	Version string `json:"version,omitempty"`
 }
 
-type BackendServerInfoEtcd struct {
-	Endpoints []string `json:"endpoints"`
-
-	Active    string `json:"active,omitempty"`
-	Connected *bool  `json:"connected,omitempty"`
-}
-
 type BackendServerInfo struct {
 	Version  string   `json:"version"`
 	Features []string `json:"features"`
@@ -517,7 +511,7 @@ type BackendServerInfo struct {
 	Sfu     *BackendServerInfoSfu      `json:"sfu,omitempty"`
 	Dialout []BackendServerInfoDialout `json:"dialout,omitempty"`
 
-	Nats *BackendServerInfoNats  `json:"nats,omitempty"`
-	Grpc []BackendServerInfoGrpc `json:"grpc,omitempty"`
-	Etcd *BackendServerInfoEtcd  `json:"etcd,omitempty"`
+	Nats *BackendServerInfoNats      `json:"nats,omitempty"`
+	Grpc []BackendServerInfoGrpc     `json:"grpc,omitempty"`
+	Etcd *etcd.BackendServerInfoEtcd `json:"etcd,omitempty"`
 }
