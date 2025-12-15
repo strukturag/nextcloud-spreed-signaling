@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -65,7 +66,7 @@ func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessio
 	return remoteSession, nil
 }
 
-func (s *RemoteSession) Country() string {
+func (s *RemoteSession) Country() geoip.Country {
 	return s.client.Country()
 }
 
@@ -138,7 +139,7 @@ func (s *RemoteSession) Close() {
 	s.client.Close()
 }
 
-func (s *RemoteSession) OnLookupCountry(client HandlerClient) string {
+func (s *RemoteSession) OnLookupCountry(client HandlerClient) geoip.Country {
 	return s.hub.OnLookupCountry(client)
 }
 

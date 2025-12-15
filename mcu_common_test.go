@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 )
 
 func TestCommonMcuStats(t *testing.T) {
@@ -65,9 +66,9 @@ func (m *MockMcuListener) SubscriberClosed(subscriber McuSubscriber) {
 }
 
 type MockMcuInitiator struct {
-	country string
+	country geoip.Country
 }
 
-func (m *MockMcuInitiator) Country() string {
+func (m *MockMcuInitiator) Country() geoip.Country {
 	return m.country
 }

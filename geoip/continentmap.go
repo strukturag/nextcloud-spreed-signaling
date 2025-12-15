@@ -1,10 +1,10 @@
-package signaling
+package geoip
 
 // This file has been automatically generated, do not modify.
 // Source: https://raw.githubusercontent.com/datasets/country-codes/refs/heads/main/data/country-codes.csv
 
 var (
-	ContinentMap = map[string][]string{
+	ContinentMap = map[Country][]Continent{
 		"AD": {"EU"},
 		"AE": {"AS"},
 		"AF": {"AS"},

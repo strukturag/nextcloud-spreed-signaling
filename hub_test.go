@@ -55,6 +55,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
@@ -5218,11 +5219,11 @@ func TestGeoipOverrides(t *testing.T) {
 		return conf, err
 	})
 
-	assert.Equal(loopback, hub.OnLookupCountry(&Client{addr: "127.0.0.1"}))
-	assert.Equal(unknownCountry, hub.OnLookupCountry(&Client{addr: "8.8.8.8"}))
-	assert.Equal(country1, hub.OnLookupCountry(&Client{addr: "10.1.1.2"}))
-	assert.Equal(country2, hub.OnLookupCountry(&Client{addr: "10.2.1.2"}))
-	assert.Equal(strings.ToUpper(country3), hub.OnLookupCountry(&Client{addr: "192.168.10.20"}))
+	assert.Equal(geoip.Loopback, hub.OnLookupCountry(&Client{addr: "127.0.0.1"}))
+	assert.Equal(geoip.UnknownCountry, hub.OnLookupCountry(&Client{addr: "8.8.8.8"}))
+	assert.EqualValues(country1, hub.OnLookupCountry(&Client{addr: "10.1.1.2"}))
+	assert.EqualValues(country2, hub.OnLookupCountry(&Client{addr: "10.2.1.2"}))
+	assert.EqualValues(strings.ToUpper(country3), hub.OnLookupCountry(&Client{addr: "192.168.10.20"}))
 }
 
 func TestDialoutStatus(t *testing.T) {

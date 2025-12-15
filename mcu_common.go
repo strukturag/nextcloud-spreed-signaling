@@ -30,6 +30,7 @@ import (
 	"github.com/dlintw/goconf"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -70,7 +71,7 @@ type McuListener interface {
 }
 
 type McuInitiator interface {
-	Country() string
+	Country() geoip.Country
 }
 
 type McuSettings interface {

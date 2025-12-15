@@ -37,6 +37,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 )
@@ -675,10 +676,10 @@ func (c *TestMcuController) GetStreams(ctx context.Context) ([]PublisherStream, 
 }
 
 type TestMcuInitiator struct {
-	country string
+	country geoip.Country
 }
 
-func (i *TestMcuInitiator) Country() string {
+func (i *TestMcuInitiator) Country() geoip.Country {
 	return i.country
 }
 

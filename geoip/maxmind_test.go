@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package geoip
 
 import (
 	"archive/tar"
@@ -39,8 +39,8 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
-func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
-	tests := map[string]string{
+func testLookupReader(t *testing.T, reader *Lookup) {
+	tests := map[string]Country{
 		// Example from maxminddb-golang code.
 		"81.2.69.142": "GB",
 		// Local addresses don't have a country assigned.
@@ -59,7 +59,7 @@ func testGeoLookupReader(t *testing.T, reader *GeoLookup) {
 	}
 }
 
-func GetGeoIpUrlForTest(t *testing.T) string {
+func GetIpUrlForTest(t *testing.T) string {
 	t.Helper()
 
 	var geoIpUrl string
@@ -72,29 +72,29 @@ func GetGeoIpUrlForTest(t *testing.T) string {
 		if license == "" {
 			t.Skip("No MaxMind GeoLite2 license was set in MAXMIND_GEOLITE2_LICENSE environment variable.")
 		}
-		geoIpUrl = GetGeoIpDownloadUrl(license)
+		geoIpUrl = GetMaxMindDownloadUrl(license)
 	}
 	return geoIpUrl
 }
 
-func TestGeoLookup(t *testing.T) {
+func TestLookup(t *testing.T) {
 	t.Parallel()
 	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
-	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpUrlForTest(t))
+	reader, err := NewLookupFromUrl(logger, GetIpUrlForTest(t))
 	require.NoError(err)
 	defer reader.Close()
 
 	require.NoError(reader.Update())
 
-	testGeoLookupReader(t, reader)
+	testLookupReader(t, reader)
 }
 
-func TestGeoLookupCaching(t *testing.T) {
+func TestLookupCaching(t *testing.T) {
 	t.Parallel()
 	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
-	reader, err := NewGeoLookupFromUrl(logger, GetGeoIpUrlForTest(t))
+	reader, err := NewLookupFromUrl(logger, GetIpUrlForTest(t))
 	require.NoError(err)
 	defer reader.Close()
 
@@ -105,9 +105,9 @@ func TestGeoLookupCaching(t *testing.T) {
 	require.NoError(reader.Update())
 }
 
-func TestGeoLookupContinent(t *testing.T) {
+func TestLookupContinent(t *testing.T) {
 	t.Parallel()
-	tests := map[string][]string{
+	tests := map[Country][]Continent{
 		"AU":      {"OC"},
 		"DE":      {"EU"},
 		"RU":      {"EU"},
@@ -116,7 +116,7 @@ func TestGeoLookupContinent(t *testing.T) {
 	}
 
 	for country, expected := range tests {
-		t.Run(country, func(t *testing.T) {
+		t.Run(string(country), func(t *testing.T) {
 			t.Parallel()
 			continents := LookupContinents(country)
 			if !assert.Len(t, continents, len(expected), "Continents didn't match for %s: got %s, expected %s", country, continents, expected) {
@@ -131,19 +131,19 @@ func TestGeoLookupContinent(t *testing.T) {
 	}
 }
 
-func TestGeoLookupCloseEmpty(t *testing.T) {
+func TestLookupCloseEmpty(t *testing.T) {
 	t.Parallel()
 	logger := log.NewLoggerForTest(t)
-	reader, err := NewGeoLookupFromUrl(logger, "ignore-url")
+	reader, err := NewLookupFromUrl(logger, "ignore-url")
 	require.NoError(t, err)
 	reader.Close()
 }
 
-func TestGeoLookupFromFile(t *testing.T) {
+func TestLookupFromFile(t *testing.T) {
 	t.Parallel()
 	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
-	geoIpUrl := GetGeoIpUrlForTest(t)
+	geoIpUrl := GetIpUrlForTest(t)
 
 	resp, err := http.Get(geoIpUrl)
 	require.NoError(err)
@@ -196,11 +196,11 @@ func TestGeoLookupFromFile(t *testing.T) {
 
 	require.True(foundDatabase, "Did not find GeoIP database in download from %s", geoIpUrl)
 
-	reader, err := NewGeoLookupFromFile(logger, tmpfile.Name())
+	reader, err := NewLookupFromFile(logger, tmpfile.Name())
 	require.NoError(err)
 	defer reader.Close()
 
-	testGeoLookupReader(t, reader)
+	testLookupReader(t, reader)
 }
 
 func TestIsValidContinent(t *testing.T) {

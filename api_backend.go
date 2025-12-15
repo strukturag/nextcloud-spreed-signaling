@@ -35,6 +35,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 )
 
 const (
@@ -458,7 +459,7 @@ type BackendServerInfoSfuProxy struct {
 	Version  string   `json:"version,omitempty"`
 	Features []string `json:"features,omitempty"`
 
-	Country   string                     `json:"country,omitempty"`
+	Country   geoip.Country              `json:"country,omitempty"`
 	Load      *uint64                    `json:"load,omitempty"`
 	Bandwidth *EventProxyServerBandwidth `json:"bandwidth,omitempty"`
 }

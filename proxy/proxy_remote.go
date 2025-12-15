@@ -41,6 +41,7 @@ import (
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -468,9 +469,9 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 		resumed := c.sessionId == msg.Hello.SessionId
 		c.sessionId = msg.Hello.SessionId
 		c.helloReceived = true
-		country := ""
+		var country geoip.Country
 		if msg.Hello.Server != nil {
-			if country = msg.Hello.Server.Country; country != "" && !signaling.IsValidCountry(country) {
+			if country = msg.Hello.Server.Country; country != "" && !geoip.IsValidCountry(country) {
 				c.logger.Printf("Proxy %s sent invalid country %s in hello response", c, country)
 				country = ""
 			}

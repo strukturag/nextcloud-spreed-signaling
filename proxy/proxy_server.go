@@ -54,6 +54,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -108,7 +109,7 @@ var (
 
 type ProxyServer struct {
 	version        string
-	country        string
+	country        geoip.Country
 	welcomeMessage string
 	welcomeMsg     *api.WelcomeServerMessage
 	config         *goconf.ConfigFile
@@ -279,9 +280,9 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 	}
 
-	country, _ := config.GetString("app", "country")
-	country = strings.ToUpper(country)
-	if signaling.IsValidCountry(country) {
+	countryString, _ := config.GetString("app", "country")
+	country := geoip.Country(strings.ToUpper(countryString))
+	if geoip.IsValidCountry(country) {
 		logger.Printf("Sending %s as country information", country)
 	} else if country != "" {
 		return nil, fmt.Errorf("invalid country: %s", country)
@@ -859,7 +860,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 
 type emptyInitiator struct{}
 
-func (i *emptyInitiator) Country() string {
+func (i *emptyInitiator) Country() geoip.Country {
 	return ""
 }
 
