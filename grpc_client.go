@@ -47,6 +47,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -369,7 +370,7 @@ func (c *GrpcClient) GetTransientData(ctx context.Context, room *Room) (Transien
 
 type ProxySessionReceiver interface {
 	RemoteAddr() string
-	Country() string
+	Country() geoip.Country
 	UserAgent() string
 
 	OnProxyMessage(message *ServerSessionMessage) error
@@ -429,7 +430,7 @@ func (c *GrpcClient) ProxySession(ctx context.Context, sessionId api.PublicSessi
 	md := metadata.Pairs(
 		"sessionId", string(sessionId),
 		"remoteAddr", receiver.RemoteAddr(),
-		"country", receiver.Country(),
+		"country", string(receiver.Country()),
 		"userAgent", receiver.UserAgent(),
 	)
 	client, err := c.impl.ProxySession(metadata.NewOutgoingContext(ctx, md), grpc.WaitForReady(true))

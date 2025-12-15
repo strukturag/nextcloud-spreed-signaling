@@ -87,13 +87,13 @@ def generate_map(filename):
     continents.setdefault(country, []).append(continent)
 
   out = StringIO()
-  out.write('package signaling\n')
+  out.write('package geoip\n')
   out.write('\n')
   out.write('// This file has been automatically generated, do not modify.\n')
   out.write('// Source: %s\n' % (URL))
   out.write('\n')
   out.write('var (\n')
-  out.write('\tContinentMap = map[string][]string{\n')
+  out.write('\tContinentMap = map[Country][]Continent{\n')
   for country, continents in sorted(continents.items()):
     value = []
     for continent in continents:

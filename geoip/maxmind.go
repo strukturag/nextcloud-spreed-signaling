@@ -19,12 +19,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package geoip
 
 import (
 	"archive/tar"
 	"compress/gzip"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -36,10 +35,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/dlintw/goconf"
 	"github.com/oschwald/maxminddb-golang"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -47,7 +44,7 @@ var (
 	ErrDatabaseNotInitialized = errors.New("GeoIP database not initialized yet")
 )
 
-func GetGeoIpDownloadUrl(license string) string {
+func GetMaxMindDownloadUrl(license string) string {
 	if license == "" {
 		return ""
 	}
@@ -59,7 +56,7 @@ func GetGeoIpDownloadUrl(license string) string {
 	return result
 }
 
-type GeoLookup struct {
+type Lookup struct {
 	logger log.Logger
 	url    string
 	isFile bool
@@ -71,16 +68,16 @@ type GeoLookup struct {
 	reader atomic.Pointer[maxminddb.Reader]
 }
 
-func NewGeoLookupFromUrl(logger log.Logger, url string) (*GeoLookup, error) {
-	geoip := &GeoLookup{
+func NewLookupFromUrl(logger log.Logger, url string) (*Lookup, error) {
+	geoip := &Lookup{
 		logger: logger,
 		url:    url,
 	}
 	return geoip, nil
 }
 
-func NewGeoLookupFromFile(logger log.Logger, filename string) (*GeoLookup, error) {
-	geoip := &GeoLookup{
+func NewLookupFromFile(logger log.Logger, filename string) (*Lookup, error) {
+	geoip := &Lookup{
 		logger: logger,
 		url:    filename,
 		isFile: true,
@@ -92,13 +89,13 @@ func NewGeoLookupFromFile(logger log.Logger, filename string) (*GeoLookup, error
 	return geoip, nil
 }
 
-func (g *GeoLookup) Close() {
+func (g *Lookup) Close() {
 	if reader := g.reader.Swap(nil); reader != nil {
 		reader.Close()
 	}
 }
 
-func (g *GeoLookup) Update() error {
+func (g *Lookup) Update() error {
 	if g.isFile {
 		return g.updateFile()
 	}
@@ -106,7 +103,7 @@ func (g *GeoLookup) Update() error {
 	return g.updateUrl()
 }
 
-func (g *GeoLookup) updateFile() error {
+func (g *Lookup) updateFile() error {
 	info, err := os.Stat(g.url)
 	if err != nil {
 		return err
@@ -136,7 +133,7 @@ func (g *GeoLookup) updateFile() error {
 	return nil
 }
 
-func (g *GeoLookup) updateUrl() error {
+func (g *Lookup) updateUrl() error {
 	request, err := http.NewRequest("GET", g.url, nil)
 	if err != nil {
 		return err
@@ -219,7 +216,7 @@ func (g *GeoLookup) updateUrl() error {
 	return nil
 }
 
-func (g *GeoLookup) LookupCountry(ip net.IP) (string, error) {
+func (g *Lookup) LookupCountry(ip net.IP) (Country, error) {
 	var record struct {
 		Country struct {
 			ISOCode string `maxminddb:"iso_code"`
@@ -235,103 +232,5 @@ func (g *GeoLookup) LookupCountry(ip net.IP) (string, error) {
 		return "", err
 	}
 
-	return record.Country.ISOCode, nil
-}
-
-func LookupContinents(country string) []string {
-	continents, found := ContinentMap[country]
-	if !found {
-		return nil
-	}
-
-	return continents
-}
-
-func IsValidContinent(continent string) bool {
-	switch continent {
-	case "AF":
-		// Africa
-		fallthrough
-	case "AN":
-		// Antartica
-		fallthrough
-	case "AS":
-		// Asia
-		fallthrough
-	case "EU":
-		// Europe
-		fallthrough
-	case "NA":
-		// North America
-		fallthrough
-	case "SA":
-		// South America
-		fallthrough
-	case "OC":
-		// Oceania
-		return true
-	default:
-		return false
-	}
-}
-
-func LoadGeoIPOverrides(ctx context.Context, cfg *goconf.ConfigFile, ignoreErrors bool) (map[*net.IPNet]string, error) {
-	logger := log.LoggerFromContext(ctx)
-	options, _ := config.GetStringOptions(cfg, "geoip-overrides", true)
-	if len(options) == 0 {
-		return nil, nil
-	}
-
-	var err error
-	geoipOverrides := make(map[*net.IPNet]string, len(options))
-	for option, value := range options {
-		var ip net.IP
-		var ipNet *net.IPNet
-		if strings.Contains(option, "/") {
-			_, ipNet, err = net.ParseCIDR(option)
-			if err != nil {
-				if ignoreErrors {
-					logger.Printf("could not parse CIDR %s (%s), skipping", option, err)
-					continue
-				}
-
-				return nil, fmt.Errorf("could not parse CIDR %s: %s", option, err)
-			}
-		} else {
-			ip = net.ParseIP(option)
-			if ip == nil {
-				if ignoreErrors {
-					logger.Printf("could not parse IP %s, skipping", option)
-					continue
-				}
-
-				return nil, fmt.Errorf("could not parse IP %s", option)
-			}
-
-			var mask net.IPMask
-			if ipv4 := ip.To4(); ipv4 != nil {
-				mask = net.CIDRMask(32, 32)
-			} else {
-				mask = net.CIDRMask(128, 128)
-			}
-			ipNet = &net.IPNet{
-				IP:   ip,
-				Mask: mask,
-			}
-		}
-
-		value = strings.ToUpper(strings.TrimSpace(value))
-		if value == "" {
-			logger.Printf("IP %s doesn't have a country assigned, skipping", option)
-			continue
-		} else if !IsValidCountry(value) {
-			logger.Printf("Country %s for IP %s is invalid, skipping", value, option)
-			continue
-		}
-
-		logger.Printf("Using country %s for %s", value, ipNet)
-		geoipOverrides[ipNet] = value
-	}
-
-	return geoipOverrides, nil
+	return Country(record.Country.ISOCode), nil
 }

@@ -52,6 +52,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -66,7 +67,7 @@ func TestMcuProxyStats(t *testing.T) {
 	collectAndLint(t, proxyMcuStats...)
 }
 
-func newProxyConnectionWithCountry(country string) *mcuProxyConnection {
+func newProxyConnectionWithCountry(country geoip.Country) *mcuProxyConnection {
 	conn := &mcuProxyConnection{}
 	conn.country.Store(country)
 	return conn
@@ -79,7 +80,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 	conn_jp := newProxyConnectionWithCountry("JP")
 	conn_us := newProxyConnectionWithCountry("US")
 
-	testcases := map[string][][]*mcuProxyConnection{
+	testcases := map[geoip.Country][][]*mcuProxyConnection{
 		// Direct country match
 		"DE": {
 			{conn_at, conn_jp, conn_de},
@@ -118,7 +119,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 	}
 
 	for country, test := range testcases {
-		t.Run(country, func(t *testing.T) {
+		t.Run(string(country), func(t *testing.T) {
 			t.Parallel()
 			sorted := sortConnectionsForCountry(test[0], country, nil)
 			for idx, conn := range sorted {
@@ -135,7 +136,7 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 	conn_jp := newProxyConnectionWithCountry("JP")
 	conn_us := newProxyConnectionWithCountry("US")
 
-	testcases := map[string][][]*mcuProxyConnection{
+	testcases := map[geoip.Country][][]*mcuProxyConnection{
 		// Direct country match
 		"DE": {
 			{conn_at, conn_jp, conn_de},
@@ -183,14 +184,14 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 		},
 	}
 
-	continentMap := map[string][]string{
+	continentMap := ContinentsMap{
 		// Use European connections for Africa.
 		"AF": {"EU"},
 		// Use Asian and North American connections for Oceania.
 		"OC": {"AS", "NA"},
 	}
 	for country, test := range testcases {
-		t.Run(country, func(t *testing.T) {
+		t.Run(string(country), func(t *testing.T) {
 			t.Parallel()
 			sorted := sortConnectionsForCountry(test[0], country, continentMap)
 			for idx, conn := range sorted {
@@ -561,7 +562,7 @@ type TestProxyServerHandler struct {
 	servers  []*TestProxyServerHandler
 	tokens   map[string]*rsa.PublicKey
 	upgrader *websocket.Upgrader
-	country  string
+	country  geoip.Country
 
 	mu       sync.Mutex
 	load     atomic.Uint64
@@ -815,7 +816,7 @@ func (h *TestProxyServerHandler) ClearClients() {
 	clear(h.clients)
 }
 
-func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler {
+func NewProxyServerForTest(t *testing.T, country geoip.Country) *TestProxyServerHandler {
 	t.Helper()
 
 	upgrader := websocket.Upgrader{}

@@ -50,6 +50,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -76,6 +77,8 @@ const (
 
 	rttLogDuration = 500 * time.Millisecond
 )
+
+type ContinentsMap map[geoip.Continent][]geoip.Continent
 
 type McuProxy interface {
 	AddConnection(ignoreErrors bool, url string, ips ...net.IP) error
@@ -422,7 +425,7 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP, token str
 	conn.reconnectInterval.Store(int64(initialReconnectInterval))
 	conn.load.Store(loadNotConnected)
 	conn.bandwidth.Store(nil)
-	conn.country.Store("")
+	conn.country.Store(geoip.Country(""))
 	conn.version.Store("")
 	conn.features.Store([]string{})
 	statsProxyBackendLoadCurrent.WithLabelValues(conn.url.String()).Set(0)
@@ -474,7 +477,7 @@ func (c *mcuProxyConnection) IsSameContinent(initiator McuInitiator) bool {
 		return true
 	}
 
-	initiatorContinents, found := ContinentMap[initiatorCountry]
+	initiatorContinents, found := geoip.ContinentMap[initiatorCountry]
 	if found {
 		m := c.proxy.getContinentsMap()
 		// Map continents to other continents (e.g. use Europe for Africa).
@@ -485,7 +488,7 @@ func (c *mcuProxyConnection) IsSameContinent(initiator McuInitiator) bool {
 		}
 
 	}
-	connContinents := ContinentMap[connCountry]
+	connContinents := geoip.ContinentMap[connCountry]
 	return ContinentsOverlap(initiatorContinents, connContinents)
 }
 
@@ -539,8 +542,8 @@ func (c *mcuProxyConnection) Bandwidth() *EventProxyServerBandwidth {
 	return c.bandwidth.Load()
 }
 
-func (c *mcuProxyConnection) Country() string {
-	return c.country.Load().(string)
+func (c *mcuProxyConnection) Country() geoip.Country {
+	return c.country.Load().(geoip.Country)
 }
 
 func (c *mcuProxyConnection) Version() string {
@@ -733,7 +736,7 @@ func (c *mcuProxyConnection) close() {
 		c.conn = nil
 		c.connectedSince.Store(0)
 		if c.trackClose.CompareAndSwap(true, false) {
-			statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Dec()
+			statsConnectedProxyBackendsCurrent.WithLabelValues(string(c.Country())).Dec()
 		}
 	}
 }
@@ -1005,9 +1008,9 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 		case "hello":
 			resumed := c.SessionId() == msg.Hello.SessionId
 			c.sessionId.Store(msg.Hello.SessionId)
-			country := ""
+			var country geoip.Country
 			if server := msg.Hello.Server; server != nil {
-				if country = server.Country; country != "" && !IsValidCountry(country) {
+				if country = server.Country; country != "" && !geoip.IsValidCountry(country) {
 					c.logger.Printf("Proxy %s sent invalid country %s in hello response", c, country)
 					country = ""
 				}
@@ -1029,7 +1032,7 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 				c.logger.Printf("Received session %s from %s", c.SessionId(), c)
 			}
 			if c.trackClose.CompareAndSwap(false, true) {
-				statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Inc()
+				statsConnectedProxyBackendsCurrent.WithLabelValues(string(c.Country())).Inc()
 			}
 
 			c.helloProcessed.Store(true)
@@ -1603,18 +1606,18 @@ func (m *mcuProxy) loadContinentsMap(cfg *goconf.ConfigFile) error {
 		return nil
 	}
 
-	continentsMap := make(map[string][]string)
+	continentsMap := make(ContinentsMap)
 	for option, value := range options {
-		option = strings.ToUpper(strings.TrimSpace(option))
-		if !IsValidContinent(option) {
+		option := geoip.Continent(strings.ToUpper(strings.TrimSpace(option)))
+		if !geoip.IsValidContinent(option) {
 			m.logger.Printf("Ignore unknown continent %s", option)
 			continue
 		}
 
-		var values []string
+		var values []geoip.Continent
 		for v := range internal.SplitEntries(value, ",") {
-			v = strings.ToUpper(v)
-			if !IsValidContinent(v) {
+			v := geoip.Continent(strings.ToUpper(v))
+			if !geoip.IsValidContinent(v) {
 				m.logger.Printf("Ignore unknown continent %s for override %s", v, option)
 				continue
 			}
@@ -1916,24 +1919,24 @@ func (m *mcuProxy) GetServerInfoSfu() *BackendServerInfoSfu {
 	return sfu
 }
 
-func (m *mcuProxy) getContinentsMap() map[string][]string {
+func (m *mcuProxy) getContinentsMap() ContinentsMap {
 	continentsMap := m.continentsMap.Load()
 	if continentsMap == nil {
 		return nil
 	}
-	return continentsMap.(map[string][]string)
+	return continentsMap.(ContinentsMap)
 }
 
-func (m *mcuProxy) setContinentsMap(continentsMap map[string][]string) {
+func (m *mcuProxy) setContinentsMap(continentsMap ContinentsMap) {
 	if continentsMap == nil {
-		continentsMap = make(map[string][]string)
+		continentsMap = make(ContinentsMap)
 	}
 	m.continentsMap.Store(continentsMap)
 }
 
 type mcuProxyConnectionsList []*mcuProxyConnection
 
-func ContinentsOverlap(a, b []string) bool {
+func ContinentsOverlap(a, b []geoip.Continent) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false
 	}
@@ -1946,7 +1949,7 @@ func ContinentsOverlap(a, b []string) bool {
 	return false
 }
 
-func sortConnectionsForCountry(connections []*mcuProxyConnection, country string, continentMap map[string][]string) []*mcuProxyConnection {
+func sortConnectionsForCountry(connections []*mcuProxyConnection, country geoip.Country, continentMap ContinentsMap) []*mcuProxyConnection {
 	// Move connections in the same country to the start of the list.
 	sorted := make(mcuProxyConnectionsList, 0, len(connections))
 	unprocessed := make(mcuProxyConnectionsList, 0, len(connections))
@@ -1957,7 +1960,7 @@ func sortConnectionsForCountry(connections []*mcuProxyConnection, country string
 			unprocessed = append(unprocessed, conn)
 		}
 	}
-	if continents, found := ContinentMap[country]; found && len(unprocessed) > 1 {
+	if continents, found := geoip.ContinentMap[country]; found && len(unprocessed) > 1 {
 		remaining := make(mcuProxyConnectionsList, 0, len(unprocessed))
 		// Map continents to other continents (e.g. use Europe for Africa).
 		for _, continent := range continents {
@@ -1969,8 +1972,8 @@ func sortConnectionsForCountry(connections []*mcuProxyConnection, country string
 		// Next up are connections on the same or mapped continent.
 		for _, conn := range unprocessed {
 			connCountry := conn.Country()
-			if IsValidCountry(connCountry) {
-				connContinents := ContinentMap[connCountry]
+			if geoip.IsValidCountry(connCountry) {
+				connContinents := geoip.ContinentMap[connCountry]
 				if ContinentsOverlap(continents, connContinents) {
 					sorted = append(sorted, conn)
 				} else {
@@ -2013,7 +2016,7 @@ func (m *mcuProxy) getSortedConnections(initiator McuInitiator) []*mcuProxyConne
 	}
 
 	if initiator != nil {
-		if country := initiator.Country(); IsValidCountry(country) {
+		if country := initiator.Country(); geoip.IsValidCountry(country) {
 			connections = sortConnectionsForCountry(connections, country, m.getContinentsMap())
 		}
 	}

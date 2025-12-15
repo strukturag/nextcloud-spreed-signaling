@@ -9,6 +9,7 @@ import (
 	jwriter "github.com/mailru/easyjson/jwriter"
 	api "github.com/strukturag/nextcloud-spreed-signaling/api"
 	etcd "github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	geoip "github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	time "time"
 )
 
@@ -769,7 +770,7 @@ func easyjson4354c623DecodeGithubComStrukturagNextcloudSpreedSignaling5(in *jlex
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Country = string(in.String())
+				out.Country = geoip.Country(in.String())
 			}
 		case "load":
 			if in.IsNull() {

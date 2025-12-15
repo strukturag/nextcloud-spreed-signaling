@@ -37,6 +37,7 @@ import (
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
@@ -301,9 +302,9 @@ func (e *Error) Error() string {
 }
 
 type WelcomeServerMessage struct {
-	Version  string   `json:"version"`
-	Features []string `json:"features,omitempty"`
-	Country  string   `json:"country,omitempty"`
+	Version  string        `json:"version"`
+	Features []string      `json:"features,omitempty"`
+	Country  geoip.Country `json:"country,omitempty"`
 }
 
 func NewWelcomeServerMessage(version string, feature ...string) *WelcomeServerMessage {

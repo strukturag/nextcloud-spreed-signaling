@@ -38,6 +38,7 @@ import (
 	"github.com/mailru/easyjson"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/pool"
@@ -57,31 +58,8 @@ const (
 	maxMessageSize = 64 * 1024
 )
 
-var (
-	noCountry = "no-country"
-
-	loopback = "loopback"
-
-	unknownCountry = "unknown-country"
-)
-
 func init() {
 	RegisterClientStats()
-}
-
-func IsValidCountry(country string) bool {
-	switch country {
-	case "":
-		fallthrough
-	case noCountry:
-		fallthrough
-	case loopback:
-		fallthrough
-	case unknownCountry:
-		return false
-	default:
-		return true
-	}
 }
 
 var (
@@ -99,7 +77,7 @@ type WritableClientMessage interface {
 type HandlerClient interface {
 	Context() context.Context
 	RemoteAddr() string
-	Country() string
+	Country() geoip.Country
 	UserAgent() string
 	IsConnected() bool
 	IsAuthenticated() bool
@@ -122,7 +100,7 @@ type ClientHandler interface {
 }
 
 type ClientGeoIpHandler interface {
-	OnLookupCountry(HandlerClient) string
+	OnLookupCountry(HandlerClient) geoip.Country
 }
 
 type Client struct {
@@ -132,7 +110,7 @@ type Client struct {
 	addr    string
 	agent   string
 	closed  atomic.Int32
-	country *string
+	country *geoip.Country
 	logRTT  bool
 
 	handlerMu sync.RWMutex
@@ -246,13 +224,13 @@ func (c *Client) UserAgent() string {
 	return c.agent
 }
 
-func (c *Client) Country() string {
+func (c *Client) Country() geoip.Country {
 	if c.country == nil {
-		var country string
+		var country geoip.Country
 		if handler, ok := c.getHandler().(ClientGeoIpHandler); ok {
 			country = handler.OnLookupCountry(c)
 		} else {
-			country = unknownCountry
+			country = geoip.UnknownCountry
 		}
 		c.country = &country
 	}
