@@ -74,6 +74,10 @@ component_management:
       name: proxy
       paths:
         - proxy/**
+    - component_id: module_security
+      name: security
+      paths:
+        - security/**
     - component_id: module_server
       name: server
       paths:

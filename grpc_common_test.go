@@ -24,6 +24,7 @@ package signaling
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 func (c *reloadableCredentials) WaitForCertificateReload(ctx context.Context, counter uint64) error {
@@ -31,7 +32,13 @@ func (c *reloadableCredentials) WaitForCertificateReload(ctx context.Context, co
 		return errors.New("no certificate loaded")
 	}
 
-	return c.loader.WaitForReload(ctx, counter)
+	for counter == c.loader.GetReloadCounter() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return nil
 }
 
 func (c *reloadableCredentials) WaitForCertPoolReload(ctx context.Context, counter uint64) error {
@@ -39,5 +46,11 @@ func (c *reloadableCredentials) WaitForCertPoolReload(ctx context.Context, count
 		return errors.New("no certificate pool loaded")
 	}
 
-	return c.pool.WaitForReload(ctx, counter)
+	for counter == c.pool.GetReloadCounter() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return nil
 }
