@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
@@ -55,8 +56,8 @@ func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
 	return ch
 }
 
-func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
-	dnsMonitor := newDnsMonitorForTest(t, time.Hour, lookup) // will be updated manually
+func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *dns.MockLookup) (*GrpcClients, *dns.Monitor) {
+	dnsMonitor := dns.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	client, err := NewGrpcClients(ctx, config, etcdClient, dnsMonitor, "0.0.0")
@@ -68,7 +69,7 @@ func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, et
 	return client, dnsMonitor
 }
 
-func NewGrpcClientsForTest(t *testing.T, addr string, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
+func NewGrpcClientsForTest(t *testing.T, addr string, lookup *dns.MockLookup) (*GrpcClients, *dns.Monitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("grpc", "targets", addr)
 	config.AddOption("grpc", "dnsdiscovery", "true")
@@ -76,7 +77,7 @@ func NewGrpcClientsForTest(t *testing.T, addr string, lookup *mockDnsLookup) (*G
 	return NewGrpcClientsForTestWithConfig(t, config, nil, lookup)
 }
 
-func NewGrpcClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup *mockDnsLookup) (*GrpcClients, *DnsMonitor) {
+func NewGrpcClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup *dns.MockLookup) (*GrpcClients, *dns.Monitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", embedEtcd.URL().String())
 
@@ -229,7 +230,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
-		lookup := newMockDnsLookupForTest(t)
+		lookup := dns.NewMockLookupForTest(t)
 		target := "testgrpc:12345"
 		ip1 := net.ParseIP("192.168.0.1")
 		ip2 := net.ParseIP("192.168.0.2")
@@ -243,12 +244,12 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 		defer cancel()
 
 		// Wait for initial check to be done to make sure internal dnsmonitor goroutine is waiting.
-		if err := dnsMonitor.waitForTicker(ctx); err != nil {
+		if err := dnsMonitor.WaitForTicker(ctx); err != nil {
 			require.NoError(err)
 		}
 
 		drainWakeupChannel(ch)
-		dnsMonitor.checkHostnames()
+		dnsMonitor.CheckHostnames()
 		if clients := client.GetClients(); assert.Len(clients, 1) {
 			assert.Equal(targetWithIp1, clients[0].Target())
 			assert.True(clients[0].ip.Equal(ip1), "Expected IP %s, got %s", ip1, clients[0].ip)
@@ -256,7 +257,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 
 		lookup.Set("testgrpc", []net.IP{ip1, ip2})
 		drainWakeupChannel(ch)
-		dnsMonitor.checkHostnames()
+		dnsMonitor.CheckHostnames()
 		waitForEvent(ctx, t, ch)
 
 		if clients := client.GetClients(); assert.Len(clients, 2) {
@@ -268,7 +269,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 
 		lookup.Set("testgrpc", []net.IP{ip2})
 		drainWakeupChannel(ch)
-		dnsMonitor.checkHostnames()
+		dnsMonitor.CheckHostnames()
 		waitForEvent(ctx, t, ch)
 
 		if clients := client.GetClients(); assert.Len(clients, 1) {
@@ -281,7 +282,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
-	lookup := newMockDnsLookupForTest(t)
+	lookup := dns.NewMockLookupForTest(t)
 	target := "testgrpc:12345"
 	ip1 := net.ParseIP("192.168.0.1")
 	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
@@ -299,7 +300,7 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 
 	lookup.Set("testgrpc", []net.IP{ip1})
 	drainWakeupChannel(ch)
-	dnsMonitor.checkHostnames()
+	dnsMonitor.CheckHostnames()
 	waitForEvent(testCtx, t, ch)
 
 	if clients := client.GetClients(); assert.Len(clients, 1) {

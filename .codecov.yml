@@ -38,6 +38,10 @@ component_management:
       name: container
       paths:
         - container/**
+    - component_id: module_dns
+      name: dns
+      paths:
+        - dns/**
     - component_id: module_etcd
       name: etcd
       paths:
