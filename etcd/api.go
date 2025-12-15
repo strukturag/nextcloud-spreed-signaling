@@ -22,6 +22,7 @@
 package etcd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -29,7 +30,31 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
+
+type ClientListener interface {
+	EtcdClientCreated(client Client)
+}
+
+type ClientWatcher interface {
+	EtcdWatchCreated(client Client, key string)
+	EtcdKeyUpdated(client Client, key string, value []byte, prevValue []byte)
+	EtcdKeyDeleted(client Client, key string, prevValue []byte)
+}
+
+type Client interface {
+	IsConfigured() bool
+	WaitForConnection(ctx context.Context) error
+	GetServerInfoEtcd() *BackendServerInfoEtcd
+	Close() error
+
+	AddListener(listener ClientListener)
+	RemoveListener(listener ClientListener)
+
+	Get(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error)
+	Watch(ctx context.Context, key string, nextRevision int64, watcher ClientWatcher, opts ...clientv3.OpOption) (int64, error)
+}
 
 // Information on a backend in the etcd cluster.
 
@@ -96,4 +121,11 @@ func (p *BackendInformationEtcd) CheckValid() (err error) {
 	}
 
 	return nil
+}
+
+type BackendServerInfoEtcd struct {
+	Endpoints []string `json:"endpoints"`
+
+	Active    string `json:"active,omitempty"`
+	Connected *bool  `json:"connected,omitempty"`
 }

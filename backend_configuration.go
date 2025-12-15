@@ -30,6 +30,7 @@ import (
 
 	"github.com/dlintw/goconf"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -135,11 +136,11 @@ var (
 	defaultBackendStats = &prometheusBackendStats{}
 )
 
-func NewBackendConfiguration(logger log.Logger, config *goconf.ConfigFile, etcdClient *EtcdClient) (*BackendConfiguration, error) {
+func NewBackendConfiguration(logger log.Logger, config *goconf.ConfigFile, etcdClient etcd.Client) (*BackendConfiguration, error) {
 	return NewBackendConfigurationWithStats(logger, config, etcdClient, nil)
 }
 
-func NewBackendConfigurationWithStats(logger log.Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, stats BackendStorageStats) (*BackendConfiguration, error) {
+func NewBackendConfigurationWithStats(logger log.Logger, config *goconf.ConfigFile, etcdClient etcd.Client, stats BackendStorageStats) (*BackendConfiguration, error) {
 	backendType, _ := config.GetString("backend", "backendtype")
 	if backendType == "" {
 		backendType = DefaultBackendType

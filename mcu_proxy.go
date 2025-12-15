@@ -48,6 +48,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -1512,7 +1513,7 @@ type mcuProxy struct {
 	rpcClients *GrpcClients
 }
 
-func NewMcuProxy(ctx context.Context, config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *GrpcClients, dnsMonitor *DnsMonitor) (Mcu, error) {
+func NewMcuProxy(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd.Client, rpcClients *GrpcClients, dnsMonitor *DnsMonitor) (Mcu, error) {
 	logger := log.LoggerFromContext(ctx)
 	urlType, _ := config.GetString("mcu", "urltype")
 	if urlType == "" {

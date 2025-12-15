@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
@@ -510,13 +511,13 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
-	etcd, client := NewEtcdClientForTest(t)
+	embedEtcd, client := etcdtest.NewClientForTest(t)
 
 	url1 := "https://domain1.invalid/foo"
 	initialSecret1 := string(testBackendSecret) + "-backend1-initial"
 	secret1 := string(testBackendSecret) + "-backend1"
 
-	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"url\":\""+url1+"\",\"secret\":\""+initialSecret1+"\"}"))
+	embedEtcd.SetValue("/backends/1_one", []byte("{\"url\":\""+url1+"\",\"secret\":\""+initialSecret1+"\"}"))
 
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "backendtype", "etcd")
@@ -543,7 +544,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	}
 
 	drainWakeupChannel(ch)
-	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"url\":\""+url1+"\",\"secret\":\""+secret1+"\"}"))
+	embedEtcd.SetValue("/backends/1_one", []byte("{\"url\":\""+url1+"\",\"secret\":\""+secret1+"\"}"))
 	<-ch
 	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
@@ -558,7 +559,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	secret2 := string(testBackendSecret) + "-backend2"
 
 	drainWakeupChannel(ch)
-	SetEtcdValue(etcd, "/backends/2_two", []byte("{\"url\":\""+url2+"\",\"secret\":\""+secret2+"\"}"))
+	embedEtcd.SetValue("/backends/2_two", []byte("{\"url\":\""+url2+"\",\"secret\":\""+secret2+"\"}"))
 	<-ch
 	assert.Equal(2, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) &&
@@ -577,7 +578,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	secret3 := string(testBackendSecret) + "-backend3"
 
 	drainWakeupChannel(ch)
-	SetEtcdValue(etcd, "/backends/3_three", []byte("{\"url\":\""+url3+"\",\"secret\":\""+secret3+"\"}"))
+	embedEtcd.SetValue("/backends/3_three", []byte("{\"url\":\""+url3+"\",\"secret\":\""+secret3+"\"}"))
 	<-ch
 	assert.Equal(3, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 3) &&
@@ -597,7 +598,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	}
 
 	drainWakeupChannel(ch)
-	DeleteEtcdValue(etcd, "/backends/1_one")
+	embedEtcd.DeleteValue("/backends/1_one")
 	<-ch
 	assert.Equal(2, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) {
@@ -608,7 +609,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	}
 
 	drainWakeupChannel(ch)
-	DeleteEtcdValue(etcd, "/backends/2_two")
+	embedEtcd.DeleteValue("/backends/2_two")
 	<-ch
 	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) {
@@ -760,13 +761,13 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 	logger := log.NewLoggerForTest(t)
 	require := require.New(t)
 	assert := assert.New(t)
-	etcd, client := NewEtcdClientForTest(t)
+	embedEtcd, client := etcdtest.NewClientForTest(t)
 
 	url1 := "https://domain1.invalid/foo"
 	initialSecret1 := string(testBackendSecret) + "-backend1-initial"
 	secret1 := string(testBackendSecret) + "-backend1"
 
-	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"urls\":[\""+url1+"\"],\"secret\":\""+initialSecret1+"\"}"))
+	embedEtcd.SetValue("/backends/1_one", []byte("{\"urls\":[\""+url1+"\"],\"secret\":\""+initialSecret1+"\"}"))
 
 	config := goconf.NewConfigFile()
 	config.AddOption("backend", "backendtype", "etcd")
@@ -796,7 +797,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 	url2 := "https://domain1.invalid/bar"
 
 	drainWakeupChannel(ch)
-	SetEtcdValue(etcd, "/backends/1_one", []byte("{\"urls\":[\""+url1+"\",\""+url2+"\"],\"secret\":\""+secret1+"\"}"))
+	embedEtcd.SetValue("/backends/1_one", []byte("{\"urls\":[\""+url1+"\",\""+url2+"\"],\"secret\":\""+secret1+"\"}"))
 	<-ch
 	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) &&
@@ -816,7 +817,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 	url4 := "https://domain3.invalid/foo"
 
 	drainWakeupChannel(ch)
-	SetEtcdValue(etcd, "/backends/3_three", []byte("{\"urls\":[\""+url3+"\",\""+url4+"\"],\"secret\":\""+secret3+"\"}"))
+	embedEtcd.SetValue("/backends/3_three", []byte("{\"urls\":[\""+url3+"\",\""+url4+"\"],\"secret\":\""+secret3+"\"}"))
 	<-ch
 	assert.Equal(2, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 2) &&
@@ -836,7 +837,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 	}
 
 	drainWakeupChannel(ch)
-	DeleteEtcdValue(etcd, "/backends/1_one")
+	embedEtcd.DeleteValue("/backends/1_one")
 	<-ch
 	assert.Equal(1, stats.value)
 	if backends := sortBackends(cfg.GetBackends()); assert.Len(backends, 1) {
@@ -845,7 +846,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 	}
 
 	drainWakeupChannel(ch)
-	DeleteEtcdValue(etcd, "/backends/3_three")
+	embedEtcd.DeleteValue("/backends/3_three")
 	<-ch
 
 	assert.Equal(0, stats.value)
