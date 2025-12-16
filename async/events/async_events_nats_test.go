@@ -19,29 +19,19 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package events
 
 import (
 	"testing"
-	"time"
 
-	"github.com/stretchr/testify/require"
-
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func Benchmark_GetSubjectForSessionId(b *testing.B) {
-	require := require.New(b)
 	backend := talk.NewCompatBackend(nil)
-	data := &SessionIdData{
-		Sid:       1,
-		Created:   time.Now().UnixMicro(),
-		BackendId: backend.Id(),
-	}
-	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
-	require.NoError(err)
-	sid, err := codec.EncodePublic(data)
-	require.NoError(err, "could not create session id")
+	sid := api.PublicSessionId(internal.RandomString(256))
 	for b.Loop() {
 		GetSubjectForSessionId(sid, backend)
 	}

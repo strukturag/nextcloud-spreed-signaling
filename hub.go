@@ -53,6 +53,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
@@ -146,7 +147,7 @@ func init() {
 type Hub struct {
 	version      string
 	logger       log.Logger
-	events       AsyncEvents
+	events       events.AsyncEvents
 	upgrader     websocket.Upgrader
 	sessionIds   *SessionIdCodec
 	info         *api.WelcomeServerMessage
@@ -225,7 +226,7 @@ type Hub struct {
 	blockedCandidates atomic.Pointer[container.IPList]
 }
 
-func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
+func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
 	logger := log.LoggerFromContext(ctx)
 	hashKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "hashkey")
 	switch len(hashKey) {
@@ -1626,7 +1627,7 @@ func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId api.R
 	if session == nil {
 		// Session is located on a different server. Should already have been closed
 		// but send "bye" again as additional safeguard.
-		msg := &AsyncMessage{
+		msg := &events.AsyncMessage{
 			Type: "message",
 			Message: &api.ServerMessage{
 				Type: "bye",
@@ -2150,7 +2151,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForSessionId(msg.Recipient.SessionId, sess.Backend())
+			subject = events.GetSubjectForSessionId(msg.Recipient.SessionId, sess.Backend())
 			recipientSessionId = msg.Recipient.SessionId
 			if sess, ok := sess.(*ClientSession); ok {
 				recipient = sess
@@ -2160,7 +2161,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 			if sess.ClientType() == api.HelloClientTypeVirtual {
 				virtualSession := sess.(*VirtualSession)
 				clientSession := virtualSession.Session()
-				subject = GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
+				subject = events.GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
 				recipientSessionId = clientSession.PublicId()
 				recipient = clientSession
 				// The client should see his session id as recipient.
@@ -2170,7 +2171,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 				}
 			}
 		} else {
-			subject = GetSubjectForSessionId(msg.Recipient.SessionId, nil)
+			subject = events.GetSubjectForSessionId(msg.Recipient.SessionId, nil)
 			recipientSessionId = msg.Recipient.SessionId
 			serverRecipient = &msg.Recipient
 		}
@@ -2183,14 +2184,14 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
+			subject = events.GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
 	case api.RecipientTypeRoom:
 		fallthrough
 	case api.RecipientTypeCall:
 		if session != nil {
 			if room = session.GetRoom(); room != nil {
-				subject = GetSubjectForRoomId(room.Id(), room.Backend())
+				subject = events.GetSubjectForRoomId(room.Id(), room.Backend())
 
 				if h.mcu != nil {
 					var data api.MessageClientMessageData
@@ -2283,9 +2284,9 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 				return
 			}
 
-			async := &AsyncMessage{
+			async := &events.AsyncMessage{
 				Type: "sendoffer",
-				SendOffer: &SendOfferMessage{
+				SendOffer: &events.SendOfferMessage{
 					MessageId: message.Id,
 					SessionId: session.PublicId(),
 					Data:      clientData,
@@ -2297,7 +2298,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 			return
 		}
 
-		async := &AsyncMessage{
+		async := &events.AsyncMessage{
 			Type:    "message",
 			Message: response,
 		}
@@ -2356,7 +2357,7 @@ func (h *Hub) processControlMsg(session Session, message *api.ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForSessionId(msg.Recipient.SessionId, nil)
+			subject = events.GetSubjectForSessionId(msg.Recipient.SessionId, nil)
 			recipientSessionId = msg.Recipient.SessionId
 			h.mu.RLock()
 			sess, found := h.sessions[data.Sid]
@@ -2369,7 +2370,7 @@ func (h *Hub) processControlMsg(session Session, message *api.ClientMessage) {
 				if sess.ClientType() == api.HelloClientTypeVirtual {
 					virtualSession := sess.(*VirtualSession)
 					clientSession := virtualSession.Session()
-					subject = GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
+					subject = events.GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
 					recipientSessionId = clientSession.PublicId()
 					recipient = clientSession
 					// The client should see his session id as recipient.
@@ -2394,14 +2395,14 @@ func (h *Hub) processControlMsg(session Session, message *api.ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
+			subject = events.GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
 	case api.RecipientTypeRoom:
 		fallthrough
 	case api.RecipientTypeCall:
 		if session != nil {
 			if room = session.GetRoom(); room != nil {
-				subject = GetSubjectForRoomId(room.Id(), room.Backend())
+				subject = events.GetSubjectForRoomId(room.Id(), room.Backend())
 			}
 		}
 	}
@@ -2425,7 +2426,7 @@ func (h *Hub) processControlMsg(session Session, message *api.ClientMessage) {
 	if recipient != nil {
 		recipient.SendMessage(response)
 	} else {
-		async := &AsyncMessage{
+		async := &events.AsyncMessage{
 			Type:    "message",
 			Message: response,
 		}
@@ -2618,7 +2619,7 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 		roomId := msg.Dialout.RoomId
 		msg.Dialout.RoomId = "" // Don't send room id to recipients.
 		if msg.Dialout.Type == "status" {
-			asyncMessage := &AsyncMessage{
+			asyncMessage := &events.AsyncMessage{
 				Type: "room",
 				Room: &talk.BackendServerRoomRequest{
 					Type: "transient",
@@ -2636,7 +2637,7 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 				h.logger.Printf("Error publishing dialout message %+v to room %s", msg.Dialout, roomId)
 			}
 		} else {
-			if err := h.events.PublishRoomMessage(roomId, session.Backend(), &AsyncMessage{
+			if err := h.events.PublishRoomMessage(roomId, session.Backend(), &events.AsyncMessage{
 				Type: "message",
 				Message: &api.ServerMessage{
 					Type:    "dialout",

@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2022 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package eventstest
 
 import (
 	"context"
@@ -30,19 +30,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 var (
-	eventBackendsForTest = []string{
+	testTimeout = 10 * time.Second
+
+	EventBackendsForTest = []string{
 		"loopback",
 		"nats",
 	}
 )
 
-func getAsyncEventsForTest(t *testing.T) AsyncEvents {
-	var events AsyncEvents
+func GetAsyncEventsForTest(t *testing.T) events.AsyncEvents {
+	var events events.AsyncEvents
 	if strings.HasSuffix(t.Name(), "/nats") {
 		events = getRealAsyncEventsForTest(t)
 	} else {
@@ -56,21 +59,25 @@ func getAsyncEventsForTest(t *testing.T) AsyncEvents {
 	return events
 }
 
-func getRealAsyncEventsForTest(t *testing.T) AsyncEvents {
+func getRealAsyncEventsForTest(t *testing.T) events.AsyncEvents {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	server, _ := nats.StartLocalServer(t)
-	events, err := NewAsyncEvents(ctx, server.ClientURL())
+	events, err := events.NewAsyncEvents(ctx, server.ClientURL())
 	if err != nil {
 		require.NoError(t, err)
 	}
 	return events
 }
 
-func getLoopbackAsyncEventsForTest(t *testing.T) AsyncEvents {
+type natsEvents interface {
+	GetNatsClient() nats.Client
+}
+
+func getLoopbackAsyncEventsForTest(t *testing.T) events.AsyncEvents {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
-	events, err := NewAsyncEvents(ctx, nats.LoopbackUrl)
+	events, err := events.NewAsyncEvents(ctx, nats.LoopbackUrl)
 	if err != nil {
 		require.NoError(t, err)
 	}
@@ -79,22 +86,27 @@ func getLoopbackAsyncEventsForTest(t *testing.T) AsyncEvents {
 		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 		defer cancel()
 
-		client := (events.(*asyncEventsNats)).client
-		nats.WaitForSubscriptionsEmpty(ctx, t, client)
+		e, ok := (events.(natsEvents))
+		if !ok {
+			// Only can wait for NATS events.
+			return
+		}
+
+		nats.WaitForSubscriptionsEmpty(ctx, t, e.GetNatsClient())
 	})
 	return events
 }
 
-func waitForAsyncEventsFlushed(ctx context.Context, t *testing.T, events AsyncEvents) {
+func WaitForAsyncEventsFlushed(ctx context.Context, t *testing.T, events events.AsyncEvents) {
 	t.Helper()
 
-	e, ok := (events.(*asyncEventsNats))
+	e, ok := (events.(natsEvents))
 	if !ok {
 		// Only can wait for NATS events.
 		return
 	}
 
-	client, ok := e.client.(*nats.NativeClient)
+	client, ok := e.GetNatsClient().(*nats.NativeClient)
 	if !ok {
 		// The loopback NATS clients is executing all events synchronously.
 		return

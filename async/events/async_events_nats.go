@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package events
 
 import (
 	"context"
@@ -89,6 +89,10 @@ func NewAsyncEventsNats(logger log.Logger, client nats.Client) (AsyncEvents, err
 		sessionSubscriptions:     make(asyncEventsNatsSubscriptions),
 	}
 	return events, nil
+}
+
+func (e *asyncEventsNats) GetNatsClient() nats.Client {
+	return e.client
 }
 
 func (e *asyncEventsNats) GetServerInfoNats() *talk.BackendServerInfoNats {
