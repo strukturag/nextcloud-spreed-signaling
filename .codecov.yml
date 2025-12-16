@@ -10,6 +10,7 @@ comment:
 
 ignore:
   - "*_easyjson.go"
+  - "**/*_easyjson.go"
   - "*.pb.go"
 
 component_management:
