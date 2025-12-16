@@ -166,7 +166,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	}
 
 	// Add checksum so the backend can validate the request.
-	AddBackendChecksum(req, data.Bytes(), backend.Secret())
+	talk.AddBackendChecksum(req, data.Bytes(), backend.Secret())
 
 	start := time.Now()
 	resp, err := c.Do(req)

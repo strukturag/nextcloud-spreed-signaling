@@ -40,6 +40,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
@@ -55,10 +56,10 @@ func init() {
 
 	hostname, err := os.Hostname()
 	if err != nil {
-		hostname = newRandomString(8)
+		hostname = internal.RandomString(8)
 	}
 	md := sha256.New()
-	fmt.Fprintf(md, "%s-%s-%d", newRandomString(32), hostname, os.Getpid())
+	fmt.Fprintf(md, "%s-%s-%d", internal.RandomString(32), hostname, os.Getpid())
 	GrpcServerId = hex.EncodeToString(md.Sum(nil))
 }
 

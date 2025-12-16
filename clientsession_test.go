@@ -34,6 +34,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func TestBandwidth_Client(t *testing.T) {
@@ -219,9 +220,9 @@ func TestFeatureChatRelay(t *testing.T) {
 			// Simulate request from the backend.
 			room.processAsyncMessage(&AsyncMessage{
 				Type: "room",
-				Room: &BackendServerRoomRequest{
+				Room: &talk.BackendServerRoomRequest{
 					Type: "message",
-					Message: &BackendRoomMessageRequest{
+					Message: &talk.BackendRoomMessageRequest{
 						Data: data,
 					},
 				},
@@ -416,9 +417,9 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			// Simulate request from the backend.
 			room.processAsyncMessage(&AsyncMessage{
 				Type: "room",
-				Room: &BackendServerRoomRequest{
+				Room: &talk.BackendServerRoomRequest{
 					Type: "message",
-					Message: &BackendRoomMessageRequest{
+					Message: &talk.BackendRoomMessageRequest{
 						Data: data,
 					},
 				},
@@ -494,7 +495,7 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 				require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
 				// Client may not receive display names.
-				session.SetPermissions([]Permission{PERMISSION_HIDE_DISPLAYNAMES})
+				session.SetPermissions([]api.Permission{api.PERMISSION_HIDE_DISPLAYNAMES})
 			}
 
 			chatComment := api.StringMap{
@@ -516,9 +517,9 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 			// Simulate request from the backend.
 			room.processAsyncMessage(&AsyncMessage{
 				Type: "room",
-				Room: &BackendServerRoomRequest{
+				Room: &talk.BackendServerRoomRequest{
 					Type: "message",
-					Message: &BackendRoomMessageRequest{
+					Message: &talk.BackendRoomMessageRequest{
 						Data: data,
 					},
 				},

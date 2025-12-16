@@ -43,6 +43,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 var (
@@ -492,7 +493,7 @@ func (c *TestClient) SendHelloInternal() error {
 }
 
 func (c *TestClient) SendHelloInternalWithFeatures(features []string) error {
-	random := newRandomString(48)
+	random := internal.RandomString(48)
 	mac := hmac.New(sha256.New, testInternalSecret)
 	mac.Write([]byte(random)) // nolint
 	token := hex.EncodeToString(mac.Sum(nil))

@@ -75,7 +75,7 @@ type ClientSession struct {
 	// +checklocks:mu
 	supportsPermissions bool
 	// +checklocks:mu
-	permissions map[Permission]bool
+	permissions map[api.Permission]bool
 
 	backend          *talk.Backend
 	backendUrl       string
@@ -120,7 +120,7 @@ type ClientSession struct {
 	responseHandlers map[string]ResponseHandlerFunc
 }
 
-func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, backend *talk.Backend, hello *api.HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
+func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, backend *talk.Backend, hello *api.HelloClientMessage, auth *talk.BackendClientAuthResponse) (*ClientSession, error) {
 	ctx := log.NewLoggerContext(context.Background(), hub.logger)
 	ctx, closeFunc := context.WithCancel(ctx)
 	s := &ClientSession{
@@ -208,18 +208,18 @@ func (s *ClientSession) HasFeature(feature string) bool {
 }
 
 // HasPermission checks if the session has the passed permissions.
-func (s *ClientSession) HasPermission(permission Permission) bool {
+func (s *ClientSession) HasPermission(permission api.Permission) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.hasPermissionLocked(permission)
 }
 
-func (s *ClientSession) GetPermissions() []Permission {
+func (s *ClientSession) GetPermissions() []api.Permission {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	result := make([]Permission, len(s.permissions))
+	result := make([]api.Permission, len(s.permissions))
 	for p, ok := range s.permissions {
 		if ok {
 			result = append(result, p)
@@ -229,7 +229,7 @@ func (s *ClientSession) GetPermissions() []Permission {
 }
 
 // HasAnyPermission checks if the session has one of the passed permissions.
-func (s *ClientSession) HasAnyPermission(permission ...Permission) bool {
+func (s *ClientSession) HasAnyPermission(permission ...api.Permission) bool {
 	if len(permission) == 0 {
 		return false
 	}
@@ -241,7 +241,7 @@ func (s *ClientSession) HasAnyPermission(permission ...Permission) bool {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) hasAnyPermissionLocked(permission ...Permission) bool {
+func (s *ClientSession) hasAnyPermissionLocked(permission ...api.Permission) bool {
 	if len(permission) == 0 {
 		return false
 	}
@@ -250,10 +250,10 @@ func (s *ClientSession) hasAnyPermissionLocked(permission ...Permission) bool {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) hasPermissionLocked(permission Permission) bool {
+func (s *ClientSession) hasPermissionLocked(permission api.Permission) bool {
 	if !s.supportsPermissions {
 		// Old-style session that doesn't receive permissions from Nextcloud.
-		if result, found := DefaultPermissionOverrides[permission]; found {
+		if result, found := api.DefaultPermissionOverrides[permission]; found {
 			return result
 		}
 		return true
@@ -265,11 +265,11 @@ func (s *ClientSession) hasPermissionLocked(permission Permission) bool {
 	return false
 }
 
-func (s *ClientSession) SetPermissions(permissions []Permission) {
-	var p map[Permission]bool
+func (s *ClientSession) SetPermissions(permissions []api.Permission) {
+	var p map[api.Permission]bool
 	for _, permission := range permissions {
 		if p == nil {
-			p = make(map[Permission]bool)
+			p = make(map[api.Permission]bool)
 		}
 		p[permission] = true
 	}
@@ -584,7 +584,7 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 		// Notify
 		go func(sid api.RoomSessionId) {
 			ctx := log.NewLoggerContext(context.Background(), s.logger)
-			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
+			request := talk.NewBackendClientRoomRequest(room.Id(), s.userId, sid)
 			request.Room.UpdateFromSession(s)
 			request.Room.Action = "leave"
 			var response api.StringMap
@@ -824,10 +824,10 @@ func (s *ClientSession) SubscriberClosed(subscriber McuSubscriber) {
 }
 
 type PermissionError struct {
-	permission Permission
+	permission api.Permission
 }
 
-func (e *PermissionError) Permission() Permission {
+func (e *PermissionError) Permission() api.Permission {
 	return e.permission
 }
 
@@ -843,18 +843,18 @@ func (s *ClientSession) isSdpAllowedToSendLocked(sdp *sdp.SessionDescription) (M
 	}
 
 	var mediaTypes MediaType
-	mayPublishMedia := s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA)
+	mayPublishMedia := s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_MEDIA)
 	for _, md := range sdp.MediaDescriptions {
 		switch md.MediaName.Media {
 		case "audio":
-			if !mayPublishMedia && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO) {
-				return 0, &PermissionError{PERMISSION_MAY_PUBLISH_AUDIO}
+			if !mayPublishMedia && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_AUDIO) {
+				return 0, &PermissionError{api.PERMISSION_MAY_PUBLISH_AUDIO}
 			}
 
 			mediaTypes |= MediaTypeAudio
 		case "video":
-			if !mayPublishMedia && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_VIDEO) {
-				return 0, &PermissionError{PERMISSION_MAY_PUBLISH_VIDEO}
+			if !mayPublishMedia && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_VIDEO) {
+				return 0, &PermissionError{api.PERMISSION_MAY_PUBLISH_VIDEO}
 			}
 
 			mediaTypes |= MediaTypeVideo
@@ -870,11 +870,11 @@ func (s *ClientSession) IsAllowedToSend(data *api.MessageClientMessageData) erro
 
 	switch {
 	case data != nil && data.RoomType == "screen":
-		if s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
+		if s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_SCREEN) {
 			return nil
 		}
-		return &PermissionError{PERMISSION_MAY_PUBLISH_SCREEN}
-	case s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA):
+		return &PermissionError{api.PERMISSION_MAY_PUBLISH_SCREEN}
+	case s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_MEDIA):
 		// Client is allowed to publish any media (audio / video).
 		return nil
 	case data != nil && data.Type == "offer":
@@ -886,7 +886,7 @@ func (s *ClientSession) IsAllowedToSend(data *api.MessageClientMessageData) erro
 		return nil
 	default:
 		// Candidate or unknown event, check if client is allowed to publish any media.
-		if s.hasAnyPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO) {
+		if s.hasAnyPermissionLocked(api.PERMISSION_MAY_PUBLISH_AUDIO, api.PERMISSION_MAY_PUBLISH_VIDEO) {
 			return nil
 		}
 
@@ -904,8 +904,8 @@ func (s *ClientSession) CheckOfferType(streamType StreamType, data *api.MessageC
 // +checklocks:s.mu
 func (s *ClientSession) checkOfferTypeLocked(streamType StreamType, data *api.MessageClientMessageData) (MediaType, error) {
 	if streamType == StreamTypeScreen {
-		if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
-			return 0, &PermissionError{PERMISSION_MAY_PUBLISH_SCREEN}
+		if !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_SCREEN) {
+			return 0, &PermissionError{api.PERMISSION_MAY_PUBLISH_SCREEN}
 		}
 
 		return MediaTypeScreen, nil
@@ -1088,10 +1088,10 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 
-			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA) {
+			if !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_MEDIA) {
 				if publisher, found := s.publishers[StreamTypeVideo]; found {
-					if (publisher.HasMedia(MediaTypeAudio) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO)) ||
-						(publisher.HasMedia(MediaTypeVideo) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_VIDEO)) {
+					if (publisher.HasMedia(MediaTypeAudio) && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_AUDIO)) ||
+						(publisher.HasMedia(MediaTypeVideo) && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_VIDEO)) {
 						delete(s.publishers, StreamTypeVideo)
 						s.logger.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
 						go func() {
@@ -1101,7 +1101,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 					}
 				}
 			}
-			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
+			if !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_SCREEN) {
 				if publisher, found := s.publishers[StreamTypeScreen]; found {
 					delete(s.publishers, StreamTypeScreen)
 					s.logger.Printf("Session %s is no longer allowed to publish screen, closing publisher %s", s.PublicId(), publisher.Id())
@@ -1317,7 +1317,7 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) *api.ServerMes
 					}
 				}
 
-				if s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+				if s.HasPermission(api.PERMISSION_HIDE_DISPLAYNAMES) {
 					if copied {
 						message.Event.Join = filterDisplayNames(message.Event.Join)
 					} else {
@@ -1361,7 +1361,7 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) *api.ServerMes
 						update = true
 					}
 
-					if len(data.Chat.Comment) > 0 && s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+					if len(data.Chat.Comment) > 0 && s.HasPermission(api.PERMISSION_HIDE_DISPLAYNAMES) {
 						var comment api.ChatComment
 						if err := json.Unmarshal(data.Chat.Comment, &comment); err != nil {
 							return message
@@ -1398,7 +1398,7 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) *api.ServerMes
 			}
 		}
 	case "message":
-		if message.Message != nil && len(message.Message.Data) > 0 && s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+		if message.Message != nil && len(message.Message.Data) > 0 && s.HasPermission(api.PERMISSION_HIDE_DISPLAYNAMES) {
 			var data api.MessageServerMessageData
 			if err := json.Unmarshal(message.Message.Data, &data); err != nil {
 				return message

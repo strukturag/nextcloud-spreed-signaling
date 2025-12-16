@@ -48,6 +48,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -387,7 +388,7 @@ func (m *TestMCU) GetStats() any {
 	return nil
 }
 
-func (m *TestMCU) GetServerInfoSfu() *signaling.BackendServerInfoSfu {
+func (m *TestMCU) GetServerInfoSfu() *talk.BackendServerInfoSfu {
 	return nil
 }
 

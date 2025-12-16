@@ -36,19 +36,19 @@ import (
 type pingEntries struct {
 	url *url.URL
 
-	entries map[string][]BackendPingEntry
+	entries map[string][]talk.BackendPingEntry
 }
 
-func newPingEntries(url *url.URL, roomId string, entries []BackendPingEntry) *pingEntries {
+func newPingEntries(url *url.URL, roomId string, entries []talk.BackendPingEntry) *pingEntries {
 	return &pingEntries{
 		url: url,
-		entries: map[string][]BackendPingEntry{
+		entries: map[string][]talk.BackendPingEntry{
 			roomId: entries,
 		},
 	}
 }
 
-func (e *pingEntries) Add(roomId string, entries []BackendPingEntry) {
+func (e *pingEntries) Add(roomId string, entries []talk.BackendPingEntry) {
 	if existing, found := e.entries[roomId]; found {
 		e.entries[roomId] = append(existing, entries...)
 	} else {
@@ -121,7 +121,7 @@ func (p *RoomPing) publishEntries(ctx context.Context, entries *pingEntries, tim
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	limit, _, found := p.capabilities.GetIntegerConfig(ctx, entries.url, ConfigGroupSignaling, ConfigKeySessionPingLimit)
+	limit, _, found := p.capabilities.GetIntegerConfig(ctx, entries.url, talk.ConfigGroupSignaling, talk.ConfigKeySessionPingLimit)
 	if !found || limit <= 0 {
 		// Limit disabled while waiting for the next iteration, fallback to sending
 		// one request per room.
@@ -137,7 +137,7 @@ func (p *RoomPing) publishEntries(ctx context.Context, entries *pingEntries, tim
 		return
 	}
 
-	var allEntries []BackendPingEntry
+	var allEntries []talk.BackendPingEntry
 	for _, e := range entries.entries {
 		allEntries = append(allEntries, e...)
 	}
@@ -164,28 +164,28 @@ func (p *RoomPing) publishActiveSessions(ctx context.Context) {
 	wg.Wait()
 }
 
-func (p *RoomPing) sendPingsDirect(ctx context.Context, roomId string, url *url.URL, entries []BackendPingEntry) error {
-	request := NewBackendClientPingRequest(roomId, entries)
-	var response BackendClientResponse
+func (p *RoomPing) sendPingsDirect(ctx context.Context, roomId string, url *url.URL, entries []talk.BackendPingEntry) error {
+	request := talk.NewBackendClientPingRequest(roomId, entries)
+	var response talk.BackendClientResponse
 	return p.backend.PerformJSONRequest(ctx, url, request, &response)
 }
 
-func (p *RoomPing) sendPingsCombined(ctx context.Context, url *url.URL, entries []BackendPingEntry, limit int, timeout time.Duration) {
+func (p *RoomPing) sendPingsCombined(ctx context.Context, url *url.URL, entries []talk.BackendPingEntry, limit int, timeout time.Duration) {
 	logger := log.LoggerFromContext(ctx)
 	for tosend := range slices.Chunk(entries, limit) {
 		subCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 
-		request := NewBackendClientPingRequest("", tosend)
-		var response BackendClientResponse
+		request := talk.NewBackendClientPingRequest("", tosend)
+		var response talk.BackendClientResponse
 		if err := p.backend.PerformJSONRequest(subCtx, url, request, &response); err != nil {
 			logger.Printf("Error sending combined ping session entries %+v to %s: %s", tosend, url, err)
 		}
 	}
 }
 
-func (p *RoomPing) SendPings(ctx context.Context, roomId string, url *url.URL, entries []BackendPingEntry) error {
-	limit, _, found := p.capabilities.GetIntegerConfig(ctx, url, ConfigGroupSignaling, ConfigKeySessionPingLimit)
+func (p *RoomPing) SendPings(ctx context.Context, roomId string, url *url.URL, entries []talk.BackendPingEntry) error {
+	limit, _, found := p.capabilities.GetIntegerConfig(ctx, url, talk.ConfigGroupSignaling, talk.ConfigKeySessionPingLimit)
 	if !found || limit <= 0 {
 		// Old-style Nextcloud or session limit not configured. Perform one request
 		// per room. Don't queue to avoid sending all ping requests to old-style

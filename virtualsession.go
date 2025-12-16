@@ -240,12 +240,12 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 	defer cancel()
 
 	if options := s.Options(); options != nil && options.ActorId != "" && options.ActorType != "" {
-		request := NewBackendClientRoomRequest(room.Id(), s.UserId(), api.RoomSessionId(s.PublicId()))
+		request := talk.NewBackendClientRoomRequest(room.Id(), s.UserId(), api.RoomSessionId(s.PublicId()))
 		request.Room.Action = "leave"
 		request.Room.ActorId = options.ActorId
 		request.Room.ActorType = options.ActorType
 
-		var response BackendClientResponse
+		var response talk.BackendClientResponse
 		if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
 			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
 			s.logger.Printf("Could not leave virtual session %s at backend %s: %s", virtualSessionId, s.BackendUrl(), err)
@@ -266,11 +266,11 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 			return
 		}
 	} else {
-		request := NewBackendClientSessionRequest(room.Id(), "remove", s.PublicId(), &api.AddSessionInternalClientMessage{
+		request := talk.NewBackendClientSessionRequest(room.Id(), "remove", s.PublicId(), &api.AddSessionInternalClientMessage{
 			UserId: s.userId,
 			User:   s.userData,
 		})
-		var response BackendClientSessionResponse
+		var response talk.BackendClientSessionResponse
 		err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response)
 		if err != nil {
 			s.logger.Printf("Could not remove virtual session %s from backend %s: %s", s.PublicId(), s.BackendUrl(), err)
@@ -282,7 +282,7 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 	}
 }
 
-func (s *VirtualSession) HasPermission(permission Permission) bool {
+func (s *VirtualSession) HasPermission(permission api.Permission) bool {
 	return true
 }
 

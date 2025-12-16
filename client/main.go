@@ -47,7 +47,6 @@ import (
 	"github.com/mailru/easyjson/jlexer"
 	"github.com/mailru/easyjson/jwriter"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
@@ -428,28 +427,28 @@ func registerAuthHandler(router *mux.Router) {
 			return
 		}
 
-		rnd := r.Header.Get(signaling.HeaderBackendSignalingRandom)
-		checksum := r.Header.Get(signaling.HeaderBackendSignalingChecksum)
+		rnd := r.Header.Get(talk.HeaderBackendSignalingRandom)
+		checksum := r.Header.Get(talk.HeaderBackendSignalingChecksum)
 		if rnd == "" || checksum == "" {
 			log.Println("No checksum headers found")
 			return
 		}
 
-		if verify := signaling.CalculateBackendChecksum(rnd, body, backendSecret); verify != checksum {
+		if verify := talk.CalculateBackendChecksum(rnd, body, backendSecret); verify != checksum {
 			log.Println("Backend checksum verification failed")
 			return
 		}
 
-		var request signaling.BackendClientRequest
+		var request talk.BackendClientRequest
 		if err := request.UnmarshalJSON(body); err != nil {
 			log.Println(err)
 			return
 		}
 
-		response := &signaling.BackendClientResponse{
+		response := &talk.BackendClientResponse{
 			Type: "auth",
-			Auth: &signaling.BackendClientAuthResponse{
-				Version: signaling.BackendVersion,
+			Auth: &talk.BackendClientAuthResponse{
+				Version: talk.BackendVersion,
 				UserId:  "sample-user",
 			},
 		}

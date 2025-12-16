@@ -264,11 +264,11 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 
 	if username == "" {
 		// Make sure to include an actual username in the credentials.
-		username = newRandomString(randomUsernameLength)
+		username = internal.RandomString(randomUsernameLength)
 	}
 
 	username, password := calculateTurnSecret(username, b.turnsecret, b.turnvalid)
-	result := TurnCredentials{
+	result := talk.TurnCredentials{
 		Username: username,
 		Password: password,
 		TTL:      int64(b.turnvalid.Seconds()),
@@ -309,8 +309,8 @@ func (b *BackendServer) parseRequestBody(f func(context.Context, http.ResponseWr
 			return
 		}
 
-		if r.Header.Get(HeaderBackendSignalingRandom) == "" ||
-			r.Header.Get(HeaderBackendSignalingChecksum) == "" {
+		if r.Header.Get(talk.HeaderBackendSignalingRandom) == "" ||
+			r.Header.Get(talk.HeaderBackendSignalingChecksum) == "" {
 			http.Error(w, "Authentication check failed", http.StatusForbidden)
 			return
 		}
@@ -500,7 +500,7 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *container.
 	return result
 }
 
-func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
 	if !request.InCall.All {
 		timeout := time.Second
 
@@ -525,7 +525,7 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, req
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
-func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid string, backend *talk.Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
 	timeout := time.Second
 
 	// Convert (Nextcloud) session ids to signaling session ids.
@@ -558,18 +558,18 @@ loop:
 			b.logger.Printf("Received invalid permissions %+v (%s) for session %s", permissionsInterface, reflect.TypeOf(permissionsInterface), sessionId)
 			continue
 		}
-		var permissions []Permission
+		var permissions []api.Permission
 		for idx, ob := range permissionsList {
 			permission, ok := ob.(string)
 			if !ok {
 				b.logger.Printf("Received invalid permission at position %d %+v (%s) for session %s", idx, ob, reflect.TypeOf(ob), sessionId)
 				continue loop
 			}
-			permissions = append(permissions, Permission(permission))
+			permissions = append(permissions, api.Permission(permission))
 		}
 		wg.Add(1)
 
-		go func(sessionId api.PublicSessionId, permissions []Permission) {
+		go func(sessionId api.PublicSessionId, permissions []api.Permission) {
 			defer wg.Done()
 			message := &AsyncMessage{
 				Type:        "permissions",
@@ -589,7 +589,7 @@ loop:
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
-func (b *BackendServer) sendRoomMessage(roomid string, backend *talk.Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomMessage(roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
 	message := &AsyncMessage{
 		Type: "room",
 		Room: request,
@@ -597,7 +597,7 @@ func (b *BackendServer) sendRoomMessage(roomid string, backend *talk.Backend, re
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
-func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, backend *talk.Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
 	timeout := time.Second
 
 	// Convert (Nextcloud) session ids to signaling session ids.
@@ -609,7 +609,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 	if len(request.SwitchTo.Sessions) > 0 {
 		// We support both a list of sessions or a map with additional details per session.
 		if request.SwitchTo.Sessions[0] == '[' {
-			var sessionsList BackendRoomSwitchToSessionsList
+			var sessionsList talk.BackendRoomSwitchToSessionsList
 			if err := json.Unmarshal(request.SwitchTo.Sessions, &sessionsList); err != nil {
 				return err
 			}
@@ -618,7 +618,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 				return nil
 			}
 
-			var internalSessionsList BackendRoomSwitchToPublicSessionsList
+			var internalSessionsList talk.BackendRoomSwitchToPublicSessionsList
 			for _, roomSessionId := range sessionsList {
 				if roomSessionId == sessionIdNotInMeeting {
 					continue
@@ -647,7 +647,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 			request.SwitchTo.SessionsList = internalSessionsList
 			request.SwitchTo.SessionsMap = nil
 		} else {
-			var sessionsMap BackendRoomSwitchToSessionsMap
+			var sessionsMap talk.BackendRoomSwitchToSessionsMap
 			if err := json.Unmarshal(request.SwitchTo.Sessions, &sessionsMap); err != nil {
 				return err
 			}
@@ -656,7 +656,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 				return nil
 			}
 
-			internalSessionsMap := make(BackendRoomSwitchToPublicSessionsMap)
+			internalSessionsMap := make(talk.BackendRoomSwitchToPublicSessionsMap)
 			for roomSessionId, details := range sessionsMap {
 				if roomSessionId == sessionIdNotInMeeting {
 					continue
@@ -700,7 +700,7 @@ type BackendResponseWithStatus interface {
 }
 
 type DialoutErrorResponse struct {
-	BackendServerRoomResponse
+	talk.BackendServerRoomResponse
 
 	status int
 }
@@ -711,9 +711,9 @@ func (r *DialoutErrorResponse) Status() int {
 
 func returnDialoutError(status int, err *api.Error) (any, error) {
 	response := &DialoutErrorResponse{
-		BackendServerRoomResponse: BackendServerRoomResponse{
+		BackendServerRoomResponse: talk.BackendServerRoomResponse{
 			Type: "dialout",
-			Dialout: &BackendRoomDialoutResponse{
+			Dialout: &talk.BackendRoomDialoutResponse{
 				Error: err,
 			},
 		},
@@ -729,7 +729,7 @@ func isNumeric(s string) bool {
 	return checkNumeric.MatchString(s)
 }
 
-func (b *BackendServer) startDialoutInSession(ctx context.Context, session *ClientSession, roomid string, backend *talk.Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
+func (b *BackendServer) startDialoutInSession(ctx context.Context, session *ClientSession, roomid string, backend *talk.Backend, backendUrl string, request *talk.BackendServerRoomRequest) (any, error) {
 	url := backendUrl
 	if url != "" && url[len(url)-1] != '/' {
 		url += "/"
@@ -742,7 +742,7 @@ func (b *BackendServer) startDialoutInSession(ctx context.Context, session *Clie
 			url = urls[0]
 		}
 	}
-	id := newRandomString(32)
+	id := internal.RandomString(32)
 	msg := &api.ServerMessage{
 		Id:   id,
 		Type: "internal",
@@ -799,9 +799,9 @@ func (b *BackendServer) startDialoutInSession(ctx context.Context, session *Clie
 			return nil, api.NewError("unsupported_status", fmt.Sprintf("Unsupported dialout status received: %+v", dialout))
 		}
 
-		return &BackendServerRoomResponse{
+		return &talk.BackendServerRoomResponse{
 			Type: "dialout",
-			Dialout: &BackendRoomDialoutResponse{
+			Dialout: &talk.BackendRoomDialoutResponse{
 				CallId: dialout.Status.CallId,
 			},
 		}, nil
@@ -810,7 +810,7 @@ func (b *BackendServer) startDialoutInSession(ctx context.Context, session *Clie
 	}
 }
 
-func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend *talk.Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
+func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend *talk.Backend, backendUrl string, request *talk.BackendServerRoomRequest) (any, error) {
 	if err := request.Dialout.ValidateNumber(); err != nil {
 		return returnDialoutError(http.StatusBadRequest, err)
 	}
@@ -862,7 +862,7 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 	roomid := v["roomid"]
 
 	var backend *talk.Backend
-	backendUrl := r.Header.Get(HeaderBackendServer)
+	backendUrl := r.Header.Get(talk.HeaderBackendServer)
 	if backendUrl != "" {
 		if u, err := url.Parse(backendUrl); err == nil {
 			backend = b.hub.backend.GetBackend(u)
@@ -884,7 +884,7 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 			// Old-style Talk, find backend that created the checksum.
 			// TODO(fancycode): Remove once all supported Talk versions send the backend header.
 			for _, b := range b.hub.backend.GetBackends() {
-				if ValidateBackendChecksum(r, body, b.Secret()) {
+				if talk.ValidateBackendChecksum(r, body, b.Secret()) {
 					backend = b
 					break
 				}
@@ -898,13 +898,13 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 		}
 	}
 
-	if !ValidateBackendChecksum(r, body, backend.Secret()) {
+	if !talk.ValidateBackendChecksum(r, body, backend.Secret()) {
 		throttle(ctx)
 		http.Error(w, "Authentication check failed", http.StatusForbidden)
 		return
 	}
 
-	var request BackendServerRoomRequest
+	var request talk.BackendServerRoomRequest
 	if err := json.Unmarshal(body, &request); err != nil {
 		b.logger.Printf("Error decoding body %s: %s", string(body), err)
 		http.Error(w, "Could not read body", http.StatusBadRequest)
@@ -1017,7 +1017,7 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request) {
-	info := BackendServerInfo{
+	info := talk.BackendServerInfo{
 		Version:  b.version,
 		Features: b.hub.info.Features,
 

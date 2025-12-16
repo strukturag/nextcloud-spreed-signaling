@@ -197,9 +197,9 @@ func Test_TransientMessages(t *testing.T) {
 			require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
 
 			// Client 1 may modify transient data.
-			session1.SetPermissions([]Permission{PERMISSION_TRANSIENT_DATA})
+			session1.SetPermissions([]api.Permission{api.PERMISSION_TRANSIENT_DATA})
 			// Client 2 may not modify transient data.
-			session2.SetPermissions([]Permission{})
+			session2.SetPermissions([]api.Permission{})
 
 			require.NoError(client2.SetTransientData("foo", "bar", 0))
 			if msg, ok := client2.RunUntilMessage(ctx); ok {

@@ -32,6 +32,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -135,7 +136,7 @@ type Mcu interface {
 	SetOnDisconnected(func())
 
 	GetStats() any
-	GetServerInfoSfu() *BackendServerInfoSfu
+	GetServerInfoSfu() *talk.BackendServerInfoSfu
 	GetBandwidthLimits() (api.Bandwidth, api.Bandwidth)
 
 	NewPublisher(ctx context.Context, listener McuListener, id api.PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error)

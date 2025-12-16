@@ -482,7 +482,7 @@ func (c *FederationClient) sendHello(auth *api.FederationAuthParams) error {
 
 // +checklocks:c.helloMu
 func (c *FederationClient) sendHelloLocked(auth *api.FederationAuthParams) error {
-	c.helloMsgId = newRandomString(8)
+	c.helloMsgId = internal.RandomString(8)
 
 	authData, err := json.Marshal(auth)
 	if err != nil {
