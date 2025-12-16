@@ -582,7 +582,7 @@ func (h *TestProxyServerHandler) createPublisher() *testProxyServerPublisher {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	pub := &testProxyServerPublisher{
-		id: api.PublicSessionId(newRandomString(32)),
+		id: api.PublicSessionId(internal.RandomString(32)),
 	}
 
 	for {
@@ -590,7 +590,7 @@ func (h *TestProxyServerHandler) createPublisher() *testProxyServerPublisher {
 			break
 		}
 
-		pub.id = api.PublicSessionId(newRandomString(32))
+		pub.id = api.PublicSessionId(internal.RandomString(32))
 	}
 	h.publishers[pub.id] = pub
 	return pub
@@ -621,8 +621,8 @@ func (h *TestProxyServerHandler) createSubscriber(pub *testProxyServerPublisher)
 	defer h.mu.Unlock()
 
 	sub := &testProxyServerSubscriber{
-		id:  newRandomString(32),
-		sid: newRandomString(8),
+		id:  internal.RandomString(32),
+		sid: internal.RandomString(8),
 		pub: pub,
 	}
 
@@ -631,7 +631,7 @@ func (h *TestProxyServerHandler) createSubscriber(pub *testProxyServerPublisher)
 			break
 		}
 
-		sub.id = newRandomString(32)
+		sub.id = internal.RandomString(32)
 	}
 	h.subscribers[sub.id] = sub
 	return sub
@@ -753,7 +753,7 @@ func (h *TestProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		t:         h.t,
 		server:    h,
 		ws:        ws,
-		sessionId: api.PublicSessionId(newRandomString(32)),
+		sessionId: api.PublicSessionId(internal.RandomString(32)),
 	}
 
 	h.setClient(client.sessionId, client)

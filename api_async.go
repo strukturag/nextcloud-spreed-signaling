@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type AsyncMessage struct {
@@ -36,9 +37,9 @@ type AsyncMessage struct {
 
 	Message *api.ServerMessage `json:"message,omitempty"`
 
-	Room *BackendServerRoomRequest `json:"room,omitempty"`
+	Room *talk.BackendServerRoomRequest `json:"room,omitempty"`
 
-	Permissions []Permission `json:"permissions,omitempty"`
+	Permissions []api.Permission `json:"permissions,omitempty"`
 
 	AsyncRoom *AsyncRoomMessage `json:"asyncroom,omitempty"`
 

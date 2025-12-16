@@ -53,6 +53,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -1878,15 +1879,15 @@ func (m *mcuProxy) GetStats() any {
 	return result
 }
 
-func (m *mcuProxy) GetServerInfoSfu() *BackendServerInfoSfu {
+func (m *mcuProxy) GetServerInfoSfu() *talk.BackendServerInfoSfu {
 	m.connectionsMu.RLock()
 	defer m.connectionsMu.RUnlock()
 
-	sfu := &BackendServerInfoSfu{
-		Mode: SfuModeProxy,
+	sfu := &talk.BackendServerInfoSfu{
+		Mode: talk.SfuModeProxy,
 	}
 	for _, c := range m.connections {
-		proxy := BackendServerInfoSfuProxy{
+		proxy := talk.BackendServerInfoSfuProxy{
 			Url: c.rawUrl,
 
 			Temporary: c.IsTemporary(),
@@ -1905,11 +1906,18 @@ func (m *mcuProxy) GetServerInfoSfu() *BackendServerInfoSfu {
 			proxy.Features = c.Features()
 			proxy.Country = c.Country()
 			proxy.Load = internal.MakePtr(c.Load())
-			proxy.Bandwidth = c.Bandwidth()
+			if bw := c.Bandwidth(); bw != nil {
+				proxy.Bandwidth = &talk.BackendServerInfoSfuProxyBandwidth{
+					Incoming: bw.Incoming,
+					Outgoing: bw.Outgoing,
+					Received: bw.Received,
+					Sent:     bw.Sent,
+				}
+			}
 		}
 		sfu.Proxies = append(sfu.Proxies, proxy)
 	}
-	slices.SortFunc(sfu.Proxies, func(a, b BackendServerInfoSfuProxy) int {
+	slices.SortFunc(sfu.Proxies, func(a, b talk.BackendServerInfoSfuProxy) int {
 		c := strings.Compare(a.Url, b.Url)
 		if c == 0 {
 			c = strings.Compare(a.IP, b.IP)

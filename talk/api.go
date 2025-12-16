@@ -19,11 +19,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -36,6 +35,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -51,14 +51,6 @@ const (
 	ConfigKeySessionPingLimit = "session-ping-limit"
 )
 
-func newRandomString(length int) string {
-	b := make([]byte, length/2)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
-	}
-	return hex.EncodeToString(b)
-}
-
 func CalculateBackendChecksum(random string, body []byte, secret []byte) string {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(random)) // nolint
@@ -68,7 +60,7 @@ func CalculateBackendChecksum(random string, body []byte, secret []byte) string 
 
 func AddBackendChecksum(r *http.Request, body []byte, secret []byte) {
 	// Add checksum so the backend can validate the request.
-	rnd := newRandomString(64)
+	rnd := internal.RandomString(64)
 	checksum := CalculateBackendChecksum(rnd, body, secret)
 	r.Header.Set(HeaderBackendSignalingRandom, rnd)
 	r.Header.Set(HeaderBackendSignalingChecksum, checksum)
@@ -88,7 +80,8 @@ func ValidateBackendChecksumValue(checksum string, random string, body []byte, s
 // Requests from Nextcloud to the signaling server.
 
 type BackendServerRoomRequest struct {
-	room *Room
+	RoomId  string   `json:"-"`
+	Backend *Backend `json:"-"`
 
 	Type string `json:"type"`
 
@@ -315,7 +308,12 @@ type BackendClientRoomRequest struct {
 	InCall    int    `json:"incall,omitempty"`
 }
 
-func (r *BackendClientRoomRequest) UpdateFromSession(s Session) {
+type SessionWithUserData interface {
+	ClientType() api.ClientType
+	ParsedUserData() (api.StringMap, error)
+}
+
+func (r *BackendClientRoomRequest) UpdateFromSession(s SessionWithUserData) {
 	if s.ClientType() == api.HelloClientTypeFederation {
 		// Need to send additional data for requests of federated users.
 		if u, err := s.ParsedUserData(); err == nil && len(u) > 0 {
@@ -351,7 +349,7 @@ type BackendClientRoomResponse struct {
 	// See "RoomSessionData" for a possible content.
 	Session json.RawMessage `json:"session,omitempty"`
 
-	Permissions *[]Permission `json:"permissions,omitempty"`
+	Permissions *[]api.Permission `json:"permissions,omitempty"`
 }
 
 type RoomSessionData struct {
@@ -447,6 +445,18 @@ type BackendServerInfoSfuJanus struct {
 	VideoRoom *BackendServerInfoVideoRoom `json:"videoroom,omitempty"`
 }
 
+type BackendServerInfoSfuProxyBandwidth struct {
+	// Incoming is the bandwidth utilization for publishers in percent.
+	Incoming *float64 `json:"incoming,omitempty"`
+	// Outgoing is the bandwidth utilization for subscribers in percent.
+	Outgoing *float64 `json:"outgoing,omitempty"`
+
+	// Received is the incoming bandwidth.
+	Received api.Bandwidth `json:"received,omitempty"`
+	// Sent is the outgoing bandwidth.
+	Sent api.Bandwidth `json:"sent,omitempty"`
+}
+
 type BackendServerInfoSfuProxy struct {
 	Url string `json:"url"`
 	IP  string `json:"ip,omitempty"`
@@ -459,9 +469,9 @@ type BackendServerInfoSfuProxy struct {
 	Version  string   `json:"version,omitempty"`
 	Features []string `json:"features,omitempty"`
 
-	Country   geoip.Country              `json:"country,omitempty"`
-	Load      *uint64                    `json:"load,omitempty"`
-	Bandwidth *EventProxyServerBandwidth `json:"bandwidth,omitempty"`
+	Country   geoip.Country                       `json:"country,omitempty"`
+	Load      *uint64                             `json:"load,omitempty"`
+	Bandwidth *BackendServerInfoSfuProxyBandwidth `json:"bandwidth,omitempty"`
 }
 
 type SfuMode string

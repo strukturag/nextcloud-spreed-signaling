@@ -31,25 +31,6 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
-type Permission string
-
-var (
-	PERMISSION_MAY_PUBLISH_MEDIA  Permission = "publish-media"
-	PERMISSION_MAY_PUBLISH_AUDIO  Permission = "publish-audio"
-	PERMISSION_MAY_PUBLISH_VIDEO  Permission = "publish-video"
-	PERMISSION_MAY_PUBLISH_SCREEN Permission = "publish-screen"
-	PERMISSION_MAY_CONTROL        Permission = "control"
-	PERMISSION_TRANSIENT_DATA     Permission = "transient-data"
-	PERMISSION_HIDE_DISPLAYNAMES  Permission = "hide-displaynames"
-
-	// DefaultPermissionOverrides contains permission overrides for users where
-	// no permissions have been set by the server. If a permission is not set in
-	// this map, it's assumed the user has that permission.
-	DefaultPermissionOverrides = map[Permission]bool{ // +checklocksignore: Global readonly variable.
-		PERMISSION_HIDE_DISPLAYNAMES: false,
-	}
-)
-
 type Session interface {
 	Context() context.Context
 	PrivateId() api.PrivateSessionId
@@ -72,7 +53,7 @@ type Session interface {
 
 	Close()
 
-	HasPermission(permission Permission) bool
+	HasPermission(permission api.Permission) bool
 
 	SendError(e *api.Error) bool
 	SendMessage(message *api.ServerMessage) bool

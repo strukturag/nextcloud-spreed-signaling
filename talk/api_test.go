@@ -19,19 +19,21 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 func TestBackendChecksum(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
-	rnd := newRandomString(32)
+	rnd := internal.RandomString(32)
 	body := []byte{1, 2, 3, 4, 5}
 	secret := []byte("shared-secret")
 

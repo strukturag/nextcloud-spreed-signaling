@@ -25,9 +25,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 )
 
-func assertSessionHasPermission(t *testing.T, session Session, permission Permission) {
+func assertSessionHasPermission(t *testing.T, session Session, permission api.Permission) {
 	t.Helper()
 	assert.True(t, session.HasPermission(permission), "Session %s doesn't have permission %s", session.PublicId(), permission)
 	if cs, ok := session.(*ClientSession); ok {
@@ -35,7 +37,7 @@ func assertSessionHasPermission(t *testing.T, session Session, permission Permis
 	}
 }
 
-func assertSessionHasNotPermission(t *testing.T, session Session, permission Permission) {
+func assertSessionHasNotPermission(t *testing.T, session Session, permission api.Permission) {
 	t.Helper()
 	assert.False(t, session.HasPermission(permission), "Session %s has permission %s but shouldn't", session.PublicId(), permission)
 	if cs, ok := session.(*ClientSession); ok {

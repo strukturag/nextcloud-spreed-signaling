@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func NewRoomPingForTest(ctx context.Context, t *testing.T) (*url.URL, *RoomPing) {
@@ -72,7 +73,7 @@ func TestSingleRoomPing(t *testing.T) {
 	room1 := &Room{
 		id: "sample-room-1",
 	}
-	entries1 := []BackendPingEntry{
+	entries1 := []talk.BackendPingEntry{
 		{
 			UserId:    "foo",
 			SessionId: "123",
@@ -87,7 +88,7 @@ func TestSingleRoomPing(t *testing.T) {
 	room2 := &Room{
 		id: "sample-room-2",
 	}
-	entries2 := []BackendPingEntry{
+	entries2 := []talk.BackendPingEntry{
 		{
 			UserId:    "bar",
 			SessionId: "456",
@@ -116,7 +117,7 @@ func TestMultiRoomPing(t *testing.T) {
 	room1 := &Room{
 		id: "sample-room-1",
 	}
-	entries1 := []BackendPingEntry{
+	entries1 := []talk.BackendPingEntry{
 		{
 			UserId:    "foo",
 			SessionId: "123",
@@ -128,7 +129,7 @@ func TestMultiRoomPing(t *testing.T) {
 	room2 := &Room{
 		id: "sample-room-2",
 	}
-	entries2 := []BackendPingEntry{
+	entries2 := []talk.BackendPingEntry{
 		{
 			UserId:    "bar",
 			SessionId: "456",
@@ -156,7 +157,7 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 	room1 := &Room{
 		id: "sample-room-1",
 	}
-	entries1 := []BackendPingEntry{
+	entries1 := []talk.BackendPingEntry{
 		{
 			UserId:    "foo",
 			SessionId: "123",
@@ -164,7 +165,7 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 	}
 	assert.NoError(ping.SendPings(ctx, room1.Id(), u, entries1))
 	assert.Empty(getPingRequests(t))
-	entries2 := []BackendPingEntry{
+	entries2 := []talk.BackendPingEntry{
 		{
 			UserId:    "bar",
 			SessionId: "456",
@@ -192,7 +193,7 @@ func TestMultiRoomPing_DeleteRoom(t *testing.T) {
 	room1 := &Room{
 		id: "sample-room-1",
 	}
-	entries1 := []BackendPingEntry{
+	entries1 := []talk.BackendPingEntry{
 		{
 			UserId:    "foo",
 			SessionId: "123",
@@ -204,7 +205,7 @@ func TestMultiRoomPing_DeleteRoom(t *testing.T) {
 	room2 := &Room{
 		id: "sample-room-2",
 	}
-	entries2 := []BackendPingEntry{
+	entries2 := []talk.BackendPingEntry{
 		{
 			UserId:    "bar",
 			SessionId: "456",

@@ -33,8 +33,10 @@ import (
 	"github.com/dlintw/goconf"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
@@ -92,7 +94,7 @@ func (m *TestMCU) GetStats() any {
 	return nil
 }
 
-func (m *TestMCU) GetServerInfoSfu() *BackendServerInfoSfu {
+func (m *TestMCU) GetServerInfoSfu() *talk.BackendServerInfoSfu {
 	return nil
 }
 
@@ -150,7 +152,7 @@ func (m *TestMCU) NewSubscriber(ctx context.Context, listener McuListener, publi
 		return nil, errors.New("Waiting for publisher not implemented yet")
 	}
 
-	id := newRandomString(8)
+	id := internal.RandomString(8)
 	sub := &TestMCUSubscriber{
 		TestMCUClient: TestMCUClient{
 			t:          m.t,

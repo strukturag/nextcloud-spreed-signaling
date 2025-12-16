@@ -100,7 +100,7 @@ func (s *DummySession) LeaveRoom(notify bool) *Room {
 func (s *DummySession) Close() {
 }
 
-func (s *DummySession) HasPermission(permission Permission) bool {
+func (s *DummySession) HasPermission(permission api.Permission) bool {
 	return false
 }
 

@@ -348,23 +348,23 @@ func WaitForHub(ctx context.Context, t *testing.T, h *Hub) {
 	}
 }
 
-func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Request, *BackendClientRequest) *BackendClientResponse) func(http.ResponseWriter, *http.Request) {
+func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Request, *talk.BackendClientRequest) *talk.BackendClientResponse) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		assert := assert.New(t)
 		body, err := io.ReadAll(r.Body)
 		assert.NoError(err)
 
-		rnd := r.Header.Get(HeaderBackendSignalingRandom)
-		checksum := r.Header.Get(HeaderBackendSignalingChecksum)
+		rnd := r.Header.Get(talk.HeaderBackendSignalingRandom)
+		checksum := r.Header.Get(talk.HeaderBackendSignalingChecksum)
 		if rnd == "" || checksum == "" {
 			assert.Fail("No checksum headers found", "request to %s", r.URL)
 		}
 
-		if verify := CalculateBackendChecksum(rnd, body, testBackendSecret); verify != checksum {
+		if verify := talk.CalculateBackendChecksum(rnd, body, testBackendSecret); verify != checksum {
 			assert.Fail("Backend checksum verification failed", "request to %s", r.URL)
 		}
 
-		var request BackendClientRequest
+		var request talk.BackendClientRequest
 		assert.NoError(json.Unmarshal(body, &request))
 
 		response := f(w, r, &request)
@@ -396,7 +396,7 @@ func validateBackendChecksum(t *testing.T, f func(http.ResponseWriter, *http.Req
 	}
 }
 
-func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *talk.BackendClientRequest) *talk.BackendClientResponse {
 	require := require.New(t)
 	if request.Type != "auth" || request.Auth == nil {
 		require.Fail("Expected an auth backend request", "received %+v", request)
@@ -413,10 +413,10 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		params.UserId = ""
 	}
 
-	response := &BackendClientResponse{
+	response := &talk.BackendClientResponse{
 		Type: "auth",
-		Auth: &BackendClientAuthResponse{
-			Version: BackendVersion,
+		Auth: &talk.BackendClientAuthResponse{
+			Version: talk.BackendVersion,
 			UserId:  params.UserId,
 		},
 	}
@@ -428,7 +428,7 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	return response
 }
 
-func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *talk.BackendClientRequest) *talk.BackendClientResponse {
 	require := require.New(t)
 	assert := assert.New(t)
 	if request.Type != "room" || request.Room == nil {
@@ -444,7 +444,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 			assert.Fail("Should not receive \"leave\" event for first user", "received %+v", request.Room)
 		}
 	case "test-invalid-room":
-		response := &BackendClientResponse{
+		response := &talk.BackendClientResponse{
 			Type: "error",
 			Error: &api.Error{
 				Code:    "no_such_room",
@@ -471,10 +471,10 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	}
 
 	// Allow joining any room.
-	response := &BackendClientResponse{
+	response := &talk.BackendClientResponse{
 		Type: "room",
-		Room: &BackendClientRoomResponse{
-			Version:    BackendVersion,
+		Room: &talk.BackendClientRoomResponse{
+			Version:    talk.BackendVersion,
 			RoomId:     request.Room.RoomId,
 			Properties: testRoomProperties,
 		},
@@ -487,7 +487,7 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 		tmp, _ := json.Marshal(data)
 		response.Room.Session = tmp
 	case "test-room-initial-permissions":
-		permissions := []Permission{PERMISSION_MAY_PUBLISH_AUDIO}
+		permissions := []api.Permission{api.PERMISSION_MAY_PUBLISH_AUDIO}
 		response.Room.Permissions = &permissions
 	}
 	return response
@@ -497,15 +497,15 @@ var (
 	sessionRequestHander struct {
 		sync.Mutex
 		// +checklocks:Mutex
-		handlers map[*testing.T]func(*BackendClientSessionRequest)
+		handlers map[*testing.T]func(*talk.BackendClientSessionRequest)
 	}
 )
 
-func setSessionRequestHandler(t *testing.T, f func(*BackendClientSessionRequest)) {
+func setSessionRequestHandler(t *testing.T, f func(*talk.BackendClientSessionRequest)) {
 	sessionRequestHander.Lock()
 	defer sessionRequestHander.Unlock()
 	if sessionRequestHander.handlers == nil {
-		sessionRequestHander.handlers = make(map[*testing.T]func(*BackendClientSessionRequest))
+		sessionRequestHander.handlers = make(map[*testing.T]func(*talk.BackendClientSessionRequest))
 	}
 	if _, found := sessionRequestHander.handlers[t]; !found {
 		t.Cleanup(func() {
@@ -525,7 +525,7 @@ func clearSessionRequestHandler(t *testing.T) { // nolint
 	delete(sessionRequestHander.handlers, t)
 }
 
-func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *talk.BackendClientRequest) *talk.BackendClientResponse {
 	if request.Type != "session" || request.Session == nil {
 		require.Fail(t, "Expected an session backend request", "received %+v", request)
 	}
@@ -536,10 +536,10 @@ func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request,
 		f(request.Session)
 	}
 
-	response := &BackendClientResponse{
+	response := &talk.BackendClientResponse{
 		Type: "session",
-		Session: &BackendClientSessionResponse{
-			Version: BackendVersion,
+		Session: &talk.BackendClientSessionResponse{
+			Version: talk.BackendVersion,
 			RoomId:  request.Session.RoomId,
 		},
 	}
@@ -547,10 +547,10 @@ func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request,
 }
 
 var (
-	pingRequests internal.TestStorage[[]*BackendClientRequest]
+	pingRequests internal.TestStorage[[]*talk.BackendClientRequest]
 )
 
-func getPingRequests(t *testing.T) []*BackendClientRequest {
+func getPingRequests(t *testing.T) []*talk.BackendClientRequest {
 	entries, _ := pingRequests.Get(t)
 	return entries
 }
@@ -559,12 +559,12 @@ func clearPingRequests(t *testing.T) {
 	pingRequests.Del(t)
 }
 
-func storePingRequest(t *testing.T, request *BackendClientRequest) {
+func storePingRequest(t *testing.T, request *talk.BackendClientRequest) {
 	entries, _ := pingRequests.Get(t)
 	pingRequests.Set(t, append(entries, request))
 }
 
-func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *talk.BackendClientRequest) *talk.BackendClientResponse {
 	if request.Type != "ping" || request.Ping == nil {
 		require.Fail(t, "Expected an ping backend request", "received %+v", request)
 	}
@@ -577,10 +577,10 @@ func processPingRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 
 	storePingRequest(t, request)
 
-	response := &BackendClientResponse{
+	response := &talk.BackendClientResponse{
 		Type: "ping",
-		Ping: &BackendClientRingResponse{
-			Version: BackendVersion,
+		Ping: &talk.BackendClientRingResponse{
+			Version: talk.BackendVersion,
 			RoomId:  request.Ping.RoomId,
 		},
 	}
@@ -706,7 +706,7 @@ var (
 )
 
 func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
-	handleFunc := validateBackendChecksum(t, func(w http.ResponseWriter, r *http.Request, request *BackendClientRequest) *BackendClientResponse {
+	handleFunc := validateBackendChecksum(t, func(w http.ResponseWriter, r *http.Request, request *talk.BackendClientRequest) *talk.BackendClientResponse {
 		assert.Regexp(t, "/ocs/v2\\.php/apps/spreed/api/v[\\d]/signaling/backend$", r.URL.Path, "invalid url for backend request %+v", request)
 
 		switch request.Type {
@@ -748,7 +748,7 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			"signaling": signaling,
 		}
 		if strings.Contains(t.Name(), "MultiRoom") {
-			signaling[ConfigKeySessionPingLimit] = 2
+			signaling[talk.ConfigKeySessionPingLimit] = 2
 		}
 		skipV2, _ := skipV2Capabilities.Get(t)
 		if (strings.Contains(t.Name(), "V2") && !skipV2) || strings.Contains(t.Name(), "Federation") {
@@ -771,9 +771,9 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 			if strings.Contains(t.Name(), "Ed25519_Nextcloud") {
 				// Simulate Nextcloud which returns the Ed25519 key as base64-encoded data.
 				encoded := base64.StdEncoding.EncodeToString(key.(ed25519.PublicKey))
-				signaling[ConfigKeyHelloV2TokenKey] = encoded
+				signaling[talk.ConfigKeyHelloV2TokenKey] = encoded
 			} else {
-				signaling[ConfigKeyHelloV2TokenKey] = string(public)
+				signaling[talk.ConfigKeyHelloV2TokenKey] = string(public)
 			}
 		}
 		spreedCapa, err := json.Marshal(api.StringMap{
@@ -2113,15 +2113,15 @@ func TestClientControlMissingPermissions(t *testing.T) {
 	require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
 
 	// Client 1 may not send control messages (will be ignored).
-	session1.SetPermissions([]Permission{
-		PERMISSION_MAY_PUBLISH_AUDIO,
-		PERMISSION_MAY_PUBLISH_VIDEO,
+	session1.SetPermissions([]api.Permission{
+		api.PERMISSION_MAY_PUBLISH_AUDIO,
+		api.PERMISSION_MAY_PUBLISH_VIDEO,
 	})
 	// Client 2 may send control messages.
-	session2.SetPermissions([]Permission{
-		PERMISSION_MAY_PUBLISH_AUDIO,
-		PERMISSION_MAY_PUBLISH_VIDEO,
-		PERMISSION_MAY_CONTROL,
+	session2.SetPermissions([]api.Permission{
+		api.PERMISSION_MAY_PUBLISH_AUDIO,
+		api.PERMISSION_MAY_PUBLISH_VIDEO,
+		api.PERMISSION_MAY_CONTROL,
 	})
 
 	recipient1 := api.MessageClientMessageRecipient{
@@ -2972,7 +2972,7 @@ func TestJoinDisplaynamesPermission(t *testing.T) {
 	require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
 
 	// Client 2 may not receive display names.
-	session2.SetPermissions([]Permission{PERMISSION_HIDE_DISPLAYNAMES})
+	session2.SetPermissions([]api.Permission{api.PERMISSION_HIDE_DISPLAYNAMES})
 
 	// Join room by id (first client).
 	roomId := "test-room"
@@ -3024,8 +3024,8 @@ func TestInitialRoomPermissions(t *testing.T) {
 	session := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
 	require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
-	assert.True(session.HasPermission(PERMISSION_MAY_PUBLISH_AUDIO), "Session %s should have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_AUDIO, session.GetPermissions())
-	assert.False(session.HasPermission(PERMISSION_MAY_PUBLISH_VIDEO), "Session %s should not have %s, got %+v", session.PublicId(), PERMISSION_MAY_PUBLISH_VIDEO, session.GetPermissions())
+	assert.True(session.HasPermission(api.PERMISSION_MAY_PUBLISH_AUDIO), "Session %s should have %s, got %+v", session.PublicId(), api.PERMISSION_MAY_PUBLISH_AUDIO, session.GetPermissions())
+	assert.False(session.HasPermission(api.PERMISSION_MAY_PUBLISH_VIDEO), "Session %s should not have %s, got %+v", session.PublicId(), api.PERMISSION_MAY_PUBLISH_VIDEO, session.GetPermissions())
 }
 
 func TestJoinRoomSwitchClient(t *testing.T) {
@@ -3382,18 +3382,18 @@ func TestCombineChatRefreshWhileDisconnected(t *testing.T) {
 	// Simulate requests from the backend.
 	room.processAsyncMessage(&AsyncMessage{
 		Type: "room",
-		Room: &BackendServerRoomRequest{
+		Room: &talk.BackendServerRoomRequest{
 			Type: "message",
-			Message: &BackendRoomMessageRequest{
+			Message: &talk.BackendRoomMessageRequest{
 				Data: json.RawMessage(chat_refresh),
 			},
 		},
 	})
 	room.processAsyncMessage(&AsyncMessage{
 		Type: "room",
-		Room: &BackendServerRoomRequest{
+		Room: &talk.BackendServerRoomRequest{
 			Type: "message",
-			Message: &BackendRoomMessageRequest{
+			Message: &talk.BackendRoomMessageRequest{
 				Data: json.RawMessage(chat_refresh),
 			},
 		},
@@ -3628,9 +3628,9 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
 
 	// Client 1 is the moderator
-	session1.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_PUBLISH_SCREEN})
+	session1.SetPermissions([]api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA, api.PERMISSION_MAY_PUBLISH_SCREEN})
 	// Client 2 is a guest participant.
-	session2.SetPermissions([]Permission{})
+	session2.SetPermissions([]api.Permission{})
 
 	// Client 2 may not send an offer (he doesn't have the necessary permissions).
 	require.NoError(client2.SendMessage(api.MessageClientMessageRecipient{
@@ -3706,7 +3706,7 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 	require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
 	// Client is allowed to send audio only.
-	session.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_AUDIO})
+	session.SetPermissions([]api.Permission{api.PERMISSION_MAY_PUBLISH_AUDIO})
 
 	// Client may not send an offer with audio and video.
 	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
@@ -3768,7 +3768,7 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
 	// Client is allowed to send audio and video.
-	session.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO})
+	session.SetPermissions([]api.Permission{api.PERMISSION_MAY_PUBLISH_AUDIO, api.PERMISSION_MAY_PUBLISH_VIDEO})
 
 	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
@@ -3785,19 +3785,19 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
 	// Client is no longer allowed to send video, this will stop the publisher.
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "participants",
-		Participants: &BackendRoomParticipantsRequest{
+		Participants: &talk.BackendRoomParticipantsRequest{
 			Changed: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
+					"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_AUDIO},
 				},
 			},
 			Users: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []Permission{PERMISSION_MAY_PUBLISH_AUDIO},
+					"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_AUDIO},
 				},
 			},
 		},
@@ -3864,7 +3864,7 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
 	// Client is allowed to send audio and video.
-	session.SetPermissions([]Permission{PERMISSION_MAY_PUBLISH_MEDIA})
+	session.SetPermissions([]api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA})
 
 	// Client may send an offer (audio and video).
 	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
@@ -3882,19 +3882,19 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
 	// Client is no longer allowed to send video, this will stop the publisher.
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "participants",
-		Participants: &BackendRoomParticipantsRequest{
+		Participants: &talk.BackendRoomParticipantsRequest{
 			Changed: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_CONTROL},
+					"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA, api.PERMISSION_MAY_CONTROL},
 				},
 			},
 			Users: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA, PERMISSION_MAY_CONTROL},
+					"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA, api.PERMISSION_MAY_CONTROL},
 				},
 			},
 		},
@@ -4552,7 +4552,7 @@ func TestVirtualClientSessions(t *testing.T) {
 			virtualUserId := "virtual-user-id"
 			generatedSessionId := GetVirtualSessionId(session2, virtualSessionId)
 
-			setSessionRequestHandler(t, func(request *BackendClientSessionRequest) {
+			setSessionRequestHandler(t, func(request *talk.BackendClientSessionRequest) {
 				defer calledCancel()
 				assert.Equal("add", request.Action, "%+v", request)
 				assert.Equal(roomId, request.RoomId, "%+v", request)
@@ -4661,7 +4661,7 @@ func TestVirtualClientSessions(t *testing.T) {
 
 			calledCtx, calledCancel = context.WithTimeout(ctx, time.Second)
 
-			setSessionRequestHandler(t, func(request *BackendClientSessionRequest) {
+			setSessionRequestHandler(t, func(request *talk.BackendClientSessionRequest) {
 				defer calledCancel()
 				assert.Equal("remove", request.Action, "%+v", request)
 				assert.Equal(roomId, request.RoomId, "%+v", request)
@@ -4794,7 +4794,7 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 			virtualUserId := "virtual-user-id"
 			generatedSessionId := GetVirtualSessionId(session2, virtualSessionId)
 
-			setSessionRequestHandler(t, func(request *BackendClientSessionRequest) {
+			setSessionRequestHandler(t, func(request *talk.BackendClientSessionRequest) {
 				defer calledCancel()
 				assert.Equal("add", request.Action, "%+v", request)
 				assert.Equal(roomId, request.RoomId, "%+v", request)
@@ -4874,9 +4874,9 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				}
 			}
 
-			msg := &BackendServerRoomRequest{
+			msg := &talk.BackendServerRoomRequest{
 				Type: "incall",
-				InCall: &BackendRoomInCallRequest{
+				InCall: &talk.BackendRoomInCallRequest{
 					InCall: []byte("0"),
 					Users: []api.StringMap{
 						{
@@ -4981,7 +4981,7 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				}
 			}
 
-			setSessionRequestHandler(t, func(request *BackendClientSessionRequest) {
+			setSessionRequestHandler(t, func(request *talk.BackendClientSessionRequest) {
 				defer calledCancel()
 				assert.Equal("remove", request.Action, "%+v", request)
 				assert.Equal(roomId, request.RoomId, "%+v", request)
@@ -5045,9 +5045,9 @@ func DoTestSwitchToOne(t *testing.T, details api.StringMap) {
 			}
 
 			// Notify first client to switch to different room.
-			msg := &BackendServerRoomRequest{
+			msg := &talk.BackendServerRoomRequest{
 				Type: "switchto",
-				SwitchTo: &BackendRoomSwitchToMessageRequest{
+				SwitchTo: &talk.BackendRoomSwitchToMessageRequest{
 					RoomId:   roomId2,
 					Sessions: sessions,
 				},
@@ -5146,9 +5146,9 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 				require.NoError(err)
 			}
 
-			msg := &BackendServerRoomRequest{
+			msg := &talk.BackendServerRoomRequest{
 				Type: "switchto",
-				SwitchTo: &BackendRoomSwitchToMessageRequest{
+				SwitchTo: &talk.BackendRoomSwitchToMessageRequest{
 					RoomId:   roomId2,
 					Sessions: sessions,
 				},
@@ -5291,9 +5291,9 @@ func TestDialoutStatus(t *testing.T) {
 		<-stopped
 	}()
 
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "dialout",
-		Dialout: &BackendRoomDialoutRequest{
+		Dialout: &talk.BackendRoomDialoutRequest{
 			Number: "+1234567890",
 		},
 	}
@@ -5307,7 +5307,7 @@ func TestDialoutStatus(t *testing.T) {
 	assert.NoError(err)
 	require.Equal(http.StatusOK, res.StatusCode, "Expected success, got %s", string(body))
 
-	var response BackendServerRoomResponse
+	var response talk.BackendServerRoomResponse
 	if assert.NoError(json.Unmarshal(body, &response)) {
 		assert.Equal("dialout", response.Type)
 		if assert.NotNil(response.Dialout) {
