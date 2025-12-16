@@ -52,7 +52,7 @@ type mcuJanusPublisher struct {
 	id        api.PublicSessionId
 	settings  NewPublisherSettings
 	stats     publisherStatsCounter
-	sdpFlags  Flags
+	sdpFlags  internal.Flags
 	sdpReady  *internal.Closer
 	offerSdp  atomic.Pointer[sdp.SessionDescription]
 	answerSdp atomic.Pointer[sdp.SessionDescription]

@@ -38,6 +38,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -72,7 +73,7 @@ type ClientSession struct {
 
 	parseUserData func() (api.StringMap, error)
 
-	inCall Flags
+	inCall internal.Flags
 	// +checklocks:mu
 	supportsPermissions bool
 	// +checklocks:mu
