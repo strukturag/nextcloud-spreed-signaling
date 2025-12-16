@@ -8,6 +8,7 @@ import (
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
 	api "github.com/strukturag/nextcloud-spreed-signaling/api"
+	talk "github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 // suppress unused package warning
@@ -258,7 +259,7 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				out.Room = nil
 			} else {
 				if out.Room == nil {
-					out.Room = new(BackendServerRoomRequest)
+					out.Room = new(talk.BackendServerRoomRequest)
 				}
 				if in.IsNull() {
 					in.Skip()
@@ -274,19 +275,19 @@ func easyjson9289e183DecodeGithubComStrukturagNextcloudSpreedSignaling2(in *jlex
 				in.Delim('[')
 				if out.Permissions == nil {
 					if !in.IsDelim(']') {
-						out.Permissions = make([]Permission, 0, 4)
+						out.Permissions = make([]api.Permission, 0, 4)
 					} else {
-						out.Permissions = []Permission{}
+						out.Permissions = []api.Permission{}
 					}
 				} else {
 					out.Permissions = (out.Permissions)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v1 Permission
+					var v1 api.Permission
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						v1 = Permission(in.String())
+						v1 = api.Permission(in.String())
 					}
 					out.Permissions = append(out.Permissions, v1)
 					in.WantComma()
