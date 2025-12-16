@@ -30,6 +30,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -55,8 +56,8 @@ type VirtualSession struct {
 	sessionId api.PublicSessionId
 	userId    string
 	userData  json.RawMessage
-	inCall    Flags
-	flags     Flags
+	inCall    internal.Flags
+	flags     internal.Flags
 	options   *api.AddSessionOptions
 
 	parseUserData func() (api.StringMap, error)
