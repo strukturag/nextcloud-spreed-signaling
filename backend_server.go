@@ -50,6 +50,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
@@ -71,7 +72,7 @@ const (
 type BackendServer struct {
 	logger       log.Logger
 	hub          *Hub
-	events       AsyncEvents
+	events       events.AsyncEvents
 	roomSessions RoomSessions
 
 	version        string
@@ -329,7 +330,7 @@ func (b *BackendServer) parseRequestBody(f func(context.Context, http.ResponseWr
 }
 
 func (b *BackendServer) sendRoomInvite(roomid string, backend *talk.Backend, userids []string, properties json.RawMessage) {
-	msg := &AsyncMessage{
+	msg := &events.AsyncMessage{
 		Type: "message",
 		Message: &api.ServerMessage{
 			Type: "event",
@@ -351,7 +352,7 @@ func (b *BackendServer) sendRoomInvite(roomid string, backend *talk.Backend, use
 }
 
 func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, reason string, userids []string, sessionids []api.RoomSessionId) {
-	msg := &AsyncMessage{
+	msg := &events.AsyncMessage{
 		Type: "message",
 		Message: &api.ServerMessage{
 			Type: "event",
@@ -400,7 +401,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, 
 }
 
 func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, notified_userids []string, all_userids []string, properties json.RawMessage) {
-	msg := &AsyncMessage{
+	msg := &events.AsyncMessage{
 		Type: "message",
 		Message: &api.ServerMessage{
 			Type: "event",
@@ -518,7 +519,7 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, req
 		}
 	}
 
-	message := &AsyncMessage{
+	message := &events.AsyncMessage{
 		Type: "room",
 		Room: request,
 	}
@@ -571,7 +572,7 @@ loop:
 
 		go func(sessionId api.PublicSessionId, permissions []api.Permission) {
 			defer wg.Done()
-			message := &AsyncMessage{
+			message := &events.AsyncMessage{
 				Type:        "permissions",
 				Permissions: permissions,
 			}
@@ -582,7 +583,7 @@ loop:
 	}
 	wg.Wait()
 
-	message := &AsyncMessage{
+	message := &events.AsyncMessage{
 		Type: "room",
 		Room: request,
 	}
@@ -590,7 +591,7 @@ loop:
 }
 
 func (b *BackendServer) sendRoomMessage(roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
-	message := &AsyncMessage{
+	message := &events.AsyncMessage{
 		Type: "room",
 		Room: request,
 	}
@@ -688,7 +689,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 	}
 	request.SwitchTo.Sessions = nil
 
-	message := &AsyncMessage{
+	message := &events.AsyncMessage{
 		Type: "room",
 		Room: request,
 	}
@@ -922,14 +923,14 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 		b.sendRoomDisinvite(roomid, backend, api.DisinviteReasonDisinvited, request.Disinvite.UserIds, request.Disinvite.SessionIds)
 		b.sendRoomUpdate(roomid, backend, request.Disinvite.UserIds, request.Disinvite.AllUserIds, request.Disinvite.Properties)
 	case "update":
-		message := &AsyncMessage{
+		message := &events.AsyncMessage{
 			Type: "room",
 			Room: &request,
 		}
 		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
 		b.sendRoomUpdate(roomid, backend, nil, request.Update.UserIds, request.Update.Properties)
 	case "delete":
-		message := &AsyncMessage{
+		message := &events.AsyncMessage{
 			Type: "room",
 			Room: &request,
 		}
@@ -1016,6 +1017,10 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(statsData) // nolint
 }
 
+type withServerInfoNats interface {
+	GetServerInfoNats() *talk.BackendServerInfoNats
+}
+
 func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request) {
 	info := talk.BackendServerInfo{
 		Version:  b.version,
@@ -1026,7 +1031,7 @@ func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request
 	if mcu := b.hub.mcu; mcu != nil {
 		info.Sfu = mcu.GetServerInfoSfu()
 	}
-	if e, ok := b.events.(*asyncEventsNats); ok {
+	if e, ok := b.events.(withServerInfoNats); ok {
 		info.Nats = e.GetServerInfoNats()
 	}
 	if rpcClients := b.hub.rpcClients; rpcClients != nil {

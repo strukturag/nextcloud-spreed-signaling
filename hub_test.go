@@ -54,6 +54,8 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/eventstest"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
@@ -158,7 +160,7 @@ func getTestConfigWithMultipleUrls(server *httptest.Server) (*goconf.ConfigFile,
 	return config, nil
 }
 
-func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
+func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, events.AsyncEvents, *mux.Router, *httptest.Server) {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
@@ -170,7 +172,7 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 		server.Close()
 	})
 
-	events := getAsyncEventsForTest(t)
+	events := eventstest.GetAsyncEventsForTest(t)
 	config, err := getConfigFunc(server)
 	require.NoError(err)
 	h, err := NewHub(ctx, config, events, nil, nil, nil, r, "no-version")
@@ -191,18 +193,18 @@ func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Serve
 	return h, events, r, server
 }
 
-func CreateHubForTest(t *testing.T) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
+func CreateHubForTest(t *testing.T) (*Hub, events.AsyncEvents, *mux.Router, *httptest.Server) {
 	return CreateHubForTestWithConfig(t, getTestConfig)
 }
 
-func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
+func CreateHubWithMultipleBackendsForTest(t *testing.T) (*Hub, events.AsyncEvents, *mux.Router, *httptest.Server) {
 	h, events, r, server := CreateHubForTestWithConfig(t, getTestConfigWithMultipleBackends)
 	registerBackendHandlerUrl(t, r, "/one")
 	registerBackendHandlerUrl(t, r, "/two")
 	return h, events, r, server
 }
 
-func CreateHubWithMultipleUrlsForTest(t *testing.T) (*Hub, AsyncEvents, *mux.Router, *httptest.Server) {
+func CreateHubWithMultipleUrlsForTest(t *testing.T) (*Hub, events.AsyncEvents, *mux.Router, *httptest.Server) {
 	h, events, r, server := CreateHubForTestWithConfig(t, getTestConfigWithMultipleUrls)
 	registerBackendHandlerUrl(t, r, "/one")
 	registerBackendHandlerUrl(t, r, "/two")
@@ -245,7 +247,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		addr1, addr2 = addr2, addr1
 	}
 
-	events1, err := NewAsyncEvents(ctx, nats1.ClientURL())
+	events1, err := events.NewAsyncEvents(ctx, nats1.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -259,7 +261,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	require.NoError(err)
 	b1, err := NewBackendServer(ctx, config1, h1, "no-version")
 	require.NoError(err)
-	events2, err := NewAsyncEvents(ctx, nats2.ClientURL())
+	events2, err := events.NewAsyncEvents(ctx, nats2.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -2005,8 +2007,8 @@ func TestClientMessageToSessionId(t *testing.T) {
 			require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 			// Make sure the session subscription events are processed.
-			waitForAsyncEventsFlushed(ctx, t, hub1.events)
-			waitForAsyncEventsFlushed(ctx, t, hub2.events)
+			eventstest.WaitForAsyncEventsFlushed(ctx, t, hub1.events)
+			eventstest.WaitForAsyncEventsFlushed(ctx, t, hub2.events)
 
 			recipient1 := api.MessageClientMessageRecipient{
 				Type:      "session",
@@ -2066,8 +2068,8 @@ func TestClientControlToSessionId(t *testing.T) {
 			require.NotEqual(hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 			// Make sure the session subscription events are processed.
-			waitForAsyncEventsFlushed(ctx, t, hub1.events)
-			waitForAsyncEventsFlushed(ctx, t, hub2.events)
+			eventstest.WaitForAsyncEventsFlushed(ctx, t, hub1.events)
+			eventstest.WaitForAsyncEventsFlushed(ctx, t, hub2.events)
 
 			recipient1 := api.MessageClientMessageRecipient{
 				Type:      "session",
@@ -3380,7 +3382,7 @@ func TestCombineChatRefreshWhileDisconnected(t *testing.T) {
 	require.NoError(json.Unmarshal([]byte(chat_refresh), &data))
 
 	// Simulate requests from the backend.
-	room.processAsyncMessage(&AsyncMessage{
+	room.processAsyncMessage(&events.AsyncMessage{
 		Type: "room",
 		Room: &talk.BackendServerRoomRequest{
 			Type: "message",
@@ -3389,7 +3391,7 @@ func TestCombineChatRefreshWhileDisconnected(t *testing.T) {
 			},
 		},
 	})
-	room.processAsyncMessage(&AsyncMessage{
+	room.processAsyncMessage(&events.AsyncMessage{
 		Type: "room",
 		Room: &talk.BackendServerRoomRequest{
 			Type: "message",

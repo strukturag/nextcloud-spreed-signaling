@@ -42,6 +42,7 @@ import (
 	"github.com/gorilla/mux"
 
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
@@ -185,7 +186,7 @@ func main() {
 		natsUrl = nats.DefaultURL
 	}
 
-	events, err := signaling.NewAsyncEvents(stopCtx, natsUrl)
+	events, err := events.NewAsyncEvents(stopCtx, natsUrl)
 	if err != nil {
 		logger.Fatal("Could not create async events client: ", err)
 	}

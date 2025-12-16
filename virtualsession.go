@@ -29,6 +29,7 @@ import (
 	"sync/atomic"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -60,7 +61,7 @@ type VirtualSession struct {
 
 	parseUserData func() (api.StringMap, error)
 
-	asyncCh AsyncChannel
+	asyncCh events.AsyncChannel
 }
 
 func GetVirtualSessionId(session Session, sessionId api.PublicSessionId) api.PublicSessionId {
@@ -87,7 +88,7 @@ func NewVirtualSession(session *ClientSession, privateId api.PrivateSessionId, p
 		parseUserData: parseUserData(msg.User),
 		options:       msg.Options,
 
-		asyncCh: make(AsyncChannel, DefaultAsyncChannelSize),
+		asyncCh: make(events.AsyncChannel, events.DefaultAsyncChannelSize),
 	}
 
 	if err := session.events.RegisterSessionListener(publicId, session.Backend(), result); err != nil {
@@ -198,7 +199,7 @@ func (s *VirtualSession) LeaveRoom(notify bool) *Room {
 	return room
 }
 
-func (s *VirtualSession) AsyncChannel() AsyncChannel {
+func (s *VirtualSession) AsyncChannel() events.AsyncChannel {
 	return s.asyncCh
 }
 
@@ -315,7 +316,7 @@ func (s *VirtualSession) Options() *api.AddSessionOptions {
 }
 
 func (s *VirtualSession) processAsyncNatsMessage(msg *nats.Msg) {
-	var message AsyncMessage
+	var message events.AsyncMessage
 	if err := nats.Decode(msg, &message); err != nil {
 		s.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
 		return
@@ -324,7 +325,7 @@ func (s *VirtualSession) processAsyncNatsMessage(msg *nats.Msg) {
 	s.processAsyncMessage(&message)
 }
 
-func (s *VirtualSession) processAsyncMessage(message *AsyncMessage) {
+func (s *VirtualSession) processAsyncMessage(message *events.AsyncMessage) {
 	if message.Type == "message" && message.Message != nil {
 		switch message.Message.Type {
 		case "message":
@@ -359,7 +360,7 @@ func (s *VirtualSession) processAsyncMessage(message *AsyncMessage) {
 					return
 				}
 
-				s.session.processAsyncMessage(&AsyncMessage{
+				s.session.processAsyncMessage(&events.AsyncMessage{
 					Type:     "message",
 					SendTime: message.SendTime,
 					Message: &api.ServerMessage{

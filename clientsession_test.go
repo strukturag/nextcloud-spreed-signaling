@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
@@ -218,7 +219,7 @@ func TestFeatureChatRelay(t *testing.T) {
 			require.NoError(err)
 
 			// Simulate request from the backend.
-			room.processAsyncMessage(&AsyncMessage{
+			room.processAsyncMessage(&events.AsyncMessage{
 				Type: "room",
 				Room: &talk.BackendServerRoomRequest{
 					Type: "message",
@@ -415,7 +416,7 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			require.NoError(err)
 
 			// Simulate request from the backend.
-			room.processAsyncMessage(&AsyncMessage{
+			room.processAsyncMessage(&events.AsyncMessage{
 				Type: "room",
 				Room: &talk.BackendServerRoomRequest{
 					Type: "message",
@@ -515,7 +516,7 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 			require.NoError(err)
 
 			// Simulate request from the backend.
-			room.processAsyncMessage(&AsyncMessage{
+			room.processAsyncMessage(&events.AsyncMessage{
 				Type: "room",
 				Room: &talk.BackendServerRoomRequest{
 					Type: "message",

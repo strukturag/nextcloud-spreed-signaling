@@ -36,6 +36,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
@@ -70,7 +71,7 @@ type Room struct {
 	id      string
 	logger  log.Logger
 	hub     *Hub
-	events  AsyncEvents
+	events  events.AsyncEvents
 	backend *talk.Backend
 
 	// +checklocks:mu
@@ -78,7 +79,7 @@ type Room struct {
 
 	closer  *internal.Closer
 	mu      *sync.RWMutex
-	asyncCh AsyncChannel
+	asyncCh events.AsyncChannel
 	// +checklocks:mu
 	sessions map[api.PublicSessionId]Session
 	// +checklocks:mu
@@ -110,19 +111,19 @@ func getRoomIdForBackend(id string, backend *talk.Backend) string {
 	return backend.Id() + "|" + id
 }
 
-func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEvents, backend *talk.Backend) (*Room, error) {
+func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents events.AsyncEvents, backend *talk.Backend) (*Room, error) {
 	room := &Room{
 		id:      roomId,
 		logger:  hub.logger,
 		hub:     hub,
-		events:  events,
+		events:  asyncEvents,
 		backend: backend,
 
 		properties: properties,
 
 		closer:   internal.NewCloser(),
 		mu:       &sync.RWMutex{},
-		asyncCh:  make(AsyncChannel, DefaultAsyncChannelSize),
+		asyncCh:  make(events.AsyncChannel, events.DefaultAsyncChannelSize),
 		sessions: make(map[api.PublicSessionId]Session),
 
 		internalSessions: make(map[*ClientSession]bool),
@@ -140,7 +141,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEv
 		transientData: NewTransientData(),
 	}
 
-	if err := events.RegisterBackendRoomListener(roomId, backend, room); err != nil {
+	if err := asyncEvents.RegisterBackendRoomListener(roomId, backend, room); err != nil {
 		return nil, err
 	}
 
@@ -185,7 +186,7 @@ func (r *Room) IsEqual(other *Room) bool {
 	return b1.Id() == b2.Id()
 }
 
-func (r *Room) AsyncChannel() AsyncChannel {
+func (r *Room) AsyncChannel() events.AsyncChannel {
 	return r.asyncCh
 }
 
@@ -235,7 +236,7 @@ func (r *Room) Close() []Session {
 }
 
 func (r *Room) processAsyncNatsMessage(msg *nats.Msg) {
-	var message AsyncMessage
+	var message events.AsyncMessage
 	if err := nats.Decode(msg, &message); err != nil {
 		r.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
 		return
@@ -244,7 +245,7 @@ func (r *Room) processAsyncNatsMessage(msg *nats.Msg) {
 	r.processAsyncMessage(&message)
 }
 
-func (r *Room) processAsyncMessage(message *AsyncMessage) {
+func (r *Room) processAsyncMessage(message *events.AsyncMessage) {
 	switch message.Type {
 	case "room":
 		r.processBackendRoomRequestRoom(message.Room)
@@ -301,7 +302,7 @@ func (r *Room) processBackendRoomRequestRoom(message *talk.BackendServerRoomRequ
 	}
 }
 
-func (r *Room) processBackendRoomRequestAsyncRoom(message *AsyncRoomMessage) {
+func (r *Room) processBackendRoomRequestAsyncRoom(message *events.AsyncRoomMessage) {
 	switch message.Type {
 	case "sessionjoined":
 		r.notifySessionJoined(message.SessionId)
@@ -373,9 +374,9 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 	}
 
 	// Trigger notifications that the session joined.
-	if err := r.events.PublishBackendRoomMessage(r.id, r.backend, &AsyncMessage{
+	if err := r.events.PublishBackendRoomMessage(r.id, r.backend, &events.AsyncMessage{
 		Type: "asyncroom",
-		AsyncRoom: &AsyncRoomMessage{
+		AsyncRoom: &events.AsyncRoomMessage{
 			Type:       "sessionjoined",
 			SessionId:  sid,
 			ClientType: session.ClientType(),
@@ -411,7 +412,7 @@ func (r *Room) notifySessionJoined(sessionId api.PublicSessionId) {
 		session = nil
 	}
 
-	events := make([]api.EventServerMessageSessionEntry, 0, len(sessions))
+	joinEvents := make([]api.EventServerMessageSessionEntry, 0, len(sessions))
 	for _, s := range sessions {
 		entry := api.EventServerMessageSessionEntry{
 			SessionId: s.PublicId(),
@@ -423,7 +424,7 @@ func (r *Room) notifySessionJoined(sessionId api.PublicSessionId) {
 			entry.RoomSessionId = s.RoomSessionId()
 			entry.Federated = s.ClientType() == api.HelloClientTypeFederation
 		}
-		events = append(events, entry)
+		joinEvents = append(joinEvents, entry)
 	}
 
 	msg := &api.ServerMessage{
@@ -431,11 +432,11 @@ func (r *Room) notifySessionJoined(sessionId api.PublicSessionId) {
 		Event: &api.EventServerMessage{
 			Target: "room",
 			Type:   "join",
-			Join:   events,
+			Join:   joinEvents,
 		},
 	}
 
-	if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+	if err := r.events.PublishSessionMessage(sessionId, r.backend, &events.AsyncMessage{
 		Type:    "message",
 		Message: msg,
 	}); err != nil {
@@ -467,7 +468,7 @@ func (r *Room) notifySessionJoined(sessionId api.PublicSessionId) {
 			},
 		}
 
-		if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+		if err := r.events.PublishSessionMessage(sessionId, r.backend, &events.AsyncMessage{
 			Type:    "message",
 			Message: msg,
 		}); err != nil {
@@ -545,7 +546,7 @@ func (r *Room) RemoveSession(session Session) bool {
 }
 
 func (r *Room) publish(message *api.ServerMessage) error {
-	return r.events.PublishRoomMessage(r.id, r.backend, &AsyncMessage{
+	return r.events.PublishRoomMessage(r.id, r.backend, &events.AsyncMessage{
 		Type:    "message",
 		Message: message,
 	})
@@ -1188,7 +1189,7 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 			go func(sessionId api.PublicSessionId) {
 				defer wg.Done()
 
-				if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+				if err := r.events.PublishSessionMessage(sessionId, r.backend, &events.AsyncMessage{
 					Type:    "message",
 					Message: msg,
 				}); err != nil {
@@ -1216,7 +1217,7 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 					},
 				}
 
-				if err := r.events.PublishSessionMessage(sessionId, r.backend, &AsyncMessage{
+				if err := r.events.PublishSessionMessage(sessionId, r.backend, &events.AsyncMessage{
 					Type:    "message",
 					Message: msg,
 				}); err != nil {
@@ -1249,7 +1250,7 @@ func (r *Room) SetTransientData(key string, value any) error {
 		return r.RemoveTransientData(key)
 	}
 
-	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &AsyncMessage{
+	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &events.AsyncMessage{
 		Type: "room",
 		Room: &talk.BackendServerRoomRequest{
 			Type: "transient",
@@ -1273,7 +1274,7 @@ func (r *Room) SetTransientDataTTL(key string, value any, ttl time.Duration) err
 		return r.SetTransientData(key, value)
 	}
 
-	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &AsyncMessage{
+	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &events.AsyncMessage{
 		Type: "room",
 		Room: &talk.BackendServerRoomRequest{
 			Type: "transient",
@@ -1292,7 +1293,7 @@ func (r *Room) doSetTransientDataTTL(key string, value any, ttl time.Duration) {
 }
 
 func (r *Room) RemoveTransientData(key string) error {
-	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &AsyncMessage{
+	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &events.AsyncMessage{
 		Type: "room",
 		Room: &talk.BackendServerRoomRequest{
 			Type: "transient",
