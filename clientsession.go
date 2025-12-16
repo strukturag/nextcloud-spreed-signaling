@@ -37,6 +37,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -57,7 +58,7 @@ type ResponseHandlerFunc func(message *api.ClientMessage) bool
 type ClientSession struct {
 	logger    log.Logger
 	hub       *Hub
-	events    AsyncEvents
+	events    events.AsyncEvents
 	privateId api.PrivateSessionId
 	publicId  api.PublicSessionId
 	data      *SessionIdData
@@ -82,7 +83,7 @@ type ClientSession struct {
 	parsedBackendUrl *url.URL
 
 	mu      sync.Mutex
-	asyncCh AsyncChannel
+	asyncCh events.AsyncChannel
 
 	// +checklocks:mu
 	client       HandlerClient
@@ -140,7 +141,7 @@ func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.Pub
 		parseUserData: parseUserData(auth.User),
 
 		backend: backend,
-		asyncCh: make(AsyncChannel, DefaultAsyncChannelSize),
+		asyncCh: make(events.AsyncChannel, events.DefaultAsyncChannelSize),
 	}
 	if s.clientType == api.HelloClientTypeInternal {
 		s.backendUrl = hello.Auth.InternalParams.Backend
@@ -398,7 +399,7 @@ func (s *ClientSession) releaseMcuObjects() {
 	}
 }
 
-func (s *ClientSession) AsyncChannel() AsyncChannel {
+func (s *ClientSession) AsyncChannel() events.AsyncChannel {
 	return s.asyncCh
 }
 
@@ -1071,7 +1072,7 @@ func (s *ClientSession) GetSubscriber(id api.PublicSessionId, streamType StreamT
 }
 
 func (s *ClientSession) processAsyncNatsMessage(msg *nats.Msg) {
-	var message AsyncMessage
+	var message events.AsyncMessage
 	if err := nats.Decode(msg, &message); err != nil {
 		s.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
 		return
@@ -1080,7 +1081,7 @@ func (s *ClientSession) processAsyncNatsMessage(msg *nats.Msg) {
 	s.processAsyncMessage(&message)
 }
 
-func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
+func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
 	switch message.Type {
 	case "permissions":
 		s.SetPermissions(message.Permissions)
@@ -1128,7 +1129,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, StreamType(message.SendOffer.Data.RoomType))
 			if err != nil {
 				s.logger.Printf("Could not create MCU subscriber for session %s to process sendoffer in %s: %s", message.SendOffer.SessionId, s.PublicId(), err)
-				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
+				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &events.AsyncMessage{
 					Type: "message",
 					Message: &api.ServerMessage{
 						Id:    message.SendOffer.MessageId,
@@ -1141,7 +1142,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 				return
 			} else if mc == nil {
 				s.logger.Printf("No MCU subscriber found for session %s to process sendoffer in %s", message.SendOffer.SessionId, s.PublicId())
-				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
+				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &events.AsyncMessage{
 					Type: "message",
 					Message: &api.ServerMessage{
 						Id:    message.SendOffer.MessageId,
@@ -1157,7 +1158,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			mc.SendMessage(s.Context(), nil, message.SendOffer.Data, func(err error, response api.StringMap) {
 				if err != nil {
 					s.logger.Printf("Could not send MCU message %+v for session %s to %s: %s", message.SendOffer.Data, message.SendOffer.SessionId, s.PublicId(), err)
-					if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
+					if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &events.AsyncMessage{
 						Type: "message",
 						Message: &api.ServerMessage{
 							Id:    message.SendOffer.MessageId,
@@ -1413,7 +1414,7 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) *api.ServerMes
 	return message
 }
 
-func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *api.ServerMessage {
+func (s *ClientSession) filterAsyncMessage(msg *events.AsyncMessage) *api.ServerMessage {
 	switch msg.Type {
 	case "message":
 		if msg.Message == nil {

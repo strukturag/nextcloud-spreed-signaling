@@ -47,6 +47,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/eventstest"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
@@ -60,11 +62,11 @@ var (
 	turnServers       = strings.Split(turnServersString, ",")
 )
 
-func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, events.AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	return CreateBackendServerForTestFromConfig(t, nil)
 }
 
-func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, events.AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	config := goconf.NewConfigFile()
 	config.AddOption("turn", "apikey", turnApiKey)
 	config.AddOption("turn", "secret", turnSecret)
@@ -72,7 +74,7 @@ func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *Back
 	return CreateBackendServerForTestFromConfig(t, config)
 }
 
-func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, events.AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	require := require.New(t)
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
@@ -102,7 +104,7 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
-	events := getAsyncEventsForTest(t)
+	events := eventstest.GetAsyncEventsForTest(t)
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	hub, err := NewHub(ctx, config, events, nil, nil, nil, r, "no-version")
@@ -168,7 +170,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 
-	events1, err := NewAsyncEvents(ctx, nats.ClientURL())
+	events1, err := events.NewAsyncEvents(ctx, nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -193,7 +195,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	config2.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config2.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config2.AddOption("geoip", "url", "none")
-	events2, err := NewAsyncEvents(ctx, nats.ClientURL())
+	events2, err := events.NewAsyncEvents(ctx, nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -244,13 +246,13 @@ func performBackendRequest(requestUrl string, body []byte) (*http.Response, erro
 	return client.Do(request)
 }
 
-func expectRoomlistEvent(t *testing.T, ch AsyncChannel, msgType string) (*api.EventServerMessage, bool) {
+func expectRoomlistEvent(t *testing.T, ch events.AsyncChannel, msgType string) (*api.EventServerMessage, bool) {
 	assert := assert.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	select {
 	case natsMsg := <-ch:
-		var message AsyncMessage
+		var message events.AsyncMessage
 		if !assert.NoError(nats.Decode(natsMsg, &message)) ||
 			!assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
 			!assert.NotNil(message.Message, "message missing, got %+v", message) {
@@ -397,7 +399,7 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 
 func TestBackendServer_RoomInvite(t *testing.T) {
 	t.Parallel()
-	for _, backend := range eventBackendsForTest {
+	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			logger := log.NewLoggerForTest(t)
@@ -408,17 +410,17 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 }
 
 type channelEventListener struct {
-	ch AsyncChannel
+	ch events.AsyncChannel
 }
 
-func (l *channelEventListener) AsyncChannel() AsyncChannel {
+func (l *channelEventListener) AsyncChannel() events.AsyncChannel {
 	return l.ch
 }
 
 func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-	_, _, events, hub, _, server := CreateBackendServerForTest(t)
+	_, _, asyncEvents, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	require.NoError(err)
@@ -427,14 +429,15 @@ func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 	backend := hub.backend.GetBackend(u)
 
-	eventsChan := make(AsyncChannel, 1)
+	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(events.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
 	defer func() {
-		assert.NoError(events.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
 	}()
+
 	msg := &talk.BackendServerRoomRequest{
 		Type: "invite",
 		Invite: &talk.BackendRoomInviteRequest{
@@ -466,7 +469,7 @@ func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 
 func TestBackendServer_RoomDisinvite(t *testing.T) {
 	t.Parallel()
-	for _, backend := range eventBackendsForTest {
+	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			logger := log.NewLoggerForTest(t)
@@ -479,7 +482,7 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-	_, _, events, hub, _, server := CreateBackendServerForTest(t)
+	_, _, asyncEvents, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	require.NoError(err)
@@ -503,14 +506,15 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	eventsChan := make(AsyncChannel, 1)
+	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(events.RegisterUserListener(testDefaultUserId, backend, listener))
+	require.NoError(asyncEvents.RegisterUserListener(testDefaultUserId, backend, listener))
 	defer func() {
-		assert.NoError(events.UnregisterUserListener(testDefaultUserId, backend, listener))
+		assert.NoError(asyncEvents.UnregisterUserListener(testDefaultUserId, backend, listener))
 	}()
+
 	msg := &talk.BackendServerRoomRequest{
 		Type: "disinvite",
 		Disinvite: &talk.BackendRoomDisinviteRequest{
@@ -629,7 +633,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
 	t.Parallel()
-	for _, backend := range eventBackendsForTest {
+	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			logger := log.NewLoggerForTest(t)
@@ -642,7 +646,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-	_, _, events, hub, _, server := CreateBackendServerForTest(t)
+	_, _, asyncEvents, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	require.NoError(err)
@@ -658,14 +662,15 @@ func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 	userid := "test-userid"
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	eventsChan := make(AsyncChannel, 1)
+	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(events.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
 	defer func() {
-		assert.NoError(events.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
 	}()
+
 	msg := &talk.BackendServerRoomRequest{
 		Type: "update",
 		Update: &talk.BackendRoomUpdateRequest{
@@ -700,7 +705,7 @@ func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 
 func TestBackendServer_RoomDelete(t *testing.T) {
 	t.Parallel()
-	for _, backend := range eventBackendsForTest {
+	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			logger := log.NewLoggerForTest(t)
@@ -713,7 +718,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-	_, _, events, hub, _, server := CreateBackendServerForTest(t)
+	_, _, asyncEvents, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	require.NoError(err)
@@ -726,14 +731,15 @@ func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	require.NoError(err)
 
 	userid := "test-userid"
-	eventsChan := make(AsyncChannel, 1)
+	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(events.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
 	defer func() {
-		assert.NoError(events.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
 	}()
+
 	msg := &talk.BackendServerRoomRequest{
 		Type: "delete",
 		Delete: &talk.BackendRoomDeleteRequest{
