@@ -50,6 +50,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -504,7 +505,7 @@ func NewGrpcClients(ctx context.Context, config *goconf.ConfigFile, etcdClient e
 	return result, nil
 }
 
-func (c *GrpcClients) GetServerInfoGrpc() (result []BackendServerInfoGrpc) {
+func (c *GrpcClients) GetServerInfoGrpc() (result []talk.BackendServerInfoGrpc) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -513,7 +514,7 @@ func (c *GrpcClients) GetServerInfoGrpc() (result []BackendServerInfoGrpc) {
 			continue
 		}
 
-		grpc := BackendServerInfoGrpc{
+		grpc := talk.BackendServerInfoGrpc{
 			Target: client.rawTarget,
 		}
 		if len(client.ip) > 0 {

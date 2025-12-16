@@ -91,12 +91,12 @@ func NewAsyncEventsNats(logger log.Logger, client nats.Client) (AsyncEvents, err
 	return events, nil
 }
 
-func (e *asyncEventsNats) GetServerInfoNats() *BackendServerInfoNats {
+func (e *asyncEventsNats) GetServerInfoNats() *talk.BackendServerInfoNats {
 	// TODO: This should call a method on "e.client" directly instead of having a type switch.
-	var result *BackendServerInfoNats
+	var result *talk.BackendServerInfoNats
 	switch n := e.client.(type) {
 	case *nats.NativeClient:
-		result = &BackendServerInfoNats{
+		result = &talk.BackendServerInfoNats{
 			Urls: n.URLs(),
 		}
 		if n.IsConnected() {
@@ -107,7 +107,7 @@ func (e *asyncEventsNats) GetServerInfoNats() *BackendServerInfoNats {
 			result.ClusterName = n.ConnectedClusterName()
 		}
 	case *nats.LoopbackClient:
-		result = &BackendServerInfoNats{
+		result = &talk.BackendServerInfoNats{
 			Urls:      []string{nats.LoopbackUrl},
 			Connected: true,
 			ServerUrl: nats.LoopbackUrl,

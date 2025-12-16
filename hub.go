@@ -160,10 +160,10 @@ type Hub struct {
 	shutdown          *internal.Closer
 	shutdownScheduled atomic.Bool
 
-	roomUpdated      chan *BackendServerRoomRequest
-	roomDeleted      chan *BackendServerRoomRequest
-	roomInCall       chan *BackendServerRoomRequest
-	roomParticipants chan *BackendServerRoomRequest
+	roomUpdated      chan *talk.BackendServerRoomRequest
+	roomDeleted      chan *talk.BackendServerRoomRequest
+	roomInCall       chan *talk.BackendServerRoomRequest
+	roomParticipants chan *talk.BackendServerRoomRequest
 
 	mu sync.RWMutex
 	ru sync.RWMutex
@@ -379,10 +379,10 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events AsyncEvents, rpc
 		closer:   internal.NewCloser(),
 		shutdown: internal.NewCloser(),
 
-		roomUpdated:      make(chan *BackendServerRoomRequest),
-		roomDeleted:      make(chan *BackendServerRoomRequest),
-		roomInCall:       make(chan *BackendServerRoomRequest),
-		roomParticipants: make(chan *BackendServerRoomRequest),
+		roomUpdated:      make(chan *talk.BackendServerRoomRequest),
+		roomDeleted:      make(chan *talk.BackendServerRoomRequest),
+		roomInCall:       make(chan *talk.BackendServerRoomRequest),
+		roomParticipants: make(chan *talk.BackendServerRoomRequest),
 
 		clients:  make(map[uint64]HandlerClient),
 		sessions: make(map[uint64]Session),
@@ -952,7 +952,7 @@ func (h *Hub) newSessionIdData(backend *talk.Backend) *SessionIdData {
 	return sessionIdData
 }
 
-func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backend *talk.Backend, auth *BackendClientResponse) {
+func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backend *talk.Backend, auth *talk.BackendClientResponse) {
 	if !c.IsConnected() {
 		// Client disconnected while waiting for "hello" response.
 		return
@@ -1362,7 +1362,7 @@ func (h *Hub) processHello(client HandlerClient, message *api.ClientMessage) {
 	}
 }
 
-func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *BackendClientResponse, error) {
+func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
 	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
@@ -1375,8 +1375,8 @@ func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message 
 	ctx, cancel := context.WithTimeout(ctx, h.backendTimeout)
 	defer cancel()
 
-	var auth BackendClientResponse
-	request := NewBackendClientAuthRequest(message.Hello.Auth.Params)
+	var auth talk.BackendClientResponse
+	request := talk.NewBackendClientAuthRequest(message.Hello.Auth.Params)
 	if err := h.backend.PerformJSONRequest(ctx, url, request, &auth); err != nil {
 		return nil, nil, err
 	}
@@ -1386,7 +1386,7 @@ func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message 
 	return backend, &auth, nil
 }
 
-func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *BackendClientResponse, error) {
+func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
 	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
@@ -1452,13 +1452,13 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		backendCtx, cancel := context.WithTimeout(ctx, h.backendTimeout)
 		defer cancel()
 
-		keyData, cached, found := h.backend.capabilities.GetStringConfig(backendCtx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+		keyData, cached, found := h.backend.capabilities.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
 		if !found {
 			if cached {
 				// The Nextcloud instance might just have enabled JWT but we probably use
 				// the cached capabilities without the public key. Make sure to re-fetch.
 				h.backend.capabilities.InvalidateCapabilities(url)
-				keyData, _, found = h.backend.capabilities.GetStringConfig(backendCtx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+				keyData, _, found = h.backend.capabilities.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
 			}
 			if !found {
 				return nil, errors.New("no key found for issuer")
@@ -1528,9 +1528,9 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		return nil, nil, InvalidToken
 	}
 
-	auth := &BackendClientResponse{
+	auth := &talk.BackendClientResponse{
 		Type: "auth",
-		Auth: &BackendClientAuthResponse{
+		Auth: &talk.BackendClientAuthResponse{
 			Version: message.Hello.Version,
 			UserId:  subject,
 			User:    authTokenClaims.GetUserData(),
@@ -1543,7 +1543,7 @@ func (h *Hub) processHelloClient(client HandlerClient, message *api.ClientMessag
 	// Make sure the client must send another "hello" in case of errors.
 	defer h.startExpectHello(client)
 
-	var authFunc func(context.Context, HandlerClient, *api.ClientMessage) (*talk.Backend, *BackendClientResponse, error)
+	var authFunc func(context.Context, HandlerClient, *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error)
 	switch message.Hello.Version {
 	case api.HelloVersionV1:
 		// Auth information contains a ticket that must be validated against the
@@ -1606,9 +1606,9 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *api.ClientMess
 		return
 	}
 
-	auth := &BackendClientResponse{
+	auth := &talk.BackendClientResponse{
 		Type: "auth",
-		Auth: &BackendClientAuthResponse{},
+		Auth: &talk.BackendClientAuthResponse{},
 	}
 	h.processRegister(client, message, backend, auth)
 }
@@ -1846,12 +1846,12 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		return
 	}
 
-	var room BackendClientResponse
+	var room talk.BackendClientResponse
 	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients can join any room.
-		room = BackendClientResponse{
+		room = talk.BackendClientResponse{
 			Type: "room",
-			Room: &BackendClientRoomResponse{
+			Room: &talk.BackendClientRoomResponse{
 				RoomId: roomId,
 			},
 		}
@@ -1866,7 +1866,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
 			sessionId = api.RoomSessionId(session.PublicId())
 		}
-		request := NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
+		request := talk.NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
 		request.Room.UpdateFromSession(session)
 		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &room); err != nil {
 			session.SendMessage(message.NewWrappedErrorServerMessage(err))
@@ -1897,7 +1897,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 		return 0, &wg
 	}
 
-	rooms := make(map[string]map[string][]BackendPingEntry)
+	rooms := make(map[string]map[string][]talk.BackendPingEntry)
 	urls := make(map[string]*url.URL)
 	for session := range h.federatedSessions {
 		u := session.BackendUrl()
@@ -1921,7 +1921,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 		roomId := federation.RoomId()
 		entries, found := rooms[roomId]
 		if !found {
-			entries = make(map[string][]BackendPingEntry)
+			entries = make(map[string][]talk.BackendPingEntry)
 			rooms[roomId] = entries
 		}
 
@@ -1935,7 +1935,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 			urls[u] = p
 		}
 
-		entries[u] = append(e, BackendPingEntry{
+		entries[u] = append(e, talk.BackendPingEntry{
 			SessionId: sid,
 			UserId:    uid,
 		})
@@ -1950,7 +1950,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 		for u, e := range entries {
 			wg.Add(1)
 			count += len(e)
-			go func(roomId string, url *url.URL, entries []BackendPingEntry) {
+			go func(roomId string, url *url.URL, entries []talk.BackendPingEntry) {
 				defer wg.Done()
 				sendCtx, cancel := context.WithTimeout(ctx, h.backendTimeout)
 				defer cancel()
@@ -2004,7 +2004,7 @@ func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *t
 	return room, nil
 }
 
-func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage, room *BackendClientResponse) {
+func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage, room *talk.BackendClientResponse) {
 	if room.Type == "error" {
 		session.SendMessage(message.NewErrorServerMessage(room.Error))
 		return
@@ -2327,7 +2327,7 @@ func isAllowedToControl(session Session) bool {
 		return true
 	}
 
-	if session.HasPermission(PERMISSION_MAY_CONTROL) {
+	if session.HasPermission(api.PERMISSION_MAY_CONTROL) {
 		// Moderator clients are allowed to send any control message.
 		return true
 	}
@@ -2498,12 +2498,12 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 		}
 
 		if options := msg.Options; options != nil && options.ActorId != "" && options.ActorType != "" {
-			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, api.RoomSessionId(publicSessionId))
+			request := talk.NewBackendClientRoomRequest(room.Id(), msg.UserId, api.RoomSessionId(publicSessionId))
 			request.Room.ActorId = options.ActorId
 			request.Room.ActorType = options.ActorType
 			request.Room.InCall = sess.GetInCall()
 
-			var response BackendClientResponse
+			var response talk.BackendClientResponse
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &response); err != nil {
 				sess.Close()
 				h.logger.Printf("Could not join virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
@@ -2520,8 +2520,8 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 				return
 			}
 		} else {
-			request := NewBackendClientSessionRequest(room.Id(), "add", publicSessionId, msg)
-			var response BackendClientSessionResponse
+			request := talk.NewBackendClientSessionRequest(room.Id(), "add", publicSessionId, msg)
+			var response talk.BackendClientSessionResponse
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &response); err != nil {
 				sess.Close()
 				h.logger.Printf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
@@ -2620,10 +2620,10 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 		if msg.Dialout.Type == "status" {
 			asyncMessage := &AsyncMessage{
 				Type: "room",
-				Room: &BackendServerRoomRequest{
+				Room: &talk.BackendServerRoomRequest{
 					Type: "transient",
-					Transient: &BackendRoomTransientRequest{
-						Action: TransientActionSet,
+					Transient: &talk.BackendRoomTransientRequest{
+						Action: talk.TransientActionSet,
 						Key:    "callstatus_" + msg.Dialout.Status.CallId,
 						Value:  msg.Dialout.Status,
 					},
@@ -2658,7 +2658,7 @@ func isAllowedToUpdateTransientData(session Session) bool {
 		return true
 	}
 
-	if session.HasPermission(PERMISSION_TRANSIENT_DATA) {
+	if session.HasPermission(api.PERMISSION_TRANSIENT_DATA) {
 		return true
 	}
 
@@ -2957,13 +2957,21 @@ func (h *Hub) processByeMsg(client HandlerClient, message *api.ClientMessage) {
 	}
 }
 
-func (h *Hub) processRoomUpdated(message *BackendServerRoomRequest) {
-	room := message.room
+func (h *Hub) processRoomUpdated(message *talk.BackendServerRoomRequest) {
+	room := h.GetRoomForBackend(message.RoomId, message.Backend)
+	if room == nil {
+		return
+	}
+
 	room.UpdateProperties(message.Update.Properties)
 }
 
-func (h *Hub) processRoomDeleted(message *BackendServerRoomRequest) {
-	room := message.room
+func (h *Hub) processRoomDeleted(message *talk.BackendServerRoomRequest) {
+	room := h.GetRoomForBackend(message.RoomId, message.Backend)
+	if room == nil {
+		return
+	}
+
 	sessions := room.Close()
 	for _, session := range sessions {
 		// The session is no longer in the room
@@ -2977,8 +2985,12 @@ func (h *Hub) processRoomDeleted(message *BackendServerRoomRequest) {
 	}
 }
 
-func (h *Hub) processRoomInCallChanged(message *BackendServerRoomRequest) {
-	room := message.room
+func (h *Hub) processRoomInCallChanged(message *talk.BackendServerRoomRequest) {
+	room := h.GetRoomForBackend(message.RoomId, message.Backend)
+	if room == nil {
+		return
+	}
+
 	if message.InCall.All {
 		var flags int
 		if err := json.Unmarshal(message.InCall.InCall, &flags); err != nil {
@@ -2999,8 +3011,12 @@ func (h *Hub) processRoomInCallChanged(message *BackendServerRoomRequest) {
 	}
 }
 
-func (h *Hub) processRoomParticipants(message *BackendServerRoomRequest) {
-	room := message.room
+func (h *Hub) processRoomParticipants(message *talk.BackendServerRoomRequest) {
+	room := h.GetRoomForBackend(message.RoomId, message.Backend)
+	if room == nil {
+		return
+	}
+
 	room.PublishUsersChanged(message.Participants.Changed, message.Participants.Users)
 }
 
@@ -3020,12 +3036,12 @@ func (h *Hub) GetStats() api.StringMap {
 	return result
 }
 
-func (h *Hub) GetServerInfoDialout() (result []BackendServerInfoDialout) {
+func (h *Hub) GetServerInfoDialout() (result []talk.BackendServerInfoDialout) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	for session := range h.dialoutSessions {
-		dialout := BackendServerInfoDialout{
+		dialout := talk.BackendServerInfoDialout{
 			SessionId: session.PublicId(),
 		}
 		if client := session.GetClient(); client != nil && client.IsConnected() {
@@ -3047,7 +3063,7 @@ func (h *Hub) GetServerInfoDialout() (result []BackendServerInfoDialout) {
 		result = append(result, dialout)
 	}
 
-	slices.SortFunc(result, func(a, b BackendServerInfoDialout) int {
+	slices.SortFunc(result, func(a, b talk.BackendServerInfoDialout) int {
 		return strings.Compare(string(a.SessionId), string(b.SessionId))
 	})
 	return

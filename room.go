@@ -88,7 +88,7 @@ type Room struct {
 	// +checklocks:mu
 	inCallSessions map[Session]bool
 	// +checklocks:mu
-	roomSessionData map[api.PublicSessionId]*RoomSessionData
+	roomSessionData map[api.PublicSessionId]*talk.RoomSessionData
 
 	// +checklocks:mu
 	statsRoomSessionsCurrent *prometheus.GaugeVec
@@ -128,7 +128,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEv
 		internalSessions: make(map[*ClientSession]bool),
 		virtualSessions:  make(map[*VirtualSession]bool),
 		inCallSessions:   make(map[Session]bool),
-		roomSessionData:  make(map[api.PublicSessionId]*RoomSessionData),
+		roomSessionData:  make(map[api.PublicSessionId]*talk.RoomSessionData),
 
 		statsRoomSessionsCurrent: statsRoomSessionsCurrent.MustCurryWith(prometheus.Labels{
 			"backend": backend.Id(),
@@ -255,7 +255,7 @@ func (r *Room) processAsyncMessage(message *AsyncMessage) {
 	}
 }
 
-func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) {
+func (r *Room) processBackendRoomRequestRoom(message *talk.BackendServerRoomRequest) {
 	received := message.ReceivedTime
 	if last, found := r.lastRoomRequests[message.Type]; found && last > received {
 		if msg, err := json.Marshal(message); err == nil {
@@ -267,7 +267,8 @@ func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) 
 	}
 
 	r.lastRoomRequests[message.Type] = received
-	message.room = r
+	message.RoomId = r.Id()
+	message.Backend = r.Backend()
 	switch message.Type {
 	case "update":
 		r.hub.roomUpdated <- message
@@ -284,13 +285,13 @@ func (r *Room) processBackendRoomRequestRoom(message *BackendServerRoomRequest) 
 		r.publishSwitchTo(message.SwitchTo)
 	case "transient":
 		switch message.Transient.Action {
-		case TransientActionSet:
+		case talk.TransientActionSet:
 			if message.Transient.TTL == 0 {
 				r.doSetTransientData(message.Transient.Key, message.Transient.Value)
 			} else {
 				r.doSetTransientDataTTL(message.Transient.Key, message.Transient.Value, message.Transient.TTL)
 			}
-		case TransientActionDelete:
+		case talk.TransientActionDelete:
 			r.doRemoveTransientData(message.Transient.Key)
 		default:
 			r.logger.Printf("Unsupported transient action in room %s: %+v", r.Id(), message.Transient)
@@ -313,9 +314,9 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *AsyncRoomMessage) {
 }
 
 func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
-	var roomSessionData *RoomSessionData
+	var roomSessionData *talk.RoomSessionData
 	if len(sessionData) > 0 {
-		roomSessionData = &RoomSessionData{}
+		roomSessionData = &talk.RoomSessionData{}
 		if err := json.Unmarshal(sessionData, roomSessionData); err != nil {
 			r.logger.Printf("Error decoding room session data \"%s\": %s", string(sessionData), err)
 			roomSessionData = nil
@@ -572,13 +573,13 @@ func (r *Room) UpdateProperties(properties json.RawMessage) {
 	}
 }
 
-func (r *Room) GetRoomSessionData(session Session) *RoomSessionData {
+func (r *Room) GetRoomSessionData(session Session) *talk.RoomSessionData {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.roomSessionData[session.PublicId()]
 }
 
-func (r *Room) PublishSessionJoined(session Session, sessionData *RoomSessionData) {
+func (r *Room) PublishSessionJoined(session Session, sessionData *talk.RoomSessionData) {
 	sessionId := session.PublicId()
 	if sessionId == "" {
 		return
@@ -1072,7 +1073,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	entries := make(map[string][]BackendPingEntry)
+	entries := make(map[string][]talk.BackendPingEntry)
 	urls := make(map[string]*url.URL)
 	for _, session := range r.sessions {
 		u := session.BackendUrl()
@@ -1120,7 +1121,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 			urls[u] = parsedBackendUrl
 		}
 
-		entries[u] = append(e, BackendPingEntry{
+		entries[u] = append(e, talk.BackendPingEntry{
 			SessionId: sid,
 			UserId:    uid,
 		})
@@ -1134,7 +1135,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 	for u, e := range entries {
 		wg.Add(1)
 		count += len(e)
-		go func(url *url.URL, entries []BackendPingEntry) {
+		go func(url *url.URL, entries []talk.BackendPingEntry) {
 			defer wg.Done()
 			sendCtx, cancel := context.WithTimeout(ctx, r.hub.backendTimeout)
 			defer cancel()
@@ -1147,7 +1148,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 	return count, &wg
 }
 
-func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
+func (r *Room) publishRoomMessage(message *talk.BackendRoomMessageRequest) {
 	if message == nil || len(message.Data) == 0 {
 		return
 	}
@@ -1168,7 +1169,7 @@ func (r *Room) publishRoomMessage(message *BackendRoomMessageRequest) {
 	}
 }
 
-func (r *Room) publishSwitchTo(message *BackendRoomSwitchToMessageRequest) {
+func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) {
 	var wg sync.WaitGroup
 	if len(message.SessionsList) > 0 {
 		msg := &api.ServerMessage{
@@ -1250,10 +1251,10 @@ func (r *Room) SetTransientData(key string, value any) error {
 
 	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &AsyncMessage{
 		Type: "room",
-		Room: &BackendServerRoomRequest{
+		Room: &talk.BackendServerRoomRequest{
 			Type: "transient",
-			Transient: &BackendRoomTransientRequest{
-				Action: TransientActionSet,
+			Transient: &talk.BackendRoomTransientRequest{
+				Action: talk.TransientActionSet,
 				Key:    key,
 				Value:  value,
 			},
@@ -1274,10 +1275,10 @@ func (r *Room) SetTransientDataTTL(key string, value any, ttl time.Duration) err
 
 	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &AsyncMessage{
 		Type: "room",
-		Room: &BackendServerRoomRequest{
+		Room: &talk.BackendServerRoomRequest{
 			Type: "transient",
-			Transient: &BackendRoomTransientRequest{
-				Action: TransientActionSet,
+			Transient: &talk.BackendRoomTransientRequest{
+				Action: talk.TransientActionSet,
 				Key:    key,
 				Value:  value,
 				TTL:    ttl,
@@ -1293,10 +1294,10 @@ func (r *Room) doSetTransientDataTTL(key string, value any, ttl time.Duration) {
 func (r *Room) RemoveTransientData(key string) error {
 	return r.events.PublishBackendRoomMessage(r.Id(), r.Backend(), &AsyncMessage{
 		Type: "room",
-		Room: &BackendServerRoomRequest{
+		Room: &talk.BackendServerRoomRequest{
 			Type: "transient",
-			Transient: &BackendRoomTransientRequest{
-				Action: TransientActionDelete,
+			Transient: &talk.BackendRoomTransientRequest{
+				Action: talk.TransientActionDelete,
 				Key:    key,
 			},
 		},

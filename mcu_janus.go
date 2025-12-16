@@ -39,6 +39,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -581,8 +582,8 @@ func (m *mcuJanus) Info() *InfoMsg {
 	return m.info.Load()
 }
 
-func (m *mcuJanus) GetServerInfoSfu() *BackendServerInfoSfu {
-	janus := &BackendServerInfoSfuJanus{
+func (m *mcuJanus) GetServerInfoSfu() *talk.BackendServerInfoSfu {
+	janus := &talk.BackendServerInfoSfuJanus{
 		Url: m.url,
 	}
 	if m.IsConnected() {
@@ -597,7 +598,7 @@ func (m *mcuJanus) GetServerInfoSfu() *BackendServerInfoSfu {
 			janus.IPv6 = internal.MakePtr(info.IPv6)
 
 			if plugin, found := info.Plugins[pluginVideoRoom]; found {
-				janus.VideoRoom = &BackendServerInfoVideoRoom{
+				janus.VideoRoom = &talk.BackendServerInfoVideoRoom{
 					Name:    plugin.Name,
 					Version: plugin.VersionString,
 					Author:  plugin.Author,
@@ -606,8 +607,8 @@ func (m *mcuJanus) GetServerInfoSfu() *BackendServerInfoSfu {
 		}
 	}
 
-	sfu := &BackendServerInfoSfu{
-		Mode:  SfuModeJanus,
+	sfu := &talk.BackendServerInfoSfu{
+		Mode:  talk.SfuModeJanus,
 		Janus: janus,
 	}
 	return sfu

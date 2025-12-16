@@ -36,6 +36,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func TestRoom_InCall(t *testing.T) {
@@ -106,9 +107,9 @@ func TestRoom_Update(t *testing.T) {
 
 	// Simulate backend request from Nextcloud to update the room.
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "update",
-		Update: &BackendRoomUpdateRequest{
+		Update: &talk.BackendRoomUpdateRequest{
 			UserIds: []string{
 				testDefaultUserId,
 			},
@@ -200,9 +201,9 @@ func TestRoom_Delete(t *testing.T) {
 	assert.True(client.RunUntilJoined(ctx, hello.Hello))
 
 	// Simulate backend request from Nextcloud to update the room.
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "delete",
-		Delete: &BackendRoomDeleteRequest{
+		Delete: &talk.BackendRoomDeleteRequest{
 			UserIds: []string{
 				testDefaultUserId,
 			},
@@ -387,9 +388,9 @@ func TestRoom_InCallAll(t *testing.T) {
 	client1.RunUntilJoined(ctx, hello2.Hello)
 
 	// Simulate backend request from Nextcloud to update the "inCall" flag of all participants.
-	msg1 := &BackendServerRoomRequest{
+	msg1 := &talk.BackendServerRoomRequest{
 		Type: "incall",
-		InCall: &BackendRoomInCallRequest{
+		InCall: &talk.BackendRoomInCallRequest{
 			All:    true,
 			InCall: json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
 		},
@@ -413,9 +414,9 @@ func TestRoom_InCallAll(t *testing.T) {
 	}
 
 	// Simulate backend request from Nextcloud to update the "inCall" flag of all participants.
-	msg2 := &BackendServerRoomRequest{
+	msg2 := &talk.BackendServerRoomRequest{
 		Type: "incall",
-		InCall: &BackendRoomInCallRequest{
+		InCall: &talk.BackendRoomInCallRequest{
 			All:    true,
 			InCall: json.RawMessage(strconv.FormatInt(0, 10)),
 		},
