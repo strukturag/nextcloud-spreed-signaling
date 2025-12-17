@@ -113,9 +113,11 @@ type ClientSession struct {
 	// +checklocks:mu
 	virtualSessions map[*VirtualSession]bool
 
-	seenJoinedLock sync.Mutex
-	// +checklocks:seenJoinedLock
+	filterDuplicateLock sync.Mutex
+	// +checklocks:filterDuplicateLock
 	seenJoinedEvents map[api.PublicSessionId]bool
+	// +checklocks:filterDuplicateLock
+	seenFlags map[api.PublicSessionId]uint32
 
 	responseHandlersLock sync.Mutex
 	// +checklocks:responseHandlersLock
@@ -339,9 +341,10 @@ func (s *ClientSession) onRoomSet(hasRoom bool) {
 		s.roomJoinTime.Store(0)
 	}
 
-	s.seenJoinedLock.Lock()
-	defer s.seenJoinedLock.Unlock()
+	s.filterDuplicateLock.Lock()
+	defer s.filterDuplicateLock.Unlock()
 	s.seenJoinedEvents = nil
+	s.seenFlags = nil
 }
 
 func (s *ClientSession) IsInRoom(id string) bool {
@@ -1254,8 +1257,8 @@ func filterDisplayNames(events []api.EventServerMessageSessionEntry) []api.Event
 }
 
 func (s *ClientSession) filterDuplicateJoin(entries []api.EventServerMessageSessionEntry) []api.EventServerMessageSessionEntry {
-	s.seenJoinedLock.Lock()
-	defer s.seenJoinedLock.Unlock()
+	s.filterDuplicateLock.Lock()
+	defer s.filterDuplicateLock.Unlock()
 
 	// Due to the asynchronous events, a session might received a "Joined" event
 	// for the same (other) session twice, so filter these out on a per-session
@@ -1276,12 +1279,36 @@ func (s *ClientSession) filterDuplicateJoin(entries []api.EventServerMessageSess
 	return result
 }
 
+func (s *ClientSession) filterDuplicateFlags(message *api.RoomFlagsServerMessage) bool {
+	if message == nil {
+		return true
+	}
+
+	s.filterDuplicateLock.Lock()
+	defer s.filterDuplicateLock.Unlock()
+
+	// Due to the asynchronous events, a session might received a "flags" event
+	// for the same (other) session twice, so filter these out on a per-session
+	// level.
+	if prev, found := s.seenFlags[message.SessionId]; found && prev == message.Flags {
+		s.logger.Printf("Session %s got duplicate flags event for %s, ignoring", s.publicId, message.SessionId)
+		return true
+	}
+
+	if s.seenFlags == nil {
+		s.seenFlags = make(map[api.PublicSessionId]uint32)
+	}
+	s.seenFlags[message.SessionId] = message.Flags
+	return false
+}
+
 func (s *ClientSession) filterMessage(message *api.ServerMessage) *api.ServerMessage {
 	switch message.Type {
 	case "event":
 		switch message.Event.Target {
 		case "participants":
-			if message.Event.Type == "update" {
+			switch message.Event.Type {
+			case "update":
 				m := message.Event.Update
 				users := make(map[any]bool)
 				for _, entry := range m.Users {
@@ -1296,6 +1323,10 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) *api.ServerMes
 				// TODO(jojo): Only send all users if current session id has
 				// changed its "inCall" flag to true.
 				m.Changed = nil
+			case "flags":
+				if s.filterDuplicateFlags(message.Event.Flags) {
+					return nil
+				}
 			}
 		case "room":
 			switch message.Event.Type {
@@ -1335,11 +1366,12 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) *api.ServerMes
 					}
 				}
 			case "leave":
-				s.seenJoinedLock.Lock()
-				defer s.seenJoinedLock.Unlock()
+				s.filterDuplicateLock.Lock()
+				defer s.filterDuplicateLock.Unlock()
 
 				for _, e := range message.Event.Leave {
 					delete(s.seenJoinedEvents, e)
+					delete(s.seenFlags, e)
 				}
 			case "message":
 				if message.Event.Message == nil || len(message.Event.Message.Data) == 0 {
