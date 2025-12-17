@@ -5032,11 +5032,17 @@ func DoTestSwitchToOne(t *testing.T, details api.StringMap) {
 			roomMsg := MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId1)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
+			// TODO: If we join both clients immediately and then afterwards wait for both with
+			// "WaitForUsersJoined", the clustered test sometimes fails under load because the
+			// second session receives the remote "joined" event before joining the room itself.
+			client1.RunUntilJoined(ctx, hello1.Hello)
+
 			roomSessionId2 := api.RoomSessionId("roomsession2")
 			roomMsg = MustSucceed3(t, client2.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId2)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
-			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 
 			roomId2 := "test-room-2"
 			var sessions json.RawMessage
@@ -5132,11 +5138,17 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 			roomMsg := MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId1)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
+			// TODO: If we join both clients immediately and then afterwards wait for both with
+			// "WaitForUsersJoined", the clustered test sometimes fails under load because the
+			// second session receives the remote "joined" event before joining the room itself.
+			client1.RunUntilJoined(ctx, hello1.Hello)
+
 			roomSessionId2 := api.RoomSessionId("roomsession2")
 			roomMsg = MustSucceed3(t, client2.JoinRoomWithRoomSession, ctx, roomId1, roomSessionId2)
 			require.Equal(roomId1, roomMsg.Room.RoomId)
 
-			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 
 			roomId2 := "test-room-2"
 			var sessions json.RawMessage
