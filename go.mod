@@ -19,10 +19,10 @@ require (
 	github.com/pquerna/cachecontrol v0.2.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
-	go.etcd.io/etcd/api/v3 v3.6.6
-	go.etcd.io/etcd/client/pkg/v3 v3.6.6
-	go.etcd.io/etcd/client/v3 v3.6.6
-	go.etcd.io/etcd/server/v3 v3.6.6
+	go.etcd.io/etcd/api/v3 v3.6.7
+	go.etcd.io/etcd/client/pkg/v3 v3.6.7
+	go.etcd.io/etcd/client/v3 v3.6.7
+	go.etcd.io/etcd/server/v3 v3.6.7
 	go.uber.org/zap v1.27.1
 	google.golang.org/grpc v1.77.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.0
@@ -75,7 +75,7 @@ require (
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
-	go.etcd.io/etcd/pkg/v3 v3.6.6 // indirect
+	go.etcd.io/etcd/pkg/v3 v3.6.7 // indirect
 	go.etcd.io/raft/v3 v3.6.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.59.0 // indirect
