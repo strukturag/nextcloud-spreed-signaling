@@ -459,7 +459,17 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 	roomMsg = MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
+	// In some cases, the participants update event is triggered a bit after the joined
+	// event. If this happens, the "client" will also receive an additional update
+	// event after the joined of the internal client.
+	var expectUpdate bool
 	if _, additional, ok := clientInternal.RunUntilJoinedAndReturn(ctx, helloInternal.Hello, hello.Hello); ok {
+		if len(additional) == 0 {
+			if msg, ok := clientInternal.RunUntilMessage(ctx); ok {
+				additional = append(additional, msg)
+			}
+			expectUpdate = true
+		}
 		if assert.Len(additional, 1) && assert.Equal("event", additional[0].Type) {
 			assert.Equal("participants", additional[0].Event.Target)
 			assert.Equal("update", additional[0].Event.Type)
@@ -467,7 +477,22 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 			assert.EqualValues(0, additional[0].Event.Update.Users[0]["inCall"])
 		}
 	}
-	client.RunUntilJoined(ctx, helloInternal.Hello, hello.Hello)
+	if _, additional, ok := client.RunUntilJoinedAndReturn(ctx, helloInternal.Hello, hello.Hello); ok {
+		if expectUpdate {
+			if len(additional) == 0 {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					additional = append(additional, msg)
+				}
+			}
+
+			if assert.Len(additional, 1) && assert.Equal("event", additional[0].Type) {
+				assert.Equal("participants", additional[0].Event.Target)
+				assert.Equal("update", additional[0].Event.Type)
+				assert.EqualValues(helloInternal.Hello.SessionId, additional[0].Event.Update.Users[0]["sessionId"])
+				assert.EqualValues(0, additional[0].Event.Update.Users[0]["inCall"])
+			}
+		}
+	}
 
 	internalSessionId := api.PublicSessionId("session1")
 	userId := "user1"
