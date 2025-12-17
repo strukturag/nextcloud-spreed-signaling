@@ -63,9 +63,7 @@ func TestVirtualSession(t *testing.T) {
 
 	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
-
-	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	internalSessionId := api.PublicSessionId("session1")
 	userId := "user1"
