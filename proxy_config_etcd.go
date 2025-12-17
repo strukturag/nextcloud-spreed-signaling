@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -50,6 +51,11 @@ type proxyConfigEtcd struct {
 
 	closeCtx  context.Context
 	closeFunc context.CancelFunc
+
+	initializing    atomic.Bool
+	initializedCtx  context.Context
+	initializedFunc context.CancelFunc
+	runningDone     sync.WaitGroup
 }
 
 func NewProxyConfigEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient etcd.Client, proxy McuProxy) (ProxyConfig, error) {
@@ -57,6 +63,7 @@ func NewProxyConfigEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient
 		return nil, errors.New("no etcd endpoints configured")
 	}
 
+	initializedCtx, initializedFunc := context.WithCancel(context.Background())
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 
 	result := &proxyConfigEtcd{
@@ -69,6 +76,9 @@ func NewProxyConfigEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient
 
 		closeCtx:  closeCtx,
 		closeFunc: closeFunc,
+
+		initializedCtx:  initializedCtx,
+		initializedFunc: initializedFunc,
 	}
 	if err := result.configure(config, false); err != nil {
 		return nil, err
@@ -97,12 +107,29 @@ func (p *proxyConfigEtcd) Reload(config *goconf.ConfigFile) error {
 }
 
 func (p *proxyConfigEtcd) Stop() {
-	p.client.RemoveListener(p)
+	firstStop := p.closeCtx.Err() == nil
 	p.closeFunc()
+	p.client.RemoveListener(p)
+	if firstStop {
+		if p.initializing.Load() {
+			<-p.initializedCtx.Done()
+		}
+		p.runningDone.Wait()
+	}
 }
 
 func (p *proxyConfigEtcd) EtcdClientCreated(client etcd.Client) {
+	p.initializing.Store(true)
+	if p.closeCtx.Err() != nil {
+		// Stopped before etcd client was connected.
+		p.initializedFunc()
+		return
+	}
+
+	p.runningDone.Add(1)
 	go func() {
+		defer p.runningDone.Done()
+		defer p.initializedFunc()
 		if err := client.WaitForConnection(p.closeCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
@@ -138,6 +165,7 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client etcd.Client) {
 			nextRevision = response.Header.Revision + 1
 			break
 		}
+		p.initializedFunc()
 
 		prevRevision := nextRevision
 		backoff.Reset()

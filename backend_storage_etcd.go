@@ -27,6 +27,8 @@ import (
 	"errors"
 	"net/url"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -46,9 +48,11 @@ type backendStorageEtcd struct {
 	keyPrefix  string
 	keyInfos   map[string]*etcd.BackendInformationEtcd
 
+	initializing         atomic.Bool
 	initializedCtx       context.Context
 	initializedFunc      context.CancelFunc
 	wakeupChanForTesting chan struct{}
+	runningDone          sync.WaitGroup
 
 	closeCtx  context.Context
 	closeFunc context.CancelFunc
@@ -107,7 +111,17 @@ func (s *backendStorageEtcd) wakeupForTesting() {
 }
 
 func (s *backendStorageEtcd) EtcdClientCreated(client etcd.Client) {
+	s.initializing.Store(true)
+	if s.closeCtx.Err() != nil {
+		// Stopped before etcd client was connected.
+		s.initializedFunc()
+		return
+	}
+
+	s.runningDone.Add(1)
 	go func() {
+		defer s.runningDone.Done()
+		defer s.initializedFunc()
 		if err := client.WaitForConnection(s.closeCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
@@ -284,8 +298,15 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client etcd.Client, key string, prev
 }
 
 func (s *backendStorageEtcd) Close() {
-	s.etcdClient.RemoveListener(s)
+	firstStop := s.closeCtx.Err() == nil
 	s.closeFunc()
+	s.etcdClient.RemoveListener(s)
+	if firstStop {
+		if s.initializing.Load() {
+			<-s.initializedCtx.Done()
+		}
+		s.runningDone.Wait()
+	}
 }
 
 func (s *backendStorageEtcd) Reload(config *goconf.ConfigFile) {
