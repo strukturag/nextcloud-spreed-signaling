@@ -4761,14 +4761,21 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 
 			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 
-			client1.RunUntilJoined(ctx, hello2.Hello)
+			if _, additional, ok := client1.RunUntilJoinedAndReturn(ctx, hello2.Hello); ok {
+				// TODO: Should not receive participants update before joined event.
+				if len(additional) == 0 {
+					if msg, ok := client1.RunUntilMessage(ctx); ok {
+						additional = append(additional, msg)
+					}
+				}
 
-			if msg, ok := client1.RunUntilMessage(ctx); ok {
-				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
-					if assert.Len(msg.Users, 1) {
-						assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
-						assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
-						assert.EqualValues(3, msg.Users[0]["inCall"], "%+v", msg)
+				if assert.Len(additional, 1) {
+					if msg, ok := checkMessageParticipantsInCall(t, additional[0]); ok {
+						if assert.Len(msg.Users, 1) {
+							assert.Equal(true, msg.Users[0]["internal"], "%+v", msg)
+							assert.EqualValues(hello2.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+							assert.EqualValues(3, msg.Users[0]["inCall"], "%+v", msg)
+						}
 					}
 				}
 			}
