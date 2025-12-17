@@ -717,7 +717,7 @@ func (h *TestProxyServerHandler) updateLoad(delta int64) {
 
 	msg := h.getLoadMessage(load)
 	for _, c := range h.clients {
-		go c.sendMessage(msg)
+		c.sendMessage(msg)
 	}
 }
 
@@ -1292,7 +1292,7 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 	}
 
 	// Wait until proxy has been updated
-	for ctx.Err() == nil {
+	for assert.NoError(t, ctx.Err()) {
 		mcu.connectionsMu.RLock()
 		connections := mcu.connections
 		mcu.connectionsMu.RUnlock()
@@ -1364,7 +1364,7 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 	}
 
 	// Wait until proxy has been updated
-	for ctx.Err() == nil {
+	for assert.NoError(t, ctx.Err()) {
 		mcu.connectionsMu.RLock()
 		connections := mcu.connections
 		mcu.connectionsMu.RUnlock()
@@ -1660,7 +1660,7 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 	serverDE.UpdateBandwidth(0, 100)
 
 	// Wait until proxy has been updated
-	for ctx.Err() == nil {
+	for assert.NoError(t, ctx.Err()) {
 		mcu.connectionsMu.RLock()
 		connections := mcu.connections
 		mcu.connectionsMu.RUnlock()
@@ -1724,7 +1724,7 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 	serverUS.UpdateBandwidth(0, 102)
 
 	// Wait until proxy has been updated
-	for ctx.Err() == nil {
+	for assert.NoError(t, ctx.Err()) {
 		mcu.connectionsMu.RLock()
 		connections := mcu.connections
 		mcu.connectionsMu.RUnlock()
