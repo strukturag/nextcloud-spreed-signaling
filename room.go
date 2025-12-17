@@ -1331,6 +1331,8 @@ func (r *Room) fetchInitialTransientData() {
 			if err != nil {
 				r.logger.Printf("Received error while getting transient data for %s@%s from %s: %s", r.Id(), r.Backend().Id(), c.Target(), err)
 				return
+			} else if len(data) == 0 {
+				return
 			}
 
 			r.logger.Printf("Received initial transient data %+v from %s", data, c.Target())
