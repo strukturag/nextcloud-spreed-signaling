@@ -1256,6 +1256,35 @@ func filterDisplayNames(events []api.EventServerMessageSessionEntry) []api.Event
 	return result
 }
 
+// +checklocks:s.filterDuplicateLock
+func (s *ClientSession) filterUnknownLeave(entries []api.PublicSessionId) []api.PublicSessionId {
+	idx := slices.IndexFunc(entries, func(e api.PublicSessionId) bool {
+		return !s.seenJoinedEvents[e] // +checklocksignore
+	})
+	if idx == -1 {
+		return entries
+	} else if idx+1 == len(entries) {
+		// Simple case: all entries filtered.
+		s.logger.Printf("Session %s got unknown leave events for %+v", s.publicId, entries)
+		return nil
+	}
+
+	// Filter remaining entries.
+	filtered := []api.PublicSessionId{
+		entries[idx],
+	}
+	result := append([]api.PublicSessionId{}, entries[:idx]...)
+	for _, e := range entries[idx+1:] {
+		if s.seenJoinedEvents[e] {
+			result = append(result, e)
+		} else {
+			filtered = append(filtered, e)
+		}
+	}
+	s.logger.Printf("Session %s got unknown leave events for %+v", s.publicId, filtered)
+	return result
+}
+
 func (s *ClientSession) filterDuplicateJoin(entries []api.EventServerMessageSessionEntry) []api.EventServerMessageSessionEntry {
 	s.filterDuplicateLock.Lock()
 	defer s.filterDuplicateLock.Unlock()
@@ -1369,9 +1398,26 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) *api.ServerMes
 				s.filterDuplicateLock.Lock()
 				defer s.filterDuplicateLock.Unlock()
 
+				leave := s.filterUnknownLeave(message.Event.Leave)
+				if len(leave) == 0 {
+					return nil
+				}
+
 				for _, e := range message.Event.Leave {
 					delete(s.seenJoinedEvents, e)
 					delete(s.seenFlags, e)
+				}
+
+				if len(leave) != len(message.Event.Leave) {
+					message = &api.ServerMessage{
+						Id:   message.Id,
+						Type: message.Type,
+						Event: &api.EventServerMessage{
+							Type:   message.Event.Type,
+							Target: message.Event.Target,
+							Leave:  leave,
+						},
+					}
 				}
 			case "message":
 				if message.Event.Message == nil || len(message.Event.Message.Data) == 0 {
