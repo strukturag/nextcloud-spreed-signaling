@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"fmt"
@@ -33,7 +33,6 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -47,9 +46,9 @@ type BackendStorage interface {
 	Close()
 	Reload(cfg *goconf.ConfigFile)
 
-	GetCompatBackend() *talk.Backend
-	GetBackend(u *url.URL) *talk.Backend
-	GetBackends() []*talk.Backend
+	GetCompatBackend() *Backend
+	GetBackend(u *url.URL) *Backend
+	GetBackends() []*Backend
 }
 
 type BackendStorageStats interface {
@@ -62,29 +61,29 @@ type BackendStorageStats interface {
 type backendStorageCommon struct {
 	mu sync.RWMutex
 	// +checklocks:mu
-	backends map[string][]*talk.Backend
+	backends map[string][]*Backend
 
 	stats BackendStorageStats // +checklocksignore: Only written to from constructor
 }
 
-func (s *backendStorageCommon) GetBackends() []*talk.Backend {
+func (s *backendStorageCommon) GetBackends() []*Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var result []*talk.Backend
+	var result []*Backend
 	for _, entries := range s.backends {
 		result = append(result, entries...)
 	}
-	slices.SortFunc(result, func(a, b *talk.Backend) int {
+	slices.SortFunc(result, func(a, b *Backend) int {
 		return strings.Compare(a.Id(), b.Id())
 	})
-	result = slices.CompactFunc(result, func(a, b *talk.Backend) bool {
+	result = slices.CompactFunc(result, func(a, b *Backend) bool {
 		return a.Id() == b.Id()
 	})
 	return result
 }
 
-func (s *backendStorageCommon) getBackendLocked(u *url.URL) *talk.Backend {
+func (s *backendStorageCommon) getBackendLocked(u *url.URL) *Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -178,16 +177,16 @@ func (b *BackendConfiguration) Reload(config *goconf.ConfigFile) {
 	b.storage.Reload(config)
 }
 
-func (b *BackendConfiguration) GetCompatBackend() *talk.Backend {
+func (b *BackendConfiguration) GetCompatBackend() *Backend {
 	return b.storage.GetCompatBackend()
 }
 
-func (b *BackendConfiguration) GetBackend(u *url.URL) *talk.Backend {
+func (b *BackendConfiguration) GetBackend(u *url.URL) *Backend {
 	u, _ = internal.CanonicalizeUrl(u)
 	return b.storage.GetBackend(u)
 }
 
-func (b *BackendConfiguration) GetBackends() []*talk.Backend {
+func (b *BackendConfiguration) GetBackends() []*Backend {
 	return b.storage.GetBackends()
 }
 

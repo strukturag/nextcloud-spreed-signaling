@@ -94,16 +94,6 @@ func NewGrpcClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, loo
 	return NewGrpcClientsForTestWithConfig(t, config, etcdClient, lookup)
 }
 
-func drainWakeupChannel(ch <-chan struct{}) {
-	for {
-		select {
-		case <-ch:
-		default:
-			return
-		}
-	}
-}
-
 func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 	t.Helper()
 
@@ -151,7 +141,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 
 	assert.Empty(client.GetClients())
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	_, addr1 := NewGrpcServerForTest(t)
 	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	waitForEvent(ctx, t, ch)
@@ -159,7 +149,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 		assert.Equal(addr1, clients[0].Target())
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	_, addr2 := NewGrpcServerForTest(t)
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 	waitForEvent(ctx, t, ch)
@@ -168,14 +158,14 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 		assert.Equal(addr2, clients[1].Target())
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.DeleteValue("/grpctargets/one")
 	waitForEvent(ctx, t, ch)
 	if clients := client.GetClients(); assert.Len(clients, 1) {
 		assert.Equal(addr2, clients[0].Target())
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	_, addr3 := NewGrpcServerForTest(t)
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr3+"\"}"))
 	waitForEvent(ctx, t, ch)
@@ -198,7 +188,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 
 	assert.Empty(client.GetClients())
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	_, addr1 := NewGrpcServerForTest(t)
 	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	waitForEvent(ctx, t, ch)
@@ -206,7 +196,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 		assert.Equal(addr1, clients[0].Target())
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	server2, addr2 := NewGrpcServerForTest(t)
 	server2.serverId = GrpcServerId
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
@@ -216,7 +206,7 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 		assert.Equal(addr1, clients[0].Target())
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.DeleteValue("/grpctargets/two")
 	waitForEvent(ctx, t, ch)
 	if clients := client.GetClients(); assert.Len(clients, 1) {
@@ -248,7 +238,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 			require.NoError(err)
 		}
 
-		drainWakeupChannel(ch)
+		test.DrainWakeupChannel(ch)
 		dnsMonitor.CheckHostnames()
 		if clients := client.GetClients(); assert.Len(clients, 1) {
 			assert.Equal(targetWithIp1, clients[0].Target())
@@ -256,7 +246,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 		}
 
 		lookup.Set("testgrpc", []net.IP{ip1, ip2})
-		drainWakeupChannel(ch)
+		test.DrainWakeupChannel(ch)
 		dnsMonitor.CheckHostnames()
 		waitForEvent(ctx, t, ch)
 
@@ -268,7 +258,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 		}
 
 		lookup.Set("testgrpc", []net.IP{ip2})
-		drainWakeupChannel(ch)
+		test.DrainWakeupChannel(ch)
 		dnsMonitor.CheckHostnames()
 		waitForEvent(ctx, t, ch)
 
@@ -299,7 +289,7 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 	assert.Empty(client.GetClients())
 
 	lookup.Set("testgrpc", []net.IP{ip1})
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	dnsMonitor.CheckHostnames()
 	waitForEvent(testCtx, t, ch)
 

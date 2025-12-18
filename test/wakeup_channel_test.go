@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2021 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,27 +19,21 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package test
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-
-	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
+	"testing"
 )
 
-var (
-	statsBackendsCurrent = prometheus.NewGauge(prometheus.GaugeOpts{
-		Namespace: "signaling",
-		Subsystem: "backend",
-		Name:      "current",
-		Help:      "The current number of configured backends",
-	})
+func TestDrainWakeupChannel(t *testing.T) {
+	t.Parallel()
 
-	backendConfigurationStats = []prometheus.Collector{
-		statsBackendsCurrent,
-	}
-)
+	ch := make(chan struct{}, 2)
+	ch <- struct{}{}
+	ch <- struct{}{}
 
-func RegisterBackendConfigurationStats() {
-	metrics.RegisterAll(backendConfigurationStats...)
+	DrainWakeupChannel(ch)
+
+	ch <- struct{}{}
+	ch <- struct{}{}
 }
