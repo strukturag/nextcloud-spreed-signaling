@@ -96,6 +96,14 @@ func TestVirtualSession(t *testing.T) {
 
 	// Also a participants update event will be triggered for the virtual user.
 	msg2 := MustSucceed1(t, client.RunUntilMessage, ctx)
+	msg3 := MustSucceed1(t, client.RunUntilMessage, ctx)
+	if msg2.Type == "event" && msg3.Type == "event" && msg2.Event.Type == "flags" {
+		// The order is not specified, could be "participants" before "flags" or vice versa.
+		// Ensure consistent order for checks below ("participants", "flags").
+		t.Logf("Switching messages order")
+		msg2, msg3 = msg3, msg2
+	}
+
 	if updateMsg, ok := checkMessageParticipantsInCall(t, msg2); ok {
 		assert.Equal(roomId, updateMsg.RoomId)
 		if assert.Len(updateMsg.Users, 1) {
@@ -105,7 +113,6 @@ func TestVirtualSession(t *testing.T) {
 		}
 	}
 
-	msg3 := MustSucceed1(t, client.RunUntilMessage, ctx)
 	if flagsMsg, ok := checkMessageParticipantFlags(t, msg3); ok {
 		assert.Equal(roomId, flagsMsg.RoomId)
 		assert.Equal(sessionId, flagsMsg.SessionId)
@@ -136,7 +143,7 @@ func TestVirtualSession(t *testing.T) {
 	}
 
 	// A new client will receive the initial flags of the virtual session.
-	client2, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -168,7 +175,7 @@ func TestVirtualSession(t *testing.T) {
 	assert.True(gotFlags, "Didn't receive initial flags in %+v", receivedMessages)
 
 	// Ignore "join" messages from second client
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello2.Hello)
 
 	// When sending to a virtual session, the message is sent to the actual
 	// client and contains a "Recipient" block with the internal session id.
@@ -244,7 +251,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	internalSessionId := api.PublicSessionId("session1")
 	userId := "user1"
@@ -321,7 +328,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	}
 
 	// A new client will receive the initial flags of the virtual session.
-	client2, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -353,7 +360,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	assert.True(gotFlags, "Didn't receive initial flags in %+v", receivedMessages)
 
 	// Ignore "join" messages from second client
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello2.Hello)
 
 	// When sending to a virtual session, the message is sent to the actual
 	// client and contains a "Recipient" block with the internal session id.
@@ -609,13 +616,13 @@ func TestVirtualSessionCleanup(t *testing.T) {
 		assert.NotEmpty(hello.Hello.SessionId)
 		assert.NotEmpty(hello.Hello.ResumeId)
 	}
-	client, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
 
 	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	internalSessionId := api.PublicSessionId("session1")
 	userId := "user1"
