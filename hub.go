@@ -1848,8 +1848,10 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 	}
 
 	var room talk.BackendClientResponse
+	var joinRoomTime time.Time
 	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients can join any room.
+		joinRoomTime = time.Now()
 		room = talk.BackendClientResponse{
 			Type: "room",
 			Room: &talk.BackendClientRoomResponse{
@@ -1876,6 +1878,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 
 		// TODO(jojo): Validate response
 
+		joinRoomTime = time.Now()
 		if message.Room.SessionId != "" {
 			// There can only be one connection per Nextcloud Talk session,
 			// disconnect any other connections without sending a "leave" event.
@@ -1886,7 +1889,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		}
 	}
 
-	h.processJoinRoom(session, message, &room)
+	h.processJoinRoom(session, message, &room, joinRoomTime)
 }
 
 func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
@@ -2005,7 +2008,7 @@ func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *t
 	return room, nil
 }
 
-func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage, room *talk.BackendClientResponse) {
+func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage, room *talk.BackendClientResponse, joinTime time.Time) {
 	if room.Type == "error" {
 		session.SendMessage(message.NewErrorServerMessage(room.Error))
 		return
@@ -2051,7 +2054,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage
 		delete(h.dialoutSessions, session)
 	}
 	h.mu.Unlock()
-	session.SetRoom(r)
+	session.SetRoom(r, joinTime)
 	if room.Room.Permissions != nil {
 		session.SetPermissions(*room.Room.Permissions)
 	}
@@ -2540,7 +2543,7 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 		statsHubSessionsTotal.WithLabelValues(session.Backend().Id(), string(sess.ClientType())).Inc()
 		h.logger.Printf("Session %s added virtual session %s with initial flags %d", session.PublicId(), sess.PublicId(), sess.Flags())
 		session.AddVirtualSession(sess)
-		sess.SetRoom(room)
+		sess.SetRoom(room, time.Now())
 		room.AddSession(sess, nil)
 	case "updatesession":
 		msg := msg.UpdateSession
