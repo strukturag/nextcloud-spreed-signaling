@@ -3588,10 +3588,22 @@ func RunTestClientTakeoverRoomSession(t *testing.T) {
 	client2.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 
 	// The permanently connected client will receive a "left" event from the
-	// overridden session and a "joined" for the new session. In that order as
-	// both were on the same server.
-	client3.RunUntilLeft(ctx, hello1.Hello)
-	client3.RunUntilJoined(ctx, hello2.Hello)
+	// overridden session and a "joined" for the new session.
+	msg1 := MustSucceed1(t, client3.RunUntilMessage, ctx)
+	msg2 := MustSucceed1(t, client3.RunUntilMessage, ctx)
+	if msg1.Type == "event" && msg2.Type == "event" && msg1.Event.Type == "join" {
+		t.Logf("Switching messages order")
+		msg1, msg2 = msg2, msg1
+	}
+
+	client3.checkMessageRoomLeave(msg1, hello1.Hello)
+	if checkMessageType(t, msg2, "event") &&
+		assert.Equal("room", msg2.Event.Target, "invalid target in %+v", msg2) &&
+		assert.Equal("join", msg2.Event.Type, "invalid event type in %+v", msg2) &&
+		assert.Len(msg2.Event.Join, 1, "invalid number of join event entries: %+v", msg2.Event) {
+		assert.Equal(hello2.Hello.SessionId, msg2.Event.Join[0].SessionId)
+		assert.Equal(hello2.Hello.UserId, msg2.Event.Join[0].UserId)
+	}
 }
 
 func TestClientSendOfferPermissions(t *testing.T) {
