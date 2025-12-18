@@ -329,14 +329,14 @@ func (s *ClientSession) ParsedUserData() (api.StringMap, error) {
 	return s.parseUserData()
 }
 
-func (s *ClientSession) SetRoom(room *Room) {
+func (s *ClientSession) SetRoom(room *Room, joinTime time.Time) {
 	s.room.Store(room)
-	s.onRoomSet(room != nil)
+	s.onRoomSet(room != nil, joinTime)
 }
 
-func (s *ClientSession) onRoomSet(hasRoom bool) {
+func (s *ClientSession) onRoomSet(hasRoom bool, joinTime time.Time) {
 	if hasRoom {
-		s.roomJoinTime.Store(time.Now().UnixNano())
+		s.roomJoinTime.Store(joinTime.UnixNano())
 	} else {
 		s.roomJoinTime.Store(0)
 	}
@@ -361,7 +361,7 @@ func (s *ClientSession) SetFederationClient(federation *FederationClient) {
 	defer s.mu.Unlock()
 
 	s.doLeaveRoom(true)
-	s.onRoomSet(federation != nil)
+	s.onRoomSet(federation != nil, time.Now())
 
 	if prev := s.federation.Swap(federation); prev != nil && prev != federation {
 		prev.Close()
@@ -561,7 +561,7 @@ func (s *ClientSession) doLeaveRoom(notify bool) *Room {
 	}
 
 	s.doUnsubscribeRoomEvents(notify)
-	s.SetRoom(nil)
+	s.SetRoom(nil, time.Time{})
 	s.releaseMcuObjects()
 	room.RemoveSession(s)
 	return room

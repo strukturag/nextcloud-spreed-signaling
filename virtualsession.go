@@ -27,6 +27,7 @@ import (
 	"errors"
 	"net/url"
 	"sync/atomic"
+	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
@@ -169,7 +170,7 @@ func (s *VirtualSession) ParsedUserData() (api.StringMap, error) {
 	return s.parseUserData()
 }
 
-func (s *VirtualSession) SetRoom(room *Room) {
+func (s *VirtualSession) SetRoom(room *Room, joinTime time.Time) {
 	s.room.Store(room)
 	if room != nil {
 		if err := s.hub.roomSessions.SetRoomSession(s, api.RoomSessionId(s.PublicId())); err != nil {
@@ -195,7 +196,7 @@ func (s *VirtualSession) LeaveRoom(notify bool) *Room {
 		return nil
 	}
 
-	s.SetRoom(nil)
+	s.SetRoom(nil, time.Time{})
 	room.RemoveSession(s)
 	return room
 }

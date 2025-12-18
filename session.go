@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -46,7 +47,7 @@ type Session interface {
 	BackendUrl() string
 	ParsedBackendUrl() *url.URL
 
-	SetRoom(room *Room)
+	SetRoom(room *Room, joinTime time.Time)
 	GetRoom() *Room
 	LeaveRoom(notify bool) *Room
 	IsInRoom(id string) bool

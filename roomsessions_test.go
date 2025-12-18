@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,7 +83,7 @@ func (s *DummySession) ParsedBackendUrl() *url.URL {
 	return nil
 }
 
-func (s *DummySession) SetRoom(room *Room) {
+func (s *DummySession) SetRoom(room *Room, joinTime time.Time) {
 }
 
 func (s *DummySession) GetRoom() *Room {
