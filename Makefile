@@ -18,16 +18,16 @@ PROTOBUF_VERSION := $(shell grep google.golang.org/protobuf go.mod | xargs | cut
 PROTO_FILES := $(filter-out $(GRPC_PROTO_FILES),$(basename $(wildcard *.proto)))
 PROTO_GO_FILES := $(addsuffix .pb.go,$(PROTO_FILES))
 GRPC_PROTO_GO_FILES := $(addsuffix .pb.go,$(GRPC_PROTO_FILES)) $(addsuffix _grpc.pb.go,$(GRPC_PROTO_FILES))
-TEST_GO_FILES := $(wildcard *_test.go))
+TEST_GO_FILES := $(wildcard *_test.go */*_test.go */*/*_test.go)
 EASYJSON_FILES := $(filter-out $(TEST_GO_FILES),$(wildcard api*.go api/signaling.go */api.go */*/api.go talk/ocs.go))
 EASYJSON_GO_FILES := $(patsubst %.go,%_easyjson.go,$(EASYJSON_FILES))
-COMMON_GO_FILES := $(filter-out geoip/continentmap.go $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES) $(EASYJSON_GO_FILES) $(TEST_GO_FILES),$(wildcard *.go))
-CLIENT_TEST_GO_FILES := $(wildcard client/*_test.go))
-CLIENT_GO_FILES := $(filter-out $(CLIENT_TEST_GO_FILES),$(wildcard client/*.go))
-SERVER_TEST_GO_FILES := $(wildcard server/*_test.go))
-SERVER_GO_FILES := $(filter-out $(SERVER_TEST_GO_FILES),$(wildcard server/*.go))
-PROXY_TEST_GO_FILES := $(wildcard proxy/*_test.go))
-PROXY_GO_FILES := $(filter-out $(PROXY_TEST_GO_FILES),$(wildcard proxy/*.go))
+COMMON_GO_FILES := $(filter-out geoip/continentmap.go $(PROTO_GO_FILES) $(GRPC_PROTO_GO_FILES) $(EASYJSON_GO_FILES) $(TEST_GO_FILES),$(wildcard *.go */*.go */*/*.go))
+CLIENT_TEST_GO_FILES := $(wildcard cmd/client/*_test.go))
+CLIENT_GO_FILES := $(filter-out $(CLIENT_TEST_GO_FILES),$(wildcard cmd/client/*.go))
+SERVER_TEST_GO_FILES := $(wildcard cmd/server/*_test.go))
+SERVER_GO_FILES := $(filter-out $(SERVER_TEST_GO_FILES),$(wildcard cmd/server/*.go))
+PROXY_TEST_GO_FILES := $(wildcard cmd/proxy/*_test.go))
+PROXY_GO_FILES := $(filter-out $(PROXY_TEST_GO_FILES),$(wildcard cmd/proxy/*.go))
 
 ifneq ($(VERSION),)
 INTERNALLDFLAGS := -X main.version=$(VERSION)
@@ -107,7 +107,7 @@ get:
 	$(GO) get $(PACKAGE)
 
 fmt: hook | $(PROTO_GO_FILES)
-	$(GOFMT) -s -w *.go client proxy server
+	$(GOFMT) -s -w *.go cmd/client cmd/proxy cmd/server
 
 vet:
 	GOEXPERIMENT=synctest $(GO) vet ./...
@@ -165,17 +165,17 @@ $(TMPDIR):
 client: $(BINDIR)/client
 
 $(BINDIR)/client: go.mod go.sum $(CLIENT_GO_FILES) $(COMMON_GO_FILES) | $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $@ ./client/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $@ ./cmd/client/...
 
 server: $(BINDIR)/signaling
 
 $(BINDIR)/signaling: go.mod go.sum $(SERVER_GO_FILES) $(COMMON_GO_FILES) | $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $@ ./server/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $@ ./cmd/server/...
 
 proxy: $(BINDIR)/proxy
 
 $(BINDIR)/proxy: go.mod go.sum $(PROXY_GO_FILES) $(COMMON_GO_FILES) | $(BINDIR)
-	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $@ ./proxy/...
+	$(GO) build $(BUILDARGS) -ldflags '$(INTERNALLDFLAGS)' -o $@ ./cmd/proxy/...
 
 clean:
 	rm -f easyjson-bootstrap*.go
