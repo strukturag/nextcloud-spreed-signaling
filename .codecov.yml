@@ -27,10 +27,18 @@ component_management:
       name: async
       paths:
         - async/**
-    - component_id: module_client
-      name: client
+    - component_id: module_cmd_client
+      name: cmd/client
       paths:
-        - client/**
+        - cmd/client/**
+    - component_id: module_cmd_proxy
+      name: cmd/proxy
+      paths:
+        - cmd/proxy/**
+    - component_id: module_cmd_server
+      name: cmd/server
+      paths:
+        - cmd/server/**
     - component_id: module_config
       name: config
       paths:
@@ -75,18 +83,10 @@ component_management:
       name: pool
       paths:
         - pool/**
-    - component_id: module_proxy
-      name: proxy
-      paths:
-        - proxy/**
     - component_id: module_security
       name: security
       paths:
         - security/**
-    - component_id: module_server
-      name: server
-      paths:
-        - server/**
     - component_id: module_talk
       name: talk
       paths:
