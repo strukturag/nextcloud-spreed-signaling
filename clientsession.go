@@ -1491,7 +1491,7 @@ func (s *ClientSession) filterAsyncMessage(msg *events.AsyncMessage) *api.Server
 				// Can happen mostly during tests where an older room async message
 				// could be received by a subscriber that joined after it was sent.
 				if joined := s.getRoomJoinTime(); joined.IsZero() || msg.SendTime.Before(joined) {
-					s.logger.Printf("Message %+v was sent on %s before room was joined on %s, ignoring", msg.Message, msg.SendTime, joined)
+					s.logger.Printf("Message %+v was sent on %s before session %s join room on %s, ignoring", msg.Message, msg.SendTime, s.publicId, joined)
 					return nil
 				}
 			}
