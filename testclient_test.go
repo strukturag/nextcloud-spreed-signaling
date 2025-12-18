@@ -645,21 +645,6 @@ func (c *TestClient) RemoveTransientData(key string) error {
 	return c.WriteJSON(message)
 }
 
-func (c *TestClient) DrainMessages(ctx context.Context) error {
-	select {
-	case err := <-c.readErrorChan:
-		return err
-	case <-c.messageChan:
-		n := len(c.messageChan)
-		for range n {
-			<-c.messageChan
-		}
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	return nil
-}
-
 func (c *TestClient) GetPendingMessages(ctx context.Context) ([]*api.ServerMessage, error) {
 	var result []*api.ServerMessage
 	select {

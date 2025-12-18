@@ -502,7 +502,7 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 	}
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
@@ -818,12 +818,13 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 			roomId := "test-room"
 			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
 			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// Ignore "join" events.
-			assert.NoError(client1.DrainMessages(ctx))
-			assert.NoError(client2.DrainMessages(ctx))
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 
 			msg := &talk.BackendServerRoomRequest{
 				Type: "participants",
@@ -899,7 +900,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	// Updating with empty permissions upgrades to non-old-style and removes
 	// all previously available permissions.
@@ -1283,7 +1284,7 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
-	client, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
 	defer client.CloseWithBye()
 
 	// Join room by id.
@@ -1292,7 +1293,7 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	messageData := json.RawMessage("{\"foo\":\"bar\"}")
 	msg := &talk.BackendServerRoomRequest{
