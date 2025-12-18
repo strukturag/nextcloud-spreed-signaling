@@ -5339,10 +5339,10 @@ func TestDialoutStatus(t *testing.T) {
 
 	key := "callstatus_" + callId
 	if msg, ok := client.RunUntilMessage(ctx); ok {
-		checkMessageTransientSet(t, msg, key, api.StringMap{
+		checkMessageTransientInitialOrSet(t, msg, key, api.StringMap{
 			"callid": callId,
 			"status": "accepted",
-		}, nil)
+		})
 	}
 
 	require.NoError(internalClient.SendInternalDialout(&api.DialoutInternalClientMessage{

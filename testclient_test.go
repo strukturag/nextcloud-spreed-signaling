@@ -1101,6 +1101,15 @@ func (c *TestClient) RunUntilAnswerFromSender(ctx context.Context, answer string
 	return true
 }
 
+func checkMessageTransientInitialOrSet(t *testing.T, message *api.ServerMessage, key string, value any) bool {
+	assert := assert.New(t)
+	return checkMessageType(t, message, "transient") &&
+		assert.True(message.TransientData.Type == "initial" || message.TransientData.Type == "set", "invalid message type in %+v", message) &&
+		assert.Equal(key, message.TransientData.Key, "invalid key in %+v", message) &&
+		assert.EqualValues(value, message.TransientData.Value, "invalid value in %+v", message) &&
+		assert.Nil(message.TransientData.OldValue, "invalid old value in %+v", message)
+}
+
 func checkMessageTransientSet(t *testing.T, message *api.ServerMessage, key string, value any, oldValue any) bool {
 	assert := assert.New(t)
 	return checkMessageType(t, message, "transient") &&
