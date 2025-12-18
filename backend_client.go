@@ -53,7 +53,7 @@ func init() {
 type BackendClient struct {
 	hub      *Hub
 	version  string
-	backends *BackendConfiguration
+	backends *talk.BackendConfiguration
 
 	pool         *pool.HttpClientPool
 	capabilities *talk.Capabilities
@@ -62,7 +62,7 @@ type BackendClient struct {
 
 func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient etcd.Client) (*BackendClient, error) {
 	logger := log.LoggerFromContext(ctx)
-	backends, err := NewBackendConfiguration(logger, config, etcdClient)
+	backends, err := talk.NewBackendConfiguration(logger, config, etcdClient)
 	if err != nil {
 		return nil, err
 	}
