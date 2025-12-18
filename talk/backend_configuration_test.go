@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"context"
@@ -35,7 +35,11 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
+)
+
+var (
+	testBackendSecret = []byte("secret")
 )
 
 func testUrls(t *testing.T, config *BackendConfiguration, valid_urls []string, invalid_urls []string) {
@@ -488,9 +492,9 @@ func TestBackendReloadRemoveBackendFromSharedHost(t *testing.T) {
 	}
 }
 
-func sortBackends(backends []*talk.Backend) []*talk.Backend {
+func sortBackends(backends []*Backend) []*Backend {
 	result := slices.Clone(backends)
-	slices.SortFunc(result, func(a, b *talk.Backend) int {
+	slices.SortFunc(result, func(a, b *Backend) int {
 		return strings.Compare(a.Id(), b.Id())
 	})
 	return result
@@ -543,7 +547,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 		}
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.SetValue("/backends/1_one", []byte("{\"url\":\""+url1+"\",\"secret\":\""+secret1+"\"}"))
 	<-ch
 	assert.Equal(1, stats.value)
@@ -558,7 +562,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	url2 := "https://domain1.invalid/bar"
 	secret2 := string(testBackendSecret) + "-backend2"
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.SetValue("/backends/2_two", []byte("{\"url\":\""+url2+"\",\"secret\":\""+secret2+"\"}"))
 	<-ch
 	assert.Equal(2, stats.value)
@@ -577,7 +581,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 	url3 := "https://domain2.invalid/foo"
 	secret3 := string(testBackendSecret) + "-backend3"
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.SetValue("/backends/3_three", []byte("{\"url\":\""+url3+"\",\"secret\":\""+secret3+"\"}"))
 	<-ch
 	assert.Equal(3, stats.value)
@@ -597,7 +601,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 		}
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.DeleteValue("/backends/1_one")
 	<-ch
 	assert.Equal(2, stats.value)
@@ -608,7 +612,7 @@ func TestBackendConfiguration_EtcdCompat(t *testing.T) {
 		assert.Equal(secret3, string(backends[1].Secret()))
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.DeleteValue("/backends/2_two")
 	<-ch
 	assert.Equal(1, stats.value)
@@ -796,7 +800,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 
 	url2 := "https://domain1.invalid/bar"
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.SetValue("/backends/1_one", []byte("{\"urls\":[\""+url1+"\",\""+url2+"\"],\"secret\":\""+secret1+"\"}"))
 	<-ch
 	assert.Equal(1, stats.value)
@@ -816,7 +820,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 
 	url4 := "https://domain3.invalid/foo"
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.SetValue("/backends/3_three", []byte("{\"urls\":[\""+url3+"\",\""+url4+"\"],\"secret\":\""+secret3+"\"}"))
 	<-ch
 	assert.Equal(2, stats.value)
@@ -836,7 +840,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 		}
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.DeleteValue("/backends/1_one")
 	<-ch
 	assert.Equal(1, stats.value)
@@ -845,7 +849,7 @@ func TestBackendConfiguration_EtcdChangeUrls(t *testing.T) {
 		assert.Equal(secret3, string(backends[0].Secret()))
 	}
 
-	drainWakeupChannel(ch)
+	test.DrainWakeupChannel(ch)
 	embedEtcd.DeleteValue("/backends/3_three")
 	<-ch
 

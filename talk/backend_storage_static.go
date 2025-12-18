@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"net/url"
@@ -31,31 +31,30 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type backendStorageStatic struct {
 	backendStorageCommon
 
 	logger       log.Logger
-	backendsById map[string]*talk.Backend
+	backendsById map[string]*Backend
 
 	// Deprecated
 	allowAll      bool
 	commonSecret  []byte
-	compatBackend *talk.Backend
+	compatBackend *Backend
 }
 
 func NewBackendStorageStatic(logger log.Logger, cfg *goconf.ConfigFile, stats BackendStorageStats) (BackendStorage, error) {
 	allowAll, _ := cfg.GetBool("backend", "allowall")
 	commonSecret, _ := config.GetStringOptionWithEnv(cfg, "backend", "secret")
-	backends := make(map[string][]*talk.Backend)
-	backendsById := make(map[string]*talk.Backend)
-	var compatBackend *talk.Backend
+	backends := make(map[string][]*Backend)
+	backendsById := make(map[string]*Backend)
+	var compatBackend *Backend
 	numBackends := 0
 	if allowAll {
 		logger.Println("WARNING: All backend hostnames are allowed, only use for development!")
-		compatBackend = talk.NewCompatBackend(cfg)
+		compatBackend = NewCompatBackend(cfg)
 		if sessionLimit := compatBackend.Limit(); sessionLimit > 0 {
 			logger.Printf("Allow a maximum of %d sessions", sessionLimit)
 		}
@@ -63,7 +62,7 @@ func NewBackendStorageStatic(logger log.Logger, cfg *goconf.ConfigFile, stats Ba
 		backendsById[compatBackend.Id()] = compatBackend
 		numBackends++
 	} else if backendIds, _ := cfg.GetString("backend", "backends"); backendIds != "" {
-		added := make(map[string]*talk.Backend)
+		added := make(map[string]*Backend)
 		for host, configuredBackends := range getConfiguredHosts(logger, backendIds, cfg, commonSecret) {
 			backends[host] = append(backends[host], configuredBackends...)
 			for _, be := range configuredBackends {
@@ -94,11 +93,11 @@ func NewBackendStorageStatic(logger log.Logger, cfg *goconf.ConfigFile, stats Ba
 		if len(allowMap) == 0 {
 			logger.Println("WARNING: No backend hostnames are allowed, check your configuration!")
 		} else {
-			compatBackend = talk.NewCompatBackend(cfg)
+			compatBackend = NewCompatBackend(cfg)
 			hosts := make([]string, 0, len(allowMap))
 			for host := range allowMap {
 				hosts = append(hosts, host)
-				backends[host] = []*talk.Backend{compatBackend}
+				backends[host] = []*Backend{compatBackend}
 			}
 			if len(hosts) > 1 {
 				logger.Println("WARNING: Using deprecated backend configuration. Please migrate the \"allowed\" setting to the new \"backends\" configuration.")
@@ -171,7 +170,7 @@ const (
 )
 
 // +checklocks:s.mu
-func (s *backendStorageStatic) UpsertHost(host string, backends []*talk.Backend, seen map[string]seenState) {
+func (s *backendStorageStatic) UpsertHost(host string, backends []*Backend, seen map[string]seenState) {
 	for existingIndex, existingBackend := range s.backends[host] {
 		found := false
 		index := 0
@@ -252,8 +251,8 @@ func getConfiguredBackendIDs(backendIds string) (ids []string) {
 	return ids
 }
 
-func getConfiguredHosts(logger log.Logger, backendIds string, cfg *goconf.ConfigFile, commonSecret string) (hosts map[string][]*talk.Backend) {
-	hosts = make(map[string][]*talk.Backend)
+func getConfiguredHosts(logger log.Logger, backendIds string, cfg *goconf.ConfigFile, commonSecret string) (hosts map[string][]*Backend) {
+	hosts = make(map[string][]*Backend)
 	seenUrls := make(map[string]string)
 	for _, id := range getConfiguredBackendIDs(backendIds) {
 		var urls []string
@@ -271,7 +270,7 @@ func getConfiguredHosts(logger log.Logger, backendIds string, cfg *goconf.Config
 			continue
 		}
 
-		backend, err := talk.NewBackendFromConfig(logger, id, cfg, commonSecret)
+		backend, err := NewBackendFromConfig(logger, id, cfg, commonSecret)
 		if err != nil {
 			logger.Printf("%s", err)
 			continue
@@ -351,14 +350,14 @@ func (s *backendStorageStatic) Reload(cfg *goconf.ConfigFile) {
 	}
 }
 
-func (s *backendStorageStatic) GetCompatBackend() *talk.Backend {
+func (s *backendStorageStatic) GetCompatBackend() *Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	return s.compatBackend
 }
 
-func (s *backendStorageStatic) GetBackend(u *url.URL) *talk.Backend {
+func (s *backendStorageStatic) GetBackend(u *url.URL) *Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

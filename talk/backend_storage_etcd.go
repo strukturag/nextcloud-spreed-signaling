@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"context"
@@ -37,7 +37,11 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+)
+
+const (
+	initialWaitDelay = time.Second
+	maxWaitDelay     = 8 * time.Second
 )
 
 type backendStorageEtcd struct {
@@ -72,7 +76,7 @@ func NewBackendStorageEtcd(logger log.Logger, config *goconf.ConfigFile, etcdCli
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 	result := &backendStorageEtcd{
 		backendStorageCommon: backendStorageCommon{
-			backends: make(map[string][]*talk.Backend),
+			backends: make(map[string][]*Backend),
 			stats:    stats,
 		},
 		logger:     logger,
@@ -199,7 +203,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client etcd.Client, key string, data
 		return
 	}
 
-	backend := talk.NewBackendFromEtcd(key, &info)
+	backend := NewBackendFromEtcd(key, &info)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -212,7 +216,7 @@ func (s *backendStorageEtcd) EtcdKeyUpdated(client etcd.Client, key string, data
 		if !found {
 			// Simple case, first backend for this host
 			s.logger.Printf("Added backend %s (from %s)", info.Urls[idx], key)
-			s.backends[host] = []*talk.Backend{backend}
+			s.backends[host] = []*Backend{backend}
 			added = true
 			continue
 		}
@@ -252,14 +256,14 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client etcd.Client, key string, prev
 	}
 
 	delete(s.keyInfos, key)
-	var deleted map[string][]*talk.Backend
+	var deleted map[string][]*Backend
 	seen := make(map[string]bool)
 	for idx, u := range info.ParsedUrls {
 		host := u.Host
 		entries, found := s.backends[host]
 		if !found {
 			if d, ok := deleted[host]; ok {
-				if slices.ContainsFunc(d, func(b *talk.Backend) bool {
+				if slices.ContainsFunc(d, func(b *Backend) bool {
 					return slices.Contains(b.Urls(), u.String())
 				}) {
 					s.logger.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
@@ -269,12 +273,12 @@ func (s *backendStorageEtcd) EtcdKeyDeleted(client etcd.Client, key string, prev
 		}
 
 		s.logger.Printf("Removing backend %s (from %s)", info.Urls[idx], key)
-		newEntries := make([]*talk.Backend, 0, len(entries)-1)
+		newEntries := make([]*Backend, 0, len(entries)-1)
 		for _, entry := range entries {
 			if entry.Id() == key {
 				if len(info.ParsedUrls) > 1 {
 					if deleted == nil {
-						deleted = make(map[string][]*talk.Backend)
+						deleted = make(map[string][]*Backend)
 					}
 					deleted[host] = append(deleted[host], entry)
 				}
@@ -313,11 +317,11 @@ func (s *backendStorageEtcd) Reload(config *goconf.ConfigFile) {
 	// Backend updates are processed through etcd.
 }
 
-func (s *backendStorageEtcd) GetCompatBackend() *talk.Backend {
+func (s *backendStorageEtcd) GetCompatBackend() *Backend {
 	return nil
 }
 
-func (s *backendStorageEtcd) GetBackend(u *url.URL) *talk.Backend {
+func (s *backendStorageEtcd) GetBackend(u *url.URL) *Backend {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
