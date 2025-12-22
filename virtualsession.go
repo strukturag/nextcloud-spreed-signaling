@@ -70,7 +70,7 @@ func GetVirtualSessionId(session Session, sessionId api.PublicSessionId) api.Pub
 	return session.PublicId() + "|" + sessionId
 }
 
-func NewVirtualSession(session *ClientSession, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, msg *AddSessionInternalClientMessage) (*VirtualSession, error) {
+func NewVirtualSession(session *ClientSession, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, msg *api.AddSessionInternalClientMessage) (*VirtualSession, error) {
 	ctx := log.NewLoggerContext(session.Context(), session.hub.logger)
 	ctx, closeFunc := context.WithCancel(ctx)
 
