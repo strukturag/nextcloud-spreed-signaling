@@ -216,7 +216,7 @@ func TestFeatureChatRelay(t *testing.T) {
 			require.NoError(err)
 
 			// Simulate request from the backend.
-			room.ProcessBackendRoomRequest(&AsyncMessage{
+			room.processAsyncMessage(&AsyncMessage{
 				Type: "room",
 				Room: &BackendServerRoomRequest{
 					Type: "message",
@@ -413,7 +413,7 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			require.NoError(err)
 
 			// Simulate request from the backend.
-			room.ProcessBackendRoomRequest(&AsyncMessage{
+			room.processAsyncMessage(&AsyncMessage{
 				Type: "room",
 				Room: &BackendServerRoomRequest{
 					Type: "message",
@@ -513,7 +513,7 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 			require.NoError(err)
 
 			// Simulate request from the backend.
-			room.ProcessBackendRoomRequest(&AsyncMessage{
+			room.processAsyncMessage(&AsyncMessage{
 				Type: "room",
 				Room: &BackendServerRoomRequest{
 					Type: "message",

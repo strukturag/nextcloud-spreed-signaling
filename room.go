@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -32,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
@@ -73,8 +75,9 @@ type Room struct {
 	// +checklocks:mu
 	properties json.RawMessage
 
-	closer *Closer
-	mu     *sync.RWMutex
+	closer  *Closer
+	mu      *sync.RWMutex
+	asyncCh AsyncChannel
 	// +checklocks:mu
 	sessions map[PublicSessionId]Session
 	// +checklocks:mu
@@ -118,6 +121,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, events AsyncEv
 
 		closer:   NewCloser(),
 		mu:       &sync.RWMutex{},
+		asyncCh:  make(AsyncChannel, DefaultAsyncChannelSize),
 		sessions: make(map[PublicSessionId]Session),
 
 		internalSessions: make(map[*ClientSession]bool),
@@ -180,6 +184,10 @@ func (r *Room) IsEqual(other *Room) bool {
 	return b1.Id() == b2.Id()
 }
 
+func (r *Room) AsyncChannel() AsyncChannel {
+	return r.asyncCh
+}
+
 func (r *Room) run() {
 	ticker := time.NewTicker(updateActiveSessionsInterval)
 loop:
@@ -187,6 +195,11 @@ loop:
 		select {
 		case <-r.closer.C:
 			break loop
+		case msg := <-r.asyncCh:
+			r.processAsyncNatsMessage(msg)
+			for count := len(r.asyncCh); count > 0; count-- {
+				r.processAsyncNatsMessage(<-r.asyncCh)
+			}
 		case <-ticker.C:
 			r.publishActiveSessions()
 		}
@@ -198,7 +211,9 @@ func (r *Room) doClose() {
 }
 
 func (r *Room) unsubscribeBackend() {
-	r.events.UnregisterBackendRoomListener(r.id, r.backend, r)
+	if err := r.events.UnregisterBackendRoomListener(r.id, r.backend, r); err != nil && !errors.Is(err, nats.ErrConnectionClosed) {
+		r.logger.Printf("Error unsubscribing room listener in %s: %s", r.id, err)
+	}
 }
 
 func (r *Room) Close() []Session {
@@ -218,7 +233,17 @@ func (r *Room) Close() []Session {
 	return result
 }
 
-func (r *Room) ProcessBackendRoomRequest(message *AsyncMessage) {
+func (r *Room) processAsyncNatsMessage(msg *nats.Msg) {
+	var message AsyncMessage
+	if err := NatsDecode(msg, &message); err != nil {
+		r.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
+		return
+	}
+
+	r.processAsyncMessage(&message)
+}
+
+func (r *Room) processAsyncMessage(message *AsyncMessage) {
 	switch message.Type {
 	case "room":
 		r.processBackendRoomRequestRoom(message.Room)

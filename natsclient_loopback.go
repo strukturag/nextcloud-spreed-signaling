@@ -192,7 +192,3 @@ func (c *LoopbackNatsClient) Publish(subject string, message any) error {
 	c.wakeup.Signal()
 	return nil
 }
-
-func (c *LoopbackNatsClient) Decode(msg *nats.Msg, v any) error {
-	return json.Unmarshal(msg.Data, v)
-}
