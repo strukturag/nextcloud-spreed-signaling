@@ -204,6 +204,9 @@ type TestMCUPublisher struct {
 	settings NewPublisherSettings
 
 	sdp string
+
+	bandwidth     atomic.Uint64
+	bandwidthInfo atomic.Pointer[McuClientBandwidthInfo]
 }
 
 func (p *TestMCUPublisher) PublisherId() PublicSessionId {
@@ -262,6 +265,23 @@ func (p *TestMCUPublisher) PublishRemote(ctx context.Context, remoteId PublicSes
 
 func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("remote publishing not supported")
+}
+
+func (p *TestMCUPublisher) SetBandwidthInfo(bandwidth *McuClientBandwidthInfo) {
+	p.bandwidthInfo.Store(bandwidth)
+}
+
+func (p *TestMCUPublisher) Bandwidth() *McuClientBandwidthInfo {
+	return p.bandwidthInfo.Load()
+}
+
+func (p *TestMCUPublisher) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error {
+	p.bandwidth.Store(bandwidth.Bits())
+	return nil
+}
+
+func (p *TestMCUPublisher) GetBandwidth() api.Bandwidth {
+	return api.BandwidthFromBits(p.bandwidth.Load())
 }
 
 type TestMCUSubscriber struct {

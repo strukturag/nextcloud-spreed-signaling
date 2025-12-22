@@ -483,3 +483,77 @@ func (s *ProxySession) OnRemotePublisherDeleted(publisherId signaling.PublicSess
 		}
 	}
 }
+
+func cloneLoadMessageWithoutClientBandwidths(msg *signaling.ProxyServerMessage) *signaling.ProxyServerMessage {
+	return &signaling.ProxyServerMessage{
+		Id:   msg.Id,
+		Type: msg.Type,
+		Event: &signaling.EventProxyServerMessage{
+			Type:      msg.Event.Type,
+			ClientId:  msg.Event.ClientId,
+			Load:      msg.Event.Load,
+			Sid:       msg.Event.Sid,
+			Bandwidth: msg.Event.Bandwidth,
+		},
+	}
+}
+
+func (s *ProxySession) updateLoadEventPublishers(msg *signaling.ProxyServerMessage, bandwidths map[string]*signaling.McuClientBandwidthInfo, needClone bool) (result *signaling.ProxyServerMessage, cloned bool) {
+	s.publishersLock.Lock()
+	defer s.publishersLock.Unlock()
+
+	result = msg
+	for id := range s.publishers {
+		if bw, found := bandwidths[id]; found {
+			if needClone {
+				result = cloneLoadMessageWithoutClientBandwidths(msg)
+				needClone = false
+				cloned = true
+			}
+
+			if result.Event.ClientBandwidths == nil {
+				result.Event.ClientBandwidths = make(map[string]signaling.EventProxyServerBandwidth)
+			}
+			result.Event.ClientBandwidths[id] = signaling.EventProxyServerBandwidth{
+				Received: bw.Received,
+				Sent:     bw.Sent,
+			}
+		}
+	}
+	return
+}
+
+func (s *ProxySession) updateLoadEventSubscribers(msg *signaling.ProxyServerMessage, bandwidths map[string]*signaling.McuClientBandwidthInfo, needClone bool) (result *signaling.ProxyServerMessage, cloned bool) {
+	s.subscribersLock.Lock()
+	defer s.subscribersLock.Unlock()
+
+	result = msg
+	for id := range s.subscribers {
+		if bw, found := bandwidths[id]; found {
+			if needClone {
+				result = cloneLoadMessageWithoutClientBandwidths(msg)
+				needClone = false
+				cloned = true
+			}
+
+			if result.Event.ClientBandwidths == nil {
+				result.Event.ClientBandwidths = make(map[string]signaling.EventProxyServerBandwidth)
+			}
+			result.Event.ClientBandwidths[id] = signaling.EventProxyServerBandwidth{
+				Received: bw.Received,
+				Sent:     bw.Sent,
+			}
+		}
+	}
+	return
+}
+
+func (s *ProxySession) updateLoadEvent(msg *signaling.ProxyServerMessage, bandwidths map[string]*signaling.McuClientBandwidthInfo) *signaling.ProxyServerMessage {
+	if len(bandwidths) == 0 {
+		return msg
+	}
+
+	msg, cloned := s.updateLoadEventPublishers(msg, bandwidths, true)
+	msg, _ = s.updateLoadEventSubscribers(msg, bandwidths, !cloned)
+	return msg
+}

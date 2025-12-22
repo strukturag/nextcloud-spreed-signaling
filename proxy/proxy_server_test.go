@@ -452,16 +452,30 @@ func (p *TestMCUPublisher) UnpublishRemote(ctx context.Context, remoteId signali
 
 type PublisherTestMCU struct {
 	TestMCU
+
+	publisher atomic.Pointer[TestPublisherWithBandwidth]
 }
 
 type TestPublisherWithBandwidth struct {
 	TestMCUPublisher
 
-	bandwidth *signaling.McuClientBandwidthInfo
+	t            *testing.T
+	bandwidth    *signaling.McuClientBandwidthInfo
+	bandwidthSet atomic.Bool
 }
 
 func (p *TestPublisherWithBandwidth) Bandwidth() *signaling.McuClientBandwidthInfo {
 	return p.bandwidth
+}
+
+func (p *TestPublisherWithBandwidth) SetBandwidth(ctx context.Context, bandwidth api.Bandwidth) error {
+	assert.EqualValues(p.t, 20000, bandwidth)
+	p.bandwidthSet.Store(true)
+	return nil
+}
+
+func (m *PublisherTestMCU) GetPublisher() *TestPublisherWithBandwidth {
+	return m.publisher.Load()
 }
 
 func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id signaling.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
@@ -472,11 +486,16 @@ func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener signaling.
 			streamType: streamType,
 		},
 
+		t: m.t,
 		bandwidth: &signaling.McuClientBandwidthInfo{
 			Sent:     api.BandwidthFromBytes(1000),
 			Received: api.BandwidthFromBytes(2000),
 		},
 	}
+	if !m.publisher.CompareAndSwap(nil, publisher) {
+		return nil, errors.New("only one publisher supported")
+	}
+
 	return publisher, nil
 }
 
@@ -524,12 +543,17 @@ func TestProxyPublisherBandwidth(t *testing.T) {
 		},
 	}))
 
+	var publisherId string
 	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
 		assert.Equal("2345", message.Id)
 		if err := checkMessageType(message, "command"); assert.NoError(err) {
 			assert.NotEmpty(message.Command.Id)
+			publisherId = message.Command.Id
 		}
 	}
+	require.NotEmpty(publisherId)
+	publisher := mcu.GetPublisher()
+	require.NotNil(publisher)
 
 	proxy.updateLoad()
 
@@ -544,8 +568,33 @@ func TestProxyPublisherBandwidth(t *testing.T) {
 					assert.InEpsilon(10, *bw.Outgoing, 0.0001)
 				}
 			}
+			if assert.Len(message.Event.ClientBandwidths, 1) {
+				if bw := message.Event.ClientBandwidths; assert.NotNil(bw[publisherId], "expected %s, got %+v", bw) {
+					assert.EqualValues(8000, bw[publisherId].Sent)
+					assert.EqualValues(16000, bw[publisherId].Received)
+				}
+			}
 		}
 	}
+
+	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+		Id:   "3456",
+		Type: "command",
+		Command: &signaling.CommandProxyClientMessage{
+			Type:      "update-bandwidth",
+			ClientId:  publisherId,
+			Bandwidth: api.BandwidthFromBits(20000),
+		},
+	}))
+
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		assert.Equal("3456", message.Id)
+		if err := checkMessageType(message, "command"); assert.NoError(err) {
+			assert.Equal(publisherId, message.Command.Id)
+		}
+	}
+
+	assert.True(publisher.bandwidthSet.Load(), "should have set bandwidth")
 }
 
 type HangingTestMCU struct {
