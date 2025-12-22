@@ -23,41 +23,41 @@ package signaling
 
 import (
 	"context"
-	"sync"
+	"errors"
+
+	"github.com/nats-io/nats.go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
-type AsyncBackendRoomEventListener interface {
-	ProcessBackendRoomRequest(message *AsyncMessage)
-}
+var (
+	ErrAlreadyRegistered = errors.New("already registered") // +checklocksignore: Global readonly variable.
+)
 
-type AsyncRoomEventListener interface {
-	ProcessAsyncRoomMessage(message *AsyncMessage)
-}
+const (
+	DefaultAsyncChannelSize = 64
+)
 
-type AsyncUserEventListener interface {
-	ProcessAsyncUserMessage(message *AsyncMessage)
-}
+type AsyncChannel chan *nats.Msg
 
-type AsyncSessionEventListener interface {
-	ProcessAsyncSessionMessage(message *AsyncMessage)
+type AsyncEventListener interface {
+	AsyncChannel() AsyncChannel
 }
 
 type AsyncEvents interface {
 	Close(ctx context.Context) error
 
-	RegisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener) error
-	UnregisterBackendRoomListener(roomId string, backend *Backend, listener AsyncBackendRoomEventListener)
+	RegisterBackendRoomListener(roomId string, backend *Backend, listener AsyncEventListener) error
+	UnregisterBackendRoomListener(roomId string, backend *Backend, listener AsyncEventListener) error
 
-	RegisterRoomListener(roomId string, backend *Backend, listener AsyncRoomEventListener) error
-	UnregisterRoomListener(roomId string, backend *Backend, listener AsyncRoomEventListener)
+	RegisterRoomListener(roomId string, backend *Backend, listener AsyncEventListener) error
+	UnregisterRoomListener(roomId string, backend *Backend, listener AsyncEventListener) error
 
-	RegisterUserListener(userId string, backend *Backend, listener AsyncUserEventListener) error
-	UnregisterUserListener(userId string, backend *Backend, listener AsyncUserEventListener)
+	RegisterUserListener(userId string, backend *Backend, listener AsyncEventListener) error
+	UnregisterUserListener(userId string, backend *Backend, listener AsyncEventListener) error
 
-	RegisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener) error
-	UnregisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncSessionEventListener)
+	RegisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncEventListener) error
+	UnregisterSessionListener(sessionId PublicSessionId, backend *Backend, listener AsyncEventListener) error
 
 	PublishBackendRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error
 	PublishRoomMessage(roomId string, backend *Backend, message *AsyncMessage) error
@@ -72,148 +72,4 @@ func NewAsyncEvents(ctx context.Context, url string) (AsyncEvents, error) {
 	}
 
 	return NewAsyncEventsNats(log.LoggerFromContext(ctx), client)
-}
-
-type asyncBackendRoomSubscriber struct {
-	mu sync.Mutex
-
-	// +checklocks:mu
-	listeners map[AsyncBackendRoomEventListener]bool
-}
-
-func (s *asyncBackendRoomSubscriber) processBackendRoomRequest(message *AsyncMessage) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for listener := range s.listeners {
-		s.mu.Unlock()
-		listener.ProcessBackendRoomRequest(message)
-		s.mu.Lock()
-	}
-}
-
-func (s *asyncBackendRoomSubscriber) addListener(listener AsyncBackendRoomEventListener) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.listeners == nil {
-		s.listeners = make(map[AsyncBackendRoomEventListener]bool)
-	}
-	s.listeners[listener] = true
-}
-
-func (s *asyncBackendRoomSubscriber) removeListener(listener AsyncBackendRoomEventListener) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.listeners, listener)
-	return len(s.listeners) > 0
-}
-
-type asyncRoomSubscriber struct {
-	mu sync.Mutex
-
-	// +checklocks:mu
-	listeners map[AsyncRoomEventListener]bool
-}
-
-func (s *asyncRoomSubscriber) processAsyncRoomMessage(message *AsyncMessage) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for listener := range s.listeners {
-		s.mu.Unlock()
-		listener.ProcessAsyncRoomMessage(message)
-		s.mu.Lock()
-	}
-}
-
-func (s *asyncRoomSubscriber) addListener(listener AsyncRoomEventListener) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.listeners == nil {
-		s.listeners = make(map[AsyncRoomEventListener]bool)
-	}
-	s.listeners[listener] = true
-}
-
-func (s *asyncRoomSubscriber) removeListener(listener AsyncRoomEventListener) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.listeners, listener)
-	return len(s.listeners) > 0
-}
-
-type asyncUserSubscriber struct {
-	mu sync.Mutex
-
-	// +checklocks:mu
-	listeners map[AsyncUserEventListener]bool
-}
-
-func (s *asyncUserSubscriber) processAsyncUserMessage(message *AsyncMessage) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for listener := range s.listeners {
-		s.mu.Unlock()
-		listener.ProcessAsyncUserMessage(message)
-		s.mu.Lock()
-	}
-}
-
-func (s *asyncUserSubscriber) addListener(listener AsyncUserEventListener) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.listeners == nil {
-		s.listeners = make(map[AsyncUserEventListener]bool)
-	}
-	s.listeners[listener] = true
-}
-
-func (s *asyncUserSubscriber) removeListener(listener AsyncUserEventListener) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.listeners, listener)
-	return len(s.listeners) > 0
-}
-
-type asyncSessionSubscriber struct {
-	mu sync.Mutex
-
-	// +checklocks:mu
-	listeners map[AsyncSessionEventListener]bool
-}
-
-func (s *asyncSessionSubscriber) processAsyncSessionMessage(message *AsyncMessage) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for listener := range s.listeners {
-		s.mu.Unlock()
-		listener.ProcessAsyncSessionMessage(message)
-		s.mu.Lock()
-	}
-}
-
-func (s *asyncSessionSubscriber) addListener(listener AsyncSessionEventListener) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.listeners == nil {
-		s.listeners = make(map[AsyncSessionEventListener]bool)
-	}
-	s.listeners[listener] = true
-}
-
-func (s *asyncSessionSubscriber) removeListener(listener AsyncSessionEventListener) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.listeners, listener)
-	return len(s.listeners) > 0
 }

@@ -33,6 +33,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
@@ -82,7 +83,8 @@ type ClientSession struct {
 	backendUrl       string
 	parsedBackendUrl *url.URL
 
-	mu sync.Mutex
+	mu      sync.Mutex
+	asyncCh AsyncChannel
 
 	// +checklocks:mu
 	client       HandlerClient
@@ -140,6 +142,7 @@ func NewClientSession(hub *Hub, privateId PrivateSessionId, publicId PublicSessi
 		parseUserData: parseUserData(auth.User),
 
 		backend: backend,
+		asyncCh: make(AsyncChannel, DefaultAsyncChannelSize),
 	}
 	if s.clientType == HelloClientTypeInternal {
 		s.backendUrl = hello.Auth.internalParams.Backend
@@ -155,6 +158,7 @@ func NewClientSession(hub *Hub, privateId PrivateSessionId, publicId PublicSessi
 	if err := s.SubscribeEvents(); err != nil {
 		return nil, err
 	}
+	go s.run()
 	return s, nil
 }
 
@@ -391,6 +395,24 @@ func (s *ClientSession) releaseMcuObjects() {
 	}
 }
 
+func (s *ClientSession) AsyncChannel() AsyncChannel {
+	return s.asyncCh
+}
+
+func (s *ClientSession) run() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case msg := <-s.asyncCh:
+			s.processAsyncNatsMessage(msg)
+			for count := len(s.asyncCh); count > 0; count-- {
+				s.processAsyncNatsMessage(<-s.asyncCh)
+			}
+		}
+	}
+}
+
 func (s *ClientSession) Close() {
 	s.closeAndWait(true)
 }
@@ -406,9 +428,13 @@ func (s *ClientSession) closeAndWait(wait bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.userId != "" {
-		s.events.UnregisterUserListener(s.userId, s.backend, s)
+		if err := s.events.UnregisterUserListener(s.userId, s.backend, s); err != nil && !errors.Is(err, nats.ErrConnectionClosed) {
+			s.logger.Printf("Error unsubscribing user listener for %s in session %s: %s", s.userId, s.publicId, err)
+		}
 	}
-	s.events.UnregisterSessionListener(s.publicId, s.backend, s)
+	if err := s.events.UnregisterSessionListener(s.publicId, s.backend, s); err != nil && !errors.Is(err, nats.ErrConnectionClosed) {
+		s.logger.Printf("Error unsubscribing listener in session %s: %s", s.publicId, err)
+	}
 	go func(virtualSessions map[*VirtualSession]bool) {
 		for session := range virtualSessions {
 			session.Close()
@@ -543,7 +569,9 @@ func (s *ClientSession) UnsubscribeRoomEvents() {
 func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 	room := s.GetRoom()
 	if room != nil {
-		s.events.UnregisterRoomListener(room.Id(), s.Backend(), s)
+		if err := s.events.UnregisterRoomListener(room.Id(), s.Backend(), s); err != nil && !errors.Is(err, nats.ErrConnectionClosed) {
+			s.logger.Printf("Error unsubscribing room listener for %s in session %s: %s", room.Id(), s.publicId, err)
+		}
 	}
 	s.hub.roomSessions.DeleteRoomSession(s)
 
@@ -1039,16 +1067,14 @@ func (s *ClientSession) GetSubscriber(id PublicSessionId, streamType StreamType)
 	return s.subscribers[getStreamId(id, streamType)]
 }
 
-func (s *ClientSession) ProcessAsyncRoomMessage(message *AsyncMessage) {
-	s.processAsyncMessage(message)
-}
+func (s *ClientSession) processAsyncNatsMessage(msg *nats.Msg) {
+	var message AsyncMessage
+	if err := NatsDecode(msg, &message); err != nil {
+		s.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
+		return
+	}
 
-func (s *ClientSession) ProcessAsyncUserMessage(message *AsyncMessage) {
-	s.processAsyncMessage(message)
-}
-
-func (s *ClientSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
-	s.processAsyncMessage(message)
+	s.processAsyncMessage(&message)
 }
 
 func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {

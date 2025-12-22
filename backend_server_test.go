@@ -241,13 +241,15 @@ func performBackendRequest(requestUrl string, body []byte) (*http.Response, erro
 	return client.Do(request)
 }
 
-func expectRoomlistEvent(t *testing.T, ch chan *AsyncMessage, msgType string) (*EventServerMessage, bool) {
+func expectRoomlistEvent(t *testing.T, ch AsyncChannel, msgType string) (*EventServerMessage, bool) {
 	assert := assert.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	select {
-	case message := <-ch:
-		if !assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
+	case natsMsg := <-ch:
+		var message AsyncMessage
+		if !assert.NoError(NatsDecode(natsMsg, &message)) ||
+			!assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
 			!assert.NotNil(message.Message, "message missing, got %+v", message) {
 			return nil, false
 		}
@@ -403,11 +405,11 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 }
 
 type channelEventListener struct {
-	ch chan *AsyncMessage
+	ch AsyncChannel
 }
 
-func (l *channelEventListener) ProcessAsyncUserMessage(message *AsyncMessage) {
-	l.ch <- message
+func (l *channelEventListener) AsyncChannel() AsyncChannel {
+	return l.ch
 }
 
 func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
@@ -422,13 +424,14 @@ func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 	backend := hub.backend.GetBackend(u)
 
-	eventsChan := make(chan *AsyncMessage, 1)
+	eventsChan := make(AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
 	require.NoError(events.RegisterUserListener(userid, backend, listener))
-	defer events.UnregisterUserListener(userid, backend, listener)
-
+	defer func() {
+		assert.NoError(events.UnregisterUserListener(userid, backend, listener))
+	}()
 	msg := &BackendServerRoomRequest{
 		Type: "invite",
 		Invite: &BackendRoomInviteRequest{
@@ -497,13 +500,14 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	eventsChan := make(chan *AsyncMessage, 1)
+	eventsChan := make(AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
 	require.NoError(events.RegisterUserListener(testDefaultUserId, backend, listener))
-	defer events.UnregisterUserListener(testDefaultUserId, backend, listener)
-
+	defer func() {
+		assert.NoError(events.UnregisterUserListener(testDefaultUserId, backend, listener))
+	}()
 	msg := &BackendServerRoomRequest{
 		Type: "disinvite",
 		Disinvite: &BackendRoomDisinviteRequest{
@@ -651,13 +655,14 @@ func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 	userid := "test-userid"
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	eventsChan := make(chan *AsyncMessage, 1)
+	eventsChan := make(AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
 	require.NoError(events.RegisterUserListener(userid, backend, listener))
-	defer events.UnregisterUserListener(userid, backend, listener)
-
+	defer func() {
+		assert.NoError(events.UnregisterUserListener(userid, backend, listener))
+	}()
 	msg := &BackendServerRoomRequest{
 		Type: "update",
 		Update: &BackendRoomUpdateRequest{
@@ -718,13 +723,14 @@ func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	require.NoError(err)
 
 	userid := "test-userid"
-	eventsChan := make(chan *AsyncMessage, 1)
+	eventsChan := make(AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
 	require.NoError(events.RegisterUserListener(userid, backend, listener))
-	defer events.UnregisterUserListener(userid, backend, listener)
-
+	defer func() {
+		assert.NoError(events.UnregisterUserListener(userid, backend, listener))
+	}()
 	msg := &BackendServerRoomRequest{
 		Type: "delete",
 		Delete: &BackendRoomDeleteRequest{

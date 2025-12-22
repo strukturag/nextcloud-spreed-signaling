@@ -53,8 +53,6 @@ type NatsClient interface {
 
 	Subscribe(subject string, ch chan *nats.Msg) (NatsSubscription, error)
 	Publish(subject string, message any) error
-
-	Decode(msg *nats.Msg, v any) error
 }
 
 // The NATS client doesn't work if a subject contains spaces. As the room id
@@ -156,7 +154,7 @@ func (c *natsClient) Publish(subject string, message any) error {
 	return c.conn.Publish(subject, data)
 }
 
-func (c *natsClient) Decode(msg *nats.Msg, vPtr any) (err error) {
+func NatsDecode(msg *nats.Msg, vPtr any) (err error) {
 	switch arg := vPtr.(type) {
 	case *string:
 		// If they want a string and it is a JSON string, strip quotes

@@ -24,9 +24,11 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"sync/atomic"
 
+	"github.com/nats-io/nats.go"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
@@ -44,6 +46,8 @@ type VirtualSession struct {
 	privateId PrivateSessionId
 	publicId  PublicSessionId
 	data      *SessionIdData
+	ctx       context.Context
+	closeFunc context.CancelFunc
 	room      atomic.Pointer[Room]
 
 	sessionId PublicSessionId
@@ -54,6 +58,8 @@ type VirtualSession struct {
 	options   *AddSessionOptions
 
 	parseUserData func() (api.StringMap, error)
+
+	asyncCh AsyncChannel
 }
 
 func GetVirtualSessionId(session Session, sessionId PublicSessionId) PublicSessionId {
@@ -61,6 +67,9 @@ func GetVirtualSessionId(session Session, sessionId PublicSessionId) PublicSessi
 }
 
 func NewVirtualSession(session *ClientSession, privateId PrivateSessionId, publicId PublicSessionId, data *SessionIdData, msg *AddSessionInternalClientMessage) (*VirtualSession, error) {
+	ctx := log.NewLoggerContext(session.Context(), session.hub.logger)
+	ctx, closeFunc := context.WithCancel(ctx)
+
 	result := &VirtualSession{
 		logger:    session.hub.logger,
 		hub:       session.hub,
@@ -68,12 +77,16 @@ func NewVirtualSession(session *ClientSession, privateId PrivateSessionId, publi
 		privateId: privateId,
 		publicId:  publicId,
 		data:      data,
+		ctx:       ctx,
+		closeFunc: closeFunc,
 
 		sessionId:     msg.SessionId,
 		userId:        msg.UserId,
 		userData:      msg.User,
 		parseUserData: parseUserData(msg.User),
 		options:       msg.Options,
+
+		asyncCh: make(AsyncChannel, DefaultAsyncChannelSize),
 	}
 
 	if err := session.events.RegisterSessionListener(publicId, session.Backend(), result); err != nil {
@@ -89,11 +102,12 @@ func NewVirtualSession(session *ClientSession, privateId PrivateSessionId, publi
 		result.SetFlags(msg.Flags)
 	}
 
+	go result.run()
 	return result, nil
 }
 
 func (s *VirtualSession) Context() context.Context {
-	return s.session.Context()
+	return s.ctx
 }
 
 func (s *VirtualSession) PrivateId() PrivateSessionId {
@@ -178,18 +192,40 @@ func (s *VirtualSession) LeaveRoom(notify bool) *Room {
 	return room
 }
 
+func (s *VirtualSession) AsyncChannel() AsyncChannel {
+	return s.asyncCh
+}
+
+func (s *VirtualSession) run() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case msg := <-s.asyncCh:
+			s.processAsyncNatsMessage(msg)
+			for count := len(s.asyncCh); count > 0; count-- {
+				s.processAsyncNatsMessage(<-s.asyncCh)
+			}
+		}
+	}
+}
+
 func (s *VirtualSession) Close() {
 	s.CloseWithFeedback(nil, nil)
 }
 
 func (s *VirtualSession) CloseWithFeedback(session Session, message *ClientMessage) {
+	s.closeFunc()
+
 	room := s.GetRoom()
 	s.session.RemoveVirtualSession(s)
 	removed := s.session.hub.removeSession(s)
 	if removed && room != nil {
 		go s.notifyBackendRemoved(room, session, message)
 	}
-	s.session.events.UnregisterSessionListener(s.PublicId(), s.session.Backend(), s)
+	if err := s.session.events.UnregisterSessionListener(s.PublicId(), s.session.Backend(), s); err != nil && !errors.Is(err, nats.ErrConnectionClosed) {
+		s.logger.Printf("Error unsubscribing listener for session %s: %s", s.publicId, err)
+	}
 }
 
 func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, message *ClientMessage) {
@@ -272,7 +308,17 @@ func (s *VirtualSession) Options() *AddSessionOptions {
 	return s.options
 }
 
-func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
+func (s *VirtualSession) processAsyncNatsMessage(msg *nats.Msg) {
+	var message AsyncMessage
+	if err := NatsDecode(msg, &message); err != nil {
+		s.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
+		return
+	}
+
+	s.processAsyncMessage(&message)
+}
+
+func (s *VirtualSession) processAsyncMessage(message *AsyncMessage) {
 	if message.Type == "message" && message.Message != nil {
 		switch message.Message.Type {
 		case "message":
@@ -286,7 +332,7 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 					SessionId: s.SessionId(),
 					UserId:    s.UserId(),
 				}
-				s.session.ProcessAsyncSessionMessage(message)
+				s.session.processAsyncMessage(message)
 			}
 		case "event":
 			if room := s.GetRoom(); room != nil &&
@@ -307,7 +353,7 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 					return
 				}
 
-				s.session.ProcessAsyncSessionMessage(&AsyncMessage{
+				s.session.processAsyncMessage(&AsyncMessage{
 					Type:     "message",
 					SendTime: message.SendTime,
 					Message: &ServerMessage{
@@ -334,7 +380,7 @@ func (s *VirtualSession) ProcessAsyncSessionMessage(message *AsyncMessage) {
 					SessionId: s.SessionId(),
 					UserId:    s.UserId(),
 				}
-				s.session.ProcessAsyncSessionMessage(message)
+				s.session.processAsyncMessage(message)
 			}
 		}
 	}

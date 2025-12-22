@@ -3361,7 +3361,7 @@ func TestCombineChatRefreshWhileDisconnected(t *testing.T) {
 	require.NoError(json.Unmarshal([]byte(chat_refresh), &data))
 
 	// Simulate requests from the backend.
-	room.ProcessBackendRoomRequest(&AsyncMessage{
+	room.processAsyncMessage(&AsyncMessage{
 		Type: "room",
 		Room: &BackendServerRoomRequest{
 			Type: "message",
@@ -3370,7 +3370,7 @@ func TestCombineChatRefreshWhileDisconnected(t *testing.T) {
 			},
 		},
 	})
-	room.ProcessBackendRoomRequest(&AsyncMessage{
+	room.processAsyncMessage(&AsyncMessage{
 		Type: "room",
 		Room: &BackendServerRoomRequest{
 			Type: "message",
