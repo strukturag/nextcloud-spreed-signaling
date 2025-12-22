@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func TestVirtualSession(t *testing.T) {
@@ -41,9 +42,7 @@ func TestVirtualSession(t *testing.T) {
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
@@ -64,18 +63,16 @@ func TestVirtualSession(t *testing.T) {
 
 	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
+	client.RunUntilJoined(ctx, hello.Hello)
 
-	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
-
-	internalSessionId := PublicSessionId("session1")
+	internalSessionId := api.PublicSessionId("session1")
 	userId := "user1"
-	msgAdd := &ClientMessage{
+	msgAdd := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "addsession",
-			AddSession: &AddSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			AddSession: &api.AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: internalSessionId,
 					RoomId:    roomId,
 				},
@@ -92,13 +89,21 @@ func TestVirtualSession(t *testing.T) {
 	sessionId := msg1.Event.Join[0].SessionId
 	session := hub.GetSessionByPublicId(sessionId)
 	if assert.NotNil(session, "Could not get virtual session %s", sessionId) {
-		assert.Equal(HelloClientTypeVirtual, session.ClientType())
+		assert.Equal(api.HelloClientTypeVirtual, session.ClientType())
 		sid := session.(*VirtualSession).SessionId()
 		assert.Equal(internalSessionId, sid)
 	}
 
 	// Also a participants update event will be triggered for the virtual user.
 	msg2 := MustSucceed1(t, client.RunUntilMessage, ctx)
+	msg3 := MustSucceed1(t, client.RunUntilMessage, ctx)
+	if msg2.Type == "event" && msg3.Type == "event" && msg2.Event.Type == "flags" {
+		// The order is not specified, could be "participants" before "flags" or vice versa.
+		// Ensure consistent order for checks below ("participants", "flags").
+		t.Logf("Switching messages order")
+		msg2, msg3 = msg3, msg2
+	}
+
 	if updateMsg, ok := checkMessageParticipantsInCall(t, msg2); ok {
 		assert.Equal(roomId, updateMsg.RoomId)
 		if assert.Len(updateMsg.Users, 1) {
@@ -108,7 +113,6 @@ func TestVirtualSession(t *testing.T) {
 		}
 	}
 
-	msg3 := MustSucceed1(t, client.RunUntilMessage, ctx)
 	if flagsMsg, ok := checkMessageParticipantFlags(t, msg3); ok {
 		assert.Equal(roomId, flagsMsg.RoomId)
 		assert.Equal(sessionId, flagsMsg.SessionId)
@@ -116,12 +120,12 @@ func TestVirtualSession(t *testing.T) {
 	}
 
 	newFlags := uint32(FLAG_TALKING)
-	msgFlags := &ClientMessage{
+	msgFlags := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "updatesession",
-			UpdateSession: &UpdateSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			UpdateSession: &api.UpdateSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: internalSessionId,
 					RoomId:    roomId,
 				},
@@ -139,12 +143,12 @@ func TestVirtualSession(t *testing.T) {
 	}
 
 	// A new client will receive the initial flags of the virtual session.
-	client2, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	gotFlags := false
-	var receivedMessages []*ServerMessage
+	var receivedMessages []*api.ServerMessage
 	for !gotFlags {
 		messages, err := client2.GetPendingMessages(ctx)
 		if err != nil {
@@ -171,11 +175,11 @@ func TestVirtualSession(t *testing.T) {
 	assert.True(gotFlags, "Didn't receive initial flags in %+v", receivedMessages)
 
 	// Ignore "join" messages from second client
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello2.Hello)
 
 	// When sending to a virtual session, the message is sent to the actual
 	// client and contains a "Recipient" block with the internal session id.
-	recipient := MessageClientMessageRecipient{
+	recipient := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: sessionId,
 	}
@@ -197,12 +201,12 @@ func TestVirtualSession(t *testing.T) {
 		assert.Equal(data, payload)
 	}
 
-	msgRemove := &ClientMessage{
+	msgRemove := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "removesession",
-			RemoveSession: &RemoveSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			RemoveSession: &api.RemoveSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: internalSessionId,
 					RoomId:    roomId,
 				},
@@ -224,9 +228,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
@@ -249,22 +251,22 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
-	internalSessionId := PublicSessionId("session1")
+	internalSessionId := api.PublicSessionId("session1")
 	userId := "user1"
-	msgAdd := &ClientMessage{
+	msgAdd := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "addsession",
-			AddSession: &AddSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			AddSession: &api.AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: internalSessionId,
 					RoomId:    roomId,
 				},
 				UserId: userId,
 				Flags:  FLAG_MUTED_SPEAKING,
-				Options: &AddSessionOptions{
+				Options: &api.AddSessionOptions{
 					ActorId:   "actor-id",
 					ActorType: "actor-type",
 				},
@@ -279,7 +281,7 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	sessionId := msg1.Event.Join[0].SessionId
 	session := hub.GetSessionByPublicId(sessionId)
 	if assert.NotNil(session, "Could not get virtual session %s", sessionId) {
-		assert.Equal(HelloClientTypeVirtual, session.ClientType())
+		assert.Equal(api.HelloClientTypeVirtual, session.ClientType())
 		sid := session.(*VirtualSession).SessionId()
 		assert.Equal(internalSessionId, sid)
 	}
@@ -303,12 +305,12 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	}
 
 	newFlags := uint32(FLAG_TALKING)
-	msgFlags := &ClientMessage{
+	msgFlags := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "updatesession",
-			UpdateSession: &UpdateSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			UpdateSession: &api.UpdateSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: internalSessionId,
 					RoomId:    roomId,
 				},
@@ -326,12 +328,12 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	}
 
 	// A new client will receive the initial flags of the virtual session.
-	client2, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	gotFlags := false
-	var receivedMessages []*ServerMessage
+	var receivedMessages []*api.ServerMessage
 	for !gotFlags {
 		messages, err := client2.GetPendingMessages(ctx)
 		if err != nil {
@@ -358,11 +360,11 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	assert.True(gotFlags, "Didn't receive initial flags in %+v", receivedMessages)
 
 	// Ignore "join" messages from second client
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello2.Hello)
 
 	// When sending to a virtual session, the message is sent to the actual
 	// client and contains a "Recipient" block with the internal session id.
-	recipient := MessageClientMessageRecipient{
+	recipient := api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: sessionId,
 	}
@@ -384,12 +386,12 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 		assert.Equal(data, payload)
 	}
 
-	msgRemove := &ClientMessage{
+	msgRemove := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "removesession",
-			RemoveSession: &RemoveSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			RemoveSession: &api.RemoveSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: internalSessionId,
 					RoomId:    roomId,
 				},
@@ -403,11 +405,11 @@ func TestVirtualSessionActorInformation(t *testing.T) {
 	}
 }
 
-func checkHasEntryWithInCall(t *testing.T, message *RoomEventServerMessage, sessionId PublicSessionId, entryType string, inCall int) bool {
+func checkHasEntryWithInCall(t *testing.T, message *api.RoomEventServerMessage, sessionId api.PublicSessionId, entryType string, inCall int) bool {
 	assert := assert.New(t)
 	found := false
 	for _, entry := range message.Users {
-		if sid, ok := api.GetStringMapString[PublicSessionId](entry, "sessionId"); ok && sid == sessionId {
+		if sid, ok := api.GetStringMapString[api.PublicSessionId](entry, "sessionId"); ok && sid == sessionId {
 			if value, found := api.GetStringMapEntry[bool](entry, entryType); !assert.True(found, "entry %s not found or invalid in %+v", entryType, entry) ||
 				!assert.True(value, "entry %s invalid in %+v", entryType, entry) {
 				return false
@@ -433,9 +435,7 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
@@ -443,7 +443,7 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 	clientInternal := NewTestClient(t, server, hub)
 	defer clientInternal.CloseWithBye()
 	features := []string{
-		ClientFeatureInternalInCall,
+		api.ClientFeatureInternalInCall,
 	}
 	require.NoError(clientInternal.SendHelloInternalWithFeatures(features))
 
@@ -464,7 +464,17 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 	roomMsg = MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
+	// In some cases, the participants update event is triggered a bit after the joined
+	// event. If this happens, the "client" will also receive an additional update
+	// event after the joined of the internal client.
+	var expectUpdate bool
 	if _, additional, ok := clientInternal.RunUntilJoinedAndReturn(ctx, helloInternal.Hello, hello.Hello); ok {
+		if len(additional) == 0 {
+			if msg, ok := clientInternal.RunUntilMessage(ctx); ok {
+				additional = append(additional, msg)
+			}
+			expectUpdate = true
+		}
 		if assert.Len(additional, 1) && assert.Equal("event", additional[0].Type) {
 			assert.Equal("participants", additional[0].Event.Target)
 			assert.Equal("update", additional[0].Event.Type)
@@ -472,16 +482,31 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 			assert.EqualValues(0, additional[0].Event.Update.Users[0]["inCall"])
 		}
 	}
-	client.RunUntilJoined(ctx, helloInternal.Hello, hello.Hello)
+	if _, additional, ok := client.RunUntilJoinedAndReturn(ctx, helloInternal.Hello, hello.Hello); ok {
+		if expectUpdate {
+			if len(additional) == 0 {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					additional = append(additional, msg)
+				}
+			}
 
-	internalSessionId := PublicSessionId("session1")
+			if assert.Len(additional, 1) && assert.Equal("event", additional[0].Type) {
+				assert.Equal("participants", additional[0].Event.Target)
+				assert.Equal("update", additional[0].Event.Type)
+				assert.EqualValues(helloInternal.Hello.SessionId, additional[0].Event.Update.Users[0]["sessionId"])
+				assert.EqualValues(0, additional[0].Event.Update.Users[0]["inCall"])
+			}
+		}
+	}
+
+	internalSessionId := api.PublicSessionId("session1")
 	userId := "user1"
-	msgAdd := &ClientMessage{
+	msgAdd := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "addsession",
-			AddSession: &AddSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			AddSession: &api.AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: internalSessionId,
 					RoomId:    roomId,
 				},
@@ -498,7 +523,7 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 	sessionId := msg1.Event.Join[0].SessionId
 	session := hub.GetSessionByPublicId(sessionId)
 	if assert.NotNil(session) {
-		assert.Equal(HelloClientTypeVirtual, session.ClientType())
+		assert.Equal(api.HelloClientTypeVirtual, session.ClientType())
 		sid := session.(*VirtualSession).SessionId()
 		assert.Equal(internalSessionId, sid)
 	}
@@ -521,11 +546,11 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 	}
 
 	// The internal session can change its "inCall" flags
-	msgInCall := &ClientMessage{
+	msgInCall := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "incall",
-			InCall: &InCallInternalClientMessage{
+			InCall: &api.InCallInternalClientMessage{
 				InCall: FlagInCall | FlagWithAudio,
 			},
 		},
@@ -542,12 +567,12 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 
 	// The internal session can change the "inCall" flags of a virtual session
 	newInCall := FlagInCall | FlagWithPhone
-	msgInCall2 := &ClientMessage{
+	msgInCall2 := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "updatesession",
-			UpdateSession: &UpdateSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			UpdateSession: &api.UpdateSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: internalSessionId,
 					RoomId:    roomId,
 				},
@@ -574,9 +599,7 @@ func TestVirtualSessionCleanup(t *testing.T) {
 
 	roomId := "the-room-id"
 	emptyProperties := json.RawMessage("{}")
-	backend := &Backend{
-		id: "compat",
-	}
+	backend := talk.NewCompatBackend(nil)
 	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 	defer room.Close()
@@ -593,22 +616,22 @@ func TestVirtualSessionCleanup(t *testing.T) {
 		assert.NotEmpty(hello.Hello.SessionId)
 		assert.NotEmpty(hello.Hello.ResumeId)
 	}
-	client, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
 
 	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
-	internalSessionId := PublicSessionId("session1")
+	internalSessionId := api.PublicSessionId("session1")
 	userId := "user1"
-	msgAdd := &ClientMessage{
+	msgAdd := &api.ClientMessage{
 		Type: "internal",
-		Internal: &InternalClientMessage{
+		Internal: &api.InternalClientMessage{
 			Type: "addsession",
-			AddSession: &AddSessionInternalClientMessage{
-				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+			AddSession: &api.AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
 					SessionId: internalSessionId,
 					RoomId:    roomId,
 				},
@@ -625,7 +648,7 @@ func TestVirtualSessionCleanup(t *testing.T) {
 	sessionId := msg1.Event.Join[0].SessionId
 	session := hub.GetSessionByPublicId(sessionId)
 	if assert.NotNil(session) {
-		assert.Equal(HelloClientTypeVirtual, session.ClientType())
+		assert.Equal(api.HelloClientTypeVirtual, session.ClientType())
 		sid := session.(*VirtualSession).SessionId()
 		assert.Equal(internalSessionId, sid)
 	}

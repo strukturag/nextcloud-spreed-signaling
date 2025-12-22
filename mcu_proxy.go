@@ -46,8 +46,14 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -72,6 +78,8 @@ const (
 
 	rttLogDuration = 500 * time.Millisecond
 )
+
+type ContinentsMap map[geoip.Continent][]geoip.Continent
 
 type McuProxy interface {
 	AddConnection(ignoreErrors bool, url string, ips ...net.IP) error
@@ -146,11 +154,11 @@ func (c *mcuProxyPubSubCommon) doProcessPayload(client McuClient, msg *PayloadPr
 type mcuProxyPublisher struct {
 	mcuProxyPubSubCommon
 
-	id       PublicSessionId
+	id       api.PublicSessionId
 	settings NewPublisherSettings
 }
 
-func newMcuProxyPublisher(logger log.Logger, id PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, settings NewPublisherSettings, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
+func newMcuProxyPublisher(logger log.Logger, id api.PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, settings NewPublisherSettings, proxyId string, conn *mcuProxyConnection, listener McuListener) *mcuProxyPublisher {
 	return &mcuProxyPublisher{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			logger: logger,
@@ -167,7 +175,7 @@ func newMcuProxyPublisher(logger log.Logger, id PublicSessionId, sid string, str
 	}
 }
 
-func (p *mcuProxyPublisher) PublisherId() PublicSessionId {
+func (p *mcuProxyPublisher) PublisherId() api.PublicSessionId {
 	return p.id
 }
 
@@ -208,7 +216,7 @@ func (p *mcuProxyPublisher) Close(ctx context.Context) {
 	p.logger.Printf("Deleted publisher %s at %s", p.proxyId, p.conn)
 }
 
-func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
+func (p *mcuProxyPublisher) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 	msg := &ProxyClientMessage{
 		Type: "payload",
 		Payload: &PayloadProxyClientMessage{
@@ -240,11 +248,11 @@ func (p *mcuProxyPublisher) ProcessEvent(msg *EventProxyServerMessage) {
 type mcuProxySubscriber struct {
 	mcuProxyPubSubCommon
 
-	publisherId   PublicSessionId
+	publisherId   api.PublicSessionId
 	publisherConn *mcuProxyConnection
 }
 
-func newMcuProxySubscriber(logger log.Logger, publisherId PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, proxyId string, conn *mcuProxyConnection, listener McuListener, publisherConn *mcuProxyConnection) *mcuProxySubscriber {
+func newMcuProxySubscriber(logger log.Logger, publisherId api.PublicSessionId, sid string, streamType StreamType, maxBitrate api.Bandwidth, proxyId string, conn *mcuProxyConnection, listener McuListener, publisherConn *mcuProxyConnection) *mcuProxySubscriber {
 	return &mcuProxySubscriber{
 		mcuProxyPubSubCommon: mcuProxyPubSubCommon{
 			logger: logger,
@@ -262,7 +270,7 @@ func newMcuProxySubscriber(logger log.Logger, publisherId PublicSessionId, sid s
 	}
 }
 
-func (s *mcuProxySubscriber) Publisher() PublicSessionId {
+func (s *mcuProxySubscriber) Publisher() api.PublicSessionId {
 	return s.publisherId
 }
 
@@ -310,7 +318,7 @@ func (s *mcuProxySubscriber) Close(ctx context.Context) {
 	}
 }
 
-func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *MessageClientMessage, data *MessageClientMessageData, callback func(error, api.StringMap)) {
+func (s *mcuProxySubscriber) SendMessage(ctx context.Context, message *api.MessageClientMessage, data *api.MessageClientMessageData, callback func(error, api.StringMap)) {
 	msg := &ProxyClientMessage{
 		Type: "payload",
 		Payload: &PayloadProxyClientMessage{
@@ -355,8 +363,8 @@ type mcuProxyConnection struct {
 	load       atomic.Uint64
 	bandwidth  atomic.Pointer[EventProxyServerBandwidth]
 	mu         sync.Mutex
-	closer     *Closer
-	closedDone *Closer
+	closer     *internal.Closer
+	closedDone *internal.Closer
 	closed     atomic.Bool
 	// +checklocks:mu
 	conn *websocket.Conn
@@ -370,7 +378,7 @@ type mcuProxyConnection struct {
 	trackClose        atomic.Bool
 	temporary         atomic.Bool
 
-	connectedNotifier SingleNotifier
+	connectedNotifier async.SingleNotifier
 
 	msgId      atomic.Int64
 	helloMsgId string
@@ -388,7 +396,7 @@ type mcuProxyConnection struct {
 	// +checklocks:publishersLock
 	publishers map[string]*mcuProxyPublisher
 	// +checklocks:publishersLock
-	publisherIds map[StreamId]PublicSessionId
+	publisherIds map[StreamId]api.PublicSessionId
 
 	subscribersLock sync.RWMutex
 	// +checklocks:subscribersLock
@@ -408,17 +416,17 @@ func newMcuProxyConnection(proxy *mcuProxy, baseUrl string, ip net.IP, token str
 		url:          parsed,
 		ip:           ip,
 		connectToken: token,
-		closer:       NewCloser(),
-		closedDone:   NewCloser(),
+		closer:       internal.NewCloser(),
+		closedDone:   internal.NewCloser(),
 		callbacks:    make(map[string]mcuProxyCallback),
 		publishers:   make(map[string]*mcuProxyPublisher),
-		publisherIds: make(map[StreamId]PublicSessionId),
+		publisherIds: make(map[StreamId]api.PublicSessionId),
 		subscribers:  make(map[string]*mcuProxySubscriber),
 	}
 	conn.reconnectInterval.Store(int64(initialReconnectInterval))
 	conn.load.Store(loadNotConnected)
 	conn.bandwidth.Store(nil)
-	conn.country.Store("")
+	conn.country.Store(geoip.Country(""))
 	conn.version.Store("")
 	conn.features.Store([]string{})
 	statsProxyBackendLoadCurrent.WithLabelValues(conn.url.String()).Set(0)
@@ -470,7 +478,7 @@ func (c *mcuProxyConnection) IsSameContinent(initiator McuInitiator) bool {
 		return true
 	}
 
-	initiatorContinents, found := ContinentMap[initiatorCountry]
+	initiatorContinents, found := geoip.ContinentMap[initiatorCountry]
 	if found {
 		m := c.proxy.getContinentsMap()
 		// Map continents to other continents (e.g. use Europe for Africa).
@@ -481,7 +489,7 @@ func (c *mcuProxyConnection) IsSameContinent(initiator McuInitiator) bool {
 		}
 
 	}
-	connContinents := ContinentMap[connCountry]
+	connContinents := geoip.ContinentMap[connCountry]
 	return ContinentsOverlap(initiatorContinents, connContinents)
 }
 
@@ -535,8 +543,8 @@ func (c *mcuProxyConnection) Bandwidth() *EventProxyServerBandwidth {
 	return c.bandwidth.Load()
 }
 
-func (c *mcuProxyConnection) Country() string {
-	return c.country.Load().(string)
+func (c *mcuProxyConnection) Country() geoip.Country {
+	return c.country.Load().(geoip.Country)
 }
 
 func (c *mcuProxyConnection) Version() string {
@@ -547,13 +555,13 @@ func (c *mcuProxyConnection) Features() []string {
 	return c.features.Load().([]string)
 }
 
-func (c *mcuProxyConnection) SessionId() PublicSessionId {
+func (c *mcuProxyConnection) SessionId() api.PublicSessionId {
 	sid := c.sessionId.Load()
 	if sid == nil {
 		return ""
 	}
 
-	return sid.(PublicSessionId)
+	return sid.(api.PublicSessionId)
 }
 
 func (c *mcuProxyConnection) IsConnected() bool {
@@ -729,7 +737,7 @@ func (c *mcuProxyConnection) close() {
 		c.conn = nil
 		c.connectedSince.Store(0)
 		if c.trackClose.CompareAndSwap(true, false) {
-			statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Dec()
+			statsConnectedProxyBackendsCurrent.WithLabelValues(string(c.Country())).Dec()
 		}
 	}
 }
@@ -988,7 +996,7 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 				c.clearPublishers()
 				c.clearSubscribers()
 				c.clearCallbacks()
-				c.sessionId.Store(PublicSessionId(""))
+				c.sessionId.Store(api.PublicSessionId(""))
 				if err := c.sendHello(); err != nil {
 					c.logger.Printf("Could not send hello request to %s: %s", c, err)
 					c.scheduleReconnect()
@@ -1001,9 +1009,9 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 		case "hello":
 			resumed := c.SessionId() == msg.Hello.SessionId
 			c.sessionId.Store(msg.Hello.SessionId)
-			country := ""
+			var country geoip.Country
 			if server := msg.Hello.Server; server != nil {
-				if country = server.Country; country != "" && !IsValidCountry(country) {
+				if country = server.Country; country != "" && !geoip.IsValidCountry(country) {
 					c.logger.Printf("Proxy %s sent invalid country %s in hello response", c, country)
 					country = ""
 				}
@@ -1025,7 +1033,7 @@ func (c *mcuProxyConnection) processMessage(msg *ProxyServerMessage) {
 				c.logger.Printf("Received session %s from %s", c.SessionId(), c)
 			}
 			if c.trackClose.CompareAndSwap(false, true) {
-				statsConnectedProxyBackendsCurrent.WithLabelValues(c.Country()).Inc()
+				statsConnectedProxyBackendsCurrent.WithLabelValues(string(c.Country())).Inc()
 			}
 
 			c.helloProcessed.Store(true)
@@ -1156,7 +1164,7 @@ func (c *mcuProxyConnection) processBye(msg *ProxyServerMessage) {
 	default:
 		c.logger.Printf("Received bye with unsupported reason from %s %+v", c, bye)
 	}
-	c.sessionId.Store(PublicSessionId(""))
+	c.sessionId.Store(api.PublicSessionId(""))
 }
 
 func (c *mcuProxyConnection) sendHello() error {
@@ -1252,7 +1260,7 @@ func (c *mcuProxyConnection) performSyncRequest(ctx context.Context, msg *ProxyC
 	}
 }
 
-func (c *mcuProxyConnection) deferredDeletePublisher(id PublicSessionId, streamType StreamType, response *ProxyServerMessage) {
+func (c *mcuProxyConnection) deferredDeletePublisher(id api.PublicSessionId, streamType StreamType, response *ProxyServerMessage) {
 	if response.Type == "error" {
 		c.logger.Printf("Publisher for %s was not created at %s: %s", id, c, response.Error)
 		return
@@ -1282,7 +1290,7 @@ func (c *mcuProxyConnection) deferredDeletePublisher(id PublicSessionId, streamT
 	c.logger.Printf("Deleted publisher %s at %s", proxyId, c)
 }
 
-func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings) (McuPublisher, error) {
+func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListener, id api.PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings) (McuPublisher, error) {
 	msg := &ProxyClientMessage{
 		Type: "command",
 		Command: &CommandProxyClientMessage{
@@ -1313,14 +1321,14 @@ func (c *mcuProxyConnection) newPublisher(ctx context.Context, listener McuListe
 	publisher := newMcuProxyPublisher(c.logger, id, sid, streamType, response.Command.Bitrate, settings, proxyId, c, listener)
 	c.publishersLock.Lock()
 	c.publishers[proxyId] = publisher
-	c.publisherIds[getStreamId(id, streamType)] = PublicSessionId(proxyId)
+	c.publisherIds[getStreamId(id, streamType)] = api.PublicSessionId(proxyId)
 	c.publishersLock.Unlock()
 	statsPublishersCurrent.WithLabelValues(string(streamType)).Inc()
 	statsPublishersTotal.WithLabelValues(string(streamType)).Inc()
 	return publisher, nil
 }
 
-func (c *mcuProxyConnection) deferredDeleteSubscriber(publisherSessionId PublicSessionId, streamType StreamType, publisherConn *mcuProxyConnection, response *ProxyServerMessage) {
+func (c *mcuProxyConnection) deferredDeleteSubscriber(publisherSessionId api.PublicSessionId, streamType StreamType, publisherConn *mcuProxyConnection, response *ProxyServerMessage) {
 	if response.Type == "error" {
 		c.logger.Printf("Subscriber for %s was not created at %s: %s", publisherSessionId, c, response.Error)
 		return
@@ -1363,7 +1371,7 @@ func (c *mcuProxyConnection) deferredDeleteSubscriber(publisherSessionId PublicS
 	}
 }
 
-func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuListener, publisherId PublicSessionId, publisherSessionId PublicSessionId, streamType StreamType) (McuSubscriber, error) {
+func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuListener, publisherId api.PublicSessionId, publisherSessionId api.PublicSessionId, streamType StreamType) (McuSubscriber, error) {
 	msg := &ProxyClientMessage{
 		Type: "command",
 		Command: &CommandProxyClientMessage{
@@ -1396,7 +1404,7 @@ func (c *mcuProxyConnection) newSubscriber(ctx context.Context, listener McuList
 	return subscriber, nil
 }
 
-func (c *mcuProxyConnection) newRemoteSubscriber(ctx context.Context, listener McuListener, publisherId PublicSessionId, publisherSessionId PublicSessionId, streamType StreamType, publisherConn *mcuProxyConnection, remoteToken string) (McuSubscriber, error) {
+func (c *mcuProxyConnection) newRemoteSubscriber(ctx context.Context, listener McuListener, publisherId api.PublicSessionId, publisherSessionId api.PublicSessionId, streamType StreamType, publisherConn *mcuProxyConnection, remoteToken string) (McuSubscriber, error) {
 	if c == publisherConn {
 		return c.newSubscriber(ctx, listener, publisherId, publisherSessionId, streamType)
 	}
@@ -1503,14 +1511,14 @@ type mcuProxy struct {
 	// +checklocks:mu
 	publishers map[StreamId]*mcuProxyConnection
 
-	publisherWaiters ChannelWaiters
+	publisherWaiters async.ChannelWaiters
 
 	continentsMap atomic.Value
 
 	rpcClients *GrpcClients
 }
 
-func NewMcuProxy(ctx context.Context, config *goconf.ConfigFile, etcdClient *EtcdClient, rpcClients *GrpcClients, dnsMonitor *DnsMonitor) (Mcu, error) {
+func NewMcuProxy(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd.Client, rpcClients *GrpcClients, dnsMonitor *dns.Monitor) (Mcu, error) {
 	logger := log.LoggerFromContext(ctx)
 	urlType, _ := config.GetString("mcu", "urltype")
 	if urlType == "" {
@@ -1588,8 +1596,8 @@ func (m *mcuProxy) GetBandwidthLimits() (api.Bandwidth, api.Bandwidth) {
 	return m.settings.MaxStreamBitrate(), m.settings.MaxScreenBitrate()
 }
 
-func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
-	options, err := GetStringOptions(config, "continent-overrides", false)
+func (m *mcuProxy) loadContinentsMap(cfg *goconf.ConfigFile) error {
+	options, err := config.GetStringOptions(cfg, "continent-overrides", false)
 	if err != nil {
 		return err
 	}
@@ -1599,18 +1607,18 @@ func (m *mcuProxy) loadContinentsMap(config *goconf.ConfigFile) error {
 		return nil
 	}
 
-	continentsMap := make(map[string][]string)
+	continentsMap := make(ContinentsMap)
 	for option, value := range options {
-		option = strings.ToUpper(strings.TrimSpace(option))
-		if !IsValidContinent(option) {
+		option := geoip.Continent(strings.ToUpper(strings.TrimSpace(option)))
+		if !geoip.IsValidContinent(option) {
 			m.logger.Printf("Ignore unknown continent %s", option)
 			continue
 		}
 
-		var values []string
-		for v := range SplitEntries(value, ",") {
-			v = strings.ToUpper(v)
-			if !IsValidContinent(v) {
+		var values []geoip.Continent
+		for v := range internal.SplitEntries(value, ",") {
+			v := geoip.Continent(strings.ToUpper(v))
+			if !geoip.IsValidContinent(v) {
 				m.logger.Printf("Ignore unknown continent %s for override %s", v, option)
 				continue
 			}
@@ -1871,15 +1879,15 @@ func (m *mcuProxy) GetStats() any {
 	return result
 }
 
-func (m *mcuProxy) GetServerInfoSfu() *BackendServerInfoSfu {
+func (m *mcuProxy) GetServerInfoSfu() *talk.BackendServerInfoSfu {
 	m.connectionsMu.RLock()
 	defer m.connectionsMu.RUnlock()
 
-	sfu := &BackendServerInfoSfu{
-		Mode: SfuModeProxy,
+	sfu := &talk.BackendServerInfoSfu{
+		Mode: talk.SfuModeProxy,
 	}
 	for _, c := range m.connections {
-		proxy := BackendServerInfoSfuProxy{
+		proxy := talk.BackendServerInfoSfuProxy{
 			Url: c.rawUrl,
 
 			Temporary: c.IsTemporary(),
@@ -1898,11 +1906,18 @@ func (m *mcuProxy) GetServerInfoSfu() *BackendServerInfoSfu {
 			proxy.Features = c.Features()
 			proxy.Country = c.Country()
 			proxy.Load = internal.MakePtr(c.Load())
-			proxy.Bandwidth = c.Bandwidth()
+			if bw := c.Bandwidth(); bw != nil {
+				proxy.Bandwidth = &talk.BackendServerInfoSfuProxyBandwidth{
+					Incoming: bw.Incoming,
+					Outgoing: bw.Outgoing,
+					Received: bw.Received,
+					Sent:     bw.Sent,
+				}
+			}
 		}
 		sfu.Proxies = append(sfu.Proxies, proxy)
 	}
-	slices.SortFunc(sfu.Proxies, func(a, b BackendServerInfoSfuProxy) int {
+	slices.SortFunc(sfu.Proxies, func(a, b talk.BackendServerInfoSfuProxy) int {
 		c := strings.Compare(a.Url, b.Url)
 		if c == 0 {
 			c = strings.Compare(a.IP, b.IP)
@@ -1912,24 +1927,24 @@ func (m *mcuProxy) GetServerInfoSfu() *BackendServerInfoSfu {
 	return sfu
 }
 
-func (m *mcuProxy) getContinentsMap() map[string][]string {
+func (m *mcuProxy) getContinentsMap() ContinentsMap {
 	continentsMap := m.continentsMap.Load()
 	if continentsMap == nil {
 		return nil
 	}
-	return continentsMap.(map[string][]string)
+	return continentsMap.(ContinentsMap)
 }
 
-func (m *mcuProxy) setContinentsMap(continentsMap map[string][]string) {
+func (m *mcuProxy) setContinentsMap(continentsMap ContinentsMap) {
 	if continentsMap == nil {
-		continentsMap = make(map[string][]string)
+		continentsMap = make(ContinentsMap)
 	}
 	m.continentsMap.Store(continentsMap)
 }
 
 type mcuProxyConnectionsList []*mcuProxyConnection
 
-func ContinentsOverlap(a, b []string) bool {
+func ContinentsOverlap(a, b []geoip.Continent) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false
 	}
@@ -1942,7 +1957,7 @@ func ContinentsOverlap(a, b []string) bool {
 	return false
 }
 
-func sortConnectionsForCountry(connections []*mcuProxyConnection, country string, continentMap map[string][]string) []*mcuProxyConnection {
+func sortConnectionsForCountry(connections []*mcuProxyConnection, country geoip.Country, continentMap ContinentsMap) []*mcuProxyConnection {
 	// Move connections in the same country to the start of the list.
 	sorted := make(mcuProxyConnectionsList, 0, len(connections))
 	unprocessed := make(mcuProxyConnectionsList, 0, len(connections))
@@ -1953,7 +1968,7 @@ func sortConnectionsForCountry(connections []*mcuProxyConnection, country string
 			unprocessed = append(unprocessed, conn)
 		}
 	}
-	if continents, found := ContinentMap[country]; found && len(unprocessed) > 1 {
+	if continents, found := geoip.ContinentMap[country]; found && len(unprocessed) > 1 {
 		remaining := make(mcuProxyConnectionsList, 0, len(unprocessed))
 		// Map continents to other continents (e.g. use Europe for Africa).
 		for _, continent := range continents {
@@ -1965,8 +1980,8 @@ func sortConnectionsForCountry(connections []*mcuProxyConnection, country string
 		// Next up are connections on the same or mapped continent.
 		for _, conn := range unprocessed {
 			connCountry := conn.Country()
-			if IsValidCountry(connCountry) {
-				connContinents := ContinentMap[connCountry]
+			if geoip.IsValidCountry(connCountry) {
+				connContinents := geoip.ContinentMap[connCountry]
 				if ContinentsOverlap(continents, connContinents) {
 					sorted = append(sorted, conn)
 				} else {
@@ -2009,7 +2024,7 @@ func (m *mcuProxy) getSortedConnections(initiator McuInitiator) []*mcuProxyConne
 	}
 
 	if initiator != nil {
-		if country := initiator.Country(); IsValidCountry(country) {
+		if country := initiator.Country(); geoip.IsValidCountry(country) {
 			connections = sortConnectionsForCountry(connections, country, m.getContinentsMap())
 		}
 	}
@@ -2023,7 +2038,7 @@ func (m *mcuProxy) removePublisher(publisher *mcuProxyPublisher) {
 	delete(m.publishers, getStreamId(publisher.id, publisher.StreamType()))
 }
 
-func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuPublisher {
+func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id api.PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuPublisher {
 	var maxBitrate api.Bandwidth
 	if streamType == StreamTypeScreen {
 		maxBitrate = m.settings.MaxScreenBitrate()
@@ -2062,7 +2077,7 @@ func (m *mcuProxy) createPublisher(ctx context.Context, listener McuListener, id
 	return nil
 }
 
-func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id api.PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	connections := m.getSortedConnections(initiator)
 	publisher := m.createPublisher(ctx, listener, id, sid, streamType, settings, initiator, connections, func(c *mcuProxyConnection) bool {
 		bw := c.Bandwidth()
@@ -2115,14 +2130,14 @@ func (m *mcuProxy) NewPublisher(ctx context.Context, listener McuListener, id Pu
 	return publisher, nil
 }
 
-func (m *mcuProxy) getPublisherConnection(publisher PublicSessionId, streamType StreamType) *mcuProxyConnection {
+func (m *mcuProxy) getPublisherConnection(publisher api.PublicSessionId, streamType StreamType) *mcuProxyConnection {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	return m.publishers[getStreamId(publisher, streamType)]
 }
 
-func (m *mcuProxy) waitForPublisherConnection(ctx context.Context, publisher PublicSessionId, streamType StreamType) *mcuProxyConnection {
+func (m *mcuProxy) waitForPublisherConnection(ctx context.Context, publisher api.PublicSessionId, streamType StreamType) *mcuProxyConnection {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -2154,13 +2169,13 @@ func (m *mcuProxy) waitForPublisherConnection(ctx context.Context, publisher Pub
 }
 
 type proxyPublisherInfo struct {
-	id    PublicSessionId
+	id    api.PublicSessionId
 	conn  *mcuProxyConnection
 	token string
 	err   error
 }
 
-func (m *mcuProxy) createSubscriber(ctx context.Context, listener McuListener, info *proxyPublisherInfo, publisher PublicSessionId, streamType StreamType, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuSubscriber {
+func (m *mcuProxy) createSubscriber(ctx context.Context, listener McuListener, info *proxyPublisherInfo, publisher api.PublicSessionId, streamType StreamType, connections []*mcuProxyConnection, isAllowed func(c *mcuProxyConnection) bool) McuSubscriber {
 	for _, conn := range connections {
 		if !isAllowed(conn) || conn.IsShutdownScheduled() || conn.IsTemporary() {
 			continue
@@ -2187,7 +2202,7 @@ func (m *mcuProxy) createSubscriber(ctx context.Context, listener McuListener, i
 	return nil
 }
 
-func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
+func (m *mcuProxy) NewSubscriber(ctx context.Context, listener McuListener, publisher api.PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
 	var publisherInfo *proxyPublisherInfo
 	if conn := m.getPublisherConnection(publisher, streamType); conn != nil {
 		// Fast common path: publisher is available locally.

@@ -32,13 +32,14 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/security"
 )
 
 type reloadableCredentials struct {
 	config *tls.Config
 
-	loader *CertificateReloader
-	pool   *CertPoolReloader
+	loader *security.CertificateReloader
+	pool   *security.CertPoolReloader
 }
 
 func (c *reloadableCredentials) ClientHandshake(ctx context.Context, authority string, rawConn net.Conn) (net.Conn, credentials.AuthInfo, error) {
@@ -151,18 +152,18 @@ func NewReloadableCredentials(logger log.Logger, config *goconf.ConfigFile, serv
 	cfg := &tls.Config{
 		NextProtos: []string{"h2"},
 	}
-	var loader *CertificateReloader
+	var loader *security.CertificateReloader
 	var err error
 	if certificateFile != "" && keyFile != "" {
-		loader, err = NewCertificateReloader(logger, certificateFile, keyFile)
+		loader, err = security.NewCertificateReloader(logger, certificateFile, keyFile)
 		if err != nil {
 			return nil, fmt.Errorf("invalid GRPC %s certificate / key in %s / %s: %w", prefix, certificateFile, keyFile, err)
 		}
 	}
 
-	var pool *CertPoolReloader
+	var pool *security.CertPoolReloader
 	if caFile != "" {
-		pool, err = NewCertPoolReloader(logger, caFile)
+		pool, err = security.NewCertPoolReloader(logger, caFile)
 		if err != nil {
 			return nil, err
 		}

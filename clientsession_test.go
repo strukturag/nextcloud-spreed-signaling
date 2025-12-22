@@ -33,6 +33,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func TestBandwidth_Client(t *testing.T) {
@@ -63,20 +66,20 @@ func TestBandwidth_Client(t *testing.T) {
 
 	// Client may not send an offer with audio and video.
 	bitrate := api.BandwidthFromBits(10000)
-	require.NoError(client.SendMessage(MessageClientMessageRecipient{
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 		Type:      "session",
 		SessionId: hello.Hello.SessionId,
-	}, MessageClientMessageData{
+	}, api.MessageClientMessageData{
 		Type:     "offer",
 		Sid:      "54321",
 		RoomType: "video",
 		Bitrate:  bitrate,
 		Payload: api.StringMap{
-			"sdp": MockSdpOfferAudioAndVideo,
+			"sdp": mock.MockSdpOfferAudioAndVideo,
 		},
 	}))
 
-	require.True(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+	require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
 	pub := mcu.GetPublisher(hello.Hello.SessionId)
 	require.NotNil(pub)
@@ -104,8 +107,8 @@ func TestBandwidth_Backend(t *testing.T) {
 			backend := hub.backend.GetBackend(u)
 			require.NotNil(backend, "Could not get backend")
 
-			backend.maxScreenBitrate = 1000
-			backend.maxStreamBitrate = 2000
+			backend.SetMaxScreenBitrate(1000)
+			backend.SetMaxStreamBitrate(2000)
 
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
@@ -122,7 +125,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			params := TestBackendClientAuthParams{
 				UserId: testDefaultUserId,
 			}
-			require.NoError(client.SendHelloParams(server.URL+"/one", HelloVersionV1, "client", nil, params))
+			require.NoError(client.SendHelloParams(server.URL+"/one", api.HelloVersionV1, "client", nil, params))
 
 			hello := MustSucceed1(t, client.RunUntilHello, ctx)
 
@@ -136,29 +139,29 @@ func TestBandwidth_Backend(t *testing.T) {
 
 			// Client may not send an offer with audio and video.
 			bitrate := api.BandwidthFromBits(10000)
-			require.NoError(client.SendMessage(MessageClientMessageRecipient{
+			require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
 				Type:      "session",
 				SessionId: hello.Hello.SessionId,
-			}, MessageClientMessageData{
+			}, api.MessageClientMessageData{
 				Type:     "offer",
 				Sid:      "54321",
 				RoomType: string(streamType),
 				Bitrate:  bitrate,
 				Payload: api.StringMap{
-					"sdp": MockSdpOfferAudioAndVideo,
+					"sdp": mock.MockSdpOfferAudioAndVideo,
 				},
 			}))
 
-			require.True(client.RunUntilAnswer(ctx, MockSdpAnswerAudioAndVideo))
+			require.True(client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo))
 
 			pub := mcu.GetPublisher(hello.Hello.SessionId)
 			require.NotNil(pub, "Could not find publisher")
 
 			var expectBitrate api.Bandwidth
 			if streamType == StreamTypeVideo {
-				expectBitrate = backend.maxStreamBitrate
+				expectBitrate = backend.MaxStreamBitrate()
 			} else {
-				expectBitrate = backend.maxScreenBitrate
+				expectBitrate = backend.MaxScreenBitrate()
 			}
 			assert.Equal(expectBitrate, pub.settings.Bitrate)
 		})
@@ -179,7 +182,7 @@ func TestFeatureChatRelay(t *testing.T) {
 			defer client.CloseWithBye()
 			var features []string
 			if feature {
-				features = append(features, ClientFeatureChatRelay)
+				features = append(features, api.ClientFeatureChatRelay)
 			}
 			require.NoError(client.SendHelloClientWithFeatures(testDefaultUserId, features))
 
@@ -216,11 +219,11 @@ func TestFeatureChatRelay(t *testing.T) {
 			require.NoError(err)
 
 			// Simulate request from the backend.
-			room.processAsyncMessage(&AsyncMessage{
+			room.processAsyncMessage(&events.AsyncMessage{
 				Type: "room",
-				Room: &BackendServerRoomRequest{
+				Room: &talk.BackendServerRoomRequest{
 					Type: "message",
-					Message: &BackendRoomMessageRequest{
+					Message: &talk.BackendRoomMessageRequest{
 						Data: data,
 					},
 				},
@@ -263,11 +266,11 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			hub1, hub2, server1, server2 := CreateClusteredHubsForTest(t)
 
 			localFeatures := []string{
-				ClientFeatureChatRelay,
+				api.ClientFeatureChatRelay,
 			}
 			var federatedFeatures []string
 			if feature {
-				federatedFeatures = append(federatedFeatures, ClientFeatureChatRelay)
+				federatedFeatures = append(federatedFeatures, api.ClientFeatureChatRelay)
 			}
 
 			client1 := NewTestClient(t, server1, hub1)
@@ -300,13 +303,13 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
 			require.NoError(err)
 
-			msg := &ClientMessage{
+			msg := &api.ClientMessage{
 				Id:   "join-room-fed",
 				Type: "room",
-				Room: &RoomClientMessage{
+				Room: &api.RoomClientMessage{
 					RoomId:    federatedRoomId,
-					SessionId: RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
-					Federation: &RoomFederationMessage{
+					SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+					Federation: &api.RoomFederationMessage{
 						SignalingUrl: server1.URL,
 						NextcloudUrl: server1.URL,
 						RoomId:       roomId,
@@ -323,7 +326,7 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			}
 
 			// The client1 will see the remote session id for client2.
-			var remoteSessionId PublicSessionId
+			var remoteSessionId api.PublicSessionId
 			if message, ok := client1.RunUntilMessage(ctx); ok {
 				client1.checkSingleMessageJoined(message)
 				evt := message.Event.Join[0]
@@ -413,11 +416,11 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 			require.NoError(err)
 
 			// Simulate request from the backend.
-			room.processAsyncMessage(&AsyncMessage{
+			room.processAsyncMessage(&events.AsyncMessage{
 				Type: "room",
-				Room: &BackendServerRoomRequest{
+				Room: &talk.BackendServerRoomRequest{
 					Type: "message",
-					Message: &BackendRoomMessageRequest{
+					Message: &talk.BackendRoomMessageRequest{
 						Data: data,
 					},
 				},
@@ -493,7 +496,7 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 				require.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
 				// Client may not receive display names.
-				session.SetPermissions([]Permission{PERMISSION_HIDE_DISPLAYNAMES})
+				session.SetPermissions([]api.Permission{api.PERMISSION_HIDE_DISPLAYNAMES})
 			}
 
 			chatComment := api.StringMap{
@@ -513,11 +516,11 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 			require.NoError(err)
 
 			// Simulate request from the backend.
-			room.processAsyncMessage(&AsyncMessage{
+			room.processAsyncMessage(&events.AsyncMessage{
 				Type: "room",
-				Room: &BackendServerRoomRequest{
+				Room: &talk.BackendServerRoomRequest{
 					Type: "message",
-					Message: &BackendRoomMessageRequest{
+					Message: &talk.BackendRoomMessageRequest{
 						Data: data,
 					},
 				},
@@ -551,7 +554,7 @@ func TestPermissionHideDisplayNames(t *testing.T) {
 				client.RunUntilJoined(ctx, hello2.Hello)
 				client2.RunUntilJoined(ctx, hello.Hello, hello2.Hello)
 
-				recipient1 := MessageClientMessageRecipient{
+				recipient1 := api.MessageClientMessageRecipient{
 					Type:      "session",
 					SessionId: hello.Hello.SessionId,
 				}

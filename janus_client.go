@@ -45,6 +45,7 @@ import (
 	"github.com/notedit/janus-go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 const (
@@ -188,7 +189,7 @@ func unexpected(request string) error {
 type transaction struct {
 	ch       chan any
 	incoming chan any
-	closer   *Closer
+	closer   *internal.Closer
 }
 
 func (t *transaction) run() {
@@ -214,7 +215,7 @@ func newTransaction() *transaction {
 	t := &transaction{
 		ch:       make(chan any, 1),
 		incoming: make(chan any, 8),
-		closer:   NewCloser(),
+		closer:   internal.NewCloser(),
 	}
 	return t
 }
@@ -264,7 +265,7 @@ type JanusGateway struct {
 	// +checklocks:Mutex
 	transactions map[uint64]*transaction
 
-	closer *Closer
+	closer *internal.Closer
 
 	writeMu sync.Mutex
 }
@@ -302,7 +303,7 @@ func NewJanusGateway(ctx context.Context, wsURL string, listener GatewayListener
 		listener:     listener,
 		transactions: make(map[uint64]*transaction),
 		Sessions:     make(map[uint64]*JanusSession),
-		closer:       NewCloser(),
+		closer:       internal.NewCloser(),
 	}
 
 	go gateway.ping()

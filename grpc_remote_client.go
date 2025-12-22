@@ -33,6 +33,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -56,7 +58,7 @@ type remoteGrpcClient struct {
 
 	sessionId  string
 	remoteAddr string
-	country    string
+	country    geoip.Country
 	userAgent  string
 
 	closeCtx  context.Context
@@ -81,7 +83,7 @@ func newRemoteGrpcClient(hub *Hub, request RpcSessions_ProxySessionServer) (*rem
 
 		sessionId:  getMD(md, "sessionId"),
 		remoteAddr: getMD(md, "remoteAddr"),
-		country:    getMD(md, "country"),
+		country:    geoip.Country(getMD(md, "country")),
 		userAgent:  getMD(md, "userAgent"),
 
 		closeCtx:  closeCtx,
@@ -130,7 +132,7 @@ func (c *remoteGrpcClient) UserAgent() string {
 	return c.userAgent
 }
 
-func (c *remoteGrpcClient) Country() string {
+func (c *remoteGrpcClient) Country() geoip.Country {
 	return c.country
 }
 
@@ -159,20 +161,20 @@ func (c *remoteGrpcClient) SetSession(session Session) {
 	}
 }
 
-func (c *remoteGrpcClient) SendError(e *Error) bool {
-	message := &ServerMessage{
+func (c *remoteGrpcClient) SendError(e *api.Error) bool {
+	message := &api.ServerMessage{
 		Type:  "error",
 		Error: e,
 	}
 	return c.SendMessage(message)
 }
 
-func (c *remoteGrpcClient) SendByeResponse(message *ClientMessage) bool {
+func (c *remoteGrpcClient) SendByeResponse(message *api.ClientMessage) bool {
 	return c.SendByeResponseWithReason(message, "")
 }
 
-func (c *remoteGrpcClient) SendByeResponseWithReason(message *ClientMessage, reason string) bool {
-	response := &ServerMessage{
+func (c *remoteGrpcClient) SendByeResponseWithReason(message *api.ClientMessage, reason string) bool {
+	response := &api.ServerMessage{
 		Type: "bye",
 	}
 	if message != nil {
@@ -180,7 +182,7 @@ func (c *remoteGrpcClient) SendByeResponseWithReason(message *ClientMessage, rea
 	}
 	if reason != "" {
 		if response.Bye == nil {
-			response.Bye = &ByeServerMessage{}
+			response.Bye = &api.ByeServerMessage{}
 		}
 		response.Bye.Reason = reason
 	}

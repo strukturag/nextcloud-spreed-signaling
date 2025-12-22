@@ -29,8 +29,8 @@ import (
 
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/server/v3/embed"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -40,9 +40,9 @@ type TestProxyInformationEtcd struct {
 	OtherData string `json:"otherdata,omitempty"`
 }
 
-func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*embed.Etcd, ProxyConfig) {
+func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*etcdtest.TestServer, ProxyConfig) {
 	t.Helper()
-	etcd, client := NewEtcdClientForTest(t)
+	embedEtcd, client := etcdtest.NewClientForTest(t)
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "keyprefix", "proxies/")
 	logger := log.NewLoggerForTest(t)
@@ -51,24 +51,24 @@ func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*embed.Etcd, ProxyConfig)
 	t.Cleanup(func() {
 		p.Stop()
 	})
-	return etcd, p
+	return embedEtcd, p
 }
 
-func SetEtcdProxy(t *testing.T, etcd *embed.Etcd, path string, proxy *TestProxyInformationEtcd) {
+func SetEtcdProxy(t *testing.T, server *etcdtest.TestServer, path string, proxy *TestProxyInformationEtcd) {
 	t.Helper()
 	data, _ := json.Marshal(proxy)
-	SetEtcdValue(etcd, path, data)
+	server.SetValue(path, data)
 }
 
 func TestProxyConfigEtcd(t *testing.T) {
 	t.Parallel()
 	proxy := newMcuProxyForConfig(t)
-	etcd, config := newProxyConfigEtcd(t, proxy)
+	embedEtcd, config := newProxyConfigEtcd(t, proxy)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
-	SetEtcdProxy(t, etcd, "proxies/a", &TestProxyInformationEtcd{
+	SetEtcdProxy(t, embedEtcd, "proxies/a", &TestProxyInformationEtcd{
 		Address: "https://foo/",
 	})
 	proxy.Expect("add", "https://foo/")
@@ -76,31 +76,31 @@ func TestProxyConfigEtcd(t *testing.T) {
 	proxy.WaitForEvents(ctx)
 
 	proxy.Expect("add", "https://bar/")
-	SetEtcdProxy(t, etcd, "proxies/b", &TestProxyInformationEtcd{
+	SetEtcdProxy(t, embedEtcd, "proxies/b", &TestProxyInformationEtcd{
 		Address: "https://bar/",
 	})
 	proxy.WaitForEvents(ctx)
 
 	proxy.Expect("keep", "https://bar/")
-	SetEtcdProxy(t, etcd, "proxies/b", &TestProxyInformationEtcd{
+	SetEtcdProxy(t, embedEtcd, "proxies/b", &TestProxyInformationEtcd{
 		Address:   "https://bar/",
 		OtherData: "ignore-me",
 	})
 	proxy.WaitForEvents(ctx)
 
 	proxy.Expect("remove", "https://foo/")
-	DeleteEtcdValue(etcd, "proxies/a")
+	embedEtcd.DeleteValue("proxies/a")
 	proxy.WaitForEvents(ctx)
 
 	proxy.Expect("remove", "https://bar/")
 	proxy.Expect("add", "https://baz/")
-	SetEtcdProxy(t, etcd, "proxies/b", &TestProxyInformationEtcd{
+	SetEtcdProxy(t, embedEtcd, "proxies/b", &TestProxyInformationEtcd{
 		Address: "https://baz/",
 	})
 	proxy.WaitForEvents(ctx)
 
 	// Adding the same hostname multiple times should not trigger an event.
-	SetEtcdProxy(t, etcd, "proxies/c", &TestProxyInformationEtcd{
+	SetEtcdProxy(t, embedEtcd, "proxies/c", &TestProxyInformationEtcd{
 		Address: "https://baz/",
 	})
 	time.Sleep(100 * time.Millisecond)

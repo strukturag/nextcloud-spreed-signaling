@@ -35,8 +35,11 @@ import (
 	"github.com/notedit/janus-go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -64,7 +67,7 @@ var (
 
 type StreamId string
 
-func getStreamId(publisherId PublicSessionId, streamType StreamType) StreamId {
+func getStreamId(publisherId api.PublicSessionId, streamType StreamType) StreamId {
 	return StreamId(fmt.Sprintf("%s|%s", publisherId, streamType))
 }
 
@@ -150,8 +153,8 @@ type clientInterface interface {
 type mcuJanusSettings struct {
 	mcuCommonSettings
 
-	allowedCandidates atomic.Pointer[AllowedIps]
-	blockedCandidates atomic.Pointer[AllowedIps]
+	allowedCandidates atomic.Pointer[container.IPList]
+	blockedCandidates atomic.Pointer[container.IPList]
 }
 
 func newMcuJanusSettings(ctx context.Context, config *goconf.ConfigFile) (*mcuJanusSettings, error) {
@@ -181,7 +184,7 @@ func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
 	s.setTimeout(mcuTimeout)
 
 	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
-		allowed, err := ParseAllowedIps(value)
+		allowed, err := container.ParseIPList(value)
 		if err != nil {
 			return fmt.Errorf("invalid allowedcandidates: %w", err)
 		}
@@ -193,7 +196,7 @@ func (s *mcuJanusSettings) load(config *goconf.ConfigFile) error {
 		s.allowedCandidates.Store(nil)
 	}
 	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
-		blocked, err := ParseAllowedIps(value)
+		blocked, err := container.ParseIPList(value)
 		if err != nil {
 			return fmt.Errorf("invalid blockedcandidates: %w", err)
 		}
@@ -256,8 +259,8 @@ type mcuJanus struct {
 
 	// +checklocks:mu
 	publishers         map[StreamId]*mcuJanusPublisher
-	publisherCreated   Notifier
-	publisherConnected Notifier
+	publisherCreated   async.Notifier
+	publisherConnected async.Notifier
 	// +checklocks:mu
 	remotePublishers map[StreamId]*mcuJanusRemotePublisher
 
@@ -579,8 +582,8 @@ func (m *mcuJanus) Info() *InfoMsg {
 	return m.info.Load()
 }
 
-func (m *mcuJanus) GetServerInfoSfu() *BackendServerInfoSfu {
-	janus := &BackendServerInfoSfuJanus{
+func (m *mcuJanus) GetServerInfoSfu() *talk.BackendServerInfoSfu {
+	janus := &talk.BackendServerInfoSfuJanus{
 		Url: m.url,
 	}
 	if m.IsConnected() {
@@ -595,7 +598,7 @@ func (m *mcuJanus) GetServerInfoSfu() *BackendServerInfoSfu {
 			janus.IPv6 = internal.MakePtr(info.IPv6)
 
 			if plugin, found := info.Plugins[pluginVideoRoom]; found {
-				janus.VideoRoom = &BackendServerInfoVideoRoom{
+				janus.VideoRoom = &talk.BackendServerInfoVideoRoom{
 					Name:    plugin.Name,
 					Version: plugin.VersionString,
 					Author:  plugin.Author,
@@ -604,8 +607,8 @@ func (m *mcuJanus) GetServerInfoSfu() *BackendServerInfoSfu {
 		}
 	}
 
-	sfu := &BackendServerInfoSfu{
-		Mode:  SfuModeJanus,
+	sfu := &talk.BackendServerInfoSfu{
+		Mode:  talk.SfuModeJanus,
 		Janus: janus,
 	}
 	return sfu
@@ -678,7 +681,7 @@ func (m *mcuJanus) sendKeepalive(ctx context.Context) {
 	}
 }
 
-func (m *mcuJanus) SubscriberConnected(id string, publisher PublicSessionId, streamType StreamType) {
+func (m *mcuJanus) SubscriberConnected(id string, publisher api.PublicSessionId, streamType StreamType) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -687,7 +690,7 @@ func (m *mcuJanus) SubscriberConnected(id string, publisher PublicSessionId, str
 	}
 }
 
-func (m *mcuJanus) SubscriberDisconnected(id string, publisher PublicSessionId, streamType StreamType) {
+func (m *mcuJanus) SubscriberDisconnected(id string, publisher api.PublicSessionId, streamType StreamType) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -696,7 +699,7 @@ func (m *mcuJanus) SubscriberDisconnected(id string, publisher PublicSessionId, 
 	}
 }
 
-func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id PublicSessionId, streamType StreamType, settings NewPublisherSettings) (uint64, api.Bandwidth, error) {
+func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle, id api.PublicSessionId, streamType StreamType, settings NewPublisherSettings) (uint64, api.Bandwidth, error) {
 	create_msg := api.StringMap{
 		"request":     "create",
 		"description": getStreamId(id, streamType),
@@ -751,7 +754,7 @@ func (m *mcuJanus) createPublisherRoom(ctx context.Context, handle *JanusHandle,
 	return roomId, bitrate, nil
 }
 
-func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id PublicSessionId, streamType StreamType, settings NewPublisherSettings) (*JanusHandle, uint64, uint64, api.Bandwidth, error) {
+func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id api.PublicSessionId, streamType StreamType, settings NewPublisherSettings) (*JanusHandle, uint64, uint64, api.Bandwidth, error) {
 	session := m.session
 	if session == nil {
 		return nil, 0, 0, 0, ErrNotConnected
@@ -789,7 +792,7 @@ func (m *mcuJanus) getOrCreatePublisherHandle(ctx context.Context, id PublicSess
 	return handle, response.Session, roomId, bitrate, nil
 }
 
-func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
+func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id api.PublicSessionId, sid string, streamType StreamType, settings NewPublisherSettings, initiator McuInitiator) (McuPublisher, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("unsupported stream type %s", streamType)
 	}
@@ -815,7 +818,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id Pu
 			closeChan: make(chan struct{}, 1),
 			deferred:  make(chan func(), 64),
 		},
-		sdpReady: NewCloser(),
+		sdpReady: internal.NewCloser(),
 		id:       id,
 		settings: settings,
 	}
@@ -840,7 +843,7 @@ func (m *mcuJanus) NewPublisher(ctx context.Context, listener McuListener, id Pu
 	return client, nil
 }
 
-func (m *mcuJanus) getPublisher(ctx context.Context, publisher PublicSessionId, streamType StreamType) (*mcuJanusPublisher, error) {
+func (m *mcuJanus) getPublisher(ctx context.Context, publisher api.PublicSessionId, streamType StreamType) (*mcuJanusPublisher, error) {
 	// Do the direct check immediately as this should be the normal case.
 	key := getStreamId(publisher, streamType)
 	m.mu.Lock()
@@ -867,7 +870,7 @@ func (m *mcuJanus) getPublisher(ctx context.Context, publisher PublicSessionId, 
 	}
 }
 
-func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher PublicSessionId, streamType StreamType) (*JanusHandle, *mcuJanusPublisher, error) {
+func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher api.PublicSessionId, streamType StreamType) (*JanusHandle, *mcuJanusPublisher, error) {
 	var pub *mcuJanusPublisher
 	var err error
 	if pub, err = m.getPublisher(ctx, publisher, streamType); err != nil {
@@ -888,7 +891,7 @@ func (m *mcuJanus) getOrCreateSubscriberHandle(ctx context.Context, publisher Pu
 	return handle, pub, nil
 }
 
-func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publisher PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
+func (m *mcuJanus) NewSubscriber(ctx context.Context, listener McuListener, publisher api.PublicSessionId, streamType StreamType, initiator McuInitiator) (McuSubscriber, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("unsupported stream type %s", streamType)
 	}
@@ -999,7 +1002,7 @@ func (m *mcuJanus) getOrCreateRemotePublisher(ctx context.Context, controller Re
 				deferred:  make(chan func(), 64),
 			},
 
-			sdpReady: NewCloser(),
+			sdpReady: internal.NewCloser(),
 			id:       controller.PublisherId(),
 			settings: settings,
 		},

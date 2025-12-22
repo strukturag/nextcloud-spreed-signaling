@@ -28,6 +28,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -36,12 +38,12 @@ type RemoteSession struct {
 	hub          *Hub
 	client       *Client
 	remoteClient *GrpcClient
-	sessionId    PublicSessionId
+	sessionId    api.PublicSessionId
 
 	proxy atomic.Pointer[SessionProxy]
 }
 
-func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessionId PublicSessionId) (*RemoteSession, error) {
+func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessionId api.PublicSessionId) (*RemoteSession, error) {
 	remoteSession := &RemoteSession{
 		logger:       hub.logger,
 		hub:          hub,
@@ -64,7 +66,7 @@ func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessio
 	return remoteSession, nil
 }
 
-func (s *RemoteSession) Country() string {
+func (s *RemoteSession) Country() geoip.Country {
 	return s.client.Country()
 }
 
@@ -80,12 +82,12 @@ func (s *RemoteSession) IsConnected() bool {
 	return true
 }
 
-func (s *RemoteSession) Start(message *ClientMessage) error {
+func (s *RemoteSession) Start(message *api.ClientMessage) error {
 	return s.sendMessage(message)
 }
 
 func (s *RemoteSession) OnProxyMessage(msg *ServerSessionMessage) error {
-	var message *ServerMessage
+	var message *api.ServerMessage
 	if err := json.Unmarshal(msg.Message, &message); err != nil {
 		return err
 	}
@@ -137,7 +139,7 @@ func (s *RemoteSession) Close() {
 	s.client.Close()
 }
 
-func (s *RemoteSession) OnLookupCountry(client HandlerClient) string {
+func (s *RemoteSession) OnLookupCountry(client HandlerClient) geoip.Country {
 	return s.hub.OnLookupCountry(client)
 }
 

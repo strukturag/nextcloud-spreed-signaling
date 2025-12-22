@@ -47,9 +47,15 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/server/v3/embed"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -61,7 +67,7 @@ func TestMcuProxyStats(t *testing.T) {
 	collectAndLint(t, proxyMcuStats...)
 }
 
-func newProxyConnectionWithCountry(country string) *mcuProxyConnection {
+func newProxyConnectionWithCountry(country geoip.Country) *mcuProxyConnection {
 	conn := &mcuProxyConnection{}
 	conn.country.Store(country)
 	return conn
@@ -74,7 +80,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 	conn_jp := newProxyConnectionWithCountry("JP")
 	conn_us := newProxyConnectionWithCountry("US")
 
-	testcases := map[string][][]*mcuProxyConnection{
+	testcases := map[geoip.Country][][]*mcuProxyConnection{
 		// Direct country match
 		"DE": {
 			{conn_at, conn_jp, conn_de},
@@ -113,7 +119,7 @@ func Test_sortConnectionsForCountry(t *testing.T) {
 	}
 
 	for country, test := range testcases {
-		t.Run(country, func(t *testing.T) {
+		t.Run(string(country), func(t *testing.T) {
 			t.Parallel()
 			sorted := sortConnectionsForCountry(test[0], country, nil)
 			for idx, conn := range sorted {
@@ -130,7 +136,7 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 	conn_jp := newProxyConnectionWithCountry("JP")
 	conn_us := newProxyConnectionWithCountry("US")
 
-	testcases := map[string][][]*mcuProxyConnection{
+	testcases := map[geoip.Country][][]*mcuProxyConnection{
 		// Direct country match
 		"DE": {
 			{conn_at, conn_jp, conn_de},
@@ -178,14 +184,14 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 		},
 	}
 
-	continentMap := map[string][]string{
+	continentMap := ContinentsMap{
 		// Use European connections for Africa.
 		"AF": {"EU"},
 		// Use Asian and North American connections for Oceania.
 		"OC": {"AS", "NA"},
 	}
 	for country, test := range testcases {
-		t.Run(country, func(t *testing.T) {
+		t.Run(string(country), func(t *testing.T) {
 			t.Parallel()
 			sorted := sortConnectionsForCountry(test[0], country, continentMap)
 			for idx, conn := range sorted {
@@ -198,7 +204,7 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 type proxyServerClientHandler func(msg *ProxyClientMessage) (*ProxyServerMessage, error)
 
 type testProxyServerPublisher struct {
-	id PublicSessionId
+	id api.PublicSessionId
 }
 
 type testProxyServerSubscriber struct {
@@ -218,7 +224,7 @@ type testProxyServerClient struct {
 	processMessage proxyServerClientHandler
 
 	mu        sync.Mutex
-	sessionId PublicSessionId
+	sessionId api.PublicSessionId
 }
 
 func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxyServerMessage, error) {
@@ -232,7 +238,7 @@ func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxySer
 			response := &ProxyServerMessage{
 				Id:   msg.Id,
 				Type: "error",
-				Error: &Error{
+				Error: &api.Error{
 					Code: "no_such_session",
 				},
 			}
@@ -247,7 +253,7 @@ func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxySer
 			Hello: &HelloProxyServerMessage{
 				Version:   "1.0",
 				SessionId: c.sessionId,
-				Server: &WelcomeServerMessage{
+				Server: &api.WelcomeServerMessage{
 					Version: "1.0",
 					Country: c.server.country,
 				},
@@ -283,7 +289,7 @@ func (c *testProxyServerClient) processHello(msg *ProxyClientMessage) (*ProxySer
 		Hello: &HelloProxyServerMessage{
 			Version:   "1.0",
 			SessionId: c.sessionId,
-			Server: &WelcomeServerMessage{
+			Server: &api.WelcomeServerMessage{
 				Version: "1.0",
 				Country: c.server.country,
 			},
@@ -346,7 +352,7 @@ func (c *testProxyServerClient) processCommandMessage(msg *ProxyClientMessage) (
 			defer c.server.Wakeup()
 		}
 
-		if pub, found := c.server.deletePublisher(PublicSessionId(msg.Command.ClientId)); !found {
+		if pub, found := c.server.deletePublisher(api.PublicSessionId(msg.Command.ClientId)); !found {
 			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("publisher %s not found", msg.Command.ClientId))
 		} else {
 			response = &ProxyServerMessage{
@@ -556,16 +562,16 @@ type TestProxyServerHandler struct {
 	servers  []*TestProxyServerHandler
 	tokens   map[string]*rsa.PublicKey
 	upgrader *websocket.Upgrader
-	country  string
+	country  geoip.Country
 
 	mu       sync.Mutex
 	load     atomic.Uint64
 	incoming atomic.Pointer[float64]
 	outgoing atomic.Pointer[float64]
 	// +checklocks:mu
-	clients map[PublicSessionId]*testProxyServerClient
+	clients map[api.PublicSessionId]*testProxyServerClient
 	// +checklocks:mu
-	publishers map[PublicSessionId]*testProxyServerPublisher
+	publishers map[api.PublicSessionId]*testProxyServerPublisher
 	// +checklocks:mu
 	subscribers map[string]*testProxyServerSubscriber
 
@@ -576,7 +582,7 @@ func (h *TestProxyServerHandler) createPublisher() *testProxyServerPublisher {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	pub := &testProxyServerPublisher{
-		id: PublicSessionId(newRandomString(32)),
+		id: api.PublicSessionId(internal.RandomString(32)),
 	}
 
 	for {
@@ -584,20 +590,20 @@ func (h *TestProxyServerHandler) createPublisher() *testProxyServerPublisher {
 			break
 		}
 
-		pub.id = PublicSessionId(newRandomString(32))
+		pub.id = api.PublicSessionId(internal.RandomString(32))
 	}
 	h.publishers[pub.id] = pub
 	return pub
 }
 
-func (h *TestProxyServerHandler) getPublisher(id PublicSessionId) *testProxyServerPublisher {
+func (h *TestProxyServerHandler) getPublisher(id api.PublicSessionId) *testProxyServerPublisher {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	return h.publishers[id]
 }
 
-func (h *TestProxyServerHandler) deletePublisher(id PublicSessionId) (*testProxyServerPublisher, bool) {
+func (h *TestProxyServerHandler) deletePublisher(id api.PublicSessionId) (*testProxyServerPublisher, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -615,8 +621,8 @@ func (h *TestProxyServerHandler) createSubscriber(pub *testProxyServerPublisher)
 	defer h.mu.Unlock()
 
 	sub := &testProxyServerSubscriber{
-		id:  newRandomString(32),
-		sid: newRandomString(8),
+		id:  internal.RandomString(32),
+		sid: internal.RandomString(8),
 		pub: pub,
 	}
 
@@ -625,7 +631,7 @@ func (h *TestProxyServerHandler) createSubscriber(pub *testProxyServerPublisher)
 			break
 		}
 
-		sub.id = newRandomString(32)
+		sub.id = internal.RandomString(32)
 	}
 	h.subscribers[sub.id] = sub
 	return sub
@@ -711,7 +717,7 @@ func (h *TestProxyServerHandler) updateLoad(delta int64) {
 
 	msg := h.getLoadMessage(load)
 	for _, c := range h.clients {
-		go c.sendMessage(msg)
+		c.sendMessage(msg)
 	}
 }
 
@@ -747,7 +753,7 @@ func (h *TestProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		t:         h.t,
 		server:    h,
 		ws:        ws,
-		sessionId: PublicSessionId(newRandomString(32)),
+		sessionId: api.PublicSessionId(internal.RandomString(32)),
 	}
 
 	h.setClient(client.sessionId, client)
@@ -755,14 +761,14 @@ func (h *TestProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	go client.run()
 }
 
-func (h *TestProxyServerHandler) getClient(sessionId PublicSessionId) *testProxyServerClient {
+func (h *TestProxyServerHandler) getClient(sessionId api.PublicSessionId) *testProxyServerClient {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	return h.clients[sessionId]
 }
 
-func (h *TestProxyServerHandler) setClient(sessionId PublicSessionId, client *testProxyServerClient) {
+func (h *TestProxyServerHandler) setClient(sessionId api.PublicSessionId, client *testProxyServerClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -810,7 +816,7 @@ func (h *TestProxyServerHandler) ClearClients() {
 	clear(h.clients)
 }
 
-func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler {
+func NewProxyServerForTest(t *testing.T, country geoip.Country) *TestProxyServerHandler {
 	t.Helper()
 
 	upgrader := websocket.Upgrader{}
@@ -819,8 +825,8 @@ func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler
 		tokens:      make(map[string]*rsa.PublicKey),
 		upgrader:    &upgrader,
 		country:     country,
-		clients:     make(map[PublicSessionId]*testProxyServerClient),
-		publishers:  make(map[PublicSessionId]*testProxyServerPublisher),
+		clients:     make(map[api.PublicSessionId]*testProxyServerClient),
+		publishers:  make(map[api.PublicSessionId]*testProxyServerPublisher),
 		subscribers: make(map[string]*testProxyServerSubscriber),
 		wakeupChan:  make(chan struct{}),
 	}
@@ -843,15 +849,15 @@ func NewProxyServerForTest(t *testing.T, country string) *TestProxyServerHandler
 }
 
 type proxyTestOptions struct {
-	etcd    *embed.Etcd
+	etcd    *etcdtest.Server
 	servers []*TestProxyServerHandler
 }
 
-func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx int, lookup *mockDnsLookup) (*mcuProxy, *goconf.ConfigFile) {
+func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx int, lookup *dns.MockLookup) (*mcuProxy, *goconf.ConfigFile) {
 	t.Helper()
 	require := require.New(t)
 	if options.etcd == nil {
-		options.etcd = NewEtcdForTest(t)
+		options.etcd = etcdtest.NewServerForTest(t)
 	}
 	grpcClients, dnsMonitor := NewGrpcClientsWithEtcdForTest(t, options.etcd, lookup)
 
@@ -860,8 +866,8 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	dir := t.TempDir()
 	privkeyFile := path.Join(dir, "privkey.pem")
 	pubkeyFile := path.Join(dir, "pubkey.pem")
-	WritePrivateKey(tokenKey, privkeyFile)          // nolint
-	WritePublicKey(&tokenKey.PublicKey, pubkeyFile) // nolint
+	require.NoError(internal.WritePrivateKey(tokenKey, privkeyFile))
+	require.NoError(internal.WritePublicKey(&tokenKey.PublicKey, pubkeyFile))
 
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "urltype", "static")
@@ -888,12 +894,12 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	cfg.AddOption("mcu", "token_key", privkeyFile)
 
 	etcdConfig := goconf.NewConfigFile()
-	etcdConfig.AddOption("etcd", "endpoints", options.etcd.Config().ListenClientUrls[0].String())
+	etcdConfig.AddOption("etcd", "endpoints", options.etcd.URL().String())
 	etcdConfig.AddOption("etcd", "loglevel", "error")
 
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
-	etcdClient, err := NewEtcdClient(logger, etcdConfig, "")
+	etcdClient, err := etcd.NewClient(logger, etcdConfig, "")
 	require.NoError(err)
 	t.Cleanup(func() {
 		assert.NoError(t, etcdClient.Close())
@@ -935,7 +941,7 @@ func newMcuProxyForTestWithOptions(t *testing.T, options proxyTestOptions, idx i
 	return proxy, cfg
 }
 
-func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandler, idx int, lookup *mockDnsLookup) *mcuProxy {
+func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandler, idx int, lookup *dns.MockLookup) *mcuProxy {
 	t.Helper()
 
 	proxy, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
@@ -944,7 +950,7 @@ func newMcuProxyForTestWithServers(t *testing.T, servers []*TestProxyServerHandl
 	return proxy
 }
 
-func newMcuProxyForTest(t *testing.T, idx int, lookup *mockDnsLookup) *mcuProxy {
+func newMcuProxyForTest(t *testing.T, idx int, lookup *dns.MockLookup) *mcuProxy {
 	t.Helper()
 	server := NewProxyServerForTest(t, "DE")
 
@@ -1030,7 +1036,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
 
-	lookup := newMockDnsLookupForTest(t)
+	lookup := dns.NewMockLookupForTest(t)
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server1.server.Start()
@@ -1087,7 +1093,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 		ip1,
 		ip2,
 	})
-	dnsMonitor.checkHostnames()
+	dnsMonitor.CheckHostnames()
 
 	// Wait until connection is established.
 	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
@@ -1117,7 +1123,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 	lookup.Set(u1.Hostname(), []net.IP{
 		ip2,
 	})
-	dnsMonitor.checkHostnames()
+	dnsMonitor.CheckHostnames()
 
 	// Removing the connections takes a short while (asynchronously, closed when unused).
 	waitCtx, cancel = context.WithTimeout(ctx, time.Second)
@@ -1149,7 +1155,7 @@ func Test_ProxyPublisherSubscriber(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1184,7 +1190,7 @@ func Test_ProxyPublisherCodecs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1210,7 +1216,7 @@ func Test_ProxyWaitForPublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1264,7 +1270,7 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pub1Id := PublicSessionId("the-publisher-1")
+	pub1Id := api.PublicSessionId("the-publisher-1")
 	pub1Sid := "1234567890"
 	pub1Listener := &MockMcuListener{
 		publicId: pub1Id + "-public",
@@ -1286,7 +1292,7 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 	}
 
 	// Wait until proxy has been updated
-	for ctx.Err() == nil {
+	for assert.NoError(t, ctx.Err()) {
 		mcu.connectionsMu.RLock()
 		connections := mcu.connections
 		mcu.connectionsMu.RUnlock()
@@ -1303,7 +1309,7 @@ func Test_ProxyPublisherBandwidth(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	pub2Id := PublicSessionId("the-publisher-2")
+	pub2Id := api.PublicSessionId("the-publisher-2")
 	pub2id := "1234567890"
 	pub2Listener := &MockMcuListener{
 		publicId: pub2Id + "-public",
@@ -1333,7 +1339,7 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pub1Id := PublicSessionId("the-publisher-1")
+	pub1Id := api.PublicSessionId("the-publisher-1")
 	pub1Sid := "1234567890"
 	pub1Listener := &MockMcuListener{
 		publicId: pub1Id + "-public",
@@ -1358,7 +1364,7 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 	}
 
 	// Wait until proxy has been updated
-	for ctx.Err() == nil {
+	for assert.NoError(t, ctx.Err()) {
 		mcu.connectionsMu.RLock()
 		connections := mcu.connections
 		mcu.connectionsMu.RUnlock()
@@ -1375,7 +1381,7 @@ func Test_ProxyPublisherBandwidthOverload(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	pub2Id := PublicSessionId("the-publisher-2")
+	pub2Id := api.PublicSessionId("the-publisher-2")
 	pub2id := "1234567890"
 	pub2Listener := &MockMcuListener{
 		publicId: pub2Id + "-public",
@@ -1405,7 +1411,7 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pub1Id := PublicSessionId("the-publisher-1")
+	pub1Id := api.PublicSessionId("the-publisher-1")
 	pub1Sid := "1234567890"
 	pub1Listener := &MockMcuListener{
 		publicId: pub1Id + "-public",
@@ -1424,7 +1430,7 @@ func Test_ProxyPublisherLoad(t *testing.T) {
 	mcu.nextSort.Store(0)
 	time.Sleep(100 * time.Millisecond)
 
-	pub2Id := PublicSessionId("the-publisher-2")
+	pub2Id := api.PublicSessionId("the-publisher-2")
 	pub2id := "1234567890"
 	pub2Listener := &MockMcuListener{
 		publicId: pub2Id + "-public",
@@ -1454,7 +1460,7 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubDEId := PublicSessionId("the-publisher-de")
+	pubDEId := api.PublicSessionId("the-publisher-de")
 	pubDESid := "1234567890"
 	pubDEListener := &MockMcuListener{
 		publicId: pubDEId + "-public",
@@ -1471,7 +1477,7 @@ func Test_ProxyPublisherCountry(t *testing.T) {
 
 	assert.Equal(t, serverDE.URL, pubDE.(*mcuProxyPublisher).conn.rawUrl)
 
-	pubUSId := PublicSessionId("the-publisher-us")
+	pubUSId := api.PublicSessionId("the-publisher-us")
 	pubUSSid := "1234567890"
 	pubUSListener := &MockMcuListener{
 		publicId: pubUSId + "-public",
@@ -1501,7 +1507,7 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubDEId := PublicSessionId("the-publisher-de")
+	pubDEId := api.PublicSessionId("the-publisher-de")
 	pubDESid := "1234567890"
 	pubDEListener := &MockMcuListener{
 		publicId: pubDEId + "-public",
@@ -1518,7 +1524,7 @@ func Test_ProxyPublisherContinent(t *testing.T) {
 
 	assert.Equal(t, serverDE.URL, pubDE.(*mcuProxyPublisher).conn.rawUrl)
 
-	pubFRId := PublicSessionId("the-publisher-fr")
+	pubFRId := api.PublicSessionId("the-publisher-fr")
 	pubFRSid := "1234567890"
 	pubFRListener := &MockMcuListener{
 		publicId: pubFRId + "-public",
@@ -1548,7 +1554,7 @@ func Test_ProxySubscriberCountry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1591,7 +1597,7 @@ func Test_ProxySubscriberContinent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1634,7 +1640,7 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1654,7 +1660,7 @@ func Test_ProxySubscriberBandwidth(t *testing.T) {
 	serverDE.UpdateBandwidth(0, 100)
 
 	// Wait until proxy has been updated
-	for ctx.Err() == nil {
+	for assert.NoError(t, ctx.Err()) {
 		mcu.connectionsMu.RLock()
 		connections := mcu.connections
 		mcu.connectionsMu.RUnlock()
@@ -1697,7 +1703,7 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1718,7 +1724,7 @@ func Test_ProxySubscriberBandwidthOverload(t *testing.T) {
 	serverUS.UpdateBandwidth(0, 102)
 
 	// Wait until proxy has been updated
-	for ctx.Err() == nil {
+	for assert.NoError(t, ctx.Err()) {
 		mcu.connectionsMu.RLock()
 		connections := mcu.connections
 		mcu.connectionsMu.RUnlock()
@@ -1753,14 +1759,14 @@ type mockGrpcServerHub struct {
 	proxy        atomic.Pointer[mcuProxy]
 	sessionsLock sync.Mutex
 	// +checklocks:sessionsLock
-	sessionByPublicId map[PublicSessionId]Session
+	sessionByPublicId map[api.PublicSessionId]Session
 }
 
 func (h *mockGrpcServerHub) addSession(session *ClientSession) {
 	h.sessionsLock.Lock()
 	defer h.sessionsLock.Unlock()
 	if h.sessionByPublicId == nil {
-		h.sessionByPublicId = make(map[PublicSessionId]Session)
+		h.sessionByPublicId = make(map[api.PublicSessionId]Session)
 	}
 	h.sessionByPublicId[session.PublicId()] = session
 }
@@ -1771,25 +1777,25 @@ func (h *mockGrpcServerHub) removeSession(session *ClientSession) {
 	delete(h.sessionByPublicId, session.PublicId())
 }
 
-func (h *mockGrpcServerHub) GetSessionByResumeId(resumeId PrivateSessionId) Session {
+func (h *mockGrpcServerHub) GetSessionByResumeId(resumeId api.PrivateSessionId) Session {
 	return nil
 }
 
-func (h *mockGrpcServerHub) GetSessionByPublicId(sessionId PublicSessionId) Session {
+func (h *mockGrpcServerHub) GetSessionByPublicId(sessionId api.PublicSessionId) Session {
 	h.sessionsLock.Lock()
 	defer h.sessionsLock.Unlock()
 	return h.sessionByPublicId[sessionId]
 }
 
-func (h *mockGrpcServerHub) GetSessionIdByRoomSessionId(roomSessionId RoomSessionId) (PublicSessionId, error) {
+func (h *mockGrpcServerHub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
 	return "", nil
 }
 
-func (h *mockGrpcServerHub) GetBackend(u *url.URL) *Backend {
+func (h *mockGrpcServerHub) GetBackend(u *url.URL) *talk.Backend {
 	return nil
 }
 
-func (h *mockGrpcServerHub) GetRoomForBackend(roomId string, backend *Backend) *Room {
+func (h *mockGrpcServerHub) GetRoomForBackend(roomId string, backend *talk.Backend) *Room {
 	return nil
 }
 
@@ -1805,7 +1811,7 @@ func (h *mockGrpcServerHub) CreateProxyToken(publisherId string) (string, error)
 func Test_ProxyRemotePublisher(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -1815,14 +1821,14 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
 
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1830,7 +1836,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1841,7 +1847,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1884,7 +1890,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -1897,16 +1903,16 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	grpcServer2.hub = hub2
 	grpcServer3.hub = hub3
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/three", []byte("{\"address\":\""+addr3+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/three", []byte("{\"address\":\""+addr3+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "US")
 	server3 := NewProxyServerForTest(t, "US")
 
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1915,7 +1921,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1924,7 +1930,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	}, 2, nil)
 	hub2.proxy.Store(mcu2)
 	mcu3, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -1936,7 +1942,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -1990,7 +1996,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 func Test_ProxyRemotePublisherWait(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -2000,14 +2006,14 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
 
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -2015,7 +2021,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 			server2,
@@ -2026,7 +2032,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2085,7 +2091,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -2095,21 +2101,21 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
 
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server2,
 		},
@@ -2119,7 +2125,7 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2193,7 +2199,7 @@ loop:
 func Test_ProxyConnectToken(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -2203,8 +2209,8 @@ func Test_ProxyConnectToken(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "DE")
@@ -2213,14 +2219,14 @@ func Test_ProxyConnectToken(t *testing.T) {
 	// i.e. they are only known to their local proxy, not the one of the other
 	// signaling server - so the connection token must be passed between them.
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server2,
 		},
@@ -2230,7 +2236,7 @@ func Test_ProxyConnectToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2273,7 +2279,7 @@ func Test_ProxyConnectToken(t *testing.T) {
 func Test_ProxyPublisherToken(t *testing.T) {
 	t.Parallel()
 
-	etcd := NewEtcdForTest(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
 
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
@@ -2283,8 +2289,8 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	grpcServer1.hub = hub1
 	grpcServer2.hub = hub2
 
-	SetEtcdValue(etcd, "/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
-	SetEtcdValue(etcd, "/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
 	server1 := NewProxyServerForTest(t, "DE")
 	server2 := NewProxyServerForTest(t, "US")
@@ -2295,14 +2301,14 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	// Also the subscriber is connecting from a different country, so a remote
 	// stream will be created that needs a valid token from the remote proxy.
 	mcu1, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server1,
 		},
 	}, 1, nil)
 	hub1.proxy.Store(mcu1)
 	mcu2, _ := newMcuProxyForTestWithOptions(t, proxyTestOptions{
-		etcd: etcd,
+		etcd: embedEtcd,
 		servers: []*TestProxyServerHandler{
 			server2,
 		},
@@ -2315,7 +2321,7 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2367,7 +2373,7 @@ func Test_ProxyPublisherTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",
@@ -2407,7 +2413,7 @@ func Test_ProxySubscriberTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
-	pubId := PublicSessionId("the-publisher")
+	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := &MockMcuListener{
 		publicId: pubId + "-public",

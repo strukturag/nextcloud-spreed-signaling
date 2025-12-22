@@ -37,7 +37,11 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mailru/easyjson"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 )
 
 const (
@@ -54,49 +58,26 @@ const (
 	maxMessageSize = 64 * 1024
 )
 
-var (
-	noCountry = "no-country"
-
-	loopback = "loopback"
-
-	unknownCountry = "unknown-country"
-)
-
 func init() {
 	RegisterClientStats()
 }
 
-func IsValidCountry(country string) bool {
-	switch country {
-	case "":
-		fallthrough
-	case noCountry:
-		fallthrough
-	case loopback:
-		fallthrough
-	case unknownCountry:
-		return false
-	default:
-		return true
-	}
-}
-
 var (
-	InvalidFormat = NewError("invalid_format", "Invalid data format.")
+	InvalidFormat = api.NewError("invalid_format", "Invalid data format.")
 
-	bufferPool BufferPool
+	bufferPool pool.BufferPool
 )
 
 type WritableClientMessage interface {
 	json.Marshaler
 
-	CloseAfterSend(session Session) bool
+	CloseAfterSend(session api.RoomAware) bool
 }
 
 type HandlerClient interface {
 	Context() context.Context
 	RemoteAddr() string
-	Country() string
+	Country() geoip.Country
 	UserAgent() string
 	IsConnected() bool
 	IsAuthenticated() bool
@@ -104,9 +85,9 @@ type HandlerClient interface {
 	GetSession() Session
 	SetSession(session Session)
 
-	SendError(e *Error) bool
-	SendByeResponse(message *ClientMessage) bool
-	SendByeResponseWithReason(message *ClientMessage, reason string) bool
+	SendError(e *api.Error) bool
+	SendByeResponse(message *api.ClientMessage) bool
+	SendByeResponseWithReason(message *api.ClientMessage, reason string) bool
 	SendMessage(message WritableClientMessage) bool
 
 	Close()
@@ -119,7 +100,7 @@ type ClientHandler interface {
 }
 
 type ClientGeoIpHandler interface {
-	OnLookupCountry(HandlerClient) string
+	OnLookupCountry(HandlerClient) geoip.Country
 }
 
 type Client struct {
@@ -129,7 +110,7 @@ type Client struct {
 	addr    string
 	agent   string
 	closed  atomic.Int32
-	country *string
+	country *geoip.Country
 	logRTT  bool
 
 	handlerMu sync.RWMutex
@@ -137,11 +118,11 @@ type Client struct {
 	handler ClientHandler
 
 	session   atomic.Pointer[Session]
-	sessionId atomic.Pointer[PublicSessionId]
+	sessionId atomic.Pointer[api.PublicSessionId]
 
 	mu sync.Mutex
 
-	closer       *Closer
+	closer       *internal.Closer
 	closeOnce    sync.Once
 	messagesDone chan struct{}
 	messageChan  chan *bytes.Buffer
@@ -171,7 +152,7 @@ func (c *Client) SetConn(ctx context.Context, conn *websocket.Conn, remoteAddres
 	c.conn = conn
 	c.addr = remoteAddress
 	c.SetHandler(handler)
-	c.closer = NewCloser()
+	c.closer = internal.NewCloser()
 	c.messageChan = make(chan *bytes.Buffer, 16)
 	c.messagesDone = make(chan struct{})
 }
@@ -217,11 +198,11 @@ func (c *Client) SetSession(session Session) {
 	}
 }
 
-func (c *Client) SetSessionId(sessionId PublicSessionId) {
+func (c *Client) SetSessionId(sessionId api.PublicSessionId) {
 	c.sessionId.Store(&sessionId)
 }
 
-func (c *Client) GetSessionId() PublicSessionId {
+func (c *Client) GetSessionId() api.PublicSessionId {
 	sessionId := c.sessionId.Load()
 	if sessionId == nil {
 		session := c.GetSession()
@@ -243,13 +224,13 @@ func (c *Client) UserAgent() string {
 	return c.agent
 }
 
-func (c *Client) Country() string {
+func (c *Client) Country() geoip.Country {
 	if c.country == nil {
-		var country string
+		var country geoip.Country
 		if handler, ok := c.getHandler().(ClientGeoIpHandler); ok {
 			country = handler.OnLookupCountry(c)
 		} else {
-			country = unknownCountry
+			country = geoip.UnknownCountry
 		}
 		c.country = &country
 	}
@@ -291,20 +272,20 @@ func (c *Client) doClose() {
 	}
 }
 
-func (c *Client) SendError(e *Error) bool {
-	message := &ServerMessage{
+func (c *Client) SendError(e *api.Error) bool {
+	message := &api.ServerMessage{
 		Type:  "error",
 		Error: e,
 	}
 	return c.SendMessage(message)
 }
 
-func (c *Client) SendByeResponse(message *ClientMessage) bool {
+func (c *Client) SendByeResponse(message *api.ClientMessage) bool {
 	return c.SendByeResponseWithReason(message, "")
 }
 
-func (c *Client) SendByeResponseWithReason(message *ClientMessage, reason string) bool {
-	response := &ServerMessage{
+func (c *Client) SendByeResponseWithReason(message *api.ClientMessage, reason string) bool {
+	response := &api.ServerMessage{
 		Type: "bye",
 	}
 	if message != nil {
@@ -312,7 +293,7 @@ func (c *Client) SendByeResponseWithReason(message *ClientMessage, reason string
 	}
 	if reason != "" {
 		if response.Bye == nil {
-			response.Bye = &ByeServerMessage{}
+			response.Bye = &api.ByeServerMessage{}
 		}
 		response.Bye.Reason = reason
 	}
@@ -495,9 +476,9 @@ close:
 }
 
 func (c *Client) writeError(e error) bool { // nolint
-	message := &ServerMessage{
+	message := &api.ServerMessage{
 		Type:  "error",
-		Error: NewError("internal_error", e.Error()),
+		Error: api.NewError("internal_error", e.Error()),
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

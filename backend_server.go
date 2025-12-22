@@ -49,7 +49,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/pool"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -57,7 +64,7 @@ const (
 
 	randomUsernameLength = 32
 
-	sessionIdNotInMeeting = RoomSessionId("0")
+	sessionIdNotInMeeting = api.RoomSessionId("0")
 
 	startDialoutTimeout = 45 * time.Second
 )
@@ -65,7 +72,7 @@ const (
 type BackendServer struct {
 	logger       log.Logger
 	hub          *Hub
-	events       AsyncEvents
+	events       events.AsyncEvents
 	roomSessions RoomSessions
 
 	version        string
@@ -77,21 +84,21 @@ type BackendServer struct {
 	turnvalid   time.Duration
 	turnservers []string
 
-	statsAllowedIps atomic.Pointer[AllowedIps]
+	statsAllowedIps atomic.Pointer[container.IPList]
 	invalidSecret   []byte
 
-	buffers BufferPool
+	buffers pool.BufferPool
 }
 
-func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
+func NewBackendServer(ctx context.Context, cfg *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
 	logger := log.LoggerFromContext(ctx)
-	turnapikey, _ := GetStringOptionWithEnv(config, "turn", "apikey")
-	turnsecret, _ := GetStringOptionWithEnv(config, "turn", "secret")
-	turnservers, _ := config.GetString("turn", "servers")
+	turnapikey, _ := config.GetStringOptionWithEnv(cfg, "turn", "apikey")
+	turnsecret, _ := config.GetStringOptionWithEnv(cfg, "turn", "secret")
+	turnservers, _ := cfg.GetString("turn", "servers")
 	// TODO(jojo): Make the validity for TURN credentials configurable.
 	turnvalid := 24 * time.Hour
 
-	turnserverslist := slices.Collect(SplitEntries(turnservers, ","))
+	turnserverslist := slices.Collect(internal.SplitEntries(turnservers, ","))
 	if len(turnserverslist) != 0 {
 		if turnapikey == "" {
 			return nil, errors.New("need a TURN API key if TURN servers are configured")
@@ -107,8 +114,8 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 		}
 	}
 
-	statsAllowed, _ := config.GetString("stats", "allowed_ips")
-	statsAllowedIps, err := ParseAllowedIps(statsAllowed)
+	statsAllowed, _ := cfg.GetString("stats", "allowed_ips")
+	statsAllowedIps, err := container.ParseIPList(statsAllowed)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +123,7 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 	if !statsAllowedIps.Empty() {
 		logger.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 	} else {
-		statsAllowedIps = DefaultAllowedIps()
+		statsAllowedIps = container.DefaultAllowedIPs()
 		logger.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 	}
 
@@ -125,7 +132,7 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 		return nil, err
 	}
 
-	debug, _ := config.GetBool("app", "debug")
+	debug, _ := cfg.GetBool("app", "debug")
 
 	result := &BackendServer{
 		logger:       logger,
@@ -150,11 +157,11 @@ func NewBackendServer(ctx context.Context, config *goconf.ConfigFile, hub *Hub, 
 
 func (b *BackendServer) Reload(config *goconf.ConfigFile) {
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
-	if statsAllowedIps, err := ParseAllowedIps(statsAllowed); err == nil {
+	if statsAllowedIps, err := container.ParseIPList(statsAllowed); err == nil {
 		if !statsAllowedIps.Empty() {
 			b.logger.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
 		} else {
-			statsAllowedIps = DefaultAllowedIps()
+			statsAllowedIps = container.DefaultAllowedIPs()
 			b.logger.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 		}
 		b.statsAllowedIps.Store(statsAllowedIps)
@@ -258,11 +265,11 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 
 	if username == "" {
 		// Make sure to include an actual username in the credentials.
-		username = newRandomString(randomUsernameLength)
+		username = internal.RandomString(randomUsernameLength)
 	}
 
 	username, password := calculateTurnSecret(username, b.turnsecret, b.turnvalid)
-	result := TurnCredentials{
+	result := talk.TurnCredentials{
 		Username: username,
 		Password: password,
 		TTL:      int64(b.turnvalid.Seconds()),
@@ -303,8 +310,8 @@ func (b *BackendServer) parseRequestBody(f func(context.Context, http.ResponseWr
 			return
 		}
 
-		if r.Header.Get(HeaderBackendSignalingRandom) == "" ||
-			r.Header.Get(HeaderBackendSignalingChecksum) == "" {
+		if r.Header.Get(talk.HeaderBackendSignalingRandom) == "" ||
+			r.Header.Get(talk.HeaderBackendSignalingChecksum) == "" {
 			http.Error(w, "Authentication check failed", http.StatusForbidden)
 			return
 		}
@@ -322,15 +329,15 @@ func (b *BackendServer) parseRequestBody(f func(context.Context, http.ResponseWr
 	}
 }
 
-func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids []string, properties json.RawMessage) {
-	msg := &AsyncMessage{
+func (b *BackendServer) sendRoomInvite(roomid string, backend *talk.Backend, userids []string, properties json.RawMessage) {
+	msg := &events.AsyncMessage{
 		Type: "message",
-		Message: &ServerMessage{
+		Message: &api.ServerMessage{
 			Type: "event",
-			Event: &EventServerMessage{
+			Event: &api.EventServerMessage{
 				Target: "roomlist",
 				Type:   "invite",
-				Invite: &RoomEventServerMessage{
+				Invite: &api.RoomEventServerMessage{
 					RoomId:     roomid,
 					Properties: properties,
 				},
@@ -344,16 +351,16 @@ func (b *BackendServer) sendRoomInvite(roomid string, backend *Backend, userids 
 	}
 }
 
-func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reason string, userids []string, sessionids []RoomSessionId) {
-	msg := &AsyncMessage{
+func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, reason string, userids []string, sessionids []api.RoomSessionId) {
+	msg := &events.AsyncMessage{
 		Type: "message",
-		Message: &ServerMessage{
+		Message: &api.ServerMessage{
 			Type: "event",
-			Event: &EventServerMessage{
+			Event: &api.EventServerMessage{
 				Target: "roomlist",
 				Type:   "disinvite",
-				Disinvite: &RoomDisinviteEventServerMessage{
-					RoomEventServerMessage: RoomEventServerMessage{
+				Disinvite: &api.RoomDisinviteEventServerMessage{
+					RoomEventServerMessage: api.RoomEventServerMessage{
 						RoomId: roomid,
 					},
 					Reason: reason,
@@ -379,7 +386,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 		}
 
 		wg.Add(1)
-		go func(sessionid RoomSessionId) {
+		go func(sessionid api.RoomSessionId) {
 			defer wg.Done()
 			if sid, err := b.lookupByRoomSessionId(ctx, sessionid, nil); err != nil {
 				b.logger.Printf("Could not lookup by room session %s: %s", sessionid, err)
@@ -393,15 +400,15 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *Backend, reaso
 	wg.Wait()
 }
 
-func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified_userids []string, all_userids []string, properties json.RawMessage) {
-	msg := &AsyncMessage{
+func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, notified_userids []string, all_userids []string, properties json.RawMessage) {
+	msg := &events.AsyncMessage{
 		Type: "message",
-		Message: &ServerMessage{
+		Message: &api.ServerMessage{
 			Type: "event",
-			Event: &EventServerMessage{
+			Event: &api.EventServerMessage{
 				Target: "roomlist",
 				Type:   "update",
-				Update: &RoomEventServerMessage{
+				Update: &api.RoomEventServerMessage{
 					RoomId:     roomid,
 					Properties: properties,
 				},
@@ -424,7 +431,7 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *Backend, notified
 	}
 }
 
-func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId RoomSessionId, cache *ConcurrentMap[RoomSessionId, PublicSessionId]) (PublicSessionId, error) {
+func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, cache *container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId]) (api.PublicSessionId, error) {
 	if roomSessionId == sessionIdNotInMeeting {
 		b.logger.Printf("Trying to lookup empty room session id: %s", roomSessionId)
 		return "", nil
@@ -449,14 +456,14 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *ConcurrentMap[RoomSessionId, PublicSessionId], users []api.StringMap) []api.StringMap {
+func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId], users []api.StringMap) []api.StringMap {
 	if len(users) == 0 {
 		return users
 	}
 
 	var wg sync.WaitGroup
 	for _, user := range users {
-		roomSessionId, found := api.GetStringMapString[RoomSessionId](user, "sessionId")
+		roomSessionId, found := api.GetStringMapString[api.RoomSessionId](user, "sessionId")
 		if !found {
 			b.logger.Printf("User %+v has invalid room session id, ignoring", user)
 			delete(user, "sessionId")
@@ -470,7 +477,7 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 		}
 
 		wg.Add(1)
-		go func(roomSessionId RoomSessionId, u api.StringMap) {
+		go func(roomSessionId api.RoomSessionId, u api.StringMap) {
 			defer wg.Done()
 			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
 				b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
@@ -494,14 +501,14 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *Concurrent
 	return result
 }
 
-func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
 	if !request.InCall.All {
 		timeout := time.Second
 
 		ctx := log.NewLoggerContext(context.Background(), b.logger)
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		var cache ConcurrentMap[RoomSessionId, PublicSessionId]
+		var cache container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId]
 		// Convert (Nextcloud) session ids to signaling session ids.
 		request.InCall.Users = b.fixupUserSessions(ctx, &cache, request.InCall.Users)
 		// Entries in "Changed" are most likely already fetched through the "Users" list.
@@ -512,20 +519,20 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *Backend, request 
 		}
 	}
 
-	message := &AsyncMessage{
+	message := &events.AsyncMessage{
 		Type: "room",
 		Room: request,
 	}
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
-func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid string, backend *Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
 	timeout := time.Second
 
 	// Convert (Nextcloud) session ids to signaling session ids.
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var cache ConcurrentMap[RoomSessionId, PublicSessionId]
+	var cache container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId]
 	request.Participants.Users = b.fixupUserSessions(ctx, &cache, request.Participants.Users)
 	request.Participants.Changed = b.fixupUserSessions(ctx, &cache, request.Participants.Changed)
 
@@ -541,7 +548,7 @@ loop:
 			continue
 		}
 
-		sessionId, found := api.GetStringMapString[PublicSessionId](user, "sessionId")
+		sessionId, found := api.GetStringMapString[api.PublicSessionId](user, "sessionId")
 		if !found {
 			b.logger.Printf("User entry has no session id: %+v", user)
 			continue
@@ -552,20 +559,20 @@ loop:
 			b.logger.Printf("Received invalid permissions %+v (%s) for session %s", permissionsInterface, reflect.TypeOf(permissionsInterface), sessionId)
 			continue
 		}
-		var permissions []Permission
+		var permissions []api.Permission
 		for idx, ob := range permissionsList {
 			permission, ok := ob.(string)
 			if !ok {
 				b.logger.Printf("Received invalid permission at position %d %+v (%s) for session %s", idx, ob, reflect.TypeOf(ob), sessionId)
 				continue loop
 			}
-			permissions = append(permissions, Permission(permission))
+			permissions = append(permissions, api.Permission(permission))
 		}
 		wg.Add(1)
 
-		go func(sessionId PublicSessionId, permissions []Permission) {
+		go func(sessionId api.PublicSessionId, permissions []api.Permission) {
 			defer wg.Done()
-			message := &AsyncMessage{
+			message := &events.AsyncMessage{
 				Type:        "permissions",
 				Permissions: permissions,
 			}
@@ -576,22 +583,22 @@ loop:
 	}
 	wg.Wait()
 
-	message := &AsyncMessage{
+	message := &events.AsyncMessage{
 		Type: "room",
 		Room: request,
 	}
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
-func (b *BackendServer) sendRoomMessage(roomid string, backend *Backend, request *BackendServerRoomRequest) error {
-	message := &AsyncMessage{
+func (b *BackendServer) sendRoomMessage(roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
+	message := &events.AsyncMessage{
 		Type: "room",
 		Room: request,
 	}
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
-func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, backend *Backend, request *BackendServerRoomRequest) error {
+func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
 	timeout := time.Second
 
 	// Convert (Nextcloud) session ids to signaling session ids.
@@ -603,7 +610,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 	if len(request.SwitchTo.Sessions) > 0 {
 		// We support both a list of sessions or a map with additional details per session.
 		if request.SwitchTo.Sessions[0] == '[' {
-			var sessionsList BackendRoomSwitchToSessionsList
+			var sessionsList talk.BackendRoomSwitchToSessionsList
 			if err := json.Unmarshal(request.SwitchTo.Sessions, &sessionsList); err != nil {
 				return err
 			}
@@ -612,14 +619,14 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 				return nil
 			}
 
-			var internalSessionsList BackendRoomSwitchToPublicSessionsList
+			var internalSessionsList talk.BackendRoomSwitchToPublicSessionsList
 			for _, roomSessionId := range sessionsList {
 				if roomSessionId == sessionIdNotInMeeting {
 					continue
 				}
 
 				wg.Add(1)
-				go func(roomSessionId RoomSessionId) {
+				go func(roomSessionId api.RoomSessionId) {
 					defer wg.Done()
 					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
 						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
@@ -641,7 +648,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 			request.SwitchTo.SessionsList = internalSessionsList
 			request.SwitchTo.SessionsMap = nil
 		} else {
-			var sessionsMap BackendRoomSwitchToSessionsMap
+			var sessionsMap talk.BackendRoomSwitchToSessionsMap
 			if err := json.Unmarshal(request.SwitchTo.Sessions, &sessionsMap); err != nil {
 				return err
 			}
@@ -650,14 +657,14 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 				return nil
 			}
 
-			internalSessionsMap := make(BackendRoomSwitchToPublicSessionsMap)
+			internalSessionsMap := make(talk.BackendRoomSwitchToPublicSessionsMap)
 			for roomSessionId, details := range sessionsMap {
 				if roomSessionId == sessionIdNotInMeeting {
 					continue
 				}
 
 				wg.Add(1)
-				go func(roomSessionId RoomSessionId, details json.RawMessage) {
+				go func(roomSessionId api.RoomSessionId, details json.RawMessage) {
 					defer wg.Done()
 					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
 						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
@@ -682,7 +689,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 	}
 	request.SwitchTo.Sessions = nil
 
-	message := &AsyncMessage{
+	message := &events.AsyncMessage{
 		Type: "room",
 		Room: request,
 	}
@@ -694,7 +701,7 @@ type BackendResponseWithStatus interface {
 }
 
 type DialoutErrorResponse struct {
-	BackendServerRoomResponse
+	talk.BackendServerRoomResponse
 
 	status int
 }
@@ -703,11 +710,11 @@ func (r *DialoutErrorResponse) Status() int {
 	return r.status
 }
 
-func returnDialoutError(status int, err *Error) (any, error) {
+func returnDialoutError(status int, err *api.Error) (any, error) {
 	response := &DialoutErrorResponse{
-		BackendServerRoomResponse: BackendServerRoomResponse{
+		BackendServerRoomResponse: talk.BackendServerRoomResponse{
 			Type: "dialout",
-			Dialout: &BackendRoomDialoutResponse{
+			Dialout: &talk.BackendRoomDialoutResponse{
 				Error: err,
 			},
 		},
@@ -723,7 +730,7 @@ func isNumeric(s string) bool {
 	return checkNumeric.MatchString(s)
 }
 
-func (b *BackendServer) startDialoutInSession(ctx context.Context, session *ClientSession, roomid string, backend *Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
+func (b *BackendServer) startDialoutInSession(ctx context.Context, session *ClientSession, roomid string, backend *talk.Backend, backendUrl string, request *talk.BackendServerRoomRequest) (any, error) {
 	url := backendUrl
 	if url != "" && url[len(url)-1] != '/' {
 		url += "/"
@@ -736,16 +743,19 @@ func (b *BackendServer) startDialoutInSession(ctx context.Context, session *Clie
 			url = urls[0]
 		}
 	}
-	id := newRandomString(32)
-	msg := &ServerMessage{
+	id := internal.RandomString(32)
+	msg := &api.ServerMessage{
 		Id:   id,
 		Type: "internal",
-		Internal: &InternalServerMessage{
+		Internal: &api.InternalServerMessage{
 			Type: "dialout",
-			Dialout: &InternalServerDialoutRequest{
+			Dialout: &api.InternalServerDialoutRequest{
 				RoomId:  roomid,
 				Backend: url,
-				Request: request.Dialout,
+				Request: &api.InternalServerDialoutRequestContents{
+					Number:  request.Dialout.Number,
+					Options: request.Dialout.Options,
+				},
 			},
 		},
 	}
@@ -753,9 +763,9 @@ func (b *BackendServer) startDialoutInSession(ctx context.Context, session *Clie
 	subCtx, cancel := context.WithTimeout(ctx, startDialoutTimeout)
 	defer cancel()
 
-	var response atomic.Pointer[DialoutInternalClientMessage]
+	var response atomic.Pointer[api.DialoutInternalClientMessage]
 
-	session.HandleResponse(id, func(message *ClientMessage) bool {
+	session.HandleResponse(id, func(message *api.ClientMessage) bool {
 		response.Store(message.Internal.Dialout)
 		cancel()
 		// Don't send error to other sessions in the room.
@@ -764,13 +774,13 @@ func (b *BackendServer) startDialoutInSession(ctx context.Context, session *Clie
 	defer session.ClearResponseHandler(id)
 
 	if !session.SendMessage(msg) {
-		return nil, NewError("error_notify", "Could not notify about new dialout.")
+		return nil, api.NewError("error_notify", "Could not notify about new dialout.")
 	}
 
 	<-subCtx.Done()
 	if err := subCtx.Err(); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, NewError("timeout", "Timeout while waiting for dialout to start.")
+			return nil, api.NewError("timeout", "Timeout while waiting for dialout to start.")
 		} else if errors.Is(err, context.Canceled) && errors.Is(ctx.Err(), context.Canceled) {
 			// Upstream request was cancelled.
 			return nil, err
@@ -779,38 +789,38 @@ func (b *BackendServer) startDialoutInSession(ctx context.Context, session *Clie
 
 	dialout := response.Load()
 	if dialout == nil {
-		return nil, NewError("error_notify", "No dialout response received.")
+		return nil, api.NewError("error_notify", "No dialout response received.")
 	}
 
 	switch dialout.Type {
 	case "error":
 		return nil, dialout.Error
 	case "status":
-		if dialout.Status.Status != DialoutStatusAccepted {
-			return nil, NewError("unsupported_status", fmt.Sprintf("Unsupported dialout status received: %+v", dialout))
+		if dialout.Status.Status != api.DialoutStatusAccepted {
+			return nil, api.NewError("unsupported_status", fmt.Sprintf("Unsupported dialout status received: %+v", dialout))
 		}
 
-		return &BackendServerRoomResponse{
+		return &talk.BackendServerRoomResponse{
 			Type: "dialout",
-			Dialout: &BackendRoomDialoutResponse{
+			Dialout: &talk.BackendRoomDialoutResponse{
 				CallId: dialout.Status.CallId,
 			},
 		}, nil
 	default:
-		return nil, NewError("unsupported_type", fmt.Sprintf("Unsupported dialout type received: %+v", dialout))
+		return nil, api.NewError("unsupported_type", fmt.Sprintf("Unsupported dialout type received: %+v", dialout))
 	}
 }
 
-func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend *Backend, backendUrl string, request *BackendServerRoomRequest) (any, error) {
+func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend *talk.Backend, backendUrl string, request *talk.BackendServerRoomRequest) (any, error) {
 	if err := request.Dialout.ValidateNumber(); err != nil {
 		return returnDialoutError(http.StatusBadRequest, err)
 	}
 
 	if !isNumeric(roomid) {
-		return returnDialoutError(http.StatusBadRequest, NewError("invalid_roomid", "The room id must be numeric."))
+		return returnDialoutError(http.StatusBadRequest, api.NewError("invalid_roomid", "The room id must be numeric."))
 	}
 
-	var sessionError *Error
+	var sessionError *api.Error
 	sessions := b.hub.GetDialoutSessions(roomid, backend)
 	for _, session := range sessions {
 		if ctx.Err() != nil {
@@ -821,7 +831,7 @@ func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend
 		response, err := b.startDialoutInSession(ctx, session, roomid, backend, backendUrl, request)
 		if err != nil {
 			b.logger.Printf("Error starting dialout request %+v in session %s: %+v", request.Dialout, session.PublicId(), err)
-			var e *Error
+			var e *api.Error
 			if sessionError == nil && errors.As(err, &e) {
 				sessionError = e
 			}
@@ -835,12 +845,12 @@ func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend
 		return returnDialoutError(http.StatusBadGateway, sessionError)
 	}
 
-	return returnDialoutError(http.StatusNotFound, NewError("no_client_available", "No available client found to trigger dialout."))
+	return returnDialoutError(http.StatusNotFound, api.NewError("no_client_available", "No available client found to trigger dialout."))
 }
 
 func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, r *http.Request, body []byte) {
 	throttle, err := b.hub.throttler.CheckBruteforce(ctx, b.hub.getRealUserIP(r), "BackendRoomAuth")
-	if err == ErrBruteforceDetected {
+	if err == async.ErrBruteforceDetected {
 		http.Error(w, "Too many requests", http.StatusTooManyRequests)
 		return
 	} else if err != nil {
@@ -852,8 +862,8 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 	v := mux.Vars(r)
 	roomid := v["roomid"]
 
-	var backend *Backend
-	backendUrl := r.Header.Get(HeaderBackendServer)
+	var backend *talk.Backend
+	backendUrl := r.Header.Get(talk.HeaderBackendServer)
 	if backendUrl != "" {
 		if u, err := url.Parse(backendUrl); err == nil {
 			backend = b.hub.backend.GetBackend(u)
@@ -875,7 +885,7 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 			// Old-style Talk, find backend that created the checksum.
 			// TODO(fancycode): Remove once all supported Talk versions send the backend header.
 			for _, b := range b.hub.backend.GetBackends() {
-				if ValidateBackendChecksum(r, body, b.Secret()) {
+				if talk.ValidateBackendChecksum(r, body, b.Secret()) {
 					backend = b
 					break
 				}
@@ -889,13 +899,13 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 		}
 	}
 
-	if !ValidateBackendChecksum(r, body, backend.Secret()) {
+	if !talk.ValidateBackendChecksum(r, body, backend.Secret()) {
 		throttle(ctx)
 		http.Error(w, "Authentication check failed", http.StatusForbidden)
 		return
 	}
 
-	var request BackendServerRoomRequest
+	var request talk.BackendServerRoomRequest
 	if err := json.Unmarshal(body, &request); err != nil {
 		b.logger.Printf("Error decoding body %s: %s", string(body), err)
 		http.Error(w, "Could not read body", http.StatusBadRequest)
@@ -910,22 +920,22 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 		b.sendRoomInvite(roomid, backend, request.Invite.UserIds, request.Invite.Properties)
 		b.sendRoomUpdate(roomid, backend, request.Invite.UserIds, request.Invite.AllUserIds, request.Invite.Properties)
 	case "disinvite":
-		b.sendRoomDisinvite(roomid, backend, DisinviteReasonDisinvited, request.Disinvite.UserIds, request.Disinvite.SessionIds)
+		b.sendRoomDisinvite(roomid, backend, api.DisinviteReasonDisinvited, request.Disinvite.UserIds, request.Disinvite.SessionIds)
 		b.sendRoomUpdate(roomid, backend, request.Disinvite.UserIds, request.Disinvite.AllUserIds, request.Disinvite.Properties)
 	case "update":
-		message := &AsyncMessage{
+		message := &events.AsyncMessage{
 			Type: "room",
 			Room: &request,
 		}
 		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
 		b.sendRoomUpdate(roomid, backend, nil, request.Update.UserIds, request.Update.Properties)
 	case "delete":
-		message := &AsyncMessage{
+		message := &events.AsyncMessage{
 			Type: "room",
 			Room: &request,
 		}
 		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
-		b.sendRoomDisinvite(roomid, backend, DisinviteReasonDeleted, request.Delete.UserIds, nil)
+		b.sendRoomDisinvite(roomid, backend, api.DisinviteReasonDeleted, request.Delete.UserIds, nil)
 	case "incall":
 		err = b.sendRoomIncall(roomid, backend, &request)
 	case "participants":
@@ -978,7 +988,7 @@ func (b *BackendServer) allowStatsAccess(r *http.Request) bool {
 	}
 
 	allowed := b.statsAllowedIps.Load()
-	return allowed != nil && allowed.Allowed(ip)
+	return allowed != nil && allowed.Contains(ip)
 }
 
 func (b *BackendServer) validateStatsRequest(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
@@ -1007,8 +1017,12 @@ func (b *BackendServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(statsData) // nolint
 }
 
+type withServerInfoNats interface {
+	GetServerInfoNats() *talk.BackendServerInfoNats
+}
+
 func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request) {
-	info := BackendServerInfo{
+	info := talk.BackendServerInfo{
 		Version:  b.version,
 		Features: b.hub.info.Features,
 
@@ -1017,7 +1031,7 @@ func (b *BackendServer) serverinfoHandler(w http.ResponseWriter, r *http.Request
 	if mcu := b.hub.mcu; mcu != nil {
 		info.Sfu = mcu.GetServerInfoSfu()
 	}
-	if e, ok := b.events.(*asyncEventsNats); ok {
+	if e, ok := b.events.(withServerInfoNats); ok {
 		info.Nats = e.GetServerInfoNats()
 	}
 	if rpcClients := b.hub.rpcClients; rpcClients != nil {

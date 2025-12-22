@@ -33,11 +33,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
@@ -49,42 +53,38 @@ var (
 	PathToOcsSignalingBackend = "ocs/v2.php/apps/spreed/api/v1/signaling/backend"
 )
 
-const (
-	FederatedRoomSessionIdPrefix = "federated|"
-)
-
 // ResponseHandlerFunc will return "true" has been fully processed.
-type ResponseHandlerFunc func(message *ClientMessage) bool
+type ResponseHandlerFunc func(message *api.ClientMessage) bool
 
 type ClientSession struct {
 	logger    log.Logger
 	hub       *Hub
-	events    AsyncEvents
-	privateId PrivateSessionId
-	publicId  PublicSessionId
+	events    events.AsyncEvents
+	privateId api.PrivateSessionId
+	publicId  api.PublicSessionId
 	data      *SessionIdData
 	ctx       context.Context
 	closeFunc context.CancelFunc
 
-	clientType ClientType
+	clientType api.ClientType
 	features   []string
 	userId     string
 	userData   json.RawMessage
 
 	parseUserData func() (api.StringMap, error)
 
-	inCall Flags
+	inCall internal.Flags
 	// +checklocks:mu
 	supportsPermissions bool
 	// +checklocks:mu
-	permissions map[Permission]bool
+	permissions map[api.Permission]bool
 
-	backend          *Backend
+	backend          *talk.Backend
 	backendUrl       string
 	parsedBackendUrl *url.URL
 
 	mu      sync.Mutex
-	asyncCh AsyncChannel
+	asyncCh events.AsyncChannel
 
 	// +checklocks:mu
 	client       HandlerClient
@@ -94,9 +94,9 @@ type ClientSession struct {
 
 	roomSessionIdLock sync.RWMutex
 	// +checklocks:roomSessionIdLock
-	roomSessionId RoomSessionId
+	roomSessionId api.RoomSessionId
 
-	publisherWaiters ChannelWaiters // +checklocksignore
+	publisherWaiters async.ChannelWaiters // +checklocksignore
 
 	// +checklocks:mu
 	publishers map[StreamType]McuPublisher
@@ -104,7 +104,7 @@ type ClientSession struct {
 	subscribers map[StreamId]McuSubscriber
 
 	// +checklocks:mu
-	pendingClientMessages []*ServerMessage
+	pendingClientMessages []*api.ServerMessage
 	// +checklocks:mu
 	hasPendingChat bool
 	// +checklocks:mu
@@ -113,16 +113,18 @@ type ClientSession struct {
 	// +checklocks:mu
 	virtualSessions map[*VirtualSession]bool
 
-	seenJoinedLock sync.Mutex
-	// +checklocks:seenJoinedLock
-	seenJoinedEvents map[PublicSessionId]bool
+	filterDuplicateLock sync.Mutex
+	// +checklocks:filterDuplicateLock
+	seenJoinedEvents map[api.PublicSessionId]bool
+	// +checklocks:filterDuplicateLock
+	seenFlags map[api.PublicSessionId]uint32
 
 	responseHandlersLock sync.Mutex
 	// +checklocks:responseHandlersLock
 	responseHandlers map[string]ResponseHandlerFunc
 }
 
-func NewClientSession(hub *Hub, privateId PrivateSessionId, publicId PublicSessionId, data *SessionIdData, backend *Backend, hello *HelloClientMessage, auth *BackendClientAuthResponse) (*ClientSession, error) {
+func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, backend *talk.Backend, hello *api.HelloClientMessage, auth *talk.BackendClientAuthResponse) (*ClientSession, error) {
 	ctx := log.NewLoggerContext(context.Background(), hub.logger)
 	ctx, closeFunc := context.WithCancel(ctx)
 	s := &ClientSession{
@@ -142,17 +144,17 @@ func NewClientSession(hub *Hub, privateId PrivateSessionId, publicId PublicSessi
 		parseUserData: parseUserData(auth.User),
 
 		backend: backend,
-		asyncCh: make(AsyncChannel, DefaultAsyncChannelSize),
+		asyncCh: make(events.AsyncChannel, events.DefaultAsyncChannelSize),
 	}
-	if s.clientType == HelloClientTypeInternal {
-		s.backendUrl = hello.Auth.internalParams.Backend
-		s.parsedBackendUrl = hello.Auth.internalParams.parsedBackend
-		if !s.HasFeature(ClientFeatureInternalInCall) {
+	if s.clientType == api.HelloClientTypeInternal {
+		s.backendUrl = hello.Auth.InternalParams.Backend
+		s.parsedBackendUrl = hello.Auth.InternalParams.ParsedBackend
+		if !s.HasFeature(api.ClientFeatureInternalInCall) {
 			s.SetInCall(FlagInCall | FlagWithAudio)
 		}
 	} else {
 		s.backendUrl = hello.Auth.Url
-		s.parsedBackendUrl = hello.Auth.parsedUrl
+		s.parsedBackendUrl = hello.Auth.ParsedUrl
 	}
 
 	if err := s.SubscribeEvents(); err != nil {
@@ -166,15 +168,15 @@ func (s *ClientSession) Context() context.Context {
 	return s.ctx
 }
 
-func (s *ClientSession) PrivateId() PrivateSessionId {
+func (s *ClientSession) PrivateId() api.PrivateSessionId {
 	return s.privateId
 }
 
-func (s *ClientSession) PublicId() PublicSessionId {
+func (s *ClientSession) PublicId() api.PublicSessionId {
 	return s.publicId
 }
 
-func (s *ClientSession) RoomSessionId() RoomSessionId {
+func (s *ClientSession) RoomSessionId() api.RoomSessionId {
 	s.roomSessionIdLock.RLock()
 	defer s.roomSessionIdLock.RUnlock()
 	return s.roomSessionId
@@ -184,7 +186,7 @@ func (s *ClientSession) Data() *SessionIdData {
 	return s.data
 }
 
-func (s *ClientSession) ClientType() ClientType {
+func (s *ClientSession) ClientType() api.ClientType {
 	return s.clientType
 }
 
@@ -210,18 +212,18 @@ func (s *ClientSession) HasFeature(feature string) bool {
 }
 
 // HasPermission checks if the session has the passed permissions.
-func (s *ClientSession) HasPermission(permission Permission) bool {
+func (s *ClientSession) HasPermission(permission api.Permission) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.hasPermissionLocked(permission)
 }
 
-func (s *ClientSession) GetPermissions() []Permission {
+func (s *ClientSession) GetPermissions() []api.Permission {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	result := make([]Permission, len(s.permissions))
+	result := make([]api.Permission, len(s.permissions))
 	for p, ok := range s.permissions {
 		if ok {
 			result = append(result, p)
@@ -231,7 +233,7 @@ func (s *ClientSession) GetPermissions() []Permission {
 }
 
 // HasAnyPermission checks if the session has one of the passed permissions.
-func (s *ClientSession) HasAnyPermission(permission ...Permission) bool {
+func (s *ClientSession) HasAnyPermission(permission ...api.Permission) bool {
 	if len(permission) == 0 {
 		return false
 	}
@@ -243,7 +245,7 @@ func (s *ClientSession) HasAnyPermission(permission ...Permission) bool {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) hasAnyPermissionLocked(permission ...Permission) bool {
+func (s *ClientSession) hasAnyPermissionLocked(permission ...api.Permission) bool {
 	if len(permission) == 0 {
 		return false
 	}
@@ -252,10 +254,10 @@ func (s *ClientSession) hasAnyPermissionLocked(permission ...Permission) bool {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) hasPermissionLocked(permission Permission) bool {
+func (s *ClientSession) hasPermissionLocked(permission api.Permission) bool {
 	if !s.supportsPermissions {
 		// Old-style session that doesn't receive permissions from Nextcloud.
-		if result, found := DefaultPermissionOverrides[permission]; found {
+		if result, found := api.DefaultPermissionOverrides[permission]; found {
 			return result
 		}
 		return true
@@ -267,11 +269,11 @@ func (s *ClientSession) hasPermissionLocked(permission Permission) bool {
 	return false
 }
 
-func (s *ClientSession) SetPermissions(permissions []Permission) {
-	var p map[Permission]bool
+func (s *ClientSession) SetPermissions(permissions []api.Permission) {
+	var p map[api.Permission]bool
 	for _, permission := range permissions {
 		if p == nil {
-			p = make(map[Permission]bool)
+			p = make(map[api.Permission]bool)
 		}
 		p[permission] = true
 	}
@@ -287,7 +289,7 @@ func (s *ClientSession) SetPermissions(permissions []Permission) {
 	s.logger.Printf("Permissions of session %s changed: %s", s.PublicId(), permissions)
 }
 
-func (s *ClientSession) Backend() *Backend {
+func (s *ClientSession) Backend() *talk.Backend {
 	return s.backend
 }
 
@@ -327,21 +329,27 @@ func (s *ClientSession) ParsedUserData() (api.StringMap, error) {
 	return s.parseUserData()
 }
 
-func (s *ClientSession) SetRoom(room *Room) {
+func (s *ClientSession) SetRoom(room *Room, joinTime time.Time) {
 	s.room.Store(room)
-	s.onRoomSet(room != nil)
+	s.onRoomSet(room != nil, joinTime)
 }
 
-func (s *ClientSession) onRoomSet(hasRoom bool) {
+func (s *ClientSession) onRoomSet(hasRoom bool, joinTime time.Time) {
 	if hasRoom {
-		s.roomJoinTime.Store(time.Now().UnixNano())
+		s.roomJoinTime.Store(joinTime.UnixNano())
 	} else {
 		s.roomJoinTime.Store(0)
 	}
 
-	s.seenJoinedLock.Lock()
-	defer s.seenJoinedLock.Unlock()
+	s.filterDuplicateLock.Lock()
+	defer s.filterDuplicateLock.Unlock()
 	s.seenJoinedEvents = nil
+	s.seenFlags = nil
+}
+
+func (s *ClientSession) IsInRoom(id string) bool {
+	room := s.GetRoom()
+	return room != nil && room.Id() == id
 }
 
 func (s *ClientSession) GetFederationClient() *FederationClient {
@@ -353,7 +361,7 @@ func (s *ClientSession) SetFederationClient(federation *FederationClient) {
 	defer s.mu.Unlock()
 
 	s.doLeaveRoom(true)
-	s.onRoomSet(federation != nil)
+	s.onRoomSet(federation != nil, time.Now())
 
 	if prev := s.federation.Swap(federation); prev != nil && prev != federation {
 		prev.Close()
@@ -395,7 +403,7 @@ func (s *ClientSession) releaseMcuObjects() {
 	}
 }
 
-func (s *ClientSession) AsyncChannel() AsyncChannel {
+func (s *ClientSession) AsyncChannel() events.AsyncChannel {
 	return s.asyncCh
 }
 
@@ -459,7 +467,7 @@ func (s *ClientSession) SubscribeEvents() error {
 	return s.events.RegisterSessionListener(s.publicId, s.backend, s)
 }
 
-func (s *ClientSession) UpdateRoomSessionId(roomSessionId RoomSessionId) error {
+func (s *ClientSession) UpdateRoomSessionId(roomSessionId api.RoomSessionId) error {
 	s.roomSessionIdLock.Lock()
 	defer s.roomSessionIdLock.Unlock()
 
@@ -493,7 +501,7 @@ func (s *ClientSession) UpdateRoomSessionId(roomSessionId RoomSessionId) error {
 	return nil
 }
 
-func (s *ClientSession) SubscribeRoomEvents(roomid string, roomSessionId RoomSessionId) error {
+func (s *ClientSession) SubscribeRoomEvents(roomid string, roomSessionId api.RoomSessionId) error {
 	s.roomSessionIdLock.Lock()
 	defer s.roomSessionIdLock.Unlock()
 
@@ -529,7 +537,7 @@ func (s *ClientSession) LeaveRoom(notify bool) *Room {
 	return s.LeaveRoomWithMessage(notify, nil)
 }
 
-func (s *ClientSession) LeaveRoomWithMessage(notify bool, message *ClientMessage) *Room {
+func (s *ClientSession) LeaveRoomWithMessage(notify bool, message *api.ClientMessage) *Room {
 	if prev := s.federation.Swap(nil); prev != nil {
 		// Session was connected to a federation room.
 		if err := prev.Leave(message); err != nil {
@@ -553,7 +561,7 @@ func (s *ClientSession) doLeaveRoom(notify bool) *Room {
 	}
 
 	s.doUnsubscribeRoomEvents(notify)
-	s.SetRoom(nil)
+	s.SetRoom(nil, time.Time{})
 	s.releaseMcuObjects()
 	room.RemoveSession(s)
 	return room
@@ -579,9 +587,9 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 	defer s.roomSessionIdLock.Unlock()
 	if notify && room != nil && s.roomSessionId != "" && !s.roomSessionId.IsFederated() {
 		// Notify
-		go func(sid RoomSessionId) {
+		go func(sid api.RoomSessionId) {
 			ctx := log.NewLoggerContext(context.Background(), s.logger)
-			request := NewBackendClientRoomRequest(room.Id(), s.userId, sid)
+			request := talk.NewBackendClientRoomRequest(room.Id(), s.userId, sid)
 			request.Room.UpdateFromSession(s)
 			request.Room.Action = "leave"
 			var response api.StringMap
@@ -651,8 +659,8 @@ func (s *ClientSession) SetClient(client HandlerClient) HandlerClient {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) sendOffer(client McuClient, sender PublicSessionId, streamType StreamType, offer api.StringMap) {
-	offer_message := &AnswerOfferMessage{
+func (s *ClientSession) sendOffer(client McuClient, sender api.PublicSessionId, streamType StreamType, offer api.StringMap) {
+	offer_message := &api.AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
 		Type:     "offer",
@@ -665,10 +673,10 @@ func (s *ClientSession) sendOffer(client McuClient, sender PublicSessionId, stre
 		s.logger.Println("Could not serialize offer", offer_message, err)
 		return
 	}
-	response_message := &ServerMessage{
+	response_message := &api.ServerMessage{
 		Type: "message",
-		Message: &MessageServerMessage{
-			Sender: &MessageServerMessageSender{
+		Message: &api.MessageServerMessage{
+			Sender: &api.MessageServerMessageSender{
 				Type:      "session",
 				SessionId: sender,
 			},
@@ -680,8 +688,8 @@ func (s *ClientSession) sendOffer(client McuClient, sender PublicSessionId, stre
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) sendCandidate(client McuClient, sender PublicSessionId, streamType StreamType, candidate any) {
-	candidate_message := &AnswerOfferMessage{
+func (s *ClientSession) sendCandidate(client McuClient, sender api.PublicSessionId, streamType StreamType, candidate any) {
+	candidate_message := &api.AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
 		Type:     "candidate",
@@ -696,10 +704,10 @@ func (s *ClientSession) sendCandidate(client McuClient, sender PublicSessionId, 
 		s.logger.Println("Could not serialize candidate", candidate_message, err)
 		return
 	}
-	response_message := &ServerMessage{
+	response_message := &api.ServerMessage{
 		Type: "message",
-		Message: &MessageServerMessage{
-			Sender: &MessageServerMessageSender{
+		Message: &api.MessageServerMessage{
+			Sender: &api.MessageServerMessageSender{
 				Type:      "session",
 				SessionId: sender,
 			},
@@ -711,7 +719,7 @@ func (s *ClientSession) sendCandidate(client McuClient, sender PublicSessionId, 
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) sendMessageUnlocked(message *ServerMessage) bool {
+func (s *ClientSession) sendMessageUnlocked(message *api.ServerMessage) bool {
 	if c := s.getClientUnlocked(); c != nil {
 		if c.SendMessage(message) {
 			return true
@@ -722,15 +730,15 @@ func (s *ClientSession) sendMessageUnlocked(message *ServerMessage) bool {
 	return true
 }
 
-func (s *ClientSession) SendError(e *Error) bool {
-	message := &ServerMessage{
+func (s *ClientSession) SendError(e *api.Error) bool {
+	message := &api.ServerMessage{
 		Type:  "error",
 		Error: e,
 	}
 	return s.SendMessage(message)
 }
 
-func (s *ClientSession) SendMessage(message *ServerMessage) bool {
+func (s *ClientSession) SendMessage(message *api.ServerMessage) bool {
 	message = s.filterMessage(message)
 	if message == nil {
 		return true
@@ -742,7 +750,7 @@ func (s *ClientSession) SendMessage(message *ServerMessage) bool {
 	return s.sendMessageUnlocked(message)
 }
 
-func (s *ClientSession) SendMessages(messages []*ServerMessage) bool {
+func (s *ClientSession) SendMessages(messages []*api.ServerMessage) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -821,10 +829,10 @@ func (s *ClientSession) SubscriberClosed(subscriber McuSubscriber) {
 }
 
 type PermissionError struct {
-	permission Permission
+	permission api.Permission
 }
 
-func (e *PermissionError) Permission() Permission {
+func (e *PermissionError) Permission() api.Permission {
 	return e.permission
 }
 
@@ -836,22 +844,22 @@ func (e *PermissionError) Error() string {
 func (s *ClientSession) isSdpAllowedToSendLocked(sdp *sdp.SessionDescription) (MediaType, error) {
 	if sdp == nil {
 		// Should have already been checked when data was validated.
-		return 0, ErrNoSdp
+		return 0, api.ErrNoSdp
 	}
 
 	var mediaTypes MediaType
-	mayPublishMedia := s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA)
+	mayPublishMedia := s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_MEDIA)
 	for _, md := range sdp.MediaDescriptions {
 		switch md.MediaName.Media {
 		case "audio":
-			if !mayPublishMedia && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO) {
-				return 0, &PermissionError{PERMISSION_MAY_PUBLISH_AUDIO}
+			if !mayPublishMedia && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_AUDIO) {
+				return 0, &PermissionError{api.PERMISSION_MAY_PUBLISH_AUDIO}
 			}
 
 			mediaTypes |= MediaTypeAudio
 		case "video":
-			if !mayPublishMedia && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_VIDEO) {
-				return 0, &PermissionError{PERMISSION_MAY_PUBLISH_VIDEO}
+			if !mayPublishMedia && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_VIDEO) {
+				return 0, &PermissionError{api.PERMISSION_MAY_PUBLISH_VIDEO}
 			}
 
 			mediaTypes |= MediaTypeVideo
@@ -861,29 +869,29 @@ func (s *ClientSession) isSdpAllowedToSendLocked(sdp *sdp.SessionDescription) (M
 	return mediaTypes, nil
 }
 
-func (s *ClientSession) IsAllowedToSend(data *MessageClientMessageData) error {
+func (s *ClientSession) IsAllowedToSend(data *api.MessageClientMessageData) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	switch {
 	case data != nil && data.RoomType == "screen":
-		if s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
+		if s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_SCREEN) {
 			return nil
 		}
-		return &PermissionError{PERMISSION_MAY_PUBLISH_SCREEN}
-	case s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA):
+		return &PermissionError{api.PERMISSION_MAY_PUBLISH_SCREEN}
+	case s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_MEDIA):
 		// Client is allowed to publish any media (audio / video).
 		return nil
 	case data != nil && data.Type == "offer":
 		// Check what user is trying to publish and check permissions accordingly.
-		if _, err := s.isSdpAllowedToSendLocked(data.offerSdp); err != nil {
+		if _, err := s.isSdpAllowedToSendLocked(data.OfferSdp); err != nil {
 			return err
 		}
 
 		return nil
 	default:
 		// Candidate or unknown event, check if client is allowed to publish any media.
-		if s.hasAnyPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO, PERMISSION_MAY_PUBLISH_VIDEO) {
+		if s.hasAnyPermissionLocked(api.PERMISSION_MAY_PUBLISH_AUDIO, api.PERMISSION_MAY_PUBLISH_VIDEO) {
 			return nil
 		}
 
@@ -891,7 +899,7 @@ func (s *ClientSession) IsAllowedToSend(data *MessageClientMessageData) error {
 	}
 }
 
-func (s *ClientSession) CheckOfferType(streamType StreamType, data *MessageClientMessageData) (MediaType, error) {
+func (s *ClientSession) CheckOfferType(streamType StreamType, data *api.MessageClientMessageData) (MediaType, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -899,15 +907,15 @@ func (s *ClientSession) CheckOfferType(streamType StreamType, data *MessageClien
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) checkOfferTypeLocked(streamType StreamType, data *MessageClientMessageData) (MediaType, error) {
+func (s *ClientSession) checkOfferTypeLocked(streamType StreamType, data *api.MessageClientMessageData) (MediaType, error) {
 	if streamType == StreamTypeScreen {
-		if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
-			return 0, &PermissionError{PERMISSION_MAY_PUBLISH_SCREEN}
+		if !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_SCREEN) {
+			return 0, &PermissionError{api.PERMISSION_MAY_PUBLISH_SCREEN}
 		}
 
 		return MediaTypeScreen, nil
 	} else if data != nil && data.Type == "offer" {
-		mediaTypes, err := s.isSdpAllowedToSendLocked(data.offerSdp)
+		mediaTypes, err := s.isSdpAllowedToSendLocked(data.OfferSdp)
 		if err != nil {
 			return 0, err
 		}
@@ -918,7 +926,7 @@ func (s *ClientSession) checkOfferTypeLocked(streamType StreamType, data *Messag
 	return 0, nil
 }
 
-func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, streamType StreamType, data *MessageClientMessageData) (McuPublisher, error) {
+func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, streamType StreamType, data *api.MessageClientMessageData) (McuPublisher, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -945,9 +953,9 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		if backend := s.Backend(); backend != nil {
 			var maxBitrate api.Bandwidth
 			if streamType == StreamTypeScreen {
-				maxBitrate = backend.maxScreenBitrate
+				maxBitrate = backend.MaxScreenBitrate()
 			} else {
-				maxBitrate = backend.maxStreamBitrate
+				maxBitrate = backend.MaxStreamBitrate()
 			}
 			if settings.Bitrate <= 0 {
 				settings.Bitrate = maxBitrate
@@ -1025,7 +1033,7 @@ func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType St
 	}
 }
 
-func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id PublicSessionId, streamType StreamType) (McuSubscriber, error) {
+func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id api.PublicSessionId, streamType StreamType) (McuSubscriber, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1060,7 +1068,7 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id P
 	return subscriber, nil
 }
 
-func (s *ClientSession) GetSubscriber(id PublicSessionId, streamType StreamType) McuSubscriber {
+func (s *ClientSession) GetSubscriber(id api.PublicSessionId, streamType StreamType) McuSubscriber {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1068,8 +1076,8 @@ func (s *ClientSession) GetSubscriber(id PublicSessionId, streamType StreamType)
 }
 
 func (s *ClientSession) processAsyncNatsMessage(msg *nats.Msg) {
-	var message AsyncMessage
-	if err := NatsDecode(msg, &message); err != nil {
+	var message events.AsyncMessage
+	if err := nats.Decode(msg, &message); err != nil {
 		s.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
 		return
 	}
@@ -1077,7 +1085,7 @@ func (s *ClientSession) processAsyncNatsMessage(msg *nats.Msg) {
 	s.processAsyncMessage(&message)
 }
 
-func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
+func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
 	switch message.Type {
 	case "permissions":
 		s.SetPermissions(message.Permissions)
@@ -1085,10 +1093,10 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 
-			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_MEDIA) {
+			if !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_MEDIA) {
 				if publisher, found := s.publishers[StreamTypeVideo]; found {
-					if (publisher.HasMedia(MediaTypeAudio) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_AUDIO)) ||
-						(publisher.HasMedia(MediaTypeVideo) && !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_VIDEO)) {
+					if (publisher.HasMedia(MediaTypeAudio) && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_AUDIO)) ||
+						(publisher.HasMedia(MediaTypeVideo) && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_VIDEO)) {
 						delete(s.publishers, StreamTypeVideo)
 						s.logger.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
 						go func() {
@@ -1098,7 +1106,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 					}
 				}
 			}
-			if !s.hasPermissionLocked(PERMISSION_MAY_PUBLISH_SCREEN) {
+			if !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_SCREEN) {
 				if publisher, found := s.publishers[StreamTypeScreen]; found {
 					delete(s.publishers, StreamTypeScreen)
 					s.logger.Printf("Session %s is no longer allowed to publish screen, closing publisher %s", s.PublicId(), publisher.Id())
@@ -1125,12 +1133,12 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, StreamType(message.SendOffer.Data.RoomType))
 			if err != nil {
 				s.logger.Printf("Could not create MCU subscriber for session %s to process sendoffer in %s: %s", message.SendOffer.SessionId, s.PublicId(), err)
-				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
+				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &events.AsyncMessage{
 					Type: "message",
-					Message: &ServerMessage{
+					Message: &api.ServerMessage{
 						Id:    message.SendOffer.MessageId,
 						Type:  "error",
-						Error: NewError("client_not_found", "No MCU client found to send message to."),
+						Error: api.NewError("client_not_found", "No MCU client found to send message to."),
 					},
 				}); err != nil {
 					s.logger.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
@@ -1138,12 +1146,12 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 				return
 			} else if mc == nil {
 				s.logger.Printf("No MCU subscriber found for session %s to process sendoffer in %s", message.SendOffer.SessionId, s.PublicId())
-				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
+				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &events.AsyncMessage{
 					Type: "message",
-					Message: &ServerMessage{
+					Message: &api.ServerMessage{
 						Id:    message.SendOffer.MessageId,
 						Type:  "error",
-						Error: NewError("client_not_found", "No MCU client found to send message to."),
+						Error: api.NewError("client_not_found", "No MCU client found to send message to."),
 					},
 				}); err != nil {
 					s.logger.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
@@ -1154,12 +1162,12 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 			mc.SendMessage(s.Context(), nil, message.SendOffer.Data, func(err error, response api.StringMap) {
 				if err != nil {
 					s.logger.Printf("Could not send MCU message %+v for session %s to %s: %s", message.SendOffer.Data, message.SendOffer.SessionId, s.PublicId(), err)
-					if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &AsyncMessage{
+					if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &events.AsyncMessage{
 						Type: "message",
-						Message: &ServerMessage{
+						Message: &api.ServerMessage{
 							Id:    message.SendOffer.MessageId,
 							Type:  "error",
-							Error: NewError("processing_failed", "Processing of the message failed, please check server logs."),
+							Error: api.NewError("processing_failed", "Processing of the message failed, please check server logs."),
 						},
 					}); err != nil {
 						s.logger.Printf("Error sending sendoffer error response to %s: %s", message.SendOffer.SessionId, err)
@@ -1170,8 +1178,8 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 					return
 				}
 
-				s.hub.sendMcuMessageResponse(s, mc, &MessageClientMessage{
-					Recipient: MessageClientMessageRecipient{
+				s.hub.sendMcuMessageResponse(s, mc, &api.MessageClientMessage{
+					Recipient: api.MessageClientMessageRecipient{
 						SessionId: message.SendOffer.SessionId,
 					},
 				}, message.SendOffer.Data, response)
@@ -1189,7 +1197,7 @@ func (s *ClientSession) processAsyncMessage(message *AsyncMessage) {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) storePendingMessage(message *ServerMessage) {
+func (s *ClientSession) storePendingMessage(message *api.ServerMessage) {
 	if message.IsChatRefresh() {
 		if s.hasPendingChat {
 			// Only send a single "chat-refresh" message on resume.
@@ -1207,8 +1215,8 @@ func (s *ClientSession) storePendingMessage(message *ServerMessage) {
 	}
 }
 
-func filterDisplayNames(events []EventServerMessageSessionEntry) []EventServerMessageSessionEntry {
-	result := make([]EventServerMessageSessionEntry, 0, len(events))
+func filterDisplayNames(events []api.EventServerMessageSessionEntry) []api.EventServerMessageSessionEntry {
+	result := make([]api.EventServerMessageSessionEntry, 0, len(events))
 	for _, event := range events {
 		if len(event.User) == 0 {
 			result = append(result, event)
@@ -1248,14 +1256,43 @@ func filterDisplayNames(events []EventServerMessageSessionEntry) []EventServerMe
 	return result
 }
 
-func (s *ClientSession) filterDuplicateJoin(entries []EventServerMessageSessionEntry) []EventServerMessageSessionEntry {
-	s.seenJoinedLock.Lock()
-	defer s.seenJoinedLock.Unlock()
+// +checklocks:s.filterDuplicateLock
+func (s *ClientSession) filterUnknownLeave(entries []api.PublicSessionId) []api.PublicSessionId {
+	idx := slices.IndexFunc(entries, func(e api.PublicSessionId) bool {
+		return !s.seenJoinedEvents[e] // +checklocksignore
+	})
+	if idx == -1 {
+		return entries
+	} else if idx+1 == len(entries) {
+		// Simple case: all entries filtered.
+		s.logger.Printf("Session %s got unknown leave events for %+v", s.publicId, entries)
+		return nil
+	}
+
+	// Filter remaining entries.
+	filtered := []api.PublicSessionId{
+		entries[idx],
+	}
+	result := append([]api.PublicSessionId{}, entries[:idx]...)
+	for _, e := range entries[idx+1:] {
+		if s.seenJoinedEvents[e] {
+			result = append(result, e)
+		} else {
+			filtered = append(filtered, e)
+		}
+	}
+	s.logger.Printf("Session %s got unknown leave events for %+v", s.publicId, filtered)
+	return result
+}
+
+func (s *ClientSession) filterDuplicateJoin(entries []api.EventServerMessageSessionEntry) []api.EventServerMessageSessionEntry {
+	s.filterDuplicateLock.Lock()
+	defer s.filterDuplicateLock.Unlock()
 
 	// Due to the asynchronous events, a session might received a "Joined" event
 	// for the same (other) session twice, so filter these out on a per-session
 	// level.
-	result := make([]EventServerMessageSessionEntry, 0, len(entries))
+	result := make([]api.EventServerMessageSessionEntry, 0, len(entries))
 	for _, e := range entries {
 		if s.seenJoinedEvents[e.SessionId] {
 			s.logger.Printf("Session %s got duplicate joined event for %s, ignoring", s.publicId, e.SessionId)
@@ -1263,7 +1300,7 @@ func (s *ClientSession) filterDuplicateJoin(entries []EventServerMessageSessionE
 		}
 
 		if s.seenJoinedEvents == nil {
-			s.seenJoinedEvents = make(map[PublicSessionId]bool)
+			s.seenJoinedEvents = make(map[api.PublicSessionId]bool)
 		}
 		s.seenJoinedEvents[e.SessionId] = true
 		result = append(result, e)
@@ -1271,12 +1308,36 @@ func (s *ClientSession) filterDuplicateJoin(entries []EventServerMessageSessionE
 	return result
 }
 
-func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
+func (s *ClientSession) filterDuplicateFlags(message *api.RoomFlagsServerMessage) bool {
+	if message == nil {
+		return true
+	}
+
+	s.filterDuplicateLock.Lock()
+	defer s.filterDuplicateLock.Unlock()
+
+	// Due to the asynchronous events, a session might received a "flags" event
+	// for the same (other) session twice, so filter these out on a per-session
+	// level.
+	if prev, found := s.seenFlags[message.SessionId]; found && prev == message.Flags {
+		s.logger.Printf("Session %s got duplicate flags event for %s, ignoring", s.publicId, message.SessionId)
+		return true
+	}
+
+	if s.seenFlags == nil {
+		s.seenFlags = make(map[api.PublicSessionId]uint32)
+	}
+	s.seenFlags[message.SessionId] = message.Flags
+	return false
+}
+
+func (s *ClientSession) filterMessage(message *api.ServerMessage) *api.ServerMessage {
 	switch message.Type {
 	case "event":
 		switch message.Event.Target {
 		case "participants":
-			if message.Event.Type == "update" {
+			switch message.Event.Type {
+			case "update":
 				m := message.Event.Update
 				users := make(map[any]bool)
 				for _, entry := range m.Users {
@@ -1291,6 +1352,10 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 				// TODO(jojo): Only send all users if current session id has
 				// changed its "inCall" flag to true.
 				m.Changed = nil
+			case "flags":
+				if s.filterDuplicateFlags(message.Event.Flags) {
+					return nil
+				}
 			}
 		case "room":
 			switch message.Event.Type {
@@ -1303,10 +1368,10 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 				if len(join) != len(message.Event.Join) {
 					// Create unique copy of message for only this client.
 					copied = true
-					message = &ServerMessage{
+					message = &api.ServerMessage{
 						Id:   message.Id,
 						Type: message.Type,
-						Event: &EventServerMessage{
+						Event: &api.EventServerMessage{
 							Type:   message.Event.Type,
 							Target: message.Event.Target,
 							Join:   join,
@@ -1314,14 +1379,14 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 					}
 				}
 
-				if s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
+				if s.HasPermission(api.PERMISSION_HIDE_DISPLAYNAMES) {
 					if copied {
 						message.Event.Join = filterDisplayNames(message.Event.Join)
 					} else {
-						message = &ServerMessage{
+						message = &api.ServerMessage{
 							Id:   message.Id,
 							Type: message.Type,
-							Event: &EventServerMessage{
+							Event: &api.EventServerMessage{
 								Type:   message.Event.Type,
 								Target: message.Event.Target,
 								Join:   filterDisplayNames(message.Event.Join),
@@ -1330,11 +1395,29 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 					}
 				}
 			case "leave":
-				s.seenJoinedLock.Lock()
-				defer s.seenJoinedLock.Unlock()
+				s.filterDuplicateLock.Lock()
+				defer s.filterDuplicateLock.Unlock()
+
+				leave := s.filterUnknownLeave(message.Event.Leave)
+				if len(leave) == 0 {
+					return nil
+				}
 
 				for _, e := range message.Event.Leave {
 					delete(s.seenJoinedEvents, e)
+					delete(s.seenFlags, e)
+				}
+
+				if len(leave) != len(message.Event.Leave) {
+					message = &api.ServerMessage{
+						Id:   message.Id,
+						Type: message.Type,
+						Event: &api.EventServerMessage{
+							Type:   message.Event.Type,
+							Target: message.Event.Target,
+							Leave:  leave,
+						},
+					}
 				}
 			case "message":
 				if message.Event.Message == nil || len(message.Event.Message.Data) == 0 {
@@ -1350,7 +1433,7 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 					update := false
 					if data.Chat.Refresh && len(data.Chat.Comment) > 0 {
 						// New-style chat event, check what the client supports.
-						if s.HasFeature(ClientFeatureChatRelay) {
+						if s.HasFeature(api.ClientFeatureChatRelay) {
 							data.Chat.Refresh = false
 						} else {
 							data.Chat.Comment = nil
@@ -1358,8 +1441,8 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 						update = true
 					}
 
-					if len(data.Chat.Comment) > 0 && s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
-						var comment ChatComment
+					if len(data.Chat.Comment) > 0 && s.HasPermission(api.PERMISSION_HIDE_DISPLAYNAMES) {
+						var comment api.ChatComment
 						if err := json.Unmarshal(data.Chat.Comment, &comment); err != nil {
 							return message
 						}
@@ -1377,13 +1460,13 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 					if update {
 						if encoded, err := json.Marshal(data); err == nil {
 							// Create unique copy of message for only this client.
-							message = &ServerMessage{
+							message = &api.ServerMessage{
 								Id:   message.Id,
 								Type: message.Type,
-								Event: &EventServerMessage{
+								Event: &api.EventServerMessage{
 									Type:   message.Event.Type,
 									Target: message.Event.Target,
-									Message: &RoomEventMessage{
+									Message: &api.RoomEventMessage{
 										RoomId: message.Event.Message.RoomId,
 										Data:   encoded,
 									},
@@ -1395,8 +1478,8 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 			}
 		}
 	case "message":
-		if message.Message != nil && len(message.Message.Data) > 0 && s.HasPermission(PERMISSION_HIDE_DISPLAYNAMES) {
-			var data MessageServerMessageData
+		if message.Message != nil && len(message.Message.Data) > 0 && s.HasPermission(api.PERMISSION_HIDE_DISPLAYNAMES) {
+			var data api.MessageServerMessageData
 			if err := json.Unmarshal(message.Message.Data, &data); err != nil {
 				return message
 			}
@@ -1410,7 +1493,7 @@ func (s *ClientSession) filterMessage(message *ServerMessage) *ServerMessage {
 	return message
 }
 
-func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
+func (s *ClientSession) filterAsyncMessage(msg *events.AsyncMessage) *api.ServerMessage {
 	switch msg.Type {
 	case "message":
 		if msg.Message == nil {
@@ -1426,7 +1509,7 @@ func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
 						// Don't send message back to sender (can happen if sent to user or room)
 						return nil
 					}
-					if sender.Type == RecipientTypeCall {
+					if sender.Type == api.RecipientTypeCall {
 						if room := s.GetRoom(); room == nil || !room.IsSessionInCall(s) {
 							// Session is not in call, so discard.
 							return nil
@@ -1441,7 +1524,7 @@ func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
 						// Don't send message back to sender (can happen if sent to user or room)
 						return nil
 					}
-					if sender.Type == RecipientTypeCall {
+					if sender.Type == api.RecipientTypeCall {
 						if room := s.GetRoom(); room == nil || !room.IsSessionInCall(s) {
 							// Session is not in call, so discard.
 							return nil
@@ -1454,7 +1537,7 @@ func (s *ClientSession) filterAsyncMessage(msg *AsyncMessage) *ServerMessage {
 				// Can happen mostly during tests where an older room async message
 				// could be received by a subscriber that joined after it was sent.
 				if joined := s.getRoomJoinTime(); joined.IsZero() || msg.SendTime.Before(joined) {
-					s.logger.Printf("Message %+v was sent on %s before room was joined on %s, ignoring", msg.Message, msg.SendTime, joined)
+					s.logger.Printf("Message %+v was sent on %s before session %s join room on %s, ignoring", msg.Message, msg.SendTime, s.publicId, joined)
 					return nil
 				}
 			}
@@ -1540,7 +1623,7 @@ func (s *ClientSession) ClearResponseHandler(id string) {
 	delete(s.responseHandlers, id)
 }
 
-func (s *ClientSession) ProcessResponse(message *ClientMessage) bool {
+func (s *ClientSession) ProcessResponse(message *api.ClientMessage) bool {
 	id := message.Id
 	if id == "" {
 		return false

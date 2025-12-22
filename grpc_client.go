@@ -43,7 +43,14 @@ import (
 	"google.golang.org/grpc/resolver"
 	status "google.golang.org/grpc/status"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -200,7 +207,7 @@ func (c *GrpcClient) GetServerId(ctx context.Context) (string, string, error) {
 	return response.GetServerId(), response.GetVersion(), nil
 }
 
-func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId PrivateSessionId) (*LookupResumeIdReply, error) {
+func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId api.PrivateSessionId) (*LookupResumeIdReply, error) {
 	statsGrpcClientCalls.WithLabelValues("LookupResumeId").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Lookup resume id %s on %s", resumeId, c.Target())
@@ -220,7 +227,7 @@ func (c *GrpcClient) LookupResumeId(ctx context.Context, resumeId PrivateSession
 	return response, nil
 }
 
-func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId RoomSessionId, disconnectReason string) (PublicSessionId, error) {
+func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
 	statsGrpcClientCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Lookup room session %s on %s", roomSessionId, c.Target())
@@ -239,10 +246,10 @@ func (c *GrpcClient) LookupSessionId(ctx context.Context, roomSessionId RoomSess
 		return "", ErrNoSuchRoomSession
 	}
 
-	return PublicSessionId(sessionId), nil
+	return api.PublicSessionId(sessionId), nil
 }
 
-func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId PublicSessionId, room *Room, backendUrl string) (bool, error) {
+func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId api.PublicSessionId, room *Room, backendUrl string) (bool, error) {
 	statsGrpcClientCalls.WithLabelValues("IsSessionInCall").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Check if session %s is in call %s on %s", sessionId, room.Id(), c.Target())
@@ -260,7 +267,7 @@ func (c *GrpcClient) IsSessionInCall(ctx context.Context, sessionId PublicSessio
 	return response.GetInCall(), nil
 }
 
-func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, backendUrls []string) (internal map[PublicSessionId]*InternalSessionData, virtual map[PublicSessionId]*VirtualSessionData, err error) {
+func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, backendUrls []string) (internal map[api.PublicSessionId]*InternalSessionData, virtual map[api.PublicSessionId]*VirtualSessionData, err error) {
 	statsGrpcClientCalls.WithLabelValues("GetInternalSessions").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Get internal sessions for %s on %s", roomId, c.Target())
@@ -280,22 +287,22 @@ func (c *GrpcClient) GetInternalSessions(ctx context.Context, roomId string, bac
 	}
 
 	if len(response.InternalSessions) > 0 {
-		internal = make(map[PublicSessionId]*InternalSessionData, len(response.InternalSessions))
+		internal = make(map[api.PublicSessionId]*InternalSessionData, len(response.InternalSessions))
 		for _, s := range response.InternalSessions {
-			internal[PublicSessionId(s.SessionId)] = s
+			internal[api.PublicSessionId(s.SessionId)] = s
 		}
 	}
 	if len(response.VirtualSessions) > 0 {
-		virtual = make(map[PublicSessionId]*VirtualSessionData, len(response.VirtualSessions))
+		virtual = make(map[api.PublicSessionId]*VirtualSessionData, len(response.VirtualSessions))
 		for _, s := range response.VirtualSessions {
-			virtual[PublicSessionId(s.SessionId)] = s
+			virtual[api.PublicSessionId(s.SessionId)] = s
 		}
 	}
 
 	return
 }
 
-func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId PublicSessionId, streamType StreamType) (PublicSessionId, string, net.IP, string, string, error) {
+func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId api.PublicSessionId, streamType StreamType) (api.PublicSessionId, string, net.IP, string, string, error) {
 	statsGrpcClientCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Get %s publisher id %s on %s", streamType, sessionId, c.Target())
@@ -309,7 +316,7 @@ func (c *GrpcClient) GetPublisherId(ctx context.Context, sessionId PublicSession
 		return "", "", nil, "", "", err
 	}
 
-	return PublicSessionId(response.GetPublisherId()), response.GetProxyUrl(), net.ParseIP(response.GetIp()), response.GetConnectToken(), response.GetPublisherToken(), nil
+	return api.PublicSessionId(response.GetPublisherId()), response.GetProxyUrl(), net.ParseIP(response.GetIp()), response.GetConnectToken(), response.GetPublisherToken(), nil
 }
 
 func (c *GrpcClient) GetSessionCount(ctx context.Context, url string) (uint32, error) {
@@ -364,7 +371,7 @@ func (c *GrpcClient) GetTransientData(ctx context.Context, room *Room) (Transien
 
 type ProxySessionReceiver interface {
 	RemoteAddr() string
-	Country() string
+	Country() geoip.Country
 	UserAgent() string
 
 	OnProxyMessage(message *ServerSessionMessage) error
@@ -373,7 +380,7 @@ type ProxySessionReceiver interface {
 
 type SessionProxy struct {
 	logger    log.Logger
-	sessionId PublicSessionId
+	sessionId api.PublicSessionId
 	receiver  ProxySessionReceiver
 
 	sendMu sync.Mutex
@@ -419,12 +426,12 @@ func (p *SessionProxy) Close() error {
 	return p.client.CloseSend()
 }
 
-func (c *GrpcClient) ProxySession(ctx context.Context, sessionId PublicSessionId, receiver ProxySessionReceiver) (*SessionProxy, error) {
+func (c *GrpcClient) ProxySession(ctx context.Context, sessionId api.PublicSessionId, receiver ProxySessionReceiver) (*SessionProxy, error) {
 	statsGrpcClientCalls.WithLabelValues("ProxySession").Inc()
 	md := metadata.Pairs(
 		"sessionId", string(sessionId),
 		"remoteAddr", receiver.RemoteAddr(),
-		"country", receiver.Country(),
+		"country", string(receiver.Country()),
 		"userAgent", receiver.UserAgent(),
 	)
 	client, err := c.impl.ProxySession(metadata.NewOutgoingContext(ctx, md), grpc.WaitForReady(true))
@@ -446,7 +453,7 @@ func (c *GrpcClient) ProxySession(ctx context.Context, sessionId PublicSessionId
 
 type grpcClientsList struct {
 	clients []*GrpcClient
-	entry   *DnsMonitorEntry
+	entry   *dns.MonitorEntry
 }
 
 type GrpcClients struct {
@@ -459,11 +466,11 @@ type GrpcClients struct {
 	// +checklocks:mu
 	clients []*GrpcClient
 
-	dnsMonitor *DnsMonitor
+	dnsMonitor *dns.Monitor
 	// +checklocks:mu
 	dnsDiscovery bool
 
-	etcdClient   *EtcdClient // +checklocksignore: Only written to from constructor.
+	etcdClient   etcd.Client // +checklocksignore: Only written to from constructor.
 	targetPrefix string
 	// +checklocks:mu
 	targetInformation map[string]*GrpcTargetInformationEtcd
@@ -479,7 +486,7 @@ type GrpcClients struct {
 	closeFunc context.CancelFunc // +checklocksignore: No locking necessary.
 }
 
-func NewGrpcClients(ctx context.Context, config *goconf.ConfigFile, etcdClient *EtcdClient, dnsMonitor *DnsMonitor, version string) (*GrpcClients, error) {
+func NewGrpcClients(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd.Client, dnsMonitor *dns.Monitor, version string) (*GrpcClients, error) {
 	initializedCtx, initializedFunc := context.WithCancel(context.Background())
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 	result := &GrpcClients{
@@ -498,7 +505,7 @@ func NewGrpcClients(ctx context.Context, config *goconf.ConfigFile, etcdClient *
 	return result, nil
 }
 
-func (c *GrpcClients) GetServerInfoGrpc() (result []BackendServerInfoGrpc) {
+func (c *GrpcClients) GetServerInfoGrpc() (result []talk.BackendServerInfoGrpc) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -507,7 +514,7 @@ func (c *GrpcClients) GetServerInfoGrpc() (result []BackendServerInfoGrpc) {
 			continue
 		}
 
-		grpc := BackendServerInfoGrpc{
+		grpc := talk.BackendServerInfoGrpc{
 			Target: client.rawTarget,
 		}
 		if len(client.ip) > 0 {
@@ -588,7 +595,7 @@ func (c *GrpcClients) getServerIdWithTimeout(ctx context.Context, client *GrpcCl
 }
 
 func (c *GrpcClients) checkIsSelf(ctx context.Context, target string, client *GrpcClient) {
-	backoff, _ := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+	backoff, _ := async.NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 	defer c.selfCheckWaitGroup.Done()
 
 loop:
@@ -656,7 +663,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 	}
 
 	targets, _ := config.GetString("grpc", "targets")
-	for target := range SplitEntries(targets, ",") {
+	for target := range internal.SplitEntries(targets, ",") {
 		if entries, found := clientsMap[target]; found {
 			clients = append(clients, entries.clients...)
 			if dnsDiscovery && entries.entry == nil {
@@ -739,7 +746,7 @@ func (c *GrpcClients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bo
 	return nil
 }
 
-func (c *GrpcClients) onLookup(entry *DnsMonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
+func (c *GrpcClients) onLookup(entry *dns.MonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -820,7 +827,7 @@ func (c *GrpcClients) loadTargetsEtcd(config *goconf.ConfigFile, fromReload bool
 	return nil
 }
 
-func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
+func (c *GrpcClients) EtcdClientCreated(client etcd.Client) {
 	go func() {
 		if err := client.WaitForConnection(c.closeCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -830,7 +837,7 @@ func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
 			panic(err)
 		}
 
-		backoff, _ := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+		backoff, _ := async.NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 		var nextRevision int64
 		for c.closeCtx.Err() == nil {
 			response, err := c.getGrpcTargets(c.closeCtx, client, c.targetPrefix)
@@ -876,17 +883,17 @@ func (c *GrpcClients) EtcdClientCreated(client *EtcdClient) {
 	}()
 }
 
-func (c *GrpcClients) EtcdWatchCreated(client *EtcdClient, key string) {
+func (c *GrpcClients) EtcdWatchCreated(client etcd.Client, key string) {
 }
 
-func (c *GrpcClients) getGrpcTargets(ctx context.Context, client *EtcdClient, targetPrefix string) (*clientv3.GetResponse, error) {
+func (c *GrpcClients) getGrpcTargets(ctx context.Context, client etcd.Client, targetPrefix string) (*clientv3.GetResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return client.Get(ctx, targetPrefix, clientv3.WithPrefix())
 }
 
-func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
+func (c *GrpcClients) EtcdKeyUpdated(client etcd.Client, key string, data []byte, prevValue []byte) {
 	var info GrpcTargetInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
 		c.logger.Printf("Could not decode GRPC target %s=%s: %s", key, string(data), err)
@@ -935,7 +942,7 @@ func (c *GrpcClients) EtcdKeyUpdated(client *EtcdClient, key string, data []byte
 	c.wakeupForTesting()
 }
 
-func (c *GrpcClients) EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte) {
+func (c *GrpcClients) EtcdKeyDeleted(client etcd.Client, key string, prevValue []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

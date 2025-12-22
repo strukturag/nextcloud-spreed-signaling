@@ -10,6 +10,7 @@ comment:
 
 ignore:
   - "*_easyjson.go"
+  - "**/*_easyjson.go"
   - "*.pb.go"
 
 component_management:
@@ -22,10 +23,42 @@ component_management:
       name: api
       paths:
         - api/**
-    - component_id: module_client
-      name: client
+    - component_id: module_async
+      name: async
       paths:
-        - client/**
+        - async/**
+    - component_id: module_cmd_client
+      name: cmd/client
+      paths:
+        - cmd/client/**
+    - component_id: module_cmd_proxy
+      name: cmd/proxy
+      paths:
+        - cmd/proxy/**
+    - component_id: module_cmd_server
+      name: cmd/server
+      paths:
+        - cmd/server/**
+    - component_id: module_config
+      name: config
+      paths:
+        - config/**
+    - component_id: module_container
+      name: container
+      paths:
+        - container/**
+    - component_id: module_dns
+      name: dns
+      paths:
+        - dns/**
+    - component_id: module_etcd
+      name: etcd
+      paths:
+        - etcd/**
+    - component_id: module_geoip
+      name: geoip
+      paths:
+        - geoip/**
     - component_id: module_internal
       name: internal
       paths:
@@ -34,11 +67,31 @@ component_management:
       name: log
       paths:
         - log/**
-    - component_id: module_proxy
-      name: proxy
+    - component_id: module_metrics
+      name: metrics
       paths:
-        - proxy/**
-    - component_id: module_server
-      name: server
+        - metrics/**
+    - component_id: module_mock
+      name: mock
       paths:
-        - server/**
+        - mock/**
+    - component_id: module_nats
+      name: nats
+      paths:
+        - nats/**
+    - component_id: module_pool
+      name: pool
+      paths:
+        - pool/**
+    - component_id: module_security
+      name: security
+      paths:
+        - security/**
+    - component_id: module_talk
+      name: talk
+      paths:
+        - talk/**
+    - component_id: module_test
+      name: test
+      paths:
+        - test/**

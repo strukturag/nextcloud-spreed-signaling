@@ -27,10 +27,14 @@ import (
 	"errors"
 	"net/url"
 	"sync/atomic"
+	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 const (
@@ -43,30 +47,30 @@ type VirtualSession struct {
 	logger    log.Logger
 	hub       *Hub
 	session   *ClientSession
-	privateId PrivateSessionId
-	publicId  PublicSessionId
+	privateId api.PrivateSessionId
+	publicId  api.PublicSessionId
 	data      *SessionIdData
 	ctx       context.Context
 	closeFunc context.CancelFunc
 	room      atomic.Pointer[Room]
 
-	sessionId PublicSessionId
+	sessionId api.PublicSessionId
 	userId    string
 	userData  json.RawMessage
-	inCall    Flags
-	flags     Flags
-	options   *AddSessionOptions
+	inCall    internal.Flags
+	flags     internal.Flags
+	options   *api.AddSessionOptions
 
 	parseUserData func() (api.StringMap, error)
 
-	asyncCh AsyncChannel
+	asyncCh events.AsyncChannel
 }
 
-func GetVirtualSessionId(session Session, sessionId PublicSessionId) PublicSessionId {
+func GetVirtualSessionId(session Session, sessionId api.PublicSessionId) api.PublicSessionId {
 	return session.PublicId() + "|" + sessionId
 }
 
-func NewVirtualSession(session *ClientSession, privateId PrivateSessionId, publicId PublicSessionId, data *SessionIdData, msg *AddSessionInternalClientMessage) (*VirtualSession, error) {
+func NewVirtualSession(session *ClientSession, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, msg *api.AddSessionInternalClientMessage) (*VirtualSession, error) {
 	ctx := log.NewLoggerContext(session.Context(), session.hub.logger)
 	ctx, closeFunc := context.WithCancel(ctx)
 
@@ -86,7 +90,7 @@ func NewVirtualSession(session *ClientSession, privateId PrivateSessionId, publi
 		parseUserData: parseUserData(msg.User),
 		options:       msg.Options,
 
-		asyncCh: make(AsyncChannel, DefaultAsyncChannelSize),
+		asyncCh: make(events.AsyncChannel, events.DefaultAsyncChannelSize),
 	}
 
 	if err := session.events.RegisterSessionListener(publicId, session.Backend(), result); err != nil {
@@ -95,7 +99,7 @@ func NewVirtualSession(session *ClientSession, privateId PrivateSessionId, publi
 
 	if msg.InCall != nil {
 		result.SetInCall(*msg.InCall)
-	} else if !session.HasFeature(ClientFeatureInternalInCall) {
+	} else if !session.HasFeature(api.ClientFeatureInternalInCall) {
 		result.SetInCall(FlagInCall | FlagWithPhone)
 	}
 	if msg.Flags != 0 {
@@ -110,16 +114,16 @@ func (s *VirtualSession) Context() context.Context {
 	return s.ctx
 }
 
-func (s *VirtualSession) PrivateId() PrivateSessionId {
+func (s *VirtualSession) PrivateId() api.PrivateSessionId {
 	return s.privateId
 }
 
-func (s *VirtualSession) PublicId() PublicSessionId {
+func (s *VirtualSession) PublicId() api.PublicSessionId {
 	return s.publicId
 }
 
-func (s *VirtualSession) ClientType() ClientType {
-	return HelloClientTypeVirtual
+func (s *VirtualSession) ClientType() api.ClientType {
+	return api.HelloClientTypeVirtual
 }
 
 func (s *VirtualSession) GetInCall() int {
@@ -138,7 +142,7 @@ func (s *VirtualSession) Data() *SessionIdData {
 	return s.data
 }
 
-func (s *VirtualSession) Backend() *Backend {
+func (s *VirtualSession) Backend() *talk.Backend {
 	return s.session.Backend()
 }
 
@@ -166,10 +170,10 @@ func (s *VirtualSession) ParsedUserData() (api.StringMap, error) {
 	return s.parseUserData()
 }
 
-func (s *VirtualSession) SetRoom(room *Room) {
+func (s *VirtualSession) SetRoom(room *Room, joinTime time.Time) {
 	s.room.Store(room)
 	if room != nil {
-		if err := s.hub.roomSessions.SetRoomSession(s, RoomSessionId(s.PublicId())); err != nil {
+		if err := s.hub.roomSessions.SetRoomSession(s, api.RoomSessionId(s.PublicId())); err != nil {
 			s.logger.Printf("Error adding virtual room session %s: %s", s.PublicId(), err)
 		}
 	} else {
@@ -181,18 +185,23 @@ func (s *VirtualSession) GetRoom() *Room {
 	return s.room.Load()
 }
 
+func (s *VirtualSession) IsInRoom(id string) bool {
+	room := s.GetRoom()
+	return room != nil && room.Id() == id
+}
+
 func (s *VirtualSession) LeaveRoom(notify bool) *Room {
 	room := s.GetRoom()
 	if room == nil {
 		return nil
 	}
 
-	s.SetRoom(nil)
+	s.SetRoom(nil, time.Time{})
 	room.RemoveSession(s)
 	return room
 }
 
-func (s *VirtualSession) AsyncChannel() AsyncChannel {
+func (s *VirtualSession) AsyncChannel() events.AsyncChannel {
 	return s.asyncCh
 }
 
@@ -214,7 +223,7 @@ func (s *VirtualSession) Close() {
 	s.CloseWithFeedback(nil, nil)
 }
 
-func (s *VirtualSession) CloseWithFeedback(session Session, message *ClientMessage) {
+func (s *VirtualSession) CloseWithFeedback(session Session, message *api.ClientMessage) {
 	s.closeFunc()
 
 	room := s.GetRoom()
@@ -228,23 +237,23 @@ func (s *VirtualSession) CloseWithFeedback(session Session, message *ClientMessa
 	}
 }
 
-func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, message *ClientMessage) {
+func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, message *api.ClientMessage) {
 	ctx := log.NewLoggerContext(context.Background(), s.logger)
 	ctx, cancel := context.WithTimeout(ctx, s.hub.backendTimeout)
 	defer cancel()
 
 	if options := s.Options(); options != nil && options.ActorId != "" && options.ActorType != "" {
-		request := NewBackendClientRoomRequest(room.Id(), s.UserId(), RoomSessionId(s.PublicId()))
+		request := talk.NewBackendClientRoomRequest(room.Id(), s.UserId(), api.RoomSessionId(s.PublicId()))
 		request.Room.Action = "leave"
 		request.Room.ActorId = options.ActorId
 		request.Room.ActorType = options.ActorType
 
-		var response BackendClientResponse
+		var response talk.BackendClientResponse
 		if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
 			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
 			s.logger.Printf("Could not leave virtual session %s at backend %s: %s", virtualSessionId, s.BackendUrl(), err)
 			if session != nil && message != nil {
-				reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
+				reply := message.NewErrorServerMessage(api.NewError("remove_failed", "Could not remove virtual session from backend."))
 				session.SendMessage(reply)
 			}
 			return
@@ -254,29 +263,29 @@ func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, messa
 			virtualSessionId := GetVirtualSessionId(s.session, s.PublicId())
 			if session != nil && message != nil && (response.Error == nil || response.Error.Code != "no_such_room") {
 				s.logger.Printf("Could not leave virtual session %s at backend %s: %+v", virtualSessionId, s.BackendUrl(), response.Error)
-				reply := message.NewErrorServerMessage(NewError("remove_failed", response.Error.Error()))
+				reply := message.NewErrorServerMessage(api.NewError("remove_failed", response.Error.Error()))
 				session.SendMessage(reply)
 			}
 			return
 		}
 	} else {
-		request := NewBackendClientSessionRequest(room.Id(), "remove", s.PublicId(), &AddSessionInternalClientMessage{
+		request := talk.NewBackendClientSessionRequest(room.Id(), "remove", s.PublicId(), &api.AddSessionInternalClientMessage{
 			UserId: s.userId,
 			User:   s.userData,
 		})
-		var response BackendClientSessionResponse
+		var response talk.BackendClientSessionResponse
 		err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response)
 		if err != nil {
 			s.logger.Printf("Could not remove virtual session %s from backend %s: %s", s.PublicId(), s.BackendUrl(), err)
 			if session != nil && message != nil {
-				reply := message.NewErrorServerMessage(NewError("remove_failed", "Could not remove virtual session from backend."))
+				reply := message.NewErrorServerMessage(api.NewError("remove_failed", "Could not remove virtual session from backend."))
 				session.SendMessage(reply)
 			}
 		}
 	}
 }
 
-func (s *VirtualSession) HasPermission(permission Permission) bool {
+func (s *VirtualSession) HasPermission(permission api.Permission) bool {
 	return true
 }
 
@@ -284,7 +293,7 @@ func (s *VirtualSession) Session() *ClientSession {
 	return s.session
 }
 
-func (s *VirtualSession) SessionId() PublicSessionId {
+func (s *VirtualSession) SessionId() api.PublicSessionId {
 	return s.sessionId
 }
 
@@ -304,13 +313,13 @@ func (s *VirtualSession) Flags() uint32 {
 	return s.flags.Get()
 }
 
-func (s *VirtualSession) Options() *AddSessionOptions {
+func (s *VirtualSession) Options() *api.AddSessionOptions {
 	return s.options
 }
 
 func (s *VirtualSession) processAsyncNatsMessage(msg *nats.Msg) {
-	var message AsyncMessage
-	if err := NatsDecode(msg, &message); err != nil {
+	var message events.AsyncMessage
+	if err := nats.Decode(msg, &message); err != nil {
 		s.logger.Printf("Could not decode NATS message %+v: %s", msg, err)
 		return
 	}
@@ -318,7 +327,7 @@ func (s *VirtualSession) processAsyncNatsMessage(msg *nats.Msg) {
 	s.processAsyncMessage(&message)
 }
 
-func (s *VirtualSession) processAsyncMessage(message *AsyncMessage) {
+func (s *VirtualSession) processAsyncMessage(message *events.AsyncMessage) {
 	if message.Type == "message" && message.Message != nil {
 		switch message.Message.Type {
 		case "message":
@@ -327,7 +336,7 @@ func (s *VirtualSession) processAsyncMessage(message *AsyncMessage) {
 				message.Message.Message.Recipient.Type == "session" &&
 				message.Message.Message.Recipient.SessionId == s.PublicId() {
 				// The client should see his session id as recipient.
-				message.Message.Message.Recipient = &MessageClientMessageRecipient{
+				message.Message.Message.Recipient = &api.MessageClientMessageRecipient{
 					Type:      "session",
 					SessionId: s.SessionId(),
 					UserId:    s.UserId(),
@@ -353,13 +362,13 @@ func (s *VirtualSession) processAsyncMessage(message *AsyncMessage) {
 					return
 				}
 
-				s.session.processAsyncMessage(&AsyncMessage{
+				s.session.processAsyncMessage(&events.AsyncMessage{
 					Type:     "message",
 					SendTime: message.SendTime,
-					Message: &ServerMessage{
+					Message: &api.ServerMessage{
 						Type: "control",
-						Control: &ControlServerMessage{
-							Recipient: &MessageClientMessageRecipient{
+						Control: &api.ControlServerMessage{
+							Recipient: &api.MessageClientMessageRecipient{
 								Type:      "session",
 								SessionId: s.SessionId(),
 								UserId:    s.UserId(),
@@ -375,7 +384,7 @@ func (s *VirtualSession) processAsyncMessage(message *AsyncMessage) {
 				message.Message.Control.Recipient.Type == "session" &&
 				message.Message.Control.Recipient.SessionId == s.PublicId() {
 				// The client should see his session id as recipient.
-				message.Message.Control.Recipient = &MessageClientMessageRecipient{
+				message.Message.Control.Recipient = &api.MessageClientMessageRecipient{
 					Type:      "session",
 					SessionId: s.SessionId(),
 					UserId:    s.UserId(),
@@ -386,10 +395,10 @@ func (s *VirtualSession) processAsyncMessage(message *AsyncMessage) {
 	}
 }
 
-func (s *VirtualSession) SendError(e *Error) bool {
+func (s *VirtualSession) SendError(e *api.Error) bool {
 	return s.session.SendError(e)
 }
 
-func (s *VirtualSession) SendMessage(message *ServerMessage) bool {
+func (s *VirtualSession) SendMessage(message *api.ServerMessage) bool {
 	return s.session.SendMessage(message)
 }

@@ -30,13 +30,16 @@ import (
 
 	"github.com/dlintw/goconf"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
 type ipList struct {
 	hostname string
 
-	entry *DnsMonitorEntry
+	entry *dns.MonitorEntry
 	ips   []net.IP
 }
 
@@ -45,7 +48,7 @@ type proxyConfigStatic struct {
 	mu     sync.Mutex
 	proxy  McuProxy
 
-	dnsMonitor *DnsMonitor
+	dnsMonitor *dns.Monitor
 	// +checklocks:mu
 	dnsDiscovery bool
 
@@ -53,7 +56,7 @@ type proxyConfigStatic struct {
 	connectionsMap map[string]*ipList
 }
 
-func NewProxyConfigStatic(logger log.Logger, config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *DnsMonitor) (ProxyConfig, error) {
+func NewProxyConfigStatic(logger log.Logger, config *goconf.ConfigFile, proxy McuProxy, dnsMonitor *dns.Monitor) (ProxyConfig, error) {
 	result := &proxyConfigStatic{
 		logger:         logger,
 		proxy:          proxy,
@@ -69,11 +72,11 @@ func NewProxyConfigStatic(logger log.Logger, config *goconf.ConfigFile, proxy Mc
 	return result, nil
 }
 
-func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool) error {
+func (p *proxyConfigStatic) configure(cfg *goconf.ConfigFile, fromReload bool) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	dnsDiscovery, _ := config.GetBool("mcu", "dnsdiscovery")
+	dnsDiscovery, _ := cfg.GetBool("mcu", "dnsdiscovery")
 	if dnsDiscovery != p.dnsDiscovery {
 		if !dnsDiscovery {
 			for _, ips := range p.connectionsMap {
@@ -88,8 +91,8 @@ func (p *proxyConfigStatic) configure(config *goconf.ConfigFile, fromReload bool
 
 	remove := maps.Clone(p.connectionsMap)
 
-	mcuUrl, _ := GetStringOptionWithEnv(config, "mcu", "url")
-	for u := range SplitEntries(mcuUrl, " ") {
+	mcuUrl, _ := config.GetStringOptionWithEnv(cfg, "mcu", "url")
+	for u := range internal.SplitEntries(mcuUrl, " ") {
 		if existing, found := remove[u]; found {
 			// Proxy connection still exists in new configuration
 			delete(remove, u)
@@ -190,7 +193,7 @@ func (p *proxyConfigStatic) Reload(config *goconf.ConfigFile) error {
 	return p.configure(config, true)
 }
 
-func (p *proxyConfigStatic) onLookup(entry *DnsMonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
+func (p *proxyConfigStatic) onLookup(entry *dns.MonitorEntry, all []net.IP, added []net.IP, keep []net.IP, removed []net.IP) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

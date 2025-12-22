@@ -47,7 +47,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/eventstest"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
@@ -57,11 +62,11 @@ var (
 	turnServers       = strings.Split(turnServersString, ",")
 )
 
-func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTest(t *testing.T) (*goconf.ConfigFile, *BackendServer, events.AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	return CreateBackendServerForTestFromConfig(t, nil)
 }
 
-func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *BackendServer, events.AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	config := goconf.NewConfigFile()
 	config.AddOption("turn", "apikey", turnApiKey)
 	config.AddOption("turn", "secret", turnSecret)
@@ -69,7 +74,7 @@ func CreateBackendServerForTestWithTurn(t *testing.T) (*goconf.ConfigFile, *Back
 	return CreateBackendServerForTestFromConfig(t, config)
 }
 
-func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
+func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFile) (*goconf.ConfigFile, *BackendServer, events.AsyncEvents, *Hub, *mux.Router, *httptest.Server) {
 	require := require.New(t)
 	r := mux.NewRouter()
 	registerBackendHandler(t, r)
@@ -99,7 +104,7 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
-	events := getAsyncEventsForTest(t)
+	events := eventstest.GetAsyncEventsForTest(t)
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	hub, err := NewHub(ctx, config, events, nil, nil, nil, r, "no-version")
@@ -143,7 +148,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		server2.Close()
 	})
 
-	nats, _ := startLocalNatsServer(t)
+	nats, _ := nats.StartLocalServer(t)
 	grpcServer1, addr1 := NewGrpcServerForTest(t)
 	grpcServer2, addr2 := NewGrpcServerForTest(t)
 
@@ -165,7 +170,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 
-	events1, err := NewAsyncEvents(ctx, nats.ClientURL())
+	events1, err := events.NewAsyncEvents(ctx, nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -190,7 +195,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	config2.AddOption("sessions", "blockkey", "09876543210987654321098765432109")
 	config2.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config2.AddOption("geoip", "url", "none")
-	events2, err := NewAsyncEvents(ctx, nats.ClientURL())
+	events2, err := events.NewAsyncEvents(ctx, nats.ClientURL())
 	require.NoError(err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -228,8 +233,8 @@ func performBackendRequest(requestUrl string, body []byte) (*http.Response, erro
 		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	rnd := newRandomString(32)
-	check := CalculateBackendChecksum(rnd, body, testBackendSecret)
+	rnd := internal.RandomString(32)
+	check := talk.CalculateBackendChecksum(rnd, body, testBackendSecret)
 	request.Header.Set("Spreed-Signaling-Random", rnd)
 	request.Header.Set("Spreed-Signaling-Checksum", check)
 	u, err := url.Parse(requestUrl)
@@ -241,14 +246,14 @@ func performBackendRequest(requestUrl string, body []byte) (*http.Response, erro
 	return client.Do(request)
 }
 
-func expectRoomlistEvent(t *testing.T, ch AsyncChannel, msgType string) (*EventServerMessage, bool) {
+func expectRoomlistEvent(t *testing.T, ch events.AsyncChannel, msgType string) (*api.EventServerMessage, bool) {
 	assert := assert.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	select {
 	case natsMsg := <-ch:
-		var message AsyncMessage
-		if !assert.NoError(NatsDecode(natsMsg, &message)) ||
+		var message events.AsyncMessage
+		if !assert.NoError(nats.Decode(natsMsg, &message)) ||
 			!assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
 			!assert.NotNil(message.Message, "message missing, got %+v", message) {
 			return nil, false
@@ -322,9 +327,9 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 	roomId := "the-room-id"
 	userid := "the-user-id"
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "invite",
-		Invite: &BackendRoomInviteRequest{
+		Invite: &talk.BackendRoomInviteRequest{
 			UserIds: []string{
 				userid,
 			},
@@ -341,8 +346,8 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 	request, err := http.NewRequest("POST", server.URL+"/api/v1/room/"+roomId, bytes.NewReader(data))
 	require.NoError(err)
 	request.Header.Set("Content-Type", "application/json")
-	rnd := newRandomString(32)
-	check := CalculateBackendChecksum(rnd, data, testBackendSecret)
+	rnd := internal.RandomString(32)
+	check := talk.CalculateBackendChecksum(rnd, data, testBackendSecret)
 	request.Header.Set("Spreed-Signaling-Random", rnd)
 	request.Header.Set("Spreed-Signaling-Checksum", check)
 	client := &http.Client{}
@@ -377,7 +382,7 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 	assert := assert.New(t)
 	_, _, _, _, _, server := CreateBackendServerForTest(t)
 
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "lala",
 	}
 
@@ -394,7 +399,7 @@ func TestBackendServer_UnsupportedRequest(t *testing.T) {
 
 func TestBackendServer_RoomInvite(t *testing.T) {
 	t.Parallel()
-	for _, backend := range eventBackendsForTest {
+	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			logger := log.NewLoggerForTest(t)
@@ -405,17 +410,17 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 }
 
 type channelEventListener struct {
-	ch AsyncChannel
+	ch events.AsyncChannel
 }
 
-func (l *channelEventListener) AsyncChannel() AsyncChannel {
+func (l *channelEventListener) AsyncChannel() events.AsyncChannel {
 	return l.ch
 }
 
 func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-	_, _, events, hub, _, server := CreateBackendServerForTest(t)
+	_, _, asyncEvents, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	require.NoError(err)
@@ -424,17 +429,18 @@ func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 	backend := hub.backend.GetBackend(u)
 
-	eventsChan := make(AsyncChannel, 1)
+	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(events.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
 	defer func() {
-		assert.NoError(events.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
 	}()
-	msg := &BackendServerRoomRequest{
+
+	msg := &talk.BackendServerRoomRequest{
 		Type: "invite",
-		Invite: &BackendRoomInviteRequest{
+		Invite: &talk.BackendRoomInviteRequest{
 			UserIds: []string{
 				userid,
 			},
@@ -463,7 +469,7 @@ func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 
 func TestBackendServer_RoomDisinvite(t *testing.T) {
 	t.Parallel()
-	for _, backend := range eventBackendsForTest {
+	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			logger := log.NewLoggerForTest(t)
@@ -476,7 +482,7 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-	_, _, events, hub, _, server := CreateBackendServerForTest(t)
+	_, _, asyncEvents, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	require.NoError(err)
@@ -496,26 +502,27 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 	}
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	eventsChan := make(AsyncChannel, 1)
+	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(events.RegisterUserListener(testDefaultUserId, backend, listener))
+	require.NoError(asyncEvents.RegisterUserListener(testDefaultUserId, backend, listener))
 	defer func() {
-		assert.NoError(events.UnregisterUserListener(testDefaultUserId, backend, listener))
+		assert.NoError(asyncEvents.UnregisterUserListener(testDefaultUserId, backend, listener))
 	}()
-	msg := &BackendServerRoomRequest{
+
+	msg := &talk.BackendServerRoomRequest{
 		Type: "disinvite",
-		Disinvite: &BackendRoomDisinviteRequest{
+		Disinvite: &talk.BackendRoomDisinviteRequest{
 			UserIds: []string{
 				testDefaultUserId,
 			},
-			SessionIds: []RoomSessionId{
-				RoomSessionId(fmt.Sprintf("%s-%s"+roomId, hello.Hello.SessionId)),
+			SessionIds: []api.RoomSessionId{
+				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId, hello.Hello.SessionId)),
 			},
 			AllUserIds: []string{},
 			Properties: roomProperties,
@@ -568,14 +575,14 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	MustSucceed2(t, client2.JoinRoom, ctx, roomId2)
 	require.True(client2.RunUntilJoined(ctx, hello2.Hello))
 
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "disinvite",
-		Disinvite: &BackendRoomDisinviteRequest{
+		Disinvite: &talk.BackendRoomDisinviteRequest{
 			UserIds: []string{
 				testDefaultUserId,
 			},
-			SessionIds: []RoomSessionId{
-				RoomSessionId(fmt.Sprintf("%s-%s"+roomId1, hello1.Hello.SessionId)),
+			SessionIds: []api.RoomSessionId{
+				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId1, hello1.Hello.SessionId)),
 			},
 			AllUserIds: []string{},
 		},
@@ -600,9 +607,9 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 		assert.Equal(roomId1, message.RoomId)
 	}
 
-	msg = &BackendServerRoomRequest{
+	msg = &talk.BackendServerRoomRequest{
 		Type: "update",
-		Update: &BackendRoomUpdateRequest{
+		Update: &talk.BackendRoomUpdateRequest{
 			UserIds: []string{
 				testDefaultUserId,
 			},
@@ -626,7 +633,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
 	t.Parallel()
-	for _, backend := range eventBackendsForTest {
+	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			logger := log.NewLoggerForTest(t)
@@ -639,7 +646,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-	_, _, events, hub, _, server := CreateBackendServerForTest(t)
+	_, _, asyncEvents, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	require.NoError(err)
@@ -655,17 +662,18 @@ func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 	userid := "test-userid"
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
-	eventsChan := make(AsyncChannel, 1)
+	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(events.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
 	defer func() {
-		assert.NoError(events.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
 	}()
-	msg := &BackendServerRoomRequest{
+
+	msg := &talk.BackendServerRoomRequest{
 		Type: "update",
-		Update: &BackendRoomUpdateRequest{
+		Update: &talk.BackendRoomUpdateRequest{
 			UserIds: []string{
 				userid,
 			},
@@ -697,7 +705,7 @@ func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 
 func TestBackendServer_RoomDelete(t *testing.T) {
 	t.Parallel()
-	for _, backend := range eventBackendsForTest {
+	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
 			logger := log.NewLoggerForTest(t)
@@ -710,7 +718,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-	_, _, events, hub, _, server := CreateBackendServerForTest(t)
+	_, _, asyncEvents, hub, _, server := CreateBackendServerForTest(t)
 
 	u, err := url.Parse(server.URL)
 	require.NoError(err)
@@ -723,17 +731,18 @@ func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	require.NoError(err)
 
 	userid := "test-userid"
-	eventsChan := make(AsyncChannel, 1)
+	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(events.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
 	defer func() {
-		assert.NoError(events.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
 	}()
-	msg := &BackendServerRoomRequest{
+
+	msg := &talk.BackendServerRoomRequest{
 		Type: "delete",
-		Delete: &BackendRoomDeleteRequest{
+		Delete: &talk.BackendRoomDeleteRequest{
 			UserIds: []string{
 				userid,
 			},
@@ -800,43 +809,44 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 			require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
 
 			// Sessions have all permissions initially (fallback for old-style sessions).
-			assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_MEDIA)
-			assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_SCREEN)
-			assertSessionHasPermission(t, session2, PERMISSION_MAY_PUBLISH_MEDIA)
-			assertSessionHasPermission(t, session2, PERMISSION_MAY_PUBLISH_SCREEN)
+			assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_MEDIA)
+			assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_SCREEN)
+			assertSessionHasPermission(t, session2, api.PERMISSION_MAY_PUBLISH_MEDIA)
+			assertSessionHasPermission(t, session2, api.PERMISSION_MAY_PUBLISH_SCREEN)
 
 			// Join room by id.
 			roomId := "test-room"
 			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
 			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
 			// Ignore "join" events.
-			assert.NoError(client1.DrainMessages(ctx))
-			assert.NoError(client2.DrainMessages(ctx))
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 
-			msg := &BackendServerRoomRequest{
+			msg := &talk.BackendServerRoomRequest{
 				Type: "participants",
-				Participants: &BackendRoomParticipantsRequest{
+				Participants: &talk.BackendRoomParticipantsRequest{
 					Changed: []api.StringMap{
 						{
 							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-							"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
+							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
 						},
 						{
 							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
-							"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
+							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_SCREEN},
 						},
 					},
 					Users: []api.StringMap{
 						{
 							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-							"permissions": []Permission{PERMISSION_MAY_PUBLISH_MEDIA},
+							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
 						},
 						{
 							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
-							"permissions": []Permission{PERMISSION_MAY_PUBLISH_SCREEN},
+							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_SCREEN},
 						},
 					},
 				},
@@ -855,10 +865,10 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 			// TODO: Use event to wait for asynchronous messages.
 			time.Sleep(10 * time.Millisecond)
 
-			assertSessionHasPermission(t, session1, PERMISSION_MAY_PUBLISH_MEDIA)
-			assertSessionHasNotPermission(t, session1, PERMISSION_MAY_PUBLISH_SCREEN)
-			assertSessionHasNotPermission(t, session2, PERMISSION_MAY_PUBLISH_MEDIA)
-			assertSessionHasPermission(t, session2, PERMISSION_MAY_PUBLISH_SCREEN)
+			assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_MEDIA)
+			assertSessionHasNotPermission(t, session1, api.PERMISSION_MAY_PUBLISH_SCREEN)
+			assertSessionHasNotPermission(t, session2, api.PERMISSION_MAY_PUBLISH_MEDIA)
+			assertSessionHasPermission(t, session2, api.PERMISSION_MAY_PUBLISH_SCREEN)
 		})
 	}
 }
@@ -881,8 +891,8 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	assert.NotNil(session, "Session %s does not exist", hello.Hello.SessionId)
 
 	// Sessions have all permissions initially (fallback for old-style sessions).
-	assertSessionHasPermission(t, session, PERMISSION_MAY_PUBLISH_MEDIA)
-	assertSessionHasPermission(t, session, PERMISSION_MAY_PUBLISH_SCREEN)
+	assertSessionHasPermission(t, session, api.PERMISSION_MAY_PUBLISH_MEDIA)
+	assertSessionHasPermission(t, session, api.PERMISSION_MAY_PUBLISH_SCREEN)
 
 	// Join room by id.
 	roomId := "test-room"
@@ -890,23 +900,23 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	// Updating with empty permissions upgrades to non-old-style and removes
 	// all previously available permissions.
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "participants",
-		Participants: &BackendRoomParticipantsRequest{
+		Participants: &talk.BackendRoomParticipantsRequest{
 			Changed: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []Permission{},
+					"permissions": []api.Permission{},
 				},
 			},
 			Users: []api.StringMap{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []Permission{},
+					"permissions": []api.Permission{},
 				},
 			},
 		},
@@ -924,8 +934,8 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	// TODO: Use event to wait for asynchronous messages.
 	time.Sleep(10 * time.Millisecond)
 
-	assertSessionHasNotPermission(t, session, PERMISSION_MAY_PUBLISH_MEDIA)
-	assertSessionHasNotPermission(t, session, PERMISSION_MAY_PUBLISH_SCREEN)
+	assertSessionHasNotPermission(t, session, api.PERMISSION_MAY_PUBLISH_MEDIA)
+	assertSessionHasNotPermission(t, session, api.PERMISSION_MAY_PUBLISH_SCREEN)
 }
 
 func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
@@ -962,9 +972,9 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		msg := &BackendServerRoomRequest{
+		msg := &talk.BackendServerRoomRequest{
 			Type: "incall",
-			InCall: &BackendRoomInCallRequest{
+			InCall: &talk.BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
 				Changed: []api.StringMap{
 					{
@@ -1009,9 +1019,9 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		msg := &BackendServerRoomRequest{
+		msg := &talk.BackendServerRoomRequest{
 			Type: "incall",
-			InCall: &BackendRoomInCallRequest{
+			InCall: &talk.BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
 				Changed: []api.StringMap{
 					{
@@ -1149,9 +1159,9 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				msg := &BackendServerRoomRequest{
+				msg := &talk.BackendServerRoomRequest{
 					Type: "incall",
-					InCall: &BackendRoomInCallRequest{
+					InCall: &talk.BackendRoomInCallRequest{
 						InCall: json.RawMessage("7"),
 						All:    true,
 					},
@@ -1206,9 +1216,9 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				msg := &BackendServerRoomRequest{
+				msg := &talk.BackendServerRoomRequest{
 					Type: "incall",
-					InCall: &BackendRoomInCallRequest{
+					InCall: &talk.BackendRoomInCallRequest{
 						InCall: json.RawMessage("0"),
 						All:    true,
 					},
@@ -1274,7 +1284,7 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
-	client, _ := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
 	defer client.CloseWithBye()
 
 	// Join room by id.
@@ -1283,12 +1293,12 @@ func TestBackendServer_RoomMessage(t *testing.T) {
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
 	// Ignore "join" events.
-	assert.NoError(client.DrainMessages(ctx))
+	client.RunUntilJoined(ctx, hello.Hello)
 
 	messageData := json.RawMessage("{\"foo\":\"bar\"}")
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "message",
-		Message: &BackendRoomMessageRequest{
+		Message: &talk.BackendRoomMessageRequest{
 			Data: messageData,
 		},
 	}
@@ -1327,7 +1337,7 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
-	var cred TurnCredentials
+	var cred talk.TurnCredentials
 	require.NoError(json.Unmarshal(body, &cred))
 
 	m := hmac.New(sha1.New, []byte(turnSecret))
@@ -1451,9 +1461,9 @@ func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 	MustSucceed1(t, client.RunUntilHello, ctx)
 
 	roomId := "12345"
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "dialout",
-		Dialout: &BackendRoomDialoutRequest{
+		Dialout: &talk.BackendRoomDialoutRequest{
 			Number: "+1234567890",
 		},
 	}
@@ -1467,7 +1477,7 @@ func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 	assert.NoError(err)
 	require.Equal(http.StatusNotFound, res.StatusCode, "Expected error, got %s", string(body))
 
-	var response BackendServerRoomResponse
+	var response talk.BackendServerRoomResponse
 	if assert.NoError(json.Unmarshal(body, &response)) {
 		assert.Equal("dialout", response.Type)
 		if assert.NotNil(response.Dialout) &&
@@ -1516,15 +1526,15 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 		assert.Equal(server.URL+"/", msg.Internal.Dialout.Backend)
 
-		response := &ClientMessage{
+		response := &api.ClientMessage{
 			Id:   msg.Id,
 			Type: "internal",
-			Internal: &InternalClientMessage{
+			Internal: &api.InternalClientMessage{
 				Type: "dialout",
-				Dialout: &DialoutInternalClientMessage{
+				Dialout: &api.DialoutInternalClientMessage{
 					Type:   "status",
 					RoomId: msg.Internal.Dialout.RoomId,
-					Status: &DialoutStatusInternalClientMessage{
+					Status: &api.DialoutStatusInternalClientMessage{
 						Status: "accepted",
 						CallId: callId,
 					},
@@ -1538,9 +1548,9 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 		<-stopped
 	}()
 
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "dialout",
-		Dialout: &BackendRoomDialoutRequest{
+		Dialout: &talk.BackendRoomDialoutRequest{
 			Number: "+1234567890",
 		},
 	}
@@ -1554,7 +1564,7 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 	assert.NoError(err)
 	require.Equal(http.StatusOK, res.StatusCode, "Expected success, got %s", string(body))
 
-	var response BackendServerRoomResponse
+	var response talk.BackendServerRoomResponse
 	if err := json.Unmarshal(body, &response); assert.NoError(err) {
 		assert.Equal("dialout", response.Type)
 		if assert.NotNil(response.Dialout) {
@@ -1603,15 +1613,15 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 		assert.Equal(server.URL+"/", msg.Internal.Dialout.Backend)
 
-		response := &ClientMessage{
+		response := &api.ClientMessage{
 			Id:   msg.Id,
 			Type: "internal",
-			Internal: &InternalClientMessage{
+			Internal: &api.InternalClientMessage{
 				Type: "dialout",
-				Dialout: &DialoutInternalClientMessage{
+				Dialout: &api.DialoutInternalClientMessage{
 					Type:   "status",
 					RoomId: msg.Internal.Dialout.RoomId,
-					Status: &DialoutStatusInternalClientMessage{
+					Status: &api.DialoutStatusInternalClientMessage{
 						Status: "accepted",
 						CallId: callId,
 					},
@@ -1625,9 +1635,9 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 		<-stopped
 	}()
 
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "dialout",
-		Dialout: &BackendRoomDialoutRequest{
+		Dialout: &talk.BackendRoomDialoutRequest{
 			Number: "+1234567890",
 		},
 	}
@@ -1641,7 +1651,7 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 	assert.NoError(err)
 	require.Equal(http.StatusOK, res.StatusCode, "Expected success, got %s", string(body))
 
-	var response BackendServerRoomResponse
+	var response talk.BackendServerRoomResponse
 	if err := json.Unmarshal(body, &response); assert.NoError(err) {
 		assert.Equal("dialout", response.Type)
 		if assert.NotNil(response.Dialout) {
@@ -1691,14 +1701,14 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 		assert.Equal(server.URL+"/", msg.Internal.Dialout.Backend)
 
-		response := &ClientMessage{
+		response := &api.ClientMessage{
 			Id:   msg.Id,
 			Type: "internal",
-			Internal: &InternalClientMessage{
+			Internal: &api.InternalClientMessage{
 				Type: "dialout",
-				Dialout: &DialoutInternalClientMessage{
+				Dialout: &api.DialoutInternalClientMessage{
 					Type:  "error",
-					Error: NewError(errorCode, errorMessage),
+					Error: api.NewError(errorCode, errorMessage),
 				},
 			},
 		}
@@ -1709,9 +1719,9 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 		<-stopped
 	}()
 
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "dialout",
-		Dialout: &BackendRoomDialoutRequest{
+		Dialout: &talk.BackendRoomDialoutRequest{
 			Number: "+1234567890",
 		},
 	}
@@ -1725,7 +1735,7 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 	assert.NoError(err)
 	require.Equal(http.StatusBadGateway, res.StatusCode, "Expected error, got %s", string(body))
 
-	var response BackendServerRoomResponse
+	var response talk.BackendServerRoomResponse
 	if err := json.Unmarshal(body, &response); assert.NoError(err) {
 		assert.Equal("dialout", response.Type)
 		if assert.NotNil(response.Dialout) &&
@@ -1782,31 +1792,31 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 		assert.Equal(roomId, msg.Internal.Dialout.RoomId)
 		assert.Equal(server.URL+"/", msg.Internal.Dialout.Backend)
 
-		var dialout *DialoutInternalClientMessage
+		var dialout *api.DialoutInternalClientMessage
 		// The first session should return an error to make sure the second is retried afterwards.
 		if returnedError.CompareAndSwap(false, true) {
 			errorCode := "error-code"
 			errorMessage := "rejected call"
 
-			dialout = &DialoutInternalClientMessage{
+			dialout = &api.DialoutInternalClientMessage{
 				Type:  "error",
-				Error: NewError(errorCode, errorMessage),
+				Error: api.NewError(errorCode, errorMessage),
 			}
 		} else {
-			dialout = &DialoutInternalClientMessage{
+			dialout = &api.DialoutInternalClientMessage{
 				Type:   "status",
 				RoomId: msg.Internal.Dialout.RoomId,
-				Status: &DialoutStatusInternalClientMessage{
+				Status: &api.DialoutStatusInternalClientMessage{
 					Status: "accepted",
 					CallId: callId,
 				},
 			}
 		}
 
-		response := &ClientMessage{
+		response := &api.ClientMessage{
 			Id:   msg.Id,
 			Type: "internal",
-			Internal: &InternalClientMessage{
+			Internal: &api.InternalClientMessage{
 				Type:    "dialout",
 				Dialout: dialout,
 			},
@@ -1823,9 +1833,9 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 		wg.Wait()
 	}()
 
-	msg := &BackendServerRoomRequest{
+	msg := &talk.BackendServerRoomRequest{
 		Type: "dialout",
-		Dialout: &BackendRoomDialoutRequest{
+		Dialout: &talk.BackendRoomDialoutRequest{
 			Number: "+1234567890",
 		},
 	}
@@ -1839,7 +1849,7 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 	assert.NoError(err)
 	require.Equal(http.StatusOK, res.StatusCode, "Expected success, got %s", string(body))
 
-	var response BackendServerRoomResponse
+	var response talk.BackendServerRoomResponse
 	if err := json.Unmarshal(body, &response); assert.NoError(err) {
 		assert.Equal("dialout", response.Type)
 		if assert.NotNil(response.Dialout) {

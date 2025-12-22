@@ -26,54 +26,38 @@ import (
 	"encoding/json"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
-)
-
-type Permission string
-
-var (
-	PERMISSION_MAY_PUBLISH_MEDIA  Permission = "publish-media"
-	PERMISSION_MAY_PUBLISH_AUDIO  Permission = "publish-audio"
-	PERMISSION_MAY_PUBLISH_VIDEO  Permission = "publish-video"
-	PERMISSION_MAY_PUBLISH_SCREEN Permission = "publish-screen"
-	PERMISSION_MAY_CONTROL        Permission = "control"
-	PERMISSION_TRANSIENT_DATA     Permission = "transient-data"
-	PERMISSION_HIDE_DISPLAYNAMES  Permission = "hide-displaynames"
-
-	// DefaultPermissionOverrides contains permission overrides for users where
-	// no permissions have been set by the server. If a permission is not set in
-	// this map, it's assumed the user has that permission.
-	DefaultPermissionOverrides = map[Permission]bool{ // +checklocksignore: Global readonly variable.
-		PERMISSION_HIDE_DISPLAYNAMES: false,
-	}
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type Session interface {
 	Context() context.Context
-	PrivateId() PrivateSessionId
-	PublicId() PublicSessionId
-	ClientType() ClientType
+	PrivateId() api.PrivateSessionId
+	PublicId() api.PublicSessionId
+	ClientType() api.ClientType
 	Data() *SessionIdData
 
 	UserId() string
 	UserData() json.RawMessage
 	ParsedUserData() (api.StringMap, error)
 
-	Backend() *Backend
+	Backend() *talk.Backend
 	BackendUrl() string
 	ParsedBackendUrl() *url.URL
 
-	SetRoom(room *Room)
+	SetRoom(room *Room, joinTime time.Time)
 	GetRoom() *Room
 	LeaveRoom(notify bool) *Room
+	IsInRoom(id string) bool
 
 	Close()
 
-	HasPermission(permission Permission) bool
+	HasPermission(permission api.Permission) bool
 
-	SendError(e *Error) bool
-	SendMessage(message *ServerMessage) bool
+	SendError(e *api.Error) bool
+	SendMessage(message *api.ServerMessage) bool
 }
 
 type SessionWithInCall interface {

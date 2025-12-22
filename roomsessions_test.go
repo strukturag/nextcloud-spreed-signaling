@@ -26,30 +26,32 @@ import (
 	"encoding/json"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 type DummySession struct {
-	publicId PublicSessionId
+	publicId api.PublicSessionId
 }
 
 func (s *DummySession) Context() context.Context {
 	return context.Background()
 }
 
-func (s *DummySession) PrivateId() PrivateSessionId {
+func (s *DummySession) PrivateId() api.PrivateSessionId {
 	return ""
 }
 
-func (s *DummySession) PublicId() PublicSessionId {
+func (s *DummySession) PublicId() api.PublicSessionId {
 	return s.publicId
 }
 
-func (s *DummySession) ClientType() ClientType {
+func (s *DummySession) ClientType() api.ClientType {
 	return ""
 }
 
@@ -69,7 +71,7 @@ func (s *DummySession) ParsedUserData() (api.StringMap, error) {
 	return nil, nil
 }
 
-func (s *DummySession) Backend() *Backend {
+func (s *DummySession) Backend() *talk.Backend {
 	return nil
 }
 
@@ -81,11 +83,15 @@ func (s *DummySession) ParsedBackendUrl() *url.URL {
 	return nil
 }
 
-func (s *DummySession) SetRoom(room *Room) {
+func (s *DummySession) SetRoom(room *Room, joinTime time.Time) {
 }
 
 func (s *DummySession) GetRoom() *Room {
 	return nil
+}
+
+func (s *DummySession) IsInRoom(id string) bool {
+	return false
 }
 
 func (s *DummySession) LeaveRoom(notify bool) *Room {
@@ -95,19 +101,19 @@ func (s *DummySession) LeaveRoom(notify bool) *Room {
 func (s *DummySession) Close() {
 }
 
-func (s *DummySession) HasPermission(permission Permission) bool {
+func (s *DummySession) HasPermission(permission api.Permission) bool {
 	return false
 }
 
-func (s *DummySession) SendError(e *Error) bool {
+func (s *DummySession) SendError(e *api.Error) bool {
 	return false
 }
 
-func (s *DummySession) SendMessage(message *ServerMessage) bool {
+func (s *DummySession) SendMessage(message *api.ServerMessage) bool {
 	return false
 }
 
-func checkSession(t *testing.T, sessions RoomSessions, sessionId PublicSessionId, roomSessionId RoomSessionId) Session {
+func checkSession(t *testing.T, sessions RoomSessions, sessionId api.PublicSessionId, roomSessionId api.RoomSessionId) Session {
 	session := &DummySession{
 		publicId: sessionId,
 	}

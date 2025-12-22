@@ -26,11 +26,14 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dlintw/goconf"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -39,7 +42,7 @@ type proxyConfigEtcd struct {
 	mu     sync.Mutex
 	proxy  McuProxy // +checklocksignore: Only written to from constructor.
 
-	client    *EtcdClient
+	client    etcd.Client
 	keyPrefix string
 	// +checklocks:mu
 	keyInfos map[string]*ProxyInformationEtcd
@@ -48,13 +51,19 @@ type proxyConfigEtcd struct {
 
 	closeCtx  context.Context
 	closeFunc context.CancelFunc
+
+	initializing    atomic.Bool
+	initializedCtx  context.Context
+	initializedFunc context.CancelFunc
+	runningDone     sync.WaitGroup
 }
 
-func NewProxyConfigEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient *EtcdClient, proxy McuProxy) (ProxyConfig, error) {
+func NewProxyConfigEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient etcd.Client, proxy McuProxy) (ProxyConfig, error) {
 	if !etcdClient.IsConfigured() {
 		return nil, errors.New("no etcd endpoints configured")
 	}
 
+	initializedCtx, initializedFunc := context.WithCancel(context.Background())
 	closeCtx, closeFunc := context.WithCancel(context.Background())
 
 	result := &proxyConfigEtcd{
@@ -67,6 +76,9 @@ func NewProxyConfigEtcd(logger log.Logger, config *goconf.ConfigFile, etcdClient
 
 		closeCtx:  closeCtx,
 		closeFunc: closeFunc,
+
+		initializedCtx:  initializedCtx,
+		initializedFunc: initializedFunc,
 	}
 	if err := result.configure(config, false); err != nil {
 		return nil, err
@@ -95,12 +107,29 @@ func (p *proxyConfigEtcd) Reload(config *goconf.ConfigFile) error {
 }
 
 func (p *proxyConfigEtcd) Stop() {
-	p.client.RemoveListener(p)
+	firstStop := p.closeCtx.Err() == nil
 	p.closeFunc()
+	p.client.RemoveListener(p)
+	if firstStop {
+		if p.initializing.Load() {
+			<-p.initializedCtx.Done()
+		}
+		p.runningDone.Wait()
+	}
 }
 
-func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
+func (p *proxyConfigEtcd) EtcdClientCreated(client etcd.Client) {
+	p.initializing.Store(true)
+	if p.closeCtx.Err() != nil {
+		// Stopped before etcd client was connected.
+		p.initializedFunc()
+		return
+	}
+
+	p.runningDone.Add(1)
 	go func() {
+		defer p.runningDone.Done()
+		defer p.initializedFunc()
 		if err := client.WaitForConnection(p.closeCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
@@ -109,7 +138,7 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 			panic(err)
 		}
 
-		backoff, err := NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
+		backoff, err := async.NewExponentialBackoff(initialWaitDelay, maxWaitDelay)
 		if err != nil {
 			panic(err)
 		}
@@ -136,6 +165,7 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 			nextRevision = response.Header.Revision + 1
 			break
 		}
+		p.initializedFunc()
 
 		prevRevision := nextRevision
 		backoff.Reset()
@@ -158,17 +188,17 @@ func (p *proxyConfigEtcd) EtcdClientCreated(client *EtcdClient) {
 	}()
 }
 
-func (p *proxyConfigEtcd) EtcdWatchCreated(client *EtcdClient, key string) {
+func (p *proxyConfigEtcd) EtcdWatchCreated(client etcd.Client, key string) {
 }
 
-func (p *proxyConfigEtcd) getProxyUrls(ctx context.Context, client *EtcdClient, keyPrefix string) (*clientv3.GetResponse, error) {
+func (p *proxyConfigEtcd) getProxyUrls(ctx context.Context, client etcd.Client, keyPrefix string) (*clientv3.GetResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return client.Get(ctx, keyPrefix, clientv3.WithPrefix())
 }
 
-func (p *proxyConfigEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []byte, prevValue []byte) {
+func (p *proxyConfigEtcd) EtcdKeyUpdated(client etcd.Client, key string, data []byte, prevValue []byte) {
 	var info ProxyInformationEtcd
 	if err := json.Unmarshal(data, &info); err != nil {
 		p.logger.Printf("Could not decode proxy information %s: %s", string(data), err)
@@ -209,7 +239,7 @@ func (p *proxyConfigEtcd) EtcdKeyUpdated(client *EtcdClient, key string, data []
 	}
 }
 
-func (p *proxyConfigEtcd) EtcdKeyDeleted(client *EtcdClient, key string, prevValue []byte) {
+func (p *proxyConfigEtcd) EtcdKeyDeleted(client etcd.Client, key string, prevValue []byte) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

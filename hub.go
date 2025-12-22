@@ -52,35 +52,41 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
 	// HelloExpected is returned if a client sends a message before the "hello" request.
-	HelloExpected = NewError("hello_expected", "Expected Hello request.")
-	// InvalidHelloVersion is returned if the version in the "hello" message is not supported.
-	InvalidHelloVersion = NewError("invalid_hello_version", "The hello version is not supported.")
+	HelloExpected = api.NewError("hello_expected", "Expected Hello request.")
 	// UserAuthFailed is returned if the Talk response to a v1 hello is not an error but also not a valid auth response.
-	UserAuthFailed = NewError("auth_failed", "The user could not be authenticated.")
+	UserAuthFailed = api.NewError("auth_failed", "The user could not be authenticated.")
 	// RoomJoinFailed is returned if the Talk response to a room join request is not an error and not a valid join response.
-	RoomJoinFailed = NewError("room_join_failed", "Could not join the room.")
+	RoomJoinFailed = api.NewError("room_join_failed", "Could not join the room.")
 	// InvalidClientType is returned if the client type in the "hello" request is not supported.
-	InvalidClientType = NewError("invalid_client_type", "The client type is not supported.")
+	InvalidClientType = api.NewError("invalid_client_type", "The client type is not supported.")
 	// InvalidBackendUrl is returned if no backend is configured for URL in the "hello" request.
-	InvalidBackendUrl = NewError("invalid_backend", "The backend URL is not supported.")
+	InvalidBackendUrl = api.NewError("invalid_backend", "The backend URL is not supported.")
 	// InvalidToken is returned if the token in a "hello" request could not be validated.
-	InvalidToken = NewError("invalid_token", "The passed token is invalid.")
+	InvalidToken = api.NewError("invalid_token", "The passed token is invalid.")
 	// NoSuchSession is returned if the session to be resumed is unknown or expired.
-	NoSuchSession = NewError("no_such_session", "The session to resume does not exist.")
+	NoSuchSession = api.NewError("no_such_session", "The session to resume does not exist.")
 	// TokenNotValidYet is returned if the token in a "hello" request could be authenticated but is not valid yet.
 	// This hints to a mismatch in the time between the server running Talk and the server running the signaling server.
-	TokenNotValidYet = NewError("token_not_valid_yet", "The token is not valid yet.")
+	TokenNotValidYet = api.NewError("token_not_valid_yet", "The token is not valid yet.")
 	// TokenExpired is returned if the token in a "hello" request could be authenticated but is expired.
 	// This hints to a mismatch in the time between the server running Talk and the server running the signaling server,
 	// but could also be a client trying to connect with an old token.
-	TokenExpired = NewError("token_expired", "The token is expired.")
+	TokenExpired = api.NewError("token_expired", "The token is expired.")
 	// TooManyRequests is returned if brute force detection reports too many failed "hello" requests.
-	TooManyRequests = NewError("too_many_requests", "Too many requests.")
+	TooManyRequests = api.NewError("too_many_requests", "Too many requests.")
 
 	// Maximum number of concurrent requests to a backend.
 	defaultMaxConcurrentRequestsPerHost = 8
@@ -131,7 +137,7 @@ var (
 	// Allow time differences of up to one minute between server and proxy.
 	tokenLeeway = time.Minute
 
-	DefaultTrustedProxies = DefaultPrivateIps()
+	DefaultTrustedProxies = container.DefaultPrivateIPs()
 )
 
 func init() {
@@ -141,24 +147,24 @@ func init() {
 type Hub struct {
 	version      string
 	logger       log.Logger
-	events       AsyncEvents
+	events       events.AsyncEvents
 	upgrader     websocket.Upgrader
 	sessionIds   *SessionIdCodec
-	info         *WelcomeServerMessage
-	infoInternal *WelcomeServerMessage
-	welcome      atomic.Value // *ServerMessage
+	info         *api.WelcomeServerMessage
+	infoInternal *api.WelcomeServerMessage
+	welcome      atomic.Value // *api.ServerMessage
 
-	closer          *Closer
+	closer          *internal.Closer
 	readPumpActive  atomic.Int32
 	writePumpActive atomic.Int32
 
-	shutdown          *Closer
+	shutdown          *internal.Closer
 	shutdownScheduled atomic.Bool
 
-	roomUpdated      chan *BackendServerRoomRequest
-	roomDeleted      chan *BackendServerRoomRequest
-	roomInCall       chan *BackendServerRoomRequest
-	roomParticipants chan *BackendServerRoomRequest
+	roomUpdated      chan *talk.BackendServerRoomRequest
+	roomDeleted      chan *talk.BackendServerRoomRequest
+	roomInCall       chan *talk.BackendServerRoomRequest
+	roomParticipants chan *talk.BackendServerRoomRequest
 
 	mu sync.RWMutex
 	ru sync.RWMutex
@@ -174,9 +180,9 @@ type Hub struct {
 	roomSessions RoomSessions
 	roomPing     *RoomPing
 	// +checklocks:mu
-	virtualSessions map[PublicSessionId]uint64
+	virtualSessions map[api.PublicSessionId]uint64
 
-	decodeCaches []*LruCache[*SessionIdData]
+	decodeCaches []*container.LruCache[*SessionIdData]
 
 	mcu                   Mcu
 	mcuTimeout            time.Duration
@@ -202,27 +208,27 @@ type Hub struct {
 	backendTimeout time.Duration
 	backend        *BackendClient
 
-	trustedProxies atomic.Pointer[AllowedIps]
-	geoip          *GeoLookup
-	geoipOverrides atomic.Pointer[map[*net.IPNet]string]
+	trustedProxies atomic.Pointer[container.IPList]
+	geoip          *geoip.Lookup
+	geoipOverrides geoip.AtomicOverrides
 	geoipUpdating  atomic.Bool
 
-	etcdClient *EtcdClient
+	etcdClient etcd.Client
 	rpcServer  *GrpcServer
 	rpcClients *GrpcClients
 
-	throttler Throttler
+	throttler async.Throttler
 
 	skipFederationVerify bool
 	federationTimeout    time.Duration
 
-	allowedCandidates atomic.Pointer[AllowedIps]
-	blockedCandidates atomic.Pointer[AllowedIps]
+	allowedCandidates atomic.Pointer[container.IPList]
+	blockedCandidates atomic.Pointer[container.IPList]
 }
 
-func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient *EtcdClient, r *mux.Router, version string) (*Hub, error) {
+func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
 	logger := log.LoggerFromContext(ctx)
-	hashKey, _ := GetStringOptionWithEnv(config, "sessions", "hashkey")
+	hashKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "hashkey")
 	switch len(hashKey) {
 	case 32:
 	case 64:
@@ -230,7 +236,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		logger.Printf("WARNING: The sessions hash key should be 32 or 64 bytes but is %d bytes", len(hashKey))
 	}
 
-	blockKey, _ := GetStringOptionWithEnv(config, "sessions", "blockkey")
+	blockKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "blockkey")
 	blockBytes := []byte(blockKey)
 	switch len(blockKey) {
 	case 0:
@@ -247,51 +253,51 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		return nil, fmt.Errorf("error creating session id codec: %w", err)
 	}
 
-	internalClientsSecret, _ := GetStringOptionWithEnv(config, "clients", "internalsecret")
+	internalClientsSecret, _ := config.GetStringOptionWithEnv(cfg, "clients", "internalsecret")
 	if internalClientsSecret == "" {
 		logger.Println("WARNING: No shared secret has been set for internal clients.")
 	}
 
-	maxConcurrentRequestsPerHost, _ := config.GetInt("backend", "connectionsperhost")
+	maxConcurrentRequestsPerHost, _ := cfg.GetInt("backend", "connectionsperhost")
 	if maxConcurrentRequestsPerHost <= 0 {
 		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
 	}
 
-	backend, err := NewBackendClient(ctx, config, maxConcurrentRequestsPerHost, version, etcdClient)
+	backend, err := NewBackendClient(ctx, cfg, maxConcurrentRequestsPerHost, version, etcdClient)
 	if err != nil {
 		return nil, err
 	}
 	logger.Printf("Using a maximum of %d concurrent backend connections per host", maxConcurrentRequestsPerHost)
 
-	backendTimeoutSeconds, _ := config.GetInt("backend", "timeout")
+	backendTimeoutSeconds, _ := cfg.GetInt("backend", "timeout")
 	if backendTimeoutSeconds <= 0 {
 		backendTimeoutSeconds = defaultBackendTimeoutSeconds
 	}
 	backendTimeout := time.Duration(backendTimeoutSeconds) * time.Second
 	logger.Printf("Using a timeout of %s for backend connections", backendTimeout)
 
-	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
+	mcuTimeoutSeconds, _ := cfg.GetInt("mcu", "timeout")
 	if mcuTimeoutSeconds <= 0 {
 		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
 	}
 	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
 
-	allowSubscribeAnyStream, _ := config.GetBool("app", "allowsubscribeany")
+	allowSubscribeAnyStream, _ := cfg.GetBool("app", "allowsubscribeany")
 	if allowSubscribeAnyStream {
 		logger.Printf("WARNING: Allow subscribing any streams, this is insecure and should only be enabled for testing")
 	}
 
-	trustedProxies, _ := config.GetString("app", "trustedproxies")
-	trustedProxiesIps, err := ParseAllowedIps(trustedProxies)
+	trustedProxies, _ := cfg.GetString("app", "trustedproxies")
+	trustedProxiesIps, err := container.ParseIPList(trustedProxies)
 	if err != nil {
 		return nil, err
 	}
 
-	skipFederationVerify, _ := config.GetBool("federation", "skipverify")
+	skipFederationVerify, _ := cfg.GetBool("federation", "skipverify")
 	if skipFederationVerify {
 		logger.Println("WARNING: Federation target verification is disabled!")
 	}
-	federationTimeoutSeconds, _ := config.GetInt("federation", "timeout")
+	federationTimeoutSeconds, _ := cfg.GetInt("federation", "timeout")
 	if federationTimeoutSeconds <= 0 {
 		federationTimeoutSeconds = defaultFederationTimeoutSeconds
 	}
@@ -304,9 +310,9 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 	}
 
-	decodeCaches := make([]*LruCache[*SessionIdData], 0, numDecodeCaches)
+	decodeCaches := make([]*container.LruCache[*SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, NewLruCache[*SessionIdData](decodeCacheSize))
+		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
 	}
 
 	roomSessions, err := NewBuiltinRoomSessions(rpcClients)
@@ -319,24 +325,24 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		return nil, err
 	}
 
-	geoipUrl, _ := config.GetString("geoip", "url")
+	geoipUrl, _ := cfg.GetString("geoip", "url")
 	if geoipUrl == "default" || geoipUrl == "none" {
 		geoipUrl = ""
 	}
 	if geoipUrl == "" {
-		if geoipLicense, _ := config.GetString("geoip", "license"); geoipLicense != "" {
-			geoipUrl = GetGeoIpDownloadUrl(geoipLicense)
+		if geoipLicense, _ := cfg.GetString("geoip", "license"); geoipLicense != "" {
+			geoipUrl = geoip.GetMaxMindDownloadUrl(geoipLicense)
 		}
 	}
 
-	var geoip *GeoLookup
+	var geoipLookup *geoip.Lookup
 	if geoipUrl != "" {
 		if geoipUrl, found := strings.CutPrefix(geoipUrl, "file://"); found {
 			logger.Printf("Using GeoIP database from %s", geoipUrl)
-			geoip, err = NewGeoLookupFromFile(logger, geoipUrl)
+			geoipLookup, err = geoip.NewLookupFromFile(logger, geoipUrl)
 		} else {
 			logger.Printf("Downloading GeoIP database from %s", geoipUrl)
-			geoip, err = NewGeoLookupFromUrl(logger, geoipUrl)
+			geoipLookup, err = geoip.NewLookupFromUrl(logger, geoipUrl)
 		}
 		if err != nil {
 			return nil, err
@@ -345,12 +351,12 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		logger.Printf("Not using GeoIP database")
 	}
 
-	geoipOverrides, err := LoadGeoIPOverrides(ctx, config, false)
+	geoipOverrides, err := geoip.LoadOverrides(ctx, cfg, false)
 	if err != nil {
 		return nil, err
 	}
 
-	throttler, err := NewMemoryThrottler()
+	throttler, err := async.NewMemoryThrottler()
 	if err != nil {
 		return nil, err
 	}
@@ -368,16 +374,16 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 			},
 		},
 		sessionIds:   sessionIds,
-		info:         NewWelcomeServerMessage(version, DefaultFeatures...),
-		infoInternal: NewWelcomeServerMessage(version, DefaultFeaturesInternal...),
+		info:         api.NewWelcomeServerMessage(version, api.DefaultFeatures...),
+		infoInternal: api.NewWelcomeServerMessage(version, api.DefaultFeaturesInternal...),
 
-		closer:   NewCloser(),
-		shutdown: NewCloser(),
+		closer:   internal.NewCloser(),
+		shutdown: internal.NewCloser(),
 
-		roomUpdated:      make(chan *BackendServerRoomRequest),
-		roomDeleted:      make(chan *BackendServerRoomRequest),
-		roomInCall:       make(chan *BackendServerRoomRequest),
-		roomParticipants: make(chan *BackendServerRoomRequest),
+		roomUpdated:      make(chan *talk.BackendServerRoomRequest),
+		roomDeleted:      make(chan *talk.BackendServerRoomRequest),
+		roomInCall:       make(chan *talk.BackendServerRoomRequest),
+		roomParticipants: make(chan *talk.BackendServerRoomRequest),
 
 		clients:  make(map[uint64]HandlerClient),
 		sessions: make(map[uint64]Session),
@@ -385,7 +391,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 
 		roomSessions:    roomSessions,
 		roomPing:        roomPing,
-		virtualSessions: make(map[PublicSessionId]uint64),
+		virtualSessions: make(map[api.PublicSessionId]uint64),
 
 		decodeCaches: decodeCaches,
 
@@ -405,7 +411,7 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		backendTimeout: backendTimeout,
 		backend:        backend,
 
-		geoip: geoip,
+		geoip: geoipLookup,
 
 		etcdClient: etcdClient,
 		rpcServer:  rpcServer,
@@ -416,8 +422,8 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 		skipFederationVerify: skipFederationVerify,
 		federationTimeout:    federationTimeout,
 	}
-	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
-		allowed, err := ParseAllowedIps(value)
+	if value, _ := cfg.GetString("mcu", "allowedcandidates"); value != "" {
+		allowed, err := container.ParseIPList(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid allowedcandidates: %w", err)
 		}
@@ -427,8 +433,8 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 	} else {
 		logger.Printf("No candidates allowlist")
 	}
-	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
-		blocked, err := ParseAllowedIps(value)
+	if value, _ := cfg.GetString("mcu", "blockedcandidates"); value != "" {
+		blocked, err := container.ParseIPList(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid blockedcandidates: %w", err)
 		}
@@ -440,12 +446,11 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 	}
 
 	hub.trustedProxies.Store(trustedProxiesIps)
-	if len(geoipOverrides) > 0 {
-		hub.geoipOverrides.Store(&geoipOverrides)
-	}
-	hub.setWelcomeMessage(&ServerMessage{
+	hub.geoipOverrides.Store(geoipOverrides)
+
+	hub.setWelcomeMessage(&api.ServerMessage{
 		Type:    "welcome",
-		Welcome: NewWelcomeServerMessage(version, DefaultWelcomeFeatures...),
+		Welcome: api.NewWelcomeServerMessage(version, api.DefaultWelcomeFeatures...),
 	})
 	backend.hub = hub
 	if rpcServer != nil {
@@ -459,12 +464,12 @@ func NewHub(ctx context.Context, config *goconf.ConfigFile, events AsyncEvents, 
 	return hub, nil
 }
 
-func (h *Hub) setWelcomeMessage(msg *ServerMessage) {
+func (h *Hub) setWelcomeMessage(msg *api.ServerMessage) {
 	h.welcome.Store(msg)
 }
 
-func (h *Hub) getWelcomeMessage() *ServerMessage {
-	return h.welcome.Load().(*ServerMessage)
+func (h *Hub) getWelcomeMessage() *api.ServerMessage {
+	return h.welcome.Load().(*api.ServerMessage)
 }
 
 func (h *Hub) SetMcu(mcu Mcu) {
@@ -472,16 +477,16 @@ func (h *Hub) SetMcu(mcu Mcu) {
 	// Create copy of message so it can be updated concurrently.
 	welcome := *h.getWelcomeMessage()
 	if mcu == nil {
-		h.info.RemoveFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
-		h.infoInternal.RemoveFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		h.info.RemoveFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
+		h.infoInternal.RemoveFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 
-		welcome.Welcome.RemoveFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		welcome.Welcome.RemoveFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 	} else {
 		h.logger.Printf("Using a timeout of %s for MCU requests", h.mcuTimeout)
-		h.info.AddFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
-		h.infoInternal.AddFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		h.info.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
+		h.infoInternal.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 
-		welcome.Welcome.AddFeature(ServerFeatureMcu, ServerFeatureSimulcast, ServerFeatureUpdateSdp)
+		welcome.Welcome.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 	}
 	h.setWelcomeMessage(&welcome)
 }
@@ -491,8 +496,8 @@ func (h *Hub) checkOrigin(r *http.Request) bool {
 	return true
 }
 
-func (h *Hub) GetServerInfo(session Session) *WelcomeServerMessage {
-	if session.ClientType() == HelloClientTypeInternal {
+func (h *Hub) GetServerInfo(session Session) *api.WelcomeServerMessage {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		return h.infoInternal
 	}
 
@@ -510,7 +515,7 @@ func (h *Hub) updateGeoDatabase() {
 	}
 
 	defer h.geoipUpdating.Store(false)
-	backoff, err := NewExponentialBackoff(time.Second, 5*time.Minute)
+	backoff, err := async.NewExponentialBackoff(time.Second, 5*time.Minute)
 	if err != nil {
 		h.logger.Printf("Could not create exponential backoff: %s", err)
 		return
@@ -572,7 +577,7 @@ func (h *Hub) Stop() {
 
 func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
-	if trustedProxiesIps, err := ParseAllowedIps(trustedProxies); err == nil {
+	if trustedProxiesIps, err := container.ParseIPList(trustedProxies); err == nil {
 		if !trustedProxiesIps.Empty() {
 			h.logger.Printf("Trusted proxies: %s", trustedProxiesIps)
 		} else {
@@ -584,15 +589,11 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 		h.logger.Printf("Error parsing trusted proxies from \"%s\": %s", trustedProxies, err)
 	}
 
-	geoipOverrides, _ := LoadGeoIPOverrides(ctx, config, true)
-	if len(geoipOverrides) > 0 {
-		h.geoipOverrides.Store(&geoipOverrides)
-	} else {
-		h.geoipOverrides.Store(nil)
-	}
+	geoipOverrides, _ := geoip.LoadOverrides(ctx, config, true)
+	h.geoipOverrides.Store(geoipOverrides)
 
 	if value, _ := config.GetString("mcu", "allowedcandidates"); value != "" {
-		if allowed, err := ParseAllowedIps(value); err != nil {
+		if allowed, err := container.ParseIPList(value); err != nil {
 			h.logger.Printf("invalid allowedcandidates: %s", err)
 		} else {
 			h.logger.Printf("Candidates allowlist: %s", allowed)
@@ -603,7 +604,7 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 		h.allowedCandidates.Store(nil)
 	}
 	if value, _ := config.GetString("mcu", "blockedcandidates"); value != "" {
-		if blocked, err := ParseAllowedIps(value); err != nil {
+		if blocked, err := container.ParseIPList(value); err != nil {
 			h.logger.Printf("invalid blockedcandidates: %s", err)
 		} else {
 			h.logger.Printf("Candidates blocklist: %s", blocked)
@@ -621,7 +622,7 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 	h.rpcClients.Reload(config)
 }
 
-func (h *Hub) getDecodeCache(cache_key string) *LruCache[*SessionIdData] {
+func (h *Hub) getDecodeCache(cache_key string) *container.LruCache[*SessionIdData] {
 	hash := fnv.New32a()
 	// Make sure we don't have a temporary allocation for the string -> []byte conversion.
 	hash.Write(unsafe.Slice(unsafe.StringData(cache_key), len(cache_key))) // nolint
@@ -629,11 +630,11 @@ func (h *Hub) getDecodeCache(cache_key string) *LruCache[*SessionIdData] {
 	return h.decodeCaches[idx]
 }
 
-func (h *Hub) invalidatePublicSessionId(id PublicSessionId) {
+func (h *Hub) invalidatePublicSessionId(id api.PublicSessionId) {
 	h.invalidateSessionId(string(id))
 }
 
-func (h *Hub) invalidatePrivateSessionId(id PrivateSessionId) {
+func (h *Hub) invalidatePrivateSessionId(id api.PrivateSessionId) {
 	h.invalidateSessionId(string(id))
 }
 
@@ -646,11 +647,11 @@ func (h *Hub) invalidateSessionId(id string) {
 	cache.Remove(id)
 }
 
-func (h *Hub) setDecodedPublicSessionId(id PublicSessionId, data *SessionIdData) {
+func (h *Hub) setDecodedPublicSessionId(id api.PublicSessionId, data *SessionIdData) {
 	h.setDecodedSessionId(string(id), data)
 }
 
-func (h *Hub) setDecodedPrivateSessionId(id PrivateSessionId, data *SessionIdData) {
+func (h *Hub) setDecodedPrivateSessionId(id api.PrivateSessionId, data *SessionIdData) {
 	h.setDecodedSessionId(string(id), data)
 }
 
@@ -663,7 +664,7 @@ func (h *Hub) setDecodedSessionId(id string, data *SessionIdData) {
 	cache.Set(id, data)
 }
 
-func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
+func (h *Hub) decodePrivateSessionId(id api.PrivateSessionId) *SessionIdData {
 	if len(id) == 0 {
 		return nil
 	}
@@ -683,7 +684,7 @@ func (h *Hub) decodePrivateSessionId(id PrivateSessionId) *SessionIdData {
 	return data
 }
 
-func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
+func (h *Hub) decodePublicSessionId(id api.PublicSessionId) *SessionIdData {
 	if len(id) == 0 {
 		return nil
 	}
@@ -703,7 +704,7 @@ func (h *Hub) decodePublicSessionId(id PublicSessionId) *SessionIdData {
 	return data
 }
 
-func (h *Hub) GetSessionByPublicId(sessionId PublicSessionId) Session {
+func (h *Hub) GetSessionByPublicId(sessionId api.PublicSessionId) Session {
 	data := h.decodePublicSessionId(sessionId)
 	if data == nil {
 		return nil
@@ -719,7 +720,7 @@ func (h *Hub) GetSessionByPublicId(sessionId PublicSessionId) Session {
 	return session
 }
 
-func (h *Hub) GetSessionByResumeId(resumeId PrivateSessionId) Session {
+func (h *Hub) GetSessionByResumeId(resumeId api.PrivateSessionId) Session {
 	data := h.decodePrivateSessionId(resumeId)
 	if data == nil {
 		return nil
@@ -735,11 +736,11 @@ func (h *Hub) GetSessionByResumeId(resumeId PrivateSessionId) Session {
 	return session
 }
 
-func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId RoomSessionId) (PublicSessionId, error) {
+func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
 	return h.roomSessions.GetSessionId(roomSessionId)
 }
 
-func (h *Hub) GetDialoutSessions(roomId string, backend *Backend) (result []*ClientSession) {
+func (h *Hub) GetDialoutSessions(roomId string, backend *talk.Backend) (result []*ClientSession) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for session := range h.dialoutSessions {
@@ -755,7 +756,7 @@ func (h *Hub) GetDialoutSessions(roomId string, backend *Backend) (result []*Cli
 	return
 }
 
-func (h *Hub) GetBackend(u *url.URL) *Backend {
+func (h *Hub) GetBackend(u *url.URL) *talk.Backend {
 	if u == nil {
 		return h.backend.GetCompatBackend()
 	}
@@ -862,7 +863,7 @@ func (h *Hub) hasSessionsLocked(withInternal bool) bool {
 	}
 
 	for _, s := range h.sessions {
-		if s.ClientType() != HelloClientTypeInternal {
+		if s.ClientType() != api.HelloClientTypeInternal {
 			return true
 		}
 	}
@@ -879,7 +880,7 @@ func (h *Hub) startWaitAnonymousSessionRoom(session *ClientSession) {
 
 // +checklocks:h.mu
 func (h *Hub) startWaitAnonymousSessionRoomLocked(session *ClientSession) {
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients don't need to join a room.
 		return
 	}
@@ -939,7 +940,7 @@ func (h *Hub) unregisterRemoteSession(session *RemoteSession) {
 	delete(h.remoteSessions, session)
 }
 
-func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
+func (h *Hub) newSessionIdData(backend *talk.Backend) *SessionIdData {
 	sid := h.sid.Add(1)
 	for sid == 0 {
 		sid = h.sid.Add(1)
@@ -952,7 +953,7 @@ func (h *Hub) newSessionIdData(backend *Backend) *SessionIdData {
 	return sessionIdData
 }
 
-func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *Backend, auth *BackendClientResponse) {
+func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backend *talk.Backend, auth *talk.BackendClientResponse) {
 	if !c.IsConnected() {
 		// Client disconnected while waiting for "hello" response.
 		return
@@ -988,7 +989,7 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 	userId := auth.Auth.UserId
 	if userId != "" {
 		h.logger.Printf("Register user %s@%s from %s in %s (%s) %s (private=%s)", userId, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
-	} else if message.Hello.Auth.Type != HelloClientTypeClient {
+	} else if message.Hello.Auth.Type != api.HelloClientTypeClient {
 		h.logger.Printf("Register %s@%s from %s in %s (%s) %s (private=%s)", message.Hello.Auth.Type, backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
 	} else {
 		h.logger.Printf("Register anonymous@%s from %s in %s (%s) %s (private=%s)", backend.Id(), client.RemoteAddr(), client.Country(), client.UserAgent(), publicSessionId, privateSessionId)
@@ -1033,9 +1034,9 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 		wg.Wait()
 		if totalCount.Load() > limit {
 			backend.RemoveSession(session)
-			h.logger.Printf("Error adding session %s to backend %s: %s", session.PublicId(), backend.Id(), SessionLimitExceeded)
+			h.logger.Printf("Error adding session %s to backend %s: %s", session.PublicId(), backend.Id(), talk.SessionLimitExceeded)
 			session.Close()
-			client.SendMessage(message.NewWrappedErrorServerMessage(SessionLimitExceeded))
+			client.SendMessage(message.NewWrappedErrorServerMessage(talk.SessionLimitExceeded))
 			return
 		}
 	}
@@ -1053,17 +1054,17 @@ func (h *Hub) processRegister(c HandlerClient, message *ClientMessage, backend *
 	h.sessions[sessionIdData.Sid] = session
 	h.clients[sessionIdData.Sid] = client
 	delete(h.expectHelloClients, client)
-	if userId == "" && session.ClientType() != HelloClientTypeInternal {
+	if userId == "" && session.ClientType() != api.HelloClientTypeInternal {
 		h.startWaitAnonymousSessionRoomLocked(session)
-	} else if session.ClientType() == HelloClientTypeInternal && session.HasFeature(ClientFeatureStartDialout) {
+	} else if session.ClientType() == api.HelloClientTypeInternal && session.HasFeature(api.ClientFeatureStartDialout) {
 		// TODO: There is a small race condition for sessions that take some time
 		// between connecting and joining a room.
 		h.dialoutSessions[session] = true
 	}
 	h.mu.Unlock()
 
-	if country := client.Country(); IsValidCountry(country) {
-		statsClientCountries.WithLabelValues(country).Inc()
+	if country := client.Country(); geoip.IsValidCountry(country) {
+		statsClientCountries.WithLabelValues(string(country)).Inc()
 	}
 	statsHubSessionsCurrent.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
 	statsHubSessionsTotal.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
@@ -1098,7 +1099,7 @@ func (h *Hub) processUnregister(client HandlerClient) Session {
 }
 
 func (h *Hub) processMessage(client HandlerClient, data []byte) {
-	var message ClientMessage
+	var message api.ClientMessage
 	if err := message.UnmarshalJSON(data); err != nil {
 		if session := client.GetSession(); session != nil {
 			h.logger.Printf("Error decoding message from client %s: %v", session.PublicId(), err)
@@ -1113,14 +1114,14 @@ func (h *Hub) processMessage(client HandlerClient, data []byte) {
 	if err := message.CheckValid(); err != nil {
 		if session := client.GetSession(); session != nil {
 			h.logger.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
-			if err, ok := err.(*Error); ok {
+			if err, ok := err.(*api.Error); ok {
 				session.SendMessage(message.NewErrorServerMessage(err))
 			} else {
 				session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
 			}
 		} else {
 			h.logger.Printf("Invalid message %+v from %s: %v", message, client.RemoteAddr(), err)
-			if err, ok := err.(*Error); ok {
+			if err, ok := err.(*api.Error); ok {
 				client.SendMessage(message.NewErrorServerMessage(err))
 			} else {
 				client.SendMessage(message.NewErrorServerMessage(InvalidFormat))
@@ -1174,11 +1175,11 @@ func (h *Hub) processMessage(client HandlerClient, data []byte) {
 	}
 }
 
-func (h *Hub) sendHelloResponse(session *ClientSession, message *ClientMessage) bool {
-	response := &ServerMessage{
+func (h *Hub) sendHelloResponse(session *ClientSession, message *api.ClientMessage) bool {
+	response := &api.ServerMessage{
 		Id:   message.Id,
 		Type: "hello",
-		Hello: &HelloServerMessage{
+		Hello: &api.HelloServerMessage{
 			Version:   message.Hello.Version,
 			SessionId: session.PublicId(),
 			ResumeId:  session.PrivateId(),
@@ -1194,7 +1195,7 @@ type remoteClientInfo struct {
 	response *LookupResumeIdReply
 }
 
-func (h *Hub) tryProxyResume(c HandlerClient, resumeId PrivateSessionId, message *ClientMessage) bool {
+func (h *Hub) tryProxyResume(c HandlerClient, resumeId api.PrivateSessionId, message *api.ClientMessage) bool {
 	client, ok := c.(*Client)
 	if !ok {
 		return false
@@ -1250,7 +1251,7 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId PrivateSessionId, message
 		return false
 	}
 
-	rs, err := NewRemoteSession(h, client, info.client, PublicSessionId(info.response.SessionId))
+	rs, err := NewRemoteSession(h, client, info.client, api.PublicSessionId(info.response.SessionId))
 	if err != nil {
 		h.logger.Printf("Could not create remote session %s on %s: %s", info.response.SessionId, info.client.Target(), err)
 		return false
@@ -1270,12 +1271,12 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId PrivateSessionId, message
 	return true
 }
 
-func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
+func (h *Hub) processHello(client HandlerClient, message *api.ClientMessage) {
 	ctx := log.NewLoggerContext(client.Context(), h.logger)
 	resumeId := message.Hello.ResumeId
 	if resumeId != "" {
 		throttle, err := h.throttler.CheckBruteforce(ctx, client.RemoteAddr(), "HelloResume")
-		if err == ErrBruteforceDetected {
+		if err == async.ErrBruteforceDetected {
 			client.SendMessage(message.NewErrorServerMessage(TooManyRequests))
 			return
 		} else if err != nil {
@@ -1350,11 +1351,11 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 	h.mu.Unlock()
 
 	switch message.Hello.Auth.Type {
-	case HelloClientTypeClient:
+	case api.HelloClientTypeClient:
 		fallthrough
-	case HelloClientTypeFederation:
+	case api.HelloClientTypeFederation:
 		h.processHelloClient(client, message)
-	case HelloClientTypeInternal:
+	case api.HelloClientTypeInternal:
 		h.processHelloInternal(client, message)
 	default:
 		h.startExpectHello(client)
@@ -1362,8 +1363,8 @@ func (h *Hub) processHello(client HandlerClient, message *ClientMessage) {
 	}
 }
 
-func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
-	url := message.Hello.Auth.parsedUrl
+func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
+	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
 		return nil, nil, InvalidBackendUrl
@@ -1375,8 +1376,8 @@ func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message 
 	ctx, cancel := context.WithTimeout(ctx, h.backendTimeout)
 	defer cancel()
 
-	var auth BackendClientResponse
-	request := NewBackendClientAuthRequest(message.Hello.Auth.Params)
+	var auth talk.BackendClientResponse
+	request := talk.NewBackendClientAuthRequest(message.Hello.Auth.Params)
 	if err := h.backend.PerformJSONRequest(ctx, url, request, &auth); err != nil {
 		return nil, nil, err
 	}
@@ -1386,8 +1387,8 @@ func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message 
 	return backend, &auth, nil
 }
 
-func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message *ClientMessage) (*Backend, *BackendClientResponse, error) {
-	url := message.Hello.Auth.parsedUrl
+func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
+	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
 		return nil, nil, InvalidBackendUrl
@@ -1396,16 +1397,16 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 	var tokenString string
 	var tokenClaims jwt.Claims
 	switch message.Hello.Auth.Type {
-	case HelloClientTypeClient:
-		tokenString = message.Hello.Auth.helloV2Params.Token
-		tokenClaims = &HelloV2TokenClaims{}
-	case HelloClientTypeFederation:
-		if !h.backend.capabilities.HasCapabilityFeature(ctx, url, FeatureFederationV2) {
+	case api.HelloClientTypeClient:
+		tokenString = message.Hello.Auth.HelloV2Params.Token
+		tokenClaims = &api.HelloV2TokenClaims{}
+	case api.HelloClientTypeFederation:
+		if !h.backend.capabilities.HasCapabilityFeature(ctx, url, talk.FeatureFederationV2) {
 			return nil, nil, ErrFederationNotSupported
 		}
 
-		tokenString = message.Hello.Auth.federationParams.Token
-		tokenClaims = &FederationTokenClaims{}
+		tokenString = message.Hello.Auth.FederationParams.Token
+		tokenClaims = &api.FederationTokenClaims{}
 	default:
 		return nil, nil, InvalidClientType
 	}
@@ -1452,13 +1453,13 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		backendCtx, cancel := context.WithTimeout(ctx, h.backendTimeout)
 		defer cancel()
 
-		keyData, cached, found := h.backend.capabilities.GetStringConfig(backendCtx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+		keyData, cached, found := h.backend.capabilities.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
 		if !found {
 			if cached {
 				// The Nextcloud instance might just have enabled JWT but we probably use
 				// the cached capabilities without the public key. Make sure to re-fetch.
 				h.backend.capabilities.InvalidateCapabilities(url)
-				keyData, _, found = h.backend.capabilities.GetStringConfig(backendCtx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+				keyData, _, found = h.backend.capabilities.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
 			}
 			if !found {
 				return nil, errors.New("no key found for issuer")
@@ -1490,16 +1491,16 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		return nil, nil, InvalidToken
 	}
 
-	var authTokenClaims AuthTokenClaims
+	var authTokenClaims api.AuthTokenClaims
 	switch message.Hello.Auth.Type {
-	case HelloClientTypeClient:
-		claims, ok := token.Claims.(*HelloV2TokenClaims)
+	case api.HelloClientTypeClient:
+		claims, ok := token.Claims.(*api.HelloV2TokenClaims)
 		if !ok || !token.Valid {
 			return nil, nil, InvalidToken
 		}
 		authTokenClaims = claims
-	case HelloClientTypeFederation:
-		claims, ok := token.Claims.(*FederationTokenClaims)
+	case api.HelloClientTypeFederation:
+		claims, ok := token.Claims.(*api.FederationTokenClaims)
 		if !ok || !token.Valid {
 			return nil, nil, InvalidToken
 		}
@@ -1528,9 +1529,9 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 		return nil, nil, InvalidToken
 	}
 
-	auth := &BackendClientResponse{
+	auth := &talk.BackendClientResponse{
 		Type: "auth",
-		Auth: &BackendClientAuthResponse{
+		Auth: &talk.BackendClientAuthResponse{
 			Version: message.Hello.Version,
 			UserId:  subject,
 			User:    authTokenClaims.GetUserData(),
@@ -1539,27 +1540,27 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 	return backend, auth, nil
 }
 
-func (h *Hub) processHelloClient(client HandlerClient, message *ClientMessage) {
+func (h *Hub) processHelloClient(client HandlerClient, message *api.ClientMessage) {
 	// Make sure the client must send another "hello" in case of errors.
 	defer h.startExpectHello(client)
 
-	var authFunc func(context.Context, HandlerClient, *ClientMessage) (*Backend, *BackendClientResponse, error)
+	var authFunc func(context.Context, HandlerClient, *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error)
 	switch message.Hello.Version {
-	case HelloVersionV1:
+	case api.HelloVersionV1:
 		// Auth information contains a ticket that must be validated against the
 		// Nextcloud instance.
 		authFunc = h.processHelloV1
-	case HelloVersionV2:
+	case api.HelloVersionV2:
 		// Auth information contains a JWT that contains all information of the user.
 		authFunc = h.processHelloV2
 	default:
-		client.SendMessage(message.NewErrorServerMessage(InvalidHelloVersion))
+		client.SendMessage(message.NewErrorServerMessage(api.InvalidHelloVersion))
 		return
 	}
 
 	backend, auth, err := authFunc(client.Context(), client, message)
 	if err != nil {
-		if e, ok := err.(*Error); ok {
+		if e, ok := err.(*api.Error); ok {
 			client.SendMessage(message.NewErrorServerMessage(e))
 		} else {
 			client.SendMessage(message.NewWrappedErrorServerMessage(err))
@@ -1570,7 +1571,7 @@ func (h *Hub) processHelloClient(client HandlerClient, message *ClientMessage) {
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage) {
+func (h *Hub) processHelloInternal(client HandlerClient, message *api.ClientMessage) {
 	defer h.startExpectHello(client)
 	if len(h.internalClientsSecret) == 0 {
 		client.SendMessage(message.NewErrorServerMessage(InvalidClientType))
@@ -1579,7 +1580,7 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage)
 
 	ctx := log.NewLoggerContext(client.Context(), h.logger)
 	throttle, err := h.throttler.CheckBruteforce(ctx, client.RemoteAddr(), "HelloInternal")
-	if err == ErrBruteforceDetected {
+	if err == async.ErrBruteforceDetected {
 		client.SendMessage(message.NewErrorServerMessage(TooManyRequests))
 		return
 	} else if err != nil {
@@ -1589,31 +1590,31 @@ func (h *Hub) processHelloInternal(client HandlerClient, message *ClientMessage)
 	}
 
 	// Validate internal connection.
-	rnd := message.Hello.Auth.internalParams.Random
+	rnd := message.Hello.Auth.InternalParams.Random
 	mac := hmac.New(sha256.New, h.internalClientsSecret)
 	mac.Write([]byte(rnd)) // nolint
 	check := hex.EncodeToString(mac.Sum(nil))
-	if len(rnd) < minTokenRandomLength || check != message.Hello.Auth.internalParams.Token {
+	if len(rnd) < minTokenRandomLength || check != message.Hello.Auth.InternalParams.Token {
 		throttle(ctx)
 		client.SendMessage(message.NewErrorServerMessage(InvalidToken))
 		return
 	}
 
-	backend := h.backend.GetBackend(message.Hello.Auth.internalParams.parsedBackend)
+	backend := h.backend.GetBackend(message.Hello.Auth.InternalParams.ParsedBackend)
 	if backend == nil {
 		throttle(ctx)
 		client.SendMessage(message.NewErrorServerMessage(InvalidBackendUrl))
 		return
 	}
 
-	auth := &BackendClientResponse{
+	auth := &talk.BackendClientResponse{
 		Type: "auth",
-		Auth: &BackendClientAuthResponse{},
+		Auth: &talk.BackendClientAuthResponse{},
 	}
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId RoomSessionId, backend *Backend) {
+func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, backend *talk.Backend) {
 	sessionId, err := h.roomSessions.LookupSessionId(ctx, roomSessionId, "room_session_reconnected")
 	if err == ErrNoSuchRoomSession {
 		return
@@ -1626,11 +1627,11 @@ func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId RoomS
 	if session == nil {
 		// Session is located on a different server. Should already have been closed
 		// but send "bye" again as additional safeguard.
-		msg := &AsyncMessage{
+		msg := &events.AsyncMessage{
 			Type: "message",
-			Message: &ServerMessage{
+			Message: &api.ServerMessage{
 				Type: "bye",
-				Bye: &ByeServerMessage{
+				Bye: &api.ByeServerMessage{
 					Reason: "room_session_reconnected",
 				},
 			},
@@ -1652,19 +1653,19 @@ func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId RoomS
 	session.Close()
 }
 
-func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Room) bool {
-	response := &ServerMessage{
+func (h *Hub) sendRoom(session *ClientSession, message *api.ClientMessage, room *Room) bool {
+	response := &api.ServerMessage{
 		Type: "room",
 	}
 	if message != nil {
 		response.Id = message.Id
 	}
 	if room == nil {
-		response.Room = &RoomServerMessage{
+		response.Room = &api.RoomServerMessage{
 			RoomId: "",
 		}
 	} else {
-		response.Room = &RoomServerMessage{
+		response.Room = &api.RoomServerMessage{
 			RoomId:     room.id,
 			Properties: room.Properties(),
 		}
@@ -1677,8 +1678,8 @@ func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Roo
 		var backendStreamBitrate api.Bandwidth
 		var backendScreenBitrate api.Bandwidth
 		if backend := room.Backend(); backend != nil {
-			backendStreamBitrate = backend.maxStreamBitrate
-			backendScreenBitrate = backend.maxScreenBitrate
+			backendStreamBitrate = backend.MaxStreamBitrate()
+			backendScreenBitrate = backend.MaxScreenBitrate()
 		}
 
 		var maxStreamBitrate api.Bandwidth
@@ -1700,7 +1701,7 @@ func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Roo
 		}
 
 		if maxStreamBitrate != 0 || maxScreenBitrate != 0 {
-			response.Room.Bandwidth = &RoomBandwidth{
+			response.Room.Bandwidth = &api.RoomBandwidth{
 				MaxStreamBitrate: maxStreamBitrate,
 				MaxScreenBitrate: maxScreenBitrate,
 			}
@@ -1709,7 +1710,7 @@ func (h *Hub) sendRoom(session *ClientSession, message *ClientMessage, room *Roo
 	return session.SendMessage(response)
 }
 
-func (h *Hub) processRoom(sess Session, message *ClientMessage) {
+func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 	session, ok := sess.(*ClientSession)
 	if !ok {
 		return
@@ -1719,7 +1720,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 	if roomId == "" {
 		// We can handle leaving a room directly.
 		if session.LeaveRoomWithMessage(true, message) != nil {
-			if session.UserId() == "" && session.ClientType() != HelloClientTypeInternal {
+			if session.UserId() == "" && session.ClientType() != api.HelloClientTypeInternal {
 				h.startWaitAnonymousSessionRoom(session)
 			}
 			// User was in a room before, so need to notify about leaving it.
@@ -1758,7 +1759,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 			if session.UserId() == "" && client == nil {
 				h.startWaitAnonymousSessionRoom(session)
 			}
-			var ae *Error
+			var ae *api.Error
 			if errors.As(err, &ae) {
 				session.SendMessage(message.NewErrorServerMessage(ae))
 				return
@@ -1796,7 +1797,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 
 			h.logger.Printf("Error creating federation client to %s for %s to join room %s: %s", federation.SignalingUrl, session.PublicId(), roomId, err)
 			session.SendMessage(message.NewErrorServerMessage(
-				NewErrorDetail("federation_error", "Failed to create federation client.", details),
+				api.NewErrorDetail("federation_error", "Failed to create federation client.", details),
 			))
 			return
 		}
@@ -1807,12 +1808,12 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		if roomSessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
 			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			roomSessionId = RoomSessionId(session.PublicId())
+			roomSessionId = api.RoomSessionId(session.PublicId())
 		}
 
 		// Prefix room session id to allow using the same signaling server for two Nextcloud instances during development.
 		// Otherwise the same room session id will be detected and the other session will be kicked.
-		if err := session.UpdateRoomSessionId(FederatedRoomSessionIdPrefix + roomSessionId); err != nil {
+		if err := session.UpdateRoomSessionId(api.FederatedRoomSessionIdPrefix + roomSessionId); err != nil {
 			h.logger.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
 		}
 
@@ -1829,15 +1830,15 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		if roomSessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
 			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			roomSessionId = RoomSessionId(session.PublicId())
+			roomSessionId = api.RoomSessionId(session.PublicId())
 		}
 
 		if err := session.UpdateRoomSessionId(roomSessionId); err != nil {
 			h.logger.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
 		}
 		session.SendMessage(message.NewErrorServerMessage(
-			NewErrorDetail("already_joined", "Already joined this room.", &RoomErrorDetails{
-				Room: &RoomServerMessage{
+			api.NewErrorDetail("already_joined", "Already joined this room.", &api.RoomErrorDetails{
+				Room: &api.RoomServerMessage{
 					RoomId:     room.id,
 					Properties: room.Properties(),
 				},
@@ -1846,12 +1847,14 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		return
 	}
 
-	var room BackendClientResponse
-	if session.ClientType() == HelloClientTypeInternal {
+	var room talk.BackendClientResponse
+	var joinRoomTime time.Time
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients can join any room.
-		room = BackendClientResponse{
+		joinRoomTime = time.Now()
+		room = talk.BackendClientResponse{
 			Type: "room",
-			Room: &BackendClientRoomResponse{
+			Room: &talk.BackendClientRoomResponse{
 				RoomId: roomId,
 			},
 		}
@@ -1864,9 +1867,9 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		if sessionId == "" {
 			// TODO(jojo): Better make the session id required in the request.
 			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			sessionId = RoomSessionId(session.PublicId())
+			sessionId = api.RoomSessionId(session.PublicId())
 		}
-		request := NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
+		request := talk.NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
 		request.Room.UpdateFromSession(session)
 		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &room); err != nil {
 			session.SendMessage(message.NewWrappedErrorServerMessage(err))
@@ -1875,6 +1878,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 
 		// TODO(jojo): Validate response
 
+		joinRoomTime = time.Now()
 		if message.Room.SessionId != "" {
 			// There can only be one connection per Nextcloud Talk session,
 			// disconnect any other connections without sending a "leave" event.
@@ -1885,7 +1889,7 @@ func (h *Hub) processRoom(sess Session, message *ClientMessage) {
 		}
 	}
 
-	h.processJoinRoom(session, message, &room)
+	h.processJoinRoom(session, message, &room, joinRoomTime)
 }
 
 func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
@@ -1897,7 +1901,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 		return 0, &wg
 	}
 
-	rooms := make(map[string]map[string][]BackendPingEntry)
+	rooms := make(map[string]map[string][]talk.BackendPingEntry)
 	urls := make(map[string]*url.URL)
 	for session := range h.federatedSessions {
 		u := session.BackendUrl()
@@ -1910,7 +1914,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 			continue
 		}
 
-		var sid RoomSessionId
+		var sid api.RoomSessionId
 		var uid string
 		// Use Nextcloud session id and user id
 		if sid = session.RoomSessionId().WithoutFederation(); sid == "" {
@@ -1921,7 +1925,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 		roomId := federation.RoomId()
 		entries, found := rooms[roomId]
 		if !found {
-			entries = make(map[string][]BackendPingEntry)
+			entries = make(map[string][]talk.BackendPingEntry)
 			rooms[roomId] = entries
 		}
 
@@ -1935,7 +1939,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 			urls[u] = p
 		}
 
-		entries[u] = append(e, BackendPingEntry{
+		entries[u] = append(e, talk.BackendPingEntry{
 			SessionId: sid,
 			UserId:    uid,
 		})
@@ -1950,7 +1954,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 		for u, e := range entries {
 			wg.Add(1)
 			count += len(e)
-			go func(roomId string, url *url.URL, entries []BackendPingEntry) {
+			go func(roomId string, url *url.URL, entries []talk.BackendPingEntry) {
 				defer wg.Done()
 				sendCtx, cancel := context.WithTimeout(ctx, h.backendTimeout)
 				defer cancel()
@@ -1964,7 +1968,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 	return count, &wg
 }
 
-func (h *Hub) GetRoomForBackend(id string, backend *Backend) *Room {
+func (h *Hub) GetRoomForBackend(id string, backend *talk.Backend) *Room {
 	internalRoomId := getRoomIdForBackend(id, backend)
 
 	h.ru.RLock()
@@ -1983,7 +1987,7 @@ func (h *Hub) removeRoom(room *Room) {
 	h.roomPing.DeleteRoom(room.Id())
 }
 
-func (h *Hub) CreateRoom(id string, properties json.RawMessage, backend *Backend) (*Room, error) {
+func (h *Hub) CreateRoom(id string, properties json.RawMessage, backend *talk.Backend) (*Room, error) {
 	h.ru.Lock()
 	defer h.ru.Unlock()
 
@@ -1991,7 +1995,7 @@ func (h *Hub) CreateRoom(id string, properties json.RawMessage, backend *Backend
 }
 
 // +checklocks:h.ru
-func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *Backend) (*Room, error) {
+func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *talk.Backend) (*Room, error) {
 	// Note the write lock must be held.
 	room, err := NewRoom(id, properties, h, h.events, backend)
 	if err != nil {
@@ -2004,7 +2008,7 @@ func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *B
 	return room, nil
 }
 
-func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, room *BackendClientResponse) {
+func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage, room *talk.BackendClientResponse, joinTime time.Time) {
 	if room.Type == "error" {
 		session.SendMessage(message.NewErrorServerMessage(room.Error))
 		return
@@ -2045,12 +2049,12 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	h.mu.Lock()
 	// The session now joined a room, don't expire if it is anonymous.
 	delete(h.anonymousSessions, session)
-	if session.ClientType() == HelloClientTypeInternal && session.HasFeature(ClientFeatureStartDialout) {
+	if session.ClientType() == api.HelloClientTypeInternal && session.HasFeature(api.ClientFeatureStartDialout) {
 		// An internal session in a room can not be used for dialout.
 		delete(h.dialoutSessions, session)
 	}
 	h.mu.Unlock()
-	session.SetRoom(r)
+	session.SetRoom(r, joinTime)
 	if room.Room.Permissions != nil {
 		session.SetPermissions(*room.Room.Permissions)
 	}
@@ -2058,7 +2062,7 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *ClientMessage, ro
 	r.AddSession(session, room.Room.Session)
 }
 
-func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
+func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 	session, ok := sess.(*ClientSession)
 	if !ok {
 		// Client is not connected yet.
@@ -2068,19 +2072,19 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 	msg := message.Message
 	var recipient *ClientSession
 	var subject string
-	var clientData *MessageClientMessageData
-	var serverRecipient *MessageClientMessageRecipient
-	var recipientSessionId PublicSessionId
+	var clientData *api.MessageClientMessageData
+	var serverRecipient *api.MessageClientMessageRecipient
+	var recipientSessionId api.PublicSessionId
 	var room *Room
 	switch msg.Recipient.Type {
-	case RecipientTypeSession:
+	case api.RecipientTypeSession:
 		if h.mcu != nil {
 			// Maybe this is a message to be processed by the MCU.
-			var data MessageClientMessageData
+			var data api.MessageClientMessageData
 			if err := data.UnmarshalJSON(msg.Data); err == nil {
 				if err := data.CheckValid(); err != nil {
 					h.logger.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
-					if err, ok := err.(*Error); ok {
+					if err, ok := err.(*api.Error); ok {
 						session.SendMessage(message.NewErrorServerMessage(err))
 					} else {
 						session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
@@ -2150,31 +2154,31 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForSessionId(msg.Recipient.SessionId, sess.Backend())
+			subject = events.GetSubjectForSessionId(msg.Recipient.SessionId, sess.Backend())
 			recipientSessionId = msg.Recipient.SessionId
 			if sess, ok := sess.(*ClientSession); ok {
 				recipient = sess
 			}
 
 			// Send to client connection for virtual sessions.
-			if sess.ClientType() == HelloClientTypeVirtual {
+			if sess.ClientType() == api.HelloClientTypeVirtual {
 				virtualSession := sess.(*VirtualSession)
 				clientSession := virtualSession.Session()
-				subject = GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
+				subject = events.GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
 				recipientSessionId = clientSession.PublicId()
 				recipient = clientSession
 				// The client should see his session id as recipient.
-				serverRecipient = &MessageClientMessageRecipient{
+				serverRecipient = &api.MessageClientMessageRecipient{
 					Type:      "session",
 					SessionId: virtualSession.SessionId(),
 				}
 			}
 		} else {
-			subject = GetSubjectForSessionId(msg.Recipient.SessionId, nil)
+			subject = events.GetSubjectForSessionId(msg.Recipient.SessionId, nil)
 			recipientSessionId = msg.Recipient.SessionId
 			serverRecipient = &msg.Recipient
 		}
-	case RecipientTypeUser:
+	case api.RecipientTypeUser:
 		if msg.Recipient.UserId != "" {
 			if msg.Recipient.UserId == session.UserId() {
 				// Don't loop messages to the sender.
@@ -2183,21 +2187,21 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
+			subject = events.GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
-	case RecipientTypeRoom:
+	case api.RecipientTypeRoom:
 		fallthrough
-	case RecipientTypeCall:
+	case api.RecipientTypeCall:
 		if session != nil {
 			if room = session.GetRoom(); room != nil {
-				subject = GetSubjectForRoomId(room.Id(), room.Backend())
+				subject = events.GetSubjectForRoomId(room.Id(), room.Backend())
 
 				if h.mcu != nil {
-					var data MessageClientMessageData
+					var data api.MessageClientMessageData
 					if err := data.UnmarshalJSON(msg.Data); err == nil {
 						if err := data.CheckValid(); err != nil {
 							h.logger.Printf("Invalid message %+v from client %s: %v", message, session.PublicId(), err)
-							if err, ok := err.(*Error); ok {
+							if err, ok := err.(*api.Error); ok {
 								session.SendMessage(message.NewErrorServerMessage(err))
 							} else {
 								session.SendMessage(message.NewErrorServerMessage(InvalidFormat))
@@ -2216,10 +2220,10 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 		return
 	}
 
-	response := &ServerMessage{
+	response := &api.ServerMessage{
 		Type: "message",
-		Message: &MessageServerMessage{
-			Sender: &MessageServerMessageSender{
+		Message: &api.MessageServerMessage{
+			Sender: &api.MessageServerMessageSender{
 				Type:      msg.Recipient.Type,
 				SessionId: session.PublicId(),
 				UserId:    session.UserId(),
@@ -2283,9 +2287,9 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 				return
 			}
 
-			async := &AsyncMessage{
+			async := &events.AsyncMessage{
 				Type: "sendoffer",
-				SendOffer: &SendOfferMessage{
+				SendOffer: &events.SendOfferMessage{
 					MessageId: message.Id,
 					SessionId: session.PublicId(),
 					Data:      clientData,
@@ -2297,19 +2301,19 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 			return
 		}
 
-		async := &AsyncMessage{
+		async := &events.AsyncMessage{
 			Type:    "message",
 			Message: response,
 		}
 		var err error
 		switch msg.Recipient.Type {
-		case RecipientTypeSession:
+		case api.RecipientTypeSession:
 			err = h.events.PublishSessionMessage(recipientSessionId, session.Backend(), async)
-		case RecipientTypeUser:
+		case api.RecipientTypeUser:
 			err = h.events.PublishUserMessage(msg.Recipient.UserId, session.Backend(), async)
-		case RecipientTypeRoom:
+		case api.RecipientTypeRoom:
 			fallthrough
-		case RecipientTypeCall:
+		case api.RecipientTypeCall:
 			err = h.events.PublishRoomMessage(room.Id(), session.Backend(), async)
 		default:
 			err = fmt.Errorf("unsupported recipient type: %s", msg.Recipient.Type)
@@ -2322,12 +2326,12 @@ func (h *Hub) processMessageMsg(sess Session, message *ClientMessage) {
 }
 
 func isAllowedToControl(session Session) bool {
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients are allowed to send any control message.
 		return true
 	}
 
-	if session.HasPermission(PERMISSION_MAY_CONTROL) {
+	if session.HasPermission(api.PERMISSION_MAY_CONTROL) {
 		// Moderator clients are allowed to send any control message.
 		return true
 	}
@@ -2335,7 +2339,7 @@ func isAllowedToControl(session Session) bool {
 	return false
 }
 
-func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
+func (h *Hub) processControlMsg(session Session, message *api.ClientMessage) {
 	msg := message.Control
 	if !isAllowedToControl(session) {
 		h.logger.Printf("Ignore control message %+v from %s", msg, session.PublicId())
@@ -2344,11 +2348,11 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 
 	var recipient *ClientSession
 	var subject string
-	var serverRecipient *MessageClientMessageRecipient
-	var recipientSessionId PublicSessionId
+	var serverRecipient *api.MessageClientMessageRecipient
+	var recipientSessionId api.PublicSessionId
 	var room *Room
 	switch msg.Recipient.Type {
-	case RecipientTypeSession:
+	case api.RecipientTypeSession:
 		data := h.decodePublicSessionId(msg.Recipient.SessionId)
 		if data != nil {
 			if msg.Recipient.SessionId == session.PublicId() {
@@ -2356,7 +2360,7 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForSessionId(msg.Recipient.SessionId, nil)
+			subject = events.GetSubjectForSessionId(msg.Recipient.SessionId, nil)
 			recipientSessionId = msg.Recipient.SessionId
 			h.mu.RLock()
 			sess, found := h.sessions[data.Sid]
@@ -2366,14 +2370,14 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 				}
 
 				// Send to client connection for virtual sessions.
-				if sess.ClientType() == HelloClientTypeVirtual {
+				if sess.ClientType() == api.HelloClientTypeVirtual {
 					virtualSession := sess.(*VirtualSession)
 					clientSession := virtualSession.Session()
-					subject = GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
+					subject = events.GetSubjectForSessionId(clientSession.PublicId(), sess.Backend())
 					recipientSessionId = clientSession.PublicId()
 					recipient = clientSession
 					// The client should see his session id as recipient.
-					serverRecipient = &MessageClientMessageRecipient{
+					serverRecipient = &api.MessageClientMessageRecipient{
 						Type:      "session",
 						SessionId: virtualSession.SessionId(),
 					}
@@ -2385,7 +2389,7 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 		} else {
 			serverRecipient = &msg.Recipient
 		}
-	case RecipientTypeUser:
+	case api.RecipientTypeUser:
 		if msg.Recipient.UserId != "" {
 			if msg.Recipient.UserId == session.UserId() {
 				// Don't loop messages to the sender.
@@ -2394,14 +2398,14 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 				return
 			}
 
-			subject = GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
+			subject = events.GetSubjectForUserId(msg.Recipient.UserId, session.Backend())
 		}
-	case RecipientTypeRoom:
+	case api.RecipientTypeRoom:
 		fallthrough
-	case RecipientTypeCall:
+	case api.RecipientTypeCall:
 		if session != nil {
 			if room = session.GetRoom(); room != nil {
-				subject = GetSubjectForRoomId(room.Id(), room.Backend())
+				subject = events.GetSubjectForRoomId(room.Id(), room.Backend())
 			}
 		}
 	}
@@ -2410,10 +2414,10 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 		return
 	}
 
-	response := &ServerMessage{
+	response := &api.ServerMessage{
 		Type: "control",
-		Control: &ControlServerMessage{
-			Sender: &MessageServerMessageSender{
+		Control: &api.ControlServerMessage{
+			Sender: &api.MessageServerMessageSender{
 				Type:      msg.Recipient.Type,
 				SessionId: session.PublicId(),
 				UserId:    session.UserId(),
@@ -2425,19 +2429,19 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 	if recipient != nil {
 		recipient.SendMessage(response)
 	} else {
-		async := &AsyncMessage{
+		async := &events.AsyncMessage{
 			Type:    "message",
 			Message: response,
 		}
 		var err error
 		switch msg.Recipient.Type {
-		case RecipientTypeSession:
+		case api.RecipientTypeSession:
 			err = h.events.PublishSessionMessage(recipientSessionId, session.Backend(), async)
-		case RecipientTypeUser:
+		case api.RecipientTypeUser:
 			err = h.events.PublishUserMessage(msg.Recipient.UserId, session.Backend(), async)
-		case RecipientTypeRoom:
+		case api.RecipientTypeRoom:
 			fallthrough
-		case RecipientTypeCall:
+		case api.RecipientTypeCall:
 			err = h.events.PublishRoomMessage(room.Id(), room.Backend(), async)
 		default:
 			err = fmt.Errorf("unsupported recipient type: %s", msg.Recipient.Type)
@@ -2448,13 +2452,13 @@ func (h *Hub) processControlMsg(session Session, message *ClientMessage) {
 	}
 }
 
-func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
+func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 	msg := message.Internal
 	session, ok := sess.(*ClientSession)
 	if !ok {
 		// Client is not connected yet.
 		return
-	} else if session.ClientType() != HelloClientTypeInternal {
+	} else if session.ClientType() != api.HelloClientTypeInternal {
 		h.logger.Printf("Ignore internal message %+v from %s", msg, session.PublicId())
 		return
 	}
@@ -2492,22 +2496,22 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		sess, err := NewVirtualSession(session, privateSessionId, publicSessionId, sessionIdData, msg)
 		if err != nil {
 			h.logger.Printf("Could not create virtual session %s: %s", virtualSessionId, err)
-			reply := message.NewErrorServerMessage(NewError("add_failed", "Could not create virtual session."))
+			reply := message.NewErrorServerMessage(api.NewError("add_failed", "Could not create virtual session."))
 			session.SendMessage(reply)
 			return
 		}
 
 		if options := msg.Options; options != nil && options.ActorId != "" && options.ActorType != "" {
-			request := NewBackendClientRoomRequest(room.Id(), msg.UserId, RoomSessionId(publicSessionId))
+			request := talk.NewBackendClientRoomRequest(room.Id(), msg.UserId, api.RoomSessionId(publicSessionId))
 			request.Room.ActorId = options.ActorId
 			request.Room.ActorType = options.ActorType
 			request.Room.InCall = sess.GetInCall()
 
-			var response BackendClientResponse
+			var response talk.BackendClientResponse
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &response); err != nil {
 				sess.Close()
 				h.logger.Printf("Could not join virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
-				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not join virtual session."))
+				reply := message.NewErrorServerMessage(api.NewError("add_failed", "Could not join virtual session."))
 				session.SendMessage(reply)
 				return
 			}
@@ -2515,17 +2519,17 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 			if response.Type == "error" {
 				sess.Close()
 				h.logger.Printf("Could not join virtual session %s at backend %s: %+v", virtualSessionId, session.BackendUrl(), response.Error)
-				reply := message.NewErrorServerMessage(NewError("add_failed", response.Error.Error()))
+				reply := message.NewErrorServerMessage(api.NewError("add_failed", response.Error.Error()))
 				session.SendMessage(reply)
 				return
 			}
 		} else {
-			request := NewBackendClientSessionRequest(room.Id(), "add", publicSessionId, msg)
-			var response BackendClientSessionResponse
+			request := talk.NewBackendClientSessionRequest(room.Id(), "add", publicSessionId, msg)
+			var response talk.BackendClientSessionResponse
 			if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &response); err != nil {
 				sess.Close()
 				h.logger.Printf("Could not add virtual session %s at backend %s: %s", virtualSessionId, session.BackendUrl(), err)
-				reply := message.NewErrorServerMessage(NewError("add_failed", "Could not add virtual session."))
+				reply := message.NewErrorServerMessage(api.NewError("add_failed", "Could not add virtual session."))
 				session.SendMessage(reply)
 				return
 			}
@@ -2539,7 +2543,7 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		statsHubSessionsTotal.WithLabelValues(session.Backend().Id(), string(sess.ClientType())).Inc()
 		h.logger.Printf("Session %s added virtual session %s with initial flags %d", session.PublicId(), sess.PublicId(), sess.Flags())
 		session.AddVirtualSession(sess)
-		sess.SetRoom(room)
+		sess.SetRoom(room, time.Now())
 		room.AddSession(sess, nil)
 	case "updatesession":
 		msg := msg.UpdateSession
@@ -2618,27 +2622,27 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 		roomId := msg.Dialout.RoomId
 		msg.Dialout.RoomId = "" // Don't send room id to recipients.
 		if msg.Dialout.Type == "status" {
-			asyncMessage := &AsyncMessage{
+			asyncMessage := &events.AsyncMessage{
 				Type: "room",
-				Room: &BackendServerRoomRequest{
+				Room: &talk.BackendServerRoomRequest{
 					Type: "transient",
-					Transient: &BackendRoomTransientRequest{
-						Action: TransientActionSet,
+					Transient: &talk.BackendRoomTransientRequest{
+						Action: talk.TransientActionSet,
 						Key:    "callstatus_" + msg.Dialout.Status.CallId,
 						Value:  msg.Dialout.Status,
 					},
 				},
 			}
-			if msg.Dialout.Status.Status == DialoutStatusCleared || msg.Dialout.Status.Status == DialoutStatusRejected {
+			if msg.Dialout.Status.Status == api.DialoutStatusCleared || msg.Dialout.Status.Status == api.DialoutStatusRejected {
 				asyncMessage.Room.Transient.TTL = removeCallStatusTTL
 			}
 			if err := h.events.PublishBackendRoomMessage(roomId, session.Backend(), asyncMessage); err != nil {
 				h.logger.Printf("Error publishing dialout message %+v to room %s", msg.Dialout, roomId)
 			}
 		} else {
-			if err := h.events.PublishRoomMessage(roomId, session.Backend(), &AsyncMessage{
+			if err := h.events.PublishRoomMessage(roomId, session.Backend(), &events.AsyncMessage{
 				Type: "message",
-				Message: &ServerMessage{
+				Message: &api.ServerMessage{
 					Type:    "dialout",
 					Dialout: msg.Dialout,
 				},
@@ -2653,12 +2657,12 @@ func (h *Hub) processInternalMsg(sess Session, message *ClientMessage) {
 }
 
 func isAllowedToUpdateTransientData(session Session) bool {
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients are always allowed.
 		return true
 	}
 
-	if session.HasPermission(PERMISSION_TRANSIENT_DATA) {
+	if session.HasPermission(api.PERMISSION_TRANSIENT_DATA) {
 		return true
 	}
 
@@ -2666,7 +2670,7 @@ func isAllowedToUpdateTransientData(session Session) bool {
 }
 
 func isAllowedToUpdateTransientDataKey(session Session, key string) bool {
-	if session.ClientType() == HelloClientTypeInternal {
+	if session.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients may update all transient keys.
 		return true
 	}
@@ -2679,10 +2683,10 @@ func isAllowedToUpdateTransientDataKey(session Session, key string) bool {
 	return true
 }
 
-func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
+func (h *Hub) processTransientMsg(session Session, message *api.ClientMessage) {
 	room := session.GetRoom()
 	if room == nil {
-		response := message.NewErrorServerMessage(NewError("not_in_room", "No room joined yet."))
+		response := message.NewErrorServerMessage(api.NewError("not_in_room", "No room joined yet."))
 		session.SendMessage(response)
 		return
 	}
@@ -2718,27 +2722,27 @@ func (h *Hub) processTransientMsg(session Session, message *ClientMessage) {
 			return
 		}
 	default:
-		response := message.NewErrorServerMessage(NewError("ignored", "Unsupported message type."))
+		response := message.NewErrorServerMessage(api.NewError("ignored", "Unsupported message type."))
 		session.SendMessage(response)
 	}
 }
 
-func sendNotAllowed(session Session, message *ClientMessage, reason string) {
-	response := message.NewErrorServerMessage(NewError("not_allowed", reason))
+func sendNotAllowed(session Session, message *api.ClientMessage, reason string) {
+	response := message.NewErrorServerMessage(api.NewError("not_allowed", reason))
 	session.SendMessage(response)
 }
 
-func sendMcuClientNotFound(session Session, message *ClientMessage) {
-	response := message.NewErrorServerMessage(NewError("client_not_found", "No MCU client found to send message to."))
+func sendMcuClientNotFound(session Session, message *api.ClientMessage) {
+	response := message.NewErrorServerMessage(api.NewError("client_not_found", "No MCU client found to send message to."))
 	session.SendMessage(response)
 }
 
-func sendMcuProcessingFailed(session Session, message *ClientMessage) {
-	response := message.NewErrorServerMessage(NewError("processing_failed", "Processing of the message failed, please check server logs."))
+func sendMcuProcessingFailed(session Session, message *api.ClientMessage) {
+	response := message.NewErrorServerMessage(api.NewError("processing_failed", "Processing of the message failed, please check server logs."))
 	session.SendMessage(response)
 }
 
-func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSession, senderRoom *Room, recipientSessionId PublicSessionId) bool {
+func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSession, senderRoom *Room, recipientSessionId api.PublicSessionId) bool {
 	clients := h.rpcClients.GetClients()
 	if len(clients) == 0 {
 		return false
@@ -2772,8 +2776,8 @@ func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSessi
 	return result.Load()
 }
 
-func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, recipientSessionId PublicSessionId) bool {
-	if senderSession.ClientType() == HelloClientTypeInternal {
+func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, recipientSessionId api.PublicSessionId) bool {
+	if senderSession.ClientType() == api.HelloClientTypeInternal {
 		// Internal clients may subscribe all streams.
 		return true
 	}
@@ -2792,7 +2796,7 @@ func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, re
 
 	recipientRoom := recipientSession.GetRoom()
 	if recipientRoom == nil || !senderRoom.IsEqual(recipientRoom) ||
-		(recipientSession.ClientType() != HelloClientTypeInternal && !recipientRoom.IsSessionInCall(recipientSession)) {
+		(recipientSession.ClientType() != api.HelloClientTypeInternal && !recipientRoom.IsSessionInCall(recipientSession)) {
 		// Recipient is not in a room, a different room or not in the call.
 		return false
 	}
@@ -2800,7 +2804,7 @@ func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, re
 	return true
 }
 
-func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMessage, message *MessageClientMessage, data *MessageClientMessageData) {
+func (h *Hub) processMcuMessage(session *ClientSession, client_message *api.ClientMessage, message *api.MessageClientMessage, data *api.MessageClientMessageData) {
 	ctx, cancel := context.WithTimeout(session.Context(), h.mcuTimeout)
 	defer cancel()
 
@@ -2844,7 +2848,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 		clientType = "subscriber"
 		mc = session.GetSubscriber(message.Recipient.SessionId, StreamType(data.RoomType))
 	default:
-		if data.Type == "candidate" && FilterCandidate(data.candidate, h.allowedCandidates.Load(), h.blockedCandidates.Load()) {
+		if data.Type == "candidate" && api.FilterCandidate(data.Candidate, h.allowedCandidates.Load(), h.blockedCandidates.Load()) {
 			// Silently ignore filtered candidates.
 			return
 		}
@@ -2875,7 +2879,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 
 	mc.SendMessage(session.Context(), message, data, func(err error, response api.StringMap) {
 		if err != nil {
-			if !errors.Is(err, ErrCandidateFiltered) {
+			if !errors.Is(err, api.ErrCandidateFiltered) {
 				h.logger.Printf("Could not send MCU message %+v for session %s to %s: %s", data, session.PublicId(), message.Recipient.SessionId, err)
 				sendMcuProcessingFailed(session, client_message)
 			}
@@ -2889,11 +2893,11 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *ClientMe
 	})
 }
 
-func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *MessageClientMessage, data *MessageClientMessageData, response api.StringMap) {
-	var response_message *ServerMessage
+func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *api.MessageClientMessage, data *api.MessageClientMessageData, response api.StringMap) {
+	var response_message *api.ServerMessage
 	switch response["type"] {
 	case "answer":
-		answer_message := &AnswerOfferMessage{
+		answer_message := &api.AnswerOfferMessage{
 			To:       session.PublicId(),
 			From:     session.PublicId(),
 			Type:     "answer",
@@ -2906,10 +2910,10 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 			h.logger.Printf("Could not serialize answer %+v to %s: %s", answer_message, session.PublicId(), err)
 			return
 		}
-		response_message = &ServerMessage{
+		response_message = &api.ServerMessage{
 			Type: "message",
-			Message: &MessageServerMessage{
-				Sender: &MessageServerMessageSender{
+			Message: &api.MessageServerMessage{
+				Sender: &api.MessageServerMessageSender{
 					Type:      "session",
 					SessionId: session.PublicId(),
 					UserId:    session.UserId(),
@@ -2918,7 +2922,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 			},
 		}
 	case "offer":
-		offer_message := &AnswerOfferMessage{
+		offer_message := &api.AnswerOfferMessage{
 			To:       session.PublicId(),
 			From:     message.Recipient.SessionId,
 			Type:     "offer",
@@ -2931,10 +2935,10 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 			h.logger.Printf("Could not serialize offer %+v to %s: %s", offer_message, session.PublicId(), err)
 			return
 		}
-		response_message = &ServerMessage{
+		response_message = &api.ServerMessage{
 			Type: "message",
-			Message: &MessageServerMessage{
-				Sender: &MessageServerMessageSender{
+			Message: &api.MessageServerMessage{
+				Sender: &api.MessageServerMessageSender{
 					Type:      "session",
 					SessionId: message.Recipient.SessionId,
 					// TODO(jojo): Set "UserId" field if known user.
@@ -2950,20 +2954,28 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient
 	session.SendMessage(response_message)
 }
 
-func (h *Hub) processByeMsg(client HandlerClient, message *ClientMessage) {
+func (h *Hub) processByeMsg(client HandlerClient, message *api.ClientMessage) {
 	client.SendByeResponse(message)
 	if session := h.processUnregister(client); session != nil {
 		session.Close()
 	}
 }
 
-func (h *Hub) processRoomUpdated(message *BackendServerRoomRequest) {
-	room := message.room
+func (h *Hub) processRoomUpdated(message *talk.BackendServerRoomRequest) {
+	room := h.GetRoomForBackend(message.RoomId, message.Backend)
+	if room == nil {
+		return
+	}
+
 	room.UpdateProperties(message.Update.Properties)
 }
 
-func (h *Hub) processRoomDeleted(message *BackendServerRoomRequest) {
-	room := message.room
+func (h *Hub) processRoomDeleted(message *talk.BackendServerRoomRequest) {
+	room := h.GetRoomForBackend(message.RoomId, message.Backend)
+	if room == nil {
+		return
+	}
+
 	sessions := room.Close()
 	for _, session := range sessions {
 		// The session is no longer in the room
@@ -2977,8 +2989,12 @@ func (h *Hub) processRoomDeleted(message *BackendServerRoomRequest) {
 	}
 }
 
-func (h *Hub) processRoomInCallChanged(message *BackendServerRoomRequest) {
-	room := message.room
+func (h *Hub) processRoomInCallChanged(message *talk.BackendServerRoomRequest) {
+	room := h.GetRoomForBackend(message.RoomId, message.Backend)
+	if room == nil {
+		return
+	}
+
 	if message.InCall.All {
 		var flags int
 		if err := json.Unmarshal(message.InCall.InCall, &flags); err != nil {
@@ -2999,8 +3015,12 @@ func (h *Hub) processRoomInCallChanged(message *BackendServerRoomRequest) {
 	}
 }
 
-func (h *Hub) processRoomParticipants(message *BackendServerRoomRequest) {
-	room := message.room
+func (h *Hub) processRoomParticipants(message *talk.BackendServerRoomRequest) {
+	room := h.GetRoomForBackend(message.RoomId, message.Backend)
+	if room == nil {
+		return
+	}
+
 	room.PublishUsersChanged(message.Participants.Changed, message.Participants.Users)
 }
 
@@ -3020,12 +3040,12 @@ func (h *Hub) GetStats() api.StringMap {
 	return result
 }
 
-func (h *Hub) GetServerInfoDialout() (result []BackendServerInfoDialout) {
+func (h *Hub) GetServerInfoDialout() (result []talk.BackendServerInfoDialout) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	for session := range h.dialoutSessions {
-		dialout := BackendServerInfoDialout{
+		dialout := talk.BackendServerInfoDialout{
 			SessionId: session.PublicId(),
 		}
 		if client := session.GetClient(); client != nil && client.IsConnected() {
@@ -3047,13 +3067,13 @@ func (h *Hub) GetServerInfoDialout() (result []BackendServerInfoDialout) {
 		result = append(result, dialout)
 	}
 
-	slices.SortFunc(result, func(a, b BackendServerInfoDialout) int {
+	slices.SortFunc(result, func(a, b talk.BackendServerInfoDialout) int {
 		return strings.Compare(string(a.SessionId), string(b.SessionId))
 	})
 	return
 }
 
-func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
+func GetRealUserIP(r *http.Request, trusted *container.IPList) string {
 	addr := r.RemoteAddr
 	if host, _, err := net.SplitHostPort(addr); err == nil {
 		addr = host
@@ -3065,7 +3085,7 @@ func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
 	}
 
 	// Don't check any headers if the server can be reached by untrusted clients directly.
-	if trusted == nil || !trusted.Allowed(ip) {
+	if trusted == nil || !trusted.Contains(ip) {
 		return addr
 	}
 
@@ -3092,7 +3112,7 @@ func GetRealUserIP(r *http.Request, trusted *AllowedIps) string {
 				continue
 			}
 
-			if trusted.Allowed(ip) {
+			if trusted.Contains(ip) {
 				lastTrusted = hop
 				continue
 			}
@@ -3153,35 +3173,31 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	client.ReadPump()
 }
 
-func (h *Hub) OnLookupCountry(client HandlerClient) string {
+func (h *Hub) OnLookupCountry(client HandlerClient) geoip.Country {
 	ip := net.ParseIP(client.RemoteAddr())
 	if ip == nil {
-		return noCountry
+		return geoip.NoCountry
 	}
 
-	if overrides := h.geoipOverrides.Load(); overrides != nil {
-		for overrideNet, country := range *overrides {
-			if overrideNet.Contains(ip) {
-				return country
-			}
-		}
+	if country, found := h.geoipOverrides.Load().Lookup(ip); found {
+		return country
 	}
 
 	if ip.IsLoopback() {
-		return loopback
+		return geoip.Loopback
 	}
 
-	country := unknownCountry
+	country := geoip.UnknownCountry
 	if h.geoip != nil {
 		var err error
 		country, err = h.geoip.LookupCountry(ip)
 		if err != nil {
 			h.logger.Printf("Could not lookup country for %s: %s", ip, err)
-			return unknownCountry
+			return geoip.UnknownCountry
 		}
 
 		if country == "" {
-			country = unknownCountry
+			country = geoip.UnknownCountry
 		}
 	}
 	return country
