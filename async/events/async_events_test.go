@@ -81,7 +81,9 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 	}
 
 	require.NoError(events.RegisterRoomListener(roomId, backend, listener))
-	defer events.UnregisterRoomListener(roomId, backend, listener)
+	defer func() {
+		assert.NoError(events.UnregisterRoomListener(roomId, backend, listener))
+	}()
 
 	roomMessage := &AsyncMessage{
 		Type: "room",
@@ -101,7 +103,9 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 
 	userId := "the-user"
 	require.NoError(events.RegisterUserListener(userId, backend, listener))
-	defer events.UnregisterUserListener(userId, backend, listener)
+	defer func() {
+		assert.NoError(events.UnregisterUserListener(userId, backend, listener))
+	}()
 
 	userMessage := &AsyncMessage{
 		Type: "room",
@@ -121,7 +125,9 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 
 	sessionId := api.PublicSessionId("the-session")
 	require.NoError(events.RegisterSessionListener(sessionId, backend, listener))
-	defer events.UnregisterSessionListener(sessionId, backend, listener)
+	defer func() {
+		assert.NoError(events.UnregisterSessionListener(sessionId, backend, listener))
+	}()
 
 	sessionMessage := &AsyncMessage{
 		Type: "room",
