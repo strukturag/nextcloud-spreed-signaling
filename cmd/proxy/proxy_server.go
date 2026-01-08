@@ -100,6 +100,11 @@ type ContextKey string
 var (
 	ContextKeySession = ContextKey("session")
 
+	// HelloExpected is returned if a client sends a message before the "hello" request.
+	HelloExpected = api.NewError("hello_expected", "Expected Hello request.")
+	// NoSuchSession is returned if the session to be resumed is unknown or expired.
+	NoSuchSession = api.NewError("no_such_session", "The session to resume does not exist.")
+
 	TimeoutCreatingPublisher      = api.NewError("timeout", "Timeout creating publisher.")
 	TimeoutCreatingSubscriber     = api.NewError("timeout", "Timeout creating subscriber.")
 	TokenAuthFailed               = api.NewError("auth_failed", "The token could not be authenticated.")
@@ -786,7 +791,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 	session := client.GetSession()
 	if session == nil {
 		if message.Type != "hello" {
-			client.SendMessage(message.NewErrorServerMessage(signaling.HelloExpected))
+			client.SendMessage(message.NewErrorServerMessage(HelloExpected))
 			return
 		}
 
@@ -797,7 +802,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			}
 
 			if session == nil || resumeId != session.PublicId() {
-				client.SendMessage(message.NewErrorServerMessage(signaling.NoSuchSession))
+				client.SendMessage(message.NewErrorServerMessage(NoSuchSession))
 				return
 			}
 
