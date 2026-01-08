@@ -37,6 +37,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
@@ -100,7 +101,7 @@ type Room struct {
 	// Timestamps of last backend requests for the different types.
 	lastRoomRequests map[string]int64
 
-	transientData *TransientData
+	transientData *api.TransientData
 }
 
 func getRoomIdForBackend(id string, backend *talk.Backend) string {
@@ -138,7 +139,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 
 		lastRoomRequests: make(map[string]int64),
 
-		transientData: NewTransientData(),
+		transientData: api.NewTransientData(),
 	}
 
 	if err := asyncEvents.RegisterBackendRoomListener(roomId, backend, room); err != nil {
@@ -523,7 +524,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	delete(r.roomSessionData, sid)
 	if len(r.sessions) > 0 {
 		r.mu.Unlock()
-		if err := r.RemoveTransientData(TransientSessionDataPrefix + string(sid)); err != nil {
+		if err := r.RemoveTransientData(api.TransientSessionDataPrefix + string(sid)); err != nil {
 			r.logger.Printf("Error removing transient data for session %s", sid)
 		}
 		r.PublishSessionLeft(session)
@@ -537,7 +538,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	r.unsubscribeBackend()
 	r.doClose()
 	r.mu.Unlock()
-	if err := r.RemoveTransientData(TransientSessionDataPrefix + string(sid)); err != nil {
+	if err := r.RemoveTransientData(api.TransientSessionDataPrefix + string(sid)); err != nil {
 		r.logger.Printf("Error removing transient data for session %s", sid)
 	}
 	// Still need to publish an event so sessions on other servers get notified.
@@ -641,7 +642,7 @@ func (r *Room) PublishSessionLeft(session Session) {
 }
 
 // +checklocksread:r.mu
-func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSessionId]*InternalSessionData, virtual map[api.PublicSessionId]*VirtualSessionData) {
+func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSessionId]*grpc.InternalSessionData, virtual map[api.PublicSessionId]*grpc.VirtualSessionData) {
 	if r.hub.rpcClients == nil {
 		return nil, nil
 	}
@@ -656,7 +657,7 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSes
 	var wg sync.WaitGroup
 	for _, client := range r.hub.rpcClients.GetClients() {
 		wg.Add(1)
-		go func(c *GrpcClient) {
+		go func(c *grpc.Client) {
 			defer wg.Done()
 
 			clientInternal, clientVirtual, err := c.GetInternalSessions(ctx, r.Id(), r.Backend().Urls())
@@ -668,11 +669,11 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSes
 			mu.Lock()
 			defer mu.Unlock()
 			if internal == nil {
-				internal = make(map[api.PublicSessionId]*InternalSessionData, len(clientInternal))
+				internal = make(map[api.PublicSessionId]*grpc.InternalSessionData, len(clientInternal))
 			}
 			maps.Copy(internal, clientInternal)
 			if virtual == nil {
-				virtual = make(map[api.PublicSessionId]*VirtualSessionData, len(clientVirtual))
+				virtual = make(map[api.PublicSessionId]*grpc.VirtualSessionData, len(clientVirtual))
 			}
 			maps.Copy(virtual, clientVirtual)
 		}(client)
@@ -1321,13 +1322,13 @@ func (r *Room) fetchInitialTransientData() {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	// +checklocks:mu
-	var initial TransientDataEntries
+	var initial api.TransientDataEntries
 	for _, client := range r.hub.rpcClients.GetClients() {
 		wg.Add(1)
-		go func(c *GrpcClient) {
+		go func(c *grpc.Client) {
 			defer wg.Done()
 
-			data, err := c.GetTransientData(ctx, r)
+			data, err := c.GetTransientData(ctx, r.Id(), r.Backend())
 			if err != nil {
 				r.logger.Printf("Received error while getting transient data for %s@%s from %s: %s", r.Id(), r.Backend().Id(), c.Target(), err)
 				return
@@ -1339,7 +1340,7 @@ func (r *Room) fetchInitialTransientData() {
 			mu.Lock()
 			defer mu.Unlock()
 			if initial == nil {
-				initial = make(TransientDataEntries)
+				initial = make(api.TransientDataEntries)
 			}
 			maps.Copy(initial, data)
 		}(client)

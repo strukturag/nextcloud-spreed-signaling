@@ -30,6 +30,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -37,13 +38,13 @@ type RemoteSession struct {
 	logger       log.Logger
 	hub          *Hub
 	client       *Client
-	remoteClient *GrpcClient
+	remoteClient *grpc.Client
 	sessionId    api.PublicSessionId
 
-	proxy atomic.Pointer[SessionProxy]
+	proxy atomic.Pointer[grpc.SessionProxy]
 }
 
-func NewRemoteSession(hub *Hub, client *Client, remoteClient *GrpcClient, sessionId api.PublicSessionId) (*RemoteSession, error) {
+func NewRemoteSession(hub *Hub, client *Client, remoteClient *grpc.Client, sessionId api.PublicSessionId) (*RemoteSession, error) {
 	remoteSession := &RemoteSession{
 		logger:       hub.logger,
 		hub:          hub,
@@ -86,7 +87,7 @@ func (s *RemoteSession) Start(message *api.ClientMessage) error {
 	return s.sendMessage(message)
 }
 
-func (s *RemoteSession) OnProxyMessage(msg *ServerSessionMessage) error {
+func (s *RemoteSession) OnProxyMessage(msg *grpc.ServerSessionMessage) error {
 	var message *api.ServerMessage
 	if err := json.Unmarshal(msg.Message, &message); err != nil {
 		return err
@@ -116,7 +117,7 @@ func (s *RemoteSession) sendProxyMessage(message []byte) error {
 		return errors.New("proxy already closed")
 	}
 
-	msg := &ClientSessionMessage{
+	msg := &grpc.ClientSessionMessage{
 		Message: message,
 	}
 	return proxy.Send(msg)

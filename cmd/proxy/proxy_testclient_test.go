@@ -35,8 +35,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
 )
 
 var (
@@ -120,16 +120,16 @@ loop:
 }
 
 func (c *ProxyTestClient) SendBye() error {
-	hello := &signaling.ProxyClientMessage{
+	hello := &proxy.ClientMessage{
 		Id:   "9876",
 		Type: "bye",
-		Bye:  &signaling.ByeProxyClientMessage{},
+		Bye:  &proxy.ByeClientMessage{},
 	}
 	return c.WriteJSON(hello)
 }
 
 func (c *ProxyTestClient) WriteJSON(data any) error {
-	if msg, ok := data.(*signaling.ProxyClientMessage); ok {
+	if msg, ok := data.(*proxy.ClientMessage); ok {
 		if err := msg.CheckValid(); err != nil {
 			return err
 		}
@@ -140,11 +140,11 @@ func (c *ProxyTestClient) WriteJSON(data any) error {
 	return c.conn.WriteJSON(data)
 }
 
-func (c *ProxyTestClient) RunUntilMessage(ctx context.Context) (message *signaling.ProxyServerMessage, err error) {
+func (c *ProxyTestClient) RunUntilMessage(ctx context.Context) (message *proxy.ServerMessage, err error) {
 	select {
 	case err = <-c.readErrorChan:
 	case msg := <-c.messageChan:
-		var m signaling.ProxyServerMessage
+		var m proxy.ServerMessage
 		if err = json.Unmarshal(msg, &m); err == nil {
 			message = &m
 		}
@@ -165,7 +165,7 @@ func checkUnexpectedClose(err error) error {
 	return nil
 }
 
-func checkMessageType(message *signaling.ProxyServerMessage, expectedType string) error {
+func checkMessageType(message *proxy.ServerMessage, expectedType string) error {
 	if message == nil {
 		return ErrNoMessageReceived
 	}
@@ -192,7 +192,7 @@ func checkMessageType(message *signaling.ProxyServerMessage, expectedType string
 }
 
 func (c *ProxyTestClient) SendHello(key any) error {
-	claims := &signaling.TokenClaims{
+	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
 			Issuer:   TokenIdForTest,
@@ -202,10 +202,10 @@ func (c *ProxyTestClient) SendHello(key any) error {
 	tokenString, err := token.SignedString(key)
 	c.require.NoError(err)
 
-	hello := &signaling.ProxyClientMessage{
+	hello := &proxy.ClientMessage{
 		Id:   "1234",
 		Type: "hello",
-		Hello: &signaling.HelloProxyClientMessage{
+		Hello: &proxy.HelloClientMessage{
 			Version:  "1.0",
 			Features: []string{},
 			Token:    tokenString,
@@ -214,7 +214,7 @@ func (c *ProxyTestClient) SendHello(key any) error {
 	return c.WriteJSON(hello)
 }
 
-func (c *ProxyTestClient) RunUntilHello(ctx context.Context) (message *signaling.ProxyServerMessage, err error) {
+func (c *ProxyTestClient) RunUntilHello(ctx context.Context) (message *proxy.ServerMessage, err error) {
 	if message, err = c.RunUntilMessage(ctx); err != nil {
 		return nil, err
 	}
@@ -228,7 +228,7 @@ func (c *ProxyTestClient) RunUntilHello(ctx context.Context) (message *signaling
 	return message, nil
 }
 
-func (c *ProxyTestClient) RunUntilLoad(ctx context.Context, load uint64) (message *signaling.ProxyServerMessage, err error) {
+func (c *ProxyTestClient) RunUntilLoad(ctx context.Context, load uint64) (message *proxy.ServerMessage, err error) {
 	if message, err = c.RunUntilMessage(ctx); err != nil {
 		return nil, err
 	}
@@ -247,8 +247,8 @@ func (c *ProxyTestClient) RunUntilLoad(ctx context.Context, load uint64) (messag
 	return message, nil
 }
 
-func (c *ProxyTestClient) SendCommand(command *signaling.CommandProxyClientMessage) error {
-	message := &signaling.ProxyClientMessage{
+func (c *ProxyTestClient) SendCommand(command *proxy.CommandClientMessage) error {
+	message := &proxy.ClientMessage{
 		Id:      "2345",
 		Type:    "command",
 		Command: command,

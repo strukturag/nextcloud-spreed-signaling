@@ -34,6 +34,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu/test"
 )
 
 func Test_FederationInvalidToken(t *testing.T) {
@@ -714,13 +715,13 @@ func Test_FederationMedia(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu1 := NewTestMCU(t)
+	mcu1 := test.NewSFU(t)
 	require.NoError(mcu1.Start(ctx))
 	defer mcu1.Stop()
 
 	hub1.SetMcu(mcu1)
 
-	mcu2 := NewTestMCU(t)
+	mcu2 := test.NewSFU(t)
 	require.NoError(mcu2.Start(ctx))
 	defer mcu2.Stop()
 

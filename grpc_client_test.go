@@ -23,76 +23,18 @@ package signaling
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"fmt"
-	"net"
-	"path"
 	"testing"
 	"time"
 
-	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/dns"
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
+	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
-
-func (c *GrpcClients) getWakeupChannelForTesting() <-chan struct{} {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.wakeupChanForTesting != nil {
-		return c.wakeupChanForTesting
-	}
-
-	ch := make(chan struct{}, 1)
-	c.wakeupChanForTesting = ch
-	return ch
-}
-
-func NewGrpcClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *dns.MockLookup) (*GrpcClients, *dns.Monitor) {
-	dnsMonitor := dns.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
-	logger := log.NewLoggerForTest(t)
-	ctx := log.NewLoggerContext(t.Context(), logger)
-	client, err := NewGrpcClients(ctx, config, etcdClient, dnsMonitor, "0.0.0")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		client.Close()
-	})
-
-	return client, dnsMonitor
-}
-
-func NewGrpcClientsForTest(t *testing.T, addr string, lookup *dns.MockLookup) (*GrpcClients, *dns.Monitor) {
-	config := goconf.NewConfigFile()
-	config.AddOption("grpc", "targets", addr)
-	config.AddOption("grpc", "dnsdiscovery", "true")
-
-	return NewGrpcClientsForTestWithConfig(t, config, nil, lookup)
-}
-
-func NewGrpcClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup *dns.MockLookup) (*GrpcClients, *dns.Monitor) {
-	config := goconf.NewConfigFile()
-	config.AddOption("etcd", "endpoints", embedEtcd.URL().String())
-
-	config.AddOption("grpc", "targettype", "etcd")
-	config.AddOption("grpc", "targetprefix", "/grpctargets")
-
-	logger := log.NewLoggerForTest(t)
-	etcdClient, err := etcd.NewClient(logger, config, "")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		assert.NoError(t, etcdClient.Close())
-	})
-
-	return NewGrpcClientsForTestWithConfig(t, config, etcdClient, lookup)
-}
 
 func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 	t.Helper()
@@ -117,7 +59,7 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) { // nolint:paralleltest
 		embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 		embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 
-		client, _ := NewGrpcClientsWithEtcdForTest(t, embedEtcd, nil)
+		client, _ := grpctest.NewClientsWithEtcdForTest(t, embedEtcd, nil)
 		ctx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
 		require.NoError(t, client.WaitForInitialized(ctx))
@@ -133,8 +75,8 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)
-	client, _ := NewGrpcClientsWithEtcdForTest(t, embedEtcd, nil)
-	ch := client.getWakeupChannelForTesting()
+	client, _ := grpctest.NewClientsWithEtcdForTest(t, embedEtcd, nil)
+	ch := client.GetWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
@@ -180,8 +122,8 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)
-	client, _ := NewGrpcClientsWithEtcdForTest(t, embedEtcd, nil)
-	ch := client.getWakeupChannelForTesting()
+	client, _ := grpctest.NewClientsWithEtcdForTest(t, embedEtcd, nil)
+	ch := client.GetWakeupChannelForTesting()
 
 	ctx, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
@@ -198,10 +140,10 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 
 	test.DrainWakeupChannel(ch)
 	server2, addr2 := NewGrpcServerForTest(t)
-	server2.serverId = GrpcServerId
+	server2.serverId = grpc.ServerId
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
 	waitForEvent(ctx, t, ch)
-	client.selfCheckWaitGroup.Wait()
+	client.WaitForSelfCheck()
 	if clients := client.GetClients(); assert.Len(clients, 1) {
 		assert.Equal(addr1, clients[0].Target())
 	}
@@ -212,139 +154,4 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	if clients := client.GetClients(); assert.Len(clients, 1) {
 		assert.Equal(addr1, clients[0].Target())
 	}
-}
-
-func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
-	logger := log.NewLoggerForTest(t)
-	ctx := log.NewLoggerContext(t.Context(), logger)
-	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
-		assert := assert.New(t)
-		require := require.New(t)
-		lookup := dns.NewMockLookupForTest(t)
-		target := "testgrpc:12345"
-		ip1 := net.ParseIP("192.168.0.1")
-		ip2 := net.ParseIP("192.168.0.2")
-		targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
-		targetWithIp2 := fmt.Sprintf("%s (%s)", target, ip2)
-		lookup.Set("testgrpc", []net.IP{ip1})
-		client, dnsMonitor := NewGrpcClientsForTest(t, target, lookup)
-		ch := client.getWakeupChannelForTesting()
-
-		ctx, cancel := context.WithTimeout(ctx, testTimeout)
-		defer cancel()
-
-		// Wait for initial check to be done to make sure internal dnsmonitor goroutine is waiting.
-		if err := dnsMonitor.WaitForTicker(ctx); err != nil {
-			require.NoError(err)
-		}
-
-		test.DrainWakeupChannel(ch)
-		dnsMonitor.CheckHostnames()
-		if clients := client.GetClients(); assert.Len(clients, 1) {
-			assert.Equal(targetWithIp1, clients[0].Target())
-			assert.True(clients[0].ip.Equal(ip1), "Expected IP %s, got %s", ip1, clients[0].ip)
-		}
-
-		lookup.Set("testgrpc", []net.IP{ip1, ip2})
-		test.DrainWakeupChannel(ch)
-		dnsMonitor.CheckHostnames()
-		waitForEvent(ctx, t, ch)
-
-		if clients := client.GetClients(); assert.Len(clients, 2) {
-			assert.Equal(targetWithIp1, clients[0].Target())
-			assert.True(clients[0].ip.Equal(ip1), "Expected IP %s, got %s", ip1, clients[0].ip)
-			assert.Equal(targetWithIp2, clients[1].Target())
-			assert.True(clients[1].ip.Equal(ip2), "Expected IP %s, got %s", ip2, clients[1].ip)
-		}
-
-		lookup.Set("testgrpc", []net.IP{ip2})
-		test.DrainWakeupChannel(ch)
-		dnsMonitor.CheckHostnames()
-		waitForEvent(ctx, t, ch)
-
-		if clients := client.GetClients(); assert.Len(clients, 1) {
-			assert.Equal(targetWithIp2, clients[0].Target())
-			assert.True(clients[0].ip.Equal(ip2), "Expected IP %s, got %s", ip2, clients[0].ip)
-		}
-	})
-}
-
-func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
-	t.Parallel()
-	assert := assert.New(t)
-	lookup := dns.NewMockLookupForTest(t)
-	target := "testgrpc:12345"
-	ip1 := net.ParseIP("192.168.0.1")
-	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)
-	client, dnsMonitor := NewGrpcClientsForTest(t, target, lookup)
-	ch := client.getWakeupChannelForTesting()
-
-	testCtx, testCtxCancel := context.WithTimeout(context.Background(), testTimeout)
-	defer testCtxCancel()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	require.NoError(t, client.WaitForInitialized(ctx))
-
-	assert.Empty(client.GetClients())
-
-	lookup.Set("testgrpc", []net.IP{ip1})
-	test.DrainWakeupChannel(ch)
-	dnsMonitor.CheckHostnames()
-	waitForEvent(testCtx, t, ch)
-
-	if clients := client.GetClients(); assert.Len(clients, 1) {
-		assert.Equal(targetWithIp1, clients[0].Target())
-		assert.True(clients[0].ip.Equal(ip1), "Expected IP %s, got %s", ip1, clients[0].ip)
-	}
-}
-
-func Test_GrpcClients_Encryption(t *testing.T) { // nolint:paralleltest
-	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
-		require := require.New(t)
-		serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
-		require.NoError(err)
-		clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
-		require.NoError(err)
-
-		serverCert := internal.GenerateSelfSignedCertificateForTesting(t, "Server cert", serverKey)
-		clientCert := internal.GenerateSelfSignedCertificateForTesting(t, "Testing client", clientKey)
-
-		dir := t.TempDir()
-		serverPrivkeyFile := path.Join(dir, "server-privkey.pem")
-		serverPubkeyFile := path.Join(dir, "server-pubkey.pem")
-		serverCertFile := path.Join(dir, "server-cert.pem")
-		require.NoError(internal.WritePrivateKey(serverKey, serverPrivkeyFile))
-		require.NoError(internal.WritePublicKey(&serverKey.PublicKey, serverPubkeyFile))
-		require.NoError(internal.WriteCertificate(serverCert, serverCertFile))
-		clientPrivkeyFile := path.Join(dir, "client-privkey.pem")
-		clientPubkeyFile := path.Join(dir, "client-pubkey.pem")
-		clientCertFile := path.Join(dir, "client-cert.pem")
-		require.NoError(internal.WritePrivateKey(clientKey, clientPrivkeyFile))
-		require.NoError(internal.WritePublicKey(&clientKey.PublicKey, clientPubkeyFile))
-		require.NoError(internal.WriteCertificate(clientCert, clientCertFile))
-
-		serverConfig := goconf.NewConfigFile()
-		serverConfig.AddOption("grpc", "servercertificate", serverCertFile)
-		serverConfig.AddOption("grpc", "serverkey", serverPrivkeyFile)
-		serverConfig.AddOption("grpc", "clientca", clientCertFile)
-		_, addr := NewGrpcServerForTestWithConfig(t, serverConfig)
-
-		clientConfig := goconf.NewConfigFile()
-		clientConfig.AddOption("grpc", "targets", addr)
-		clientConfig.AddOption("grpc", "clientcertificate", clientCertFile)
-		clientConfig.AddOption("grpc", "clientkey", clientPrivkeyFile)
-		clientConfig.AddOption("grpc", "serverca", serverCertFile)
-		clients, _ := NewGrpcClientsForTestWithConfig(t, clientConfig, nil, nil)
-
-		ctx, cancel1 := context.WithTimeout(context.Background(), time.Second)
-		defer cancel1()
-
-		require.NoError(clients.WaitForInitialized(ctx))
-
-		for _, client := range clients.GetClients() {
-			_, _, err := client.GetServerId(ctx)
-			require.NoError(err)
-		}
-	})
 }

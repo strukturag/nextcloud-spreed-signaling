@@ -35,6 +35,8 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -47,7 +49,7 @@ func TestBandwidth_Client(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu := NewTestMCU(t)
+	mcu := test.NewSFU(t)
 	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
@@ -83,15 +85,15 @@ func TestBandwidth_Client(t *testing.T) {
 
 	pub := mcu.GetPublisher(hello.Hello.SessionId)
 	require.NotNil(pub)
-	assert.Equal(bitrate, pub.settings.Bitrate)
+	assert.Equal(bitrate, pub.Settings().Bitrate)
 }
 
 func TestBandwidth_Backend(t *testing.T) {
 	t.Parallel()
 
-	streamTypes := []StreamType{
-		StreamTypeVideo,
-		StreamTypeScreen,
+	streamTypes := []sfu.StreamType{
+		sfu.StreamTypeVideo,
+		sfu.StreamTypeScreen,
 	}
 
 	for _, streamType := range streamTypes {
@@ -113,7 +115,7 @@ func TestBandwidth_Backend(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
-			mcu := NewTestMCU(t)
+			mcu := test.NewSFU(t)
 			require.NoError(mcu.Start(ctx))
 			defer mcu.Stop()
 
@@ -158,12 +160,12 @@ func TestBandwidth_Backend(t *testing.T) {
 			require.NotNil(pub, "Could not find publisher")
 
 			var expectBitrate api.Bandwidth
-			if streamType == StreamTypeVideo {
+			if streamType == sfu.StreamTypeVideo {
 				expectBitrate = backend.MaxStreamBitrate()
 			} else {
 				expectBitrate = backend.MaxScreenBitrate()
 			}
-			assert.Equal(expectBitrate, pub.settings.Bitrate)
+			assert.Equal(expectBitrate, pub.Settings().Bitrate)
 		})
 	}
 }

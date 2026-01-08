@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -38,10 +39,10 @@ type BuiltinRoomSessions struct {
 	// +checklocks:mu
 	roomSessionToSessionid map[api.RoomSessionId]api.PublicSessionId
 
-	clients *GrpcClients
+	clients *grpc.Clients
 }
 
-func NewBuiltinRoomSessions(clients *GrpcClients) (RoomSessions, error) {
+func NewBuiltinRoomSessions(clients *grpc.Clients) (RoomSessions, error) {
 	return &BuiltinRoomSessions{
 		sessionIdToRoomSession: make(map[api.PublicSessionId]api.RoomSessionId),
 		roomSessionToSessionid: make(map[api.RoomSessionId]api.PublicSessionId),
@@ -122,7 +123,7 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 	logger := log.LoggerFromContext(ctx)
 	for _, client := range clients {
 		wg.Add(1)
-		go func(client *GrpcClient) {
+		go func(client *grpc.Client) {
 			defer wg.Done()
 
 			sid, err := client.LookupSessionId(lookupctx, roomSessionId, disconnectReason)

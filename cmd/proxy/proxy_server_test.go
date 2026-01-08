@@ -44,10 +44,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -156,9 +157,9 @@ func newProxyServerForTest(t *testing.T) (*ProxyServer, *rsa.PrivateKey, *httpte
 
 func TestTokenValid(t *testing.T) {
 	t.Parallel()
-	proxy, key, _ := newProxyServerForTest(t)
+	proxyServer, key, _ := newProxyServerForTest(t)
 
-	claims := &signaling.TokenClaims{
+	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
 			Issuer:   TokenIdForTest,
@@ -168,20 +169,20 @@ func TestTokenValid(t *testing.T) {
 	tokenString, err := token.SignedString(key)
 	require.NoError(t, err)
 
-	hello := &signaling.HelloProxyClientMessage{
+	hello := &proxy.HelloClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	if session, err := proxy.NewSession(hello); assert.NoError(t, err) {
-		defer proxy.DeleteSession(session.Sid())
+	if session, err := proxyServer.NewSession(hello); assert.NoError(t, err) {
+		defer proxyServer.DeleteSession(session.Sid())
 	}
 }
 
 func TestTokenNotSigned(t *testing.T) {
 	t.Parallel()
-	proxy, _, _ := newProxyServerForTest(t)
+	proxyServer, _, _ := newProxyServerForTest(t)
 
-	claims := &signaling.TokenClaims{
+	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
 			Issuer:   TokenIdForTest,
@@ -191,22 +192,22 @@ func TestTokenNotSigned(t *testing.T) {
 	tokenString, err := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
 	require.NoError(t, err)
 
-	hello := &signaling.HelloProxyClientMessage{
+	hello := &proxy.HelloClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	if session, err := proxy.NewSession(hello); !assert.ErrorIs(t, err, TokenAuthFailed) {
+	if session, err := proxyServer.NewSession(hello); !assert.ErrorIs(t, err, TokenAuthFailed) {
 		if session != nil {
-			defer proxy.DeleteSession(session.Sid())
+			defer proxyServer.DeleteSession(session.Sid())
 		}
 	}
 }
 
 func TestTokenUnknown(t *testing.T) {
 	t.Parallel()
-	proxy, key, _ := newProxyServerForTest(t)
+	proxyServer, key, _ := newProxyServerForTest(t)
 
-	claims := &signaling.TokenClaims{
+	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
 			Issuer:   TokenIdForTest + "2",
@@ -216,22 +217,22 @@ func TestTokenUnknown(t *testing.T) {
 	tokenString, err := token.SignedString(key)
 	require.NoError(t, err)
 
-	hello := &signaling.HelloProxyClientMessage{
+	hello := &proxy.HelloClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	if session, err := proxy.NewSession(hello); !assert.ErrorIs(t, err, TokenAuthFailed) {
+	if session, err := proxyServer.NewSession(hello); !assert.ErrorIs(t, err, TokenAuthFailed) {
 		if session != nil {
-			defer proxy.DeleteSession(session.Sid())
+			defer proxyServer.DeleteSession(session.Sid())
 		}
 	}
 }
 
 func TestTokenInFuture(t *testing.T) {
 	t.Parallel()
-	proxy, key, _ := newProxyServerForTest(t)
+	proxyServer, key, _ := newProxyServerForTest(t)
 
-	claims := &signaling.TokenClaims{
+	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			Issuer:   TokenIdForTest,
@@ -241,22 +242,22 @@ func TestTokenInFuture(t *testing.T) {
 	tokenString, err := token.SignedString(key)
 	require.NoError(t, err)
 
-	hello := &signaling.HelloProxyClientMessage{
+	hello := &proxy.HelloClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	if session, err := proxy.NewSession(hello); !assert.ErrorIs(t, err, TokenNotValidYet) {
+	if session, err := proxyServer.NewSession(hello); !assert.ErrorIs(t, err, TokenNotValidYet) {
 		if session != nil {
-			defer proxy.DeleteSession(session.Sid())
+			defer proxyServer.DeleteSession(session.Sid())
 		}
 	}
 }
 
 func TestTokenExpired(t *testing.T) {
 	t.Parallel()
-	proxy, key, _ := newProxyServerForTest(t)
+	proxyServer, key, _ := newProxyServerForTest(t)
 
-	claims := &signaling.TokenClaims{
+	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge * 2)),
 			Issuer:   TokenIdForTest,
@@ -266,13 +267,13 @@ func TestTokenExpired(t *testing.T) {
 	tokenString, err := token.SignedString(key)
 	require.NoError(t, err)
 
-	hello := &signaling.HelloProxyClientMessage{
+	hello := &proxy.HelloClientMessage{
 		Version: "1.0",
 		Token:   tokenString,
 	}
-	if session, err := proxy.NewSession(hello); !assert.ErrorIs(t, err, TokenExpired) {
+	if session, err := proxyServer.NewSession(hello); !assert.ErrorIs(t, err, TokenExpired) {
 		if session != nil {
-			defer proxy.DeleteSession(session.Sid())
+			defer proxyServer.DeleteSession(session.Sid())
 		}
 	}
 }
@@ -392,18 +393,18 @@ func (m *TestMCU) GetServerInfoSfu() *talk.BackendServerInfoSfu {
 	return nil
 }
 
-func (m *TestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *TestMCU) NewPublisher(ctx context.Context, listener sfu.Listener, id api.PublicSessionId, sid string, streamType sfu.StreamType, settings sfu.NewPublisherSettings, initiator sfu.Initiator) (sfu.Publisher, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *TestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher api.PublicSessionId, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
+func (m *TestMCU) NewSubscriber(ctx context.Context, listener sfu.Listener, publisher api.PublicSessionId, streamType sfu.StreamType, initiator sfu.Initiator) (sfu.Subscriber, error) {
 	return nil, errors.New("not implemented")
 }
 
 type TestMCUPublisher struct {
 	id         api.PublicSessionId
 	sid        string
-	streamType signaling.StreamType
+	streamType sfu.StreamType
 }
 
 func (p *TestMCUPublisher) Id() string {
@@ -418,7 +419,7 @@ func (p *TestMCUPublisher) Sid() string {
 	return p.sid
 }
 
-func (p *TestMCUPublisher) StreamType() signaling.StreamType {
+func (p *TestMCUPublisher) StreamType() sfu.StreamType {
 	return p.streamType
 }
 
@@ -433,14 +434,14 @@ func (p *TestMCUPublisher) SendMessage(ctx context.Context, message *api.Message
 	callback(errors.New("not implemented"), nil)
 }
 
-func (p *TestMCUPublisher) HasMedia(signaling.MediaType) bool {
+func (p *TestMCUPublisher) HasMedia(sfu.MediaType) bool {
 	return false
 }
 
-func (p *TestMCUPublisher) SetMedia(mediaTypes signaling.MediaType) {
+func (p *TestMCUPublisher) SetMedia(mediaTypes sfu.MediaType) {
 }
 
-func (p *TestMCUPublisher) GetStreams(ctx context.Context) ([]signaling.PublisherStream, error) {
+func (p *TestMCUPublisher) GetStreams(ctx context.Context) ([]sfu.PublisherStream, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -459,14 +460,14 @@ type PublisherTestMCU struct {
 type TestPublisherWithBandwidth struct {
 	TestMCUPublisher
 
-	bandwidth *signaling.McuClientBandwidthInfo
+	bandwidth *sfu.ClientBandwidthInfo
 }
 
-func (p *TestPublisherWithBandwidth) Bandwidth() *signaling.McuClientBandwidthInfo {
+func (p *TestPublisherWithBandwidth) Bandwidth() *sfu.ClientBandwidthInfo {
 	return p.bandwidth
 }
 
-func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener sfu.Listener, id api.PublicSessionId, sid string, streamType sfu.StreamType, settings sfu.NewPublisherSettings, initiator sfu.Initiator) (sfu.Publisher, error) {
 	publisher := &TestPublisherWithBandwidth{
 		TestMCUPublisher: TestMCUPublisher{
 			id:         id,
@@ -474,7 +475,7 @@ func (m *PublisherTestMCU) NewPublisher(ctx context.Context, listener signaling.
 			streamType: streamType,
 		},
 
-		bandwidth: &signaling.McuClientBandwidthInfo{
+		bandwidth: &sfu.ClientBandwidthInfo{
 			Sent:     api.BandwidthFromBytes(1000),
 			Received: api.BandwidthFromBytes(2000),
 		},
@@ -494,13 +495,13 @@ func TestProxyPublisherBandwidth(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
-	proxy, key, server := newProxyServerForTest(t)
+	proxyServer, key, server := newProxyServerForTest(t)
 
-	proxy.maxIncoming.Store(api.BandwidthFromBytes(10000))
-	proxy.maxOutgoing.Store(api.BandwidthFromBytes(10000))
+	proxyServer.maxIncoming.Store(api.BandwidthFromBytes(10000))
+	proxyServer.maxOutgoing.Store(api.BandwidthFromBytes(10000))
 
 	mcu := NewPublisherTestMCU(t)
-	proxy.mcu = mcu
+	proxyServer.mcu = mcu
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -517,12 +518,12 @@ func TestProxyPublisherBandwidth(t *testing.T) {
 	_, err := client.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
 		Id:   "2345",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:       "create-publisher",
-			StreamType: signaling.StreamTypeVideo,
+			StreamType: sfu.StreamTypeVideo,
 		},
 	}))
 
@@ -533,7 +534,7 @@ func TestProxyPublisherBandwidth(t *testing.T) {
 		}
 	}
 
-	proxy.updateLoad()
+	proxyServer.updateLoad()
 
 	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
 		if err := checkMessageType(message, "event"); assert.NoError(err) && assert.Equal("update-load", message.Event.Type) {
@@ -574,7 +575,7 @@ func NewHangingTestMCU(t *testing.T) *HangingTestMCU {
 	}
 }
 
-func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener sfu.Listener, id api.PublicSessionId, sid string, streamType sfu.StreamType, settings sfu.NewPublisherSettings, initiator sfu.Initiator) (sfu.Publisher, error) {
 	ctx2, cancel := context.WithTimeout(m.ctx, testTimeout*2)
 	defer cancel()
 
@@ -592,7 +593,7 @@ func (m *HangingTestMCU) NewPublisher(ctx context.Context, listener signaling.Mc
 	}
 }
 
-func (m *HangingTestMCU) NewSubscriber(ctx context.Context, listener signaling.McuListener, publisher api.PublicSessionId, streamType signaling.StreamType, initiator signaling.McuInitiator) (signaling.McuSubscriber, error) {
+func (m *HangingTestMCU) NewSubscriber(ctx context.Context, listener sfu.Listener, publisher api.PublicSessionId, streamType sfu.StreamType, initiator sfu.Initiator) (sfu.Subscriber, error) {
 	ctx2, cancel := context.WithTimeout(m.ctx, testTimeout*2)
 	defer cancel()
 
@@ -614,10 +615,10 @@ func TestProxyCancelOnClose(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
-	proxy, key, server := newProxyServerForTest(t)
+	proxyServer, key, server := newProxyServerForTest(t)
 
 	mcu := NewHangingTestMCU(t)
-	proxy.mcu = mcu
+	proxyServer.mcu = mcu
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -634,19 +635,19 @@ func TestProxyCancelOnClose(t *testing.T) {
 	_, err := client.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
 		Id:   "2345",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:       "create-publisher",
-			StreamType: signaling.StreamTypeVideo,
+			StreamType: sfu.StreamTypeVideo,
 		},
 	}))
 
 	// Simulate expired session while request is still being processed.
 	go func() {
 		<-mcu.creating
-		if session := proxy.GetSession(1); assert.NotNil(session) {
+		if session := proxyServer.GetSession(1); assert.NotNil(session) {
 			session.Close()
 		}
 	}()
@@ -679,7 +680,7 @@ func NewCodecsTestMCU(t *testing.T) *CodecsTestMCU {
 	}
 }
 
-func (m *CodecsTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *CodecsTestMCU) NewPublisher(ctx context.Context, listener sfu.Listener, id api.PublicSessionId, sid string, streamType sfu.StreamType, settings sfu.NewPublisherSettings, initiator sfu.Initiator) (sfu.Publisher, error) {
 	assert.Equal(m.t, "opus,g722", settings.AudioCodec)
 	assert.Equal(m.t, "vp9,vp8,av1", settings.VideoCodec)
 	return &TestMCUPublisher{
@@ -693,10 +694,10 @@ func TestProxyCodecs(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
-	proxy, key, server := newProxyServerForTest(t)
+	proxyServer, key, server := newProxyServerForTest(t)
 
 	mcu := NewCodecsTestMCU(t)
-	proxy.mcu = mcu
+	proxyServer.mcu = mcu
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -713,13 +714,13 @@ func TestProxyCodecs(t *testing.T) {
 	_, err := client.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
 		Id:   "2345",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:       "create-publisher",
-			StreamType: signaling.StreamTypeVideo,
-			PublisherSettings: &signaling.NewPublisherSettings{
+			StreamType: sfu.StreamTypeVideo,
+			PublisherSettings: &sfu.NewPublisherSettings{
 				AudioCodec: "opus,g722",
 				VideoCodec: "vp9,vp8,av1",
 			},
@@ -737,16 +738,16 @@ func TestProxyCodecs(t *testing.T) {
 type StreamTestMCU struct {
 	TestMCU
 
-	streams []signaling.PublisherStream
+	streams []sfu.PublisherStream
 }
 
 type StreamsTestPublisher struct {
 	TestMCUPublisher
 
-	streams []signaling.PublisherStream
+	streams []sfu.PublisherStream
 }
 
-func (m *StreamTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *StreamTestMCU) NewPublisher(ctx context.Context, listener sfu.Listener, id api.PublicSessionId, sid string, streamType sfu.StreamType, settings sfu.NewPublisherSettings, initiator sfu.Initiator) (sfu.Publisher, error) {
 	return &StreamsTestPublisher{
 		TestMCUPublisher: TestMCUPublisher{
 			id:         id,
@@ -758,11 +759,11 @@ func (m *StreamTestMCU) NewPublisher(ctx context.Context, listener signaling.Mcu
 	}, nil
 }
 
-func (p *StreamsTestPublisher) GetStreams(ctx context.Context) ([]signaling.PublisherStream, error) {
+func (p *StreamsTestPublisher) GetStreams(ctx context.Context) ([]sfu.PublisherStream, error) {
 	return p.streams, nil
 }
 
-func NewStreamTestMCU(t *testing.T, streams []signaling.PublisherStream) *StreamTestMCU {
+func NewStreamTestMCU(t *testing.T, streams []sfu.PublisherStream) *StreamTestMCU {
 	return &StreamTestMCU{
 		TestMCU: TestMCU{
 			t: t,
@@ -776,9 +777,9 @@ func TestProxyStreams(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
-	proxy, key, server := newProxyServerForTest(t)
+	proxyServer, key, server := newProxyServerForTest(t)
 
-	streams := []signaling.PublisherStream{
+	streams := []sfu.PublisherStream{
 		{
 			Mid:    "0",
 			Mindex: 0,
@@ -794,7 +795,7 @@ func TestProxyStreams(t *testing.T) {
 	}
 
 	mcu := NewStreamTestMCU(t, streams)
-	proxy.mcu = mcu
+	proxyServer.mcu = mcu
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -811,12 +812,12 @@ func TestProxyStreams(t *testing.T) {
 	_, err := client.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
 		Id:   "2345",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:       "create-publisher",
-			StreamType: signaling.StreamTypeVideo,
+			StreamType: sfu.StreamTypeVideo,
 		},
 	}))
 
@@ -832,10 +833,10 @@ func TestProxyStreams(t *testing.T) {
 
 	require.NotEmpty(clientId, "should have received publisher id")
 
-	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
 		Id:   "3456",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:     "get-publisher-streams",
 			ClientId: clientId,
 		},
@@ -867,12 +868,12 @@ func NewRemoteSubscriberTestMCU(t *testing.T) *RemoteSubscriberTestMCU {
 type TestRemotePublisher struct {
 	t *testing.T
 
-	streamType signaling.StreamType
+	streamType sfu.StreamType
 	refcnt     atomic.Int32
 	closed     context.Context
 	closeFunc  context.CancelFunc
-	listener   signaling.McuListener
-	controller signaling.RemotePublisherController
+	listener   sfu.Listener
+	controller sfu.RemotePublisherController
 }
 
 func (p *TestRemotePublisher) Id() string {
@@ -887,7 +888,7 @@ func (p *TestRemotePublisher) Sid() string {
 	return "sid"
 }
 
-func (p *TestRemotePublisher) StreamType() signaling.StreamType {
+func (p *TestRemotePublisher) StreamType() sfu.StreamType {
 	return p.streamType
 }
 
@@ -920,14 +921,14 @@ func (p *TestRemotePublisher) RtcpPort() int {
 	return 2
 }
 
-func (p *TestRemotePublisher) SetMedia(mediaType signaling.MediaType) {
+func (p *TestRemotePublisher) SetMedia(mediaType sfu.MediaType) {
 }
 
-func (p *TestRemotePublisher) HasMedia(mediaType signaling.MediaType) bool {
+func (p *TestRemotePublisher) HasMedia(mediaType sfu.MediaType) bool {
 	return false
 }
 
-func (m *RemoteSubscriberTestMCU) NewRemotePublisher(ctx context.Context, listener signaling.McuListener, controller signaling.RemotePublisherController, streamType signaling.StreamType) (signaling.McuRemotePublisher, error) {
+func (m *RemoteSubscriberTestMCU) NewRemotePublisher(ctx context.Context, listener sfu.Listener, controller sfu.RemotePublisherController, streamType sfu.StreamType) (sfu.RemotePublisher, error) {
 	require.Nil(m.t, m.publisher)
 	assert.EqualValues(m.t, "video", streamType)
 	closeCtx, closeFunc := context.WithCancel(context.Background())
@@ -960,7 +961,7 @@ func (s *TestRemoteSubscriber) Sid() string {
 	return "sid"
 }
 
-func (s *TestRemoteSubscriber) StreamType() signaling.StreamType {
+func (s *TestRemoteSubscriber) StreamType() sfu.StreamType {
 	return s.publisher.StreamType()
 }
 
@@ -981,7 +982,7 @@ func (s *TestRemoteSubscriber) Publisher() api.PublicSessionId {
 	return api.PublicSessionId(s.publisher.Id())
 }
 
-func (m *RemoteSubscriberTestMCU) NewRemoteSubscriber(ctx context.Context, listener signaling.McuListener, publisher signaling.McuRemotePublisher) (signaling.McuRemoteSubscriber, error) {
+func (m *RemoteSubscriberTestMCU) NewRemoteSubscriber(ctx context.Context, listener sfu.Listener, publisher sfu.RemotePublisher) (sfu.RemoteSubscriber, error) {
 	require.Nil(m.t, m.subscriber)
 	pub, ok := publisher.(*TestRemotePublisher)
 	require.True(m.t, ok)
@@ -1001,14 +1002,14 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
-	proxy, key, server := newProxyServerForTest(t)
+	proxyServer, key, server := newProxyServerForTest(t)
 
 	mcu := NewRemoteSubscriberTestMCU(t)
-	proxy.mcu = mcu
+	proxyServer.mcu = mcu
 	// Unused but must be set so remote subscribing works
-	proxy.tokenId = "token"
-	proxy.tokenKey = key
-	proxy.remoteHostname = "test-hostname"
+	proxyServer.tokenId = "token"
+	proxyServer.tokenKey = key
+	proxyServer.remoteHostname = "test-hostname"
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1026,7 +1027,7 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 	assert.NoError(err)
 
 	publisherId := api.PublicSessionId("the-publisher-id")
-	claims := &signaling.TokenClaims{
+	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
 			Issuer:   TokenIdForTest,
@@ -1037,12 +1038,12 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 	tokenString, err := token.SignedString(key)
 	require.NoError(err)
 
-	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
 		Id:   "2345",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:        "create-subscriber",
-			StreamType:  signaling.StreamTypeVideo,
+			StreamType:  sfu.StreamTypeVideo,
 			PublisherId: publisherId,
 			RemoteUrl:   "https://remote-hostname",
 			RemoteToken: tokenString,
@@ -1058,12 +1059,12 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 		}
 	}
 
-	assert.True(proxy.hasRemotePublishers())
+	assert.True(proxyServer.hasRemotePublishers())
 
-	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
 		Id:   "3456",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:     "delete-subscriber",
 			ClientId: clientId,
 		},
@@ -1089,21 +1090,21 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 		}
 	}
 
-	assert.False(proxy.hasRemotePublishers())
+	assert.False(proxyServer.hasRemotePublishers())
 }
 
 func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
-	proxy, key, server := newProxyServerForTest(t)
+	proxyServer, key, server := newProxyServerForTest(t)
 
 	mcu := NewRemoteSubscriberTestMCU(t)
-	proxy.mcu = mcu
+	proxyServer.mcu = mcu
 	// Unused but must be set so remote subscribing works
-	proxy.tokenId = "token"
-	proxy.tokenKey = key
-	proxy.remoteHostname = "test-hostname"
+	proxyServer.tokenId = "token"
+	proxyServer.tokenKey = key
+	proxyServer.remoteHostname = "test-hostname"
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1121,7 +1122,7 @@ func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
 	assert.NoError(err)
 
 	publisherId := api.PublicSessionId("the-publisher-id")
-	claims := &signaling.TokenClaims{
+	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now().Add(-maxTokenAge / 2)),
 			Issuer:   TokenIdForTest,
@@ -1132,12 +1133,12 @@ func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
 	tokenString, err := token.SignedString(key)
 	require.NoError(err)
 
-	require.NoError(client.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
 		Id:   "2345",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:        "create-subscriber",
-			StreamType:  signaling.StreamTypeVideo,
+			StreamType:  sfu.StreamTypeVideo,
 			PublisherId: publisherId,
 			RemoteUrl:   "https://remote-hostname",
 			RemoteToken: tokenString,
@@ -1194,7 +1195,7 @@ type UnpublishRemoteTestPublisher struct {
 	remoteData *remotePublisherData
 }
 
-func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener signaling.McuListener, id api.PublicSessionId, sid string, streamType signaling.StreamType, settings signaling.NewPublisherSettings, initiator signaling.McuInitiator) (signaling.McuPublisher, error) {
+func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener sfu.Listener, id api.PublicSessionId, sid string, streamType sfu.StreamType, settings sfu.NewPublisherSettings, initiator sfu.Initiator) (sfu.Publisher, error) {
 	publisher := &UnpublishRemoteTestPublisher{
 		TestMCUPublisher: TestMCUPublisher{
 			id:         id,
@@ -1259,10 +1260,10 @@ func TestProxyUnpublishRemote(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
-	proxy, key, server := newProxyServerForTest(t)
+	proxyServer, key, server := newProxyServerForTest(t)
 
 	mcu := NewUnpublishRemoteTestMCU(t)
-	proxy.mcu = mcu
+	proxyServer.mcu = mcu
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1280,17 +1281,17 @@ func TestProxyUnpublishRemote(t *testing.T) {
 	assert.NoError(err)
 
 	publisherId := api.PublicSessionId("the-publisher-id")
-	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client1.WriteJSON(&proxy.ClientMessage{
 		Id:   "2345",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:        "create-publisher",
 			PublisherId: publisherId,
 			Sid:         "1234-abcd",
-			StreamType:  signaling.StreamTypeVideo,
-			PublisherSettings: &signaling.NewPublisherSettings{
+			StreamType:  sfu.StreamTypeVideo,
+			PublisherSettings: &sfu.NewPublisherSettings{
 				Bitrate:    1234567,
-				MediaTypes: signaling.MediaTypeAudio | signaling.MediaTypeVideo,
+				MediaTypes: sfu.MediaTypeAudio | sfu.MediaTypeVideo,
 			},
 		},
 	}))
@@ -1317,12 +1318,12 @@ func TestProxyUnpublishRemote(t *testing.T) {
 	_, err = client2.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	require.NoError(client2.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client2.WriteJSON(&proxy.ClientMessage{
 		Id:   "3456",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:       "publish-remote",
-			StreamType: signaling.StreamTypeVideo,
+			StreamType: sfu.StreamTypeVideo,
 			ClientId:   clientId,
 			Hostname:   "remote-host",
 			Port:       10001,
@@ -1346,12 +1347,12 @@ func TestProxyUnpublishRemote(t *testing.T) {
 		}
 	}
 
-	require.NoError(client2.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client2.WriteJSON(&proxy.ClientMessage{
 		Id:   "4567",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:       "unpublish-remote",
-			StreamType: signaling.StreamTypeVideo,
+			StreamType: sfu.StreamTypeVideo,
 			ClientId:   clientId,
 			Hostname:   "remote-host",
 			Port:       10001,
@@ -1376,10 +1377,10 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
-	proxy, key, server := newProxyServerForTest(t)
+	proxyServer, key, server := newProxyServerForTest(t)
 
 	mcu := NewUnpublishRemoteTestMCU(t)
-	proxy.mcu = mcu
+	proxyServer.mcu = mcu
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1397,17 +1398,17 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 	assert.NoError(err)
 
 	publisherId := api.PublicSessionId("the-publisher-id")
-	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client1.WriteJSON(&proxy.ClientMessage{
 		Id:   "2345",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:        "create-publisher",
 			PublisherId: publisherId,
 			Sid:         "1234-abcd",
-			StreamType:  signaling.StreamTypeVideo,
-			PublisherSettings: &signaling.NewPublisherSettings{
+			StreamType:  sfu.StreamTypeVideo,
+			PublisherSettings: &sfu.NewPublisherSettings{
 				Bitrate:    1234567,
-				MediaTypes: signaling.MediaTypeAudio | signaling.MediaTypeVideo,
+				MediaTypes: sfu.MediaTypeAudio | sfu.MediaTypeVideo,
 			},
 		},
 	}))
@@ -1434,12 +1435,12 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 	_, err = client2.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	require.NoError(client2.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client2.WriteJSON(&proxy.ClientMessage{
 		Id:   "3456",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:       "publish-remote",
-			StreamType: signaling.StreamTypeVideo,
+			StreamType: sfu.StreamTypeVideo,
 			ClientId:   clientId,
 			Hostname:   "remote-host",
 			Port:       10001,
@@ -1463,10 +1464,10 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 		}
 	}
 
-	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client1.WriteJSON(&proxy.ClientMessage{
 		Id:   "4567",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:     "delete-publisher",
 			ClientId: clientId,
 		},
@@ -1490,8 +1491,8 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 	}
 
 	// ...but the session no longer contains information on the remote publisher.
-	if data, err := proxy.cookie.DecodePublic(hello2.Hello.SessionId); assert.NoError(err) {
-		session := proxy.GetSession(data.Sid)
+	if data, err := proxyServer.cookie.DecodePublic(hello2.Hello.SessionId); assert.NoError(err) {
+		session := proxyServer.GetSession(data.Sid)
 		if assert.NotNil(session) {
 			session.remotePublishersLock.Lock()
 			defer session.remotePublishersLock.Unlock()
@@ -1508,10 +1509,10 @@ func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
-	proxy, key, server := newProxyServerForTest(t)
+	proxyServer, key, server := newProxyServerForTest(t)
 
 	mcu := NewUnpublishRemoteTestMCU(t)
-	proxy.mcu = mcu
+	proxyServer.mcu = mcu
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1529,17 +1530,17 @@ func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
 	assert.NoError(err)
 
 	publisherId := api.PublicSessionId("the-publisher-id")
-	require.NoError(client1.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client1.WriteJSON(&proxy.ClientMessage{
 		Id:   "2345",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:        "create-publisher",
 			PublisherId: publisherId,
 			Sid:         "1234-abcd",
-			StreamType:  signaling.StreamTypeVideo,
-			PublisherSettings: &signaling.NewPublisherSettings{
+			StreamType:  sfu.StreamTypeVideo,
+			PublisherSettings: &sfu.NewPublisherSettings{
 				Bitrate:    1234567,
-				MediaTypes: signaling.MediaTypeAudio | signaling.MediaTypeVideo,
+				MediaTypes: sfu.MediaTypeAudio | sfu.MediaTypeVideo,
 			},
 		},
 	}))
@@ -1566,12 +1567,12 @@ func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
 	_, err = client2.RunUntilLoad(ctx, 0)
 	assert.NoError(err)
 
-	require.NoError(client2.WriteJSON(&signaling.ProxyClientMessage{
+	require.NoError(client2.WriteJSON(&proxy.ClientMessage{
 		Id:   "3456",
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:       "publish-remote",
-			StreamType: signaling.StreamTypeVideo,
+			StreamType: sfu.StreamTypeVideo,
 			ClientId:   clientId,
 			Hostname:   "remote-host",
 			Port:       10001,

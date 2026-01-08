@@ -28,24 +28,6 @@ import (
 )
 
 var (
-	statsGrpcClients = prometheus.NewGauge(prometheus.GaugeOpts{ // +checklocksignore: Global readonly variable.
-		Namespace: "signaling",
-		Subsystem: "grpc",
-		Name:      "clients",
-		Help:      "The current number of GRPC clients",
-	})
-	statsGrpcClientCalls = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "signaling",
-		Subsystem: "grpc",
-		Name:      "client_calls_total",
-		Help:      "The total number of GRPC client calls",
-	}, []string{"method"})
-
-	grpcClientStats = []prometheus.Collector{
-		statsGrpcClients,
-		statsGrpcClientCalls,
-	}
-
 	statsGrpcServerCalls = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "signaling",
 		Subsystem: "grpc",
@@ -57,10 +39,6 @@ var (
 		statsGrpcServerCalls,
 	}
 )
-
-func RegisterGrpcClientStats() {
-	metrics.RegisterAll(grpcClientStats...)
-}
 
 func RegisterGrpcServerStats() {
 	metrics.RegisterAll(grpcServerStats...)

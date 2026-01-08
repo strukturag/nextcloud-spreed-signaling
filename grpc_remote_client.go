@@ -35,6 +35,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
 
@@ -54,7 +55,7 @@ func getMD(md metadata.MD, key string) string {
 type remoteGrpcClient struct {
 	logger log.Logger
 	hub    *Hub
-	client RpcSessions_ProxySessionServer
+	client grpc.RpcSessions_ProxySessionServer
 
 	sessionId  string
 	remoteAddr string
@@ -68,7 +69,7 @@ type remoteGrpcClient struct {
 	messages chan WritableClientMessage
 }
 
-func newRemoteGrpcClient(hub *Hub, request RpcSessions_ProxySessionServer) (*remoteGrpcClient, error) {
+func newRemoteGrpcClient(hub *Hub, request grpc.RpcSessions_ProxySessionServer) (*remoteGrpcClient, error) {
 	md, found := metadata.FromIncomingContext(request.Context())
 	if !found {
 		return nil, errors.New("no metadata provided")
@@ -224,7 +225,7 @@ func (c *remoteGrpcClient) run() error {
 				continue
 			}
 
-			if err := c.client.Send(&ServerSessionMessage{
+			if err := c.client.Send(&grpc.ServerSessionMessage{
 				Message: data,
 			}); err != nil {
 				return fmt.Errorf("error sending %+v to remote client for session %s: %w", msg, c.sessionId, err)

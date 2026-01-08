@@ -58,8 +58,11 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu/janus"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -184,7 +187,7 @@ type Hub struct {
 
 	decodeCaches []*container.LruCache[*SessionIdData]
 
-	mcu                   Mcu
+	mcu                   sfu.SFU
 	mcuTimeout            time.Duration
 	internalClientsSecret []byte
 
@@ -215,7 +218,7 @@ type Hub struct {
 
 	etcdClient etcd.Client
 	rpcServer  *GrpcServer
-	rpcClients *GrpcClients
+	rpcClients *grpc.Clients
 
 	throttler async.Throttler
 
@@ -226,7 +229,7 @@ type Hub struct {
 	blockedCandidates atomic.Pointer[container.IPList]
 }
 
-func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *GrpcServer, rpcClients *GrpcClients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
+func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *GrpcServer, rpcClients *grpc.Clients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
 	logger := log.LoggerFromContext(ctx)
 	hashKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "hashkey")
 	switch len(hashKey) {
@@ -370,7 +373,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 			WriteBufferSize: websocketWriteBufferSize,
 			WriteBufferPool: websocketWriteBufferPool,
 			Subprotocols: []string{
-				JanusEventsSubprotocol,
+				janus.EventsSubprotocol,
 			},
 		},
 		sessionIds:   sessionIds,
@@ -472,7 +475,7 @@ func (h *Hub) getWelcomeMessage() *api.ServerMessage {
 	return h.welcome.Load().(*api.ServerMessage)
 }
 
-func (h *Hub) SetMcu(mcu Mcu) {
+func (h *Hub) SetMcu(mcu sfu.SFU) {
 	h.mcu = mcu
 	// Create copy of message so it can be updated concurrently.
 	welcome := *h.getWelcomeMessage()
@@ -764,12 +767,12 @@ func (h *Hub) GetBackend(u *url.URL) *talk.Backend {
 }
 
 func (h *Hub) CreateProxyToken(publisherId string) (string, error) {
-	proxy, ok := h.mcu.(*mcuProxy)
+	withToken, ok := h.mcu.(sfu.WithToken)
 	if !ok {
 		return "", ErrNoProxyMcu
 	}
 
-	return proxy.createToken(publisherId)
+	return withToken.CreateToken(publisherId)
 }
 
 // +checklocks:h.mu
@@ -1016,7 +1019,7 @@ func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backe
 		defer cancel()
 		for _, client := range h.rpcClients.GetClients() {
 			wg.Add(1)
-			go func(c *GrpcClient) {
+			go func(c *grpc.Client) {
 				defer wg.Done()
 
 				count, err := c.GetSessionCount(ctx, session.BackendUrl())
@@ -1191,8 +1194,8 @@ func (h *Hub) sendHelloResponse(session *ClientSession, message *api.ClientMessa
 }
 
 type remoteClientInfo struct {
-	client   *GrpcClient
-	response *LookupResumeIdReply
+	client   *grpc.Client
+	response *grpc.LookupResumeIdReply
 }
 
 func (h *Hub) tryProxyResume(c HandlerClient, resumeId api.PrivateSessionId, message *api.ClientMessage) bool {
@@ -1201,7 +1204,7 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId api.PrivateSessionId, mes
 		return false
 	}
 
-	var clients []*GrpcClient
+	var clients []*grpc.Client
 	if h.rpcClients != nil {
 		clients = h.rpcClients.GetClients()
 	}
@@ -1219,7 +1222,7 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId api.PrivateSessionId, mes
 	var remoteClient atomic.Pointer[remoteClientInfo]
 	for _, c := range clients {
 		wg.Add(1)
-		go func(client *GrpcClient) {
+		go func(client *grpc.Client) {
 			defer wg.Done()
 
 			if client.IsSelf() {
@@ -2126,7 +2129,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 								return
 							}
 
-							publisher := session.GetPublisher(StreamTypeScreen)
+							publisher := session.GetPublisher(sfu.StreamTypeScreen)
 							if publisher == nil {
 								return
 							}
@@ -2248,7 +2251,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 				ctx, cancel := context.WithTimeout(session.Context(), h.mcuTimeout)
 				defer cancel()
 
-				mc, err := recipient.GetOrCreateSubscriber(ctx, h.mcu, session.PublicId(), StreamType(clientData.RoomType))
+				mc, err := recipient.GetOrCreateSubscriber(ctx, h.mcu, session.PublicId(), sfu.StreamType(clientData.RoomType))
 				if err != nil {
 					h.logger.Printf("Could not create MCU subscriber for session %s to send %+v to %s: %s", session.PublicId(), clientData, recipient.PublicId(), err)
 					sendMcuClientNotFound(session, message)
@@ -2675,7 +2678,7 @@ func isAllowedToUpdateTransientDataKey(session Session, key string) bool {
 		return true
 	}
 
-	if sid, found := strings.CutPrefix(key, TransientSessionDataPrefix); found {
+	if sid, found := strings.CutPrefix(key, api.TransientSessionDataPrefix); found {
 		// Session data may only be modified by the session itself.
 		return sid == string(session.PublicId())
 	}
@@ -2754,10 +2757,10 @@ func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSessi
 	defer cancel()
 	for _, client := range clients {
 		wg.Add(1)
-		go func(client *GrpcClient) {
+		go func(client *grpc.Client) {
 			defer wg.Done()
 
-			inCall, err := client.IsSessionInCall(rpcCtx, recipientSessionId, senderRoom, senderSession.BackendUrl())
+			inCall, err := client.IsSessionInCall(rpcCtx, recipientSessionId, senderRoom.Id(), senderSession.BackendUrl())
 			if errors.Is(err, context.Canceled) {
 				return
 			} else if err != nil {
@@ -2808,7 +2811,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *api.Clie
 	ctx, cancel := context.WithTimeout(session.Context(), h.mcuTimeout)
 	defer cancel()
 
-	var mc McuClient
+	var mc sfu.Client
 	var err error
 	var clientType string
 	switch data.Type {
@@ -2827,13 +2830,13 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *api.Clie
 		}
 
 		clientType = "subscriber"
-		mc, err = session.GetOrCreateSubscriber(ctx, h.mcu, message.Recipient.SessionId, StreamType(data.RoomType))
+		mc, err = session.GetOrCreateSubscriber(ctx, h.mcu, message.Recipient.SessionId, sfu.StreamType(data.RoomType))
 	case "sendoffer":
 		// Will be sent directly.
 		return
 	case "offer":
 		clientType = "publisher"
-		mc, err = session.GetOrCreatePublisher(ctx, h.mcu, StreamType(data.RoomType), data)
+		mc, err = session.GetOrCreatePublisher(ctx, h.mcu, sfu.StreamType(data.RoomType), data)
 		if err, ok := err.(*PermissionError); ok {
 			h.logger.Printf("Session %s is not allowed to offer %s, ignoring (%s)", session.PublicId(), data.RoomType, err)
 			sendNotAllowed(session, client_message, "Not allowed to publish.")
@@ -2846,7 +2849,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *api.Clie
 		}
 
 		clientType = "subscriber"
-		mc = session.GetSubscriber(message.Recipient.SessionId, StreamType(data.RoomType))
+		mc = session.GetSubscriber(message.Recipient.SessionId, sfu.StreamType(data.RoomType))
 	default:
 		if data.Type == "candidate" && api.FilterCandidate(data.Candidate, h.allowedCandidates.Load(), h.blockedCandidates.Load()) {
 			// Silently ignore filtered candidates.
@@ -2861,10 +2864,10 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *api.Clie
 			}
 
 			clientType = "publisher"
-			mc = session.GetPublisher(StreamType(data.RoomType))
+			mc = session.GetPublisher(sfu.StreamType(data.RoomType))
 		} else {
 			clientType = "subscriber"
-			mc = session.GetSubscriber(message.Recipient.SessionId, StreamType(data.RoomType))
+			mc = session.GetSubscriber(message.Recipient.SessionId, sfu.StreamType(data.RoomType))
 		}
 	}
 	if err != nil {
@@ -2893,7 +2896,7 @@ func (h *Hub) processMcuMessage(session *ClientSession, client_message *api.Clie
 	})
 }
 
-func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient McuClient, message *api.MessageClientMessage, data *api.MessageClientMessageData, response api.StringMap) {
+func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient sfu.Client, message *api.MessageClientMessage, data *api.MessageClientMessageData, response api.StringMap) {
 	var response_message *api.ServerMessage
 	switch response["type"] {
 	case "answer":
@@ -3150,8 +3153,8 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := log.NewLoggerContext(r.Context(), h.logger)
-	if conn.Subprotocol() == JanusEventsSubprotocol {
-		RunJanusEventsHandler(ctx, h.mcu, conn, addr, agent)
+	if conn.Subprotocol() == janus.EventsSubprotocol {
+		janus.RunEventsHandler(ctx, h.mcu, conn, addr, agent)
 		return
 	}
 

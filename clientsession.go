@@ -41,6 +41,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -99,9 +100,9 @@ type ClientSession struct {
 	publisherWaiters async.ChannelWaiters // +checklocksignore
 
 	// +checklocks:mu
-	publishers map[StreamType]McuPublisher
+	publishers map[sfu.StreamType]sfu.Publisher
 	// +checklocks:mu
-	subscribers map[StreamId]McuSubscriber
+	subscribers map[sfu.StreamId]sfu.Subscriber
 
 	// +checklocks:mu
 	pendingClientMessages []*api.ServerMessage
@@ -384,7 +385,7 @@ func (s *ClientSession) getRoomJoinTime() time.Time {
 // +checklocks:s.mu
 func (s *ClientSession) releaseMcuObjects() {
 	if len(s.publishers) > 0 {
-		go func(publishers map[StreamType]McuPublisher) {
+		go func(publishers map[sfu.StreamType]sfu.Publisher) {
 			ctx := context.Background()
 			for _, publisher := range publishers {
 				publisher.Close(ctx)
@@ -393,7 +394,7 @@ func (s *ClientSession) releaseMcuObjects() {
 		s.publishers = nil
 	}
 	if len(s.subscribers) > 0 {
-		go func(subscribers map[StreamId]McuSubscriber) {
+		go func(subscribers map[sfu.StreamId]sfu.Subscriber) {
 			ctx := context.Background()
 			for _, subscriber := range subscribers {
 				subscriber.Close(ctx)
@@ -659,7 +660,7 @@ func (s *ClientSession) SetClient(client HandlerClient) HandlerClient {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) sendOffer(client McuClient, sender api.PublicSessionId, streamType StreamType, offer api.StringMap) {
+func (s *ClientSession) sendOffer(client sfu.Client, sender api.PublicSessionId, streamType sfu.StreamType, offer api.StringMap) {
 	offer_message := &api.AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
@@ -688,7 +689,7 @@ func (s *ClientSession) sendOffer(client McuClient, sender api.PublicSessionId, 
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) sendCandidate(client McuClient, sender api.PublicSessionId, streamType StreamType, candidate any) {
+func (s *ClientSession) sendCandidate(client sfu.Client, sender api.PublicSessionId, streamType sfu.StreamType, candidate any) {
 	candidate_message := &api.AnswerOfferMessage{
 		To:       s.PublicId(),
 		From:     sender,
@@ -760,7 +761,7 @@ func (s *ClientSession) SendMessages(messages []*api.ServerMessage) bool {
 	return true
 }
 
-func (s *ClientSession) OnUpdateOffer(client McuClient, offer api.StringMap) {
+func (s *ClientSession) OnUpdateOffer(client sfu.Client, offer api.StringMap) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -772,7 +773,7 @@ func (s *ClientSession) OnUpdateOffer(client McuClient, offer api.StringMap) {
 	}
 }
 
-func (s *ClientSession) OnIceCandidate(client McuClient, candidate any) {
+func (s *ClientSession) OnIceCandidate(client sfu.Client, candidate any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -793,7 +794,7 @@ func (s *ClientSession) OnIceCandidate(client McuClient, candidate any) {
 	s.logger.Printf("Session %s received candidate %+v for unknown client %s", s.PublicId(), candidate, client.Id())
 }
 
-func (s *ClientSession) OnIceCompleted(client McuClient) {
+func (s *ClientSession) OnIceCompleted(client sfu.Client) {
 	// TODO(jojo): This causes a JavaScript error when creating a candidate from "null".
 	// Figure out a better way to signal this.
 
@@ -801,10 +802,10 @@ func (s *ClientSession) OnIceCompleted(client McuClient) {
 	// s.OnIceCandidate(client, nil)
 }
 
-func (s *ClientSession) SubscriberSidUpdated(subscriber McuSubscriber) {
+func (s *ClientSession) SubscriberSidUpdated(subscriber sfu.Subscriber) {
 }
 
-func (s *ClientSession) PublisherClosed(publisher McuPublisher) {
+func (s *ClientSession) PublisherClosed(publisher sfu.Publisher) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -816,7 +817,7 @@ func (s *ClientSession) PublisherClosed(publisher McuPublisher) {
 	}
 }
 
-func (s *ClientSession) SubscriberClosed(subscriber McuSubscriber) {
+func (s *ClientSession) SubscriberClosed(subscriber sfu.Subscriber) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -841,13 +842,13 @@ func (e *PermissionError) Error() string {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) isSdpAllowedToSendLocked(sdp *sdp.SessionDescription) (MediaType, error) {
+func (s *ClientSession) isSdpAllowedToSendLocked(sdp *sdp.SessionDescription) (sfu.MediaType, error) {
 	if sdp == nil {
 		// Should have already been checked when data was validated.
 		return 0, api.ErrNoSdp
 	}
 
-	var mediaTypes MediaType
+	var mediaTypes sfu.MediaType
 	mayPublishMedia := s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_MEDIA)
 	for _, md := range sdp.MediaDescriptions {
 		switch md.MediaName.Media {
@@ -856,13 +857,13 @@ func (s *ClientSession) isSdpAllowedToSendLocked(sdp *sdp.SessionDescription) (M
 				return 0, &PermissionError{api.PERMISSION_MAY_PUBLISH_AUDIO}
 			}
 
-			mediaTypes |= MediaTypeAudio
+			mediaTypes |= sfu.MediaTypeAudio
 		case "video":
 			if !mayPublishMedia && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_VIDEO) {
 				return 0, &PermissionError{api.PERMISSION_MAY_PUBLISH_VIDEO}
 			}
 
-			mediaTypes |= MediaTypeVideo
+			mediaTypes |= sfu.MediaTypeVideo
 		}
 	}
 
@@ -899,7 +900,7 @@ func (s *ClientSession) IsAllowedToSend(data *api.MessageClientMessageData) erro
 	}
 }
 
-func (s *ClientSession) CheckOfferType(streamType StreamType, data *api.MessageClientMessageData) (MediaType, error) {
+func (s *ClientSession) CheckOfferType(streamType sfu.StreamType, data *api.MessageClientMessageData) (sfu.MediaType, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -907,13 +908,13 @@ func (s *ClientSession) CheckOfferType(streamType StreamType, data *api.MessageC
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) checkOfferTypeLocked(streamType StreamType, data *api.MessageClientMessageData) (MediaType, error) {
-	if streamType == StreamTypeScreen {
+func (s *ClientSession) checkOfferTypeLocked(streamType sfu.StreamType, data *api.MessageClientMessageData) (sfu.MediaType, error) {
+	if streamType == sfu.StreamTypeScreen {
 		if !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_SCREEN) {
 			return 0, &PermissionError{api.PERMISSION_MAY_PUBLISH_SCREEN}
 		}
 
-		return MediaTypeScreen, nil
+		return sfu.MediaTypeScreen, nil
 	} else if data != nil && data.Type == "offer" {
 		mediaTypes, err := s.isSdpAllowedToSendLocked(data.OfferSdp)
 		if err != nil {
@@ -926,7 +927,7 @@ func (s *ClientSession) checkOfferTypeLocked(streamType StreamType, data *api.Me
 	return 0, nil
 }
 
-func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, streamType StreamType, data *api.MessageClientMessageData) (McuPublisher, error) {
+func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu sfu.SFU, streamType sfu.StreamType, data *api.MessageClientMessageData) (sfu.Publisher, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -941,7 +942,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		s.mu.Unlock()
 		defer s.mu.Lock()
 
-		settings := NewPublisherSettings{
+		settings := sfu.NewPublisherSettings{
 			Bitrate:    data.Bitrate,
 			MediaTypes: mediaTypes,
 
@@ -952,7 +953,7 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		}
 		if backend := s.Backend(); backend != nil {
 			var maxBitrate api.Bandwidth
-			if streamType == StreamTypeScreen {
+			if streamType == sfu.StreamTypeScreen {
 				maxBitrate = backend.MaxScreenBitrate()
 			} else {
 				maxBitrate = backend.MaxStreamBitrate()
@@ -971,11 +972,11 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.publishers == nil {
-			s.publishers = make(map[StreamType]McuPublisher)
+			s.publishers = make(map[sfu.StreamType]sfu.Publisher)
 		}
 		if prev, found := s.publishers[streamType]; found {
 			// Another thread created the publisher while we were waiting.
-			go func(pub McuPublisher) {
+			go func(pub sfu.Publisher) {
 				closeCtx := context.Background()
 				pub.Close(closeCtx)
 			}(publisher)
@@ -993,18 +994,18 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu Mcu, strea
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) getPublisherLocked(streamType StreamType) McuPublisher {
+func (s *ClientSession) getPublisherLocked(streamType sfu.StreamType) sfu.Publisher {
 	return s.publishers[streamType]
 }
 
-func (s *ClientSession) GetPublisher(streamType StreamType) McuPublisher {
+func (s *ClientSession) GetPublisher(streamType sfu.StreamType) sfu.Publisher {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.getPublisherLocked(streamType)
 }
 
-func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType StreamType) McuPublisher {
+func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType sfu.StreamType) sfu.Publisher {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1033,13 +1034,13 @@ func (s *ClientSession) GetOrWaitForPublisher(ctx context.Context, streamType St
 	}
 }
 
-func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id api.PublicSessionId, streamType StreamType) (McuSubscriber, error) {
+func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu sfu.SFU, id api.PublicSessionId, streamType sfu.StreamType) (sfu.Subscriber, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// TODO(jojo): Add method to remove subscribers.
 
-	subscriber, found := s.subscribers[getStreamId(id, streamType)]
+	subscriber, found := s.subscribers[sfu.GetStreamId(id, streamType)]
 	if !found {
 		client := s.getClientUnlocked()
 		s.mu.Unlock()
@@ -1050,17 +1051,17 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id a
 			return nil, err
 		}
 		if s.subscribers == nil {
-			s.subscribers = make(map[StreamId]McuSubscriber)
+			s.subscribers = make(map[sfu.StreamId]sfu.Subscriber)
 		}
-		if prev, found := s.subscribers[getStreamId(id, streamType)]; found {
+		if prev, found := s.subscribers[sfu.GetStreamId(id, streamType)]; found {
 			// Another thread created the subscriber while we were waiting.
-			go func(sub McuSubscriber) {
+			go func(sub sfu.Subscriber) {
 				closeCtx := context.Background()
 				sub.Close(closeCtx)
 			}(subscriber)
 			subscriber = prev
 		} else {
-			s.subscribers[getStreamId(id, streamType)] = subscriber
+			s.subscribers[sfu.GetStreamId(id, streamType)] = subscriber
 		}
 		s.logger.Printf("Subscribing %s from %s as %s in session %s", streamType, id, subscriber.Id(), s.PublicId())
 	}
@@ -1068,11 +1069,11 @@ func (s *ClientSession) GetOrCreateSubscriber(ctx context.Context, mcu Mcu, id a
 	return subscriber, nil
 }
 
-func (s *ClientSession) GetSubscriber(id api.PublicSessionId, streamType StreamType) McuSubscriber {
+func (s *ClientSession) GetSubscriber(id api.PublicSessionId, streamType sfu.StreamType) sfu.Subscriber {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.subscribers[getStreamId(id, streamType)]
+	return s.subscribers[sfu.GetStreamId(id, streamType)]
 }
 
 func (s *ClientSession) processAsyncNatsMessage(msg *nats.Msg) {
@@ -1094,10 +1095,10 @@ func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
 			defer s.mu.Unlock()
 
 			if !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_MEDIA) {
-				if publisher, found := s.publishers[StreamTypeVideo]; found {
-					if (publisher.HasMedia(MediaTypeAudio) && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_AUDIO)) ||
-						(publisher.HasMedia(MediaTypeVideo) && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_VIDEO)) {
-						delete(s.publishers, StreamTypeVideo)
+				if publisher, found := s.publishers[sfu.StreamTypeVideo]; found {
+					if (publisher.HasMedia(sfu.MediaTypeAudio) && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_AUDIO)) ||
+						(publisher.HasMedia(sfu.MediaTypeVideo) && !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_VIDEO)) {
+						delete(s.publishers, sfu.StreamTypeVideo)
 						s.logger.Printf("Session %s is no longer allowed to publish media, closing publisher %s", s.PublicId(), publisher.Id())
 						go func() {
 							publisher.Close(context.Background())
@@ -1107,8 +1108,8 @@ func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
 				}
 			}
 			if !s.hasPermissionLocked(api.PERMISSION_MAY_PUBLISH_SCREEN) {
-				if publisher, found := s.publishers[StreamTypeScreen]; found {
-					delete(s.publishers, StreamTypeScreen)
+				if publisher, found := s.publishers[sfu.StreamTypeScreen]; found {
+					delete(s.publishers, sfu.StreamTypeScreen)
 					s.logger.Printf("Session %s is no longer allowed to publish screen, closing publisher %s", s.PublicId(), publisher.Id())
 					go func() {
 						publisher.Close(context.Background())
@@ -1130,7 +1131,7 @@ func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
 			ctx, cancel := context.WithTimeout(s.Context(), s.hub.mcuTimeout)
 			defer cancel()
 
-			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, StreamType(message.SendOffer.Data.RoomType))
+			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, sfu.StreamType(message.SendOffer.Data.RoomType))
 			if err != nil {
 				s.logger.Printf("Could not create MCU subscriber for session %s to process sendoffer in %s: %s", message.SendOffer.SessionId, s.PublicId(), err)
 				if err := s.events.PublishSessionMessage(message.SendOffer.SessionId, s.backend, &events.AsyncMessage{
