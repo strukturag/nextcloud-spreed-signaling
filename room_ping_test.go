@@ -48,10 +48,10 @@ func NewRoomPingForTest(ctx context.Context, t *testing.T) (*url.URL, *RoomPing)
 	config, err := getTestConfig(server)
 	require.NoError(err)
 
-	backend, err := NewBackendClient(ctx, config, 1, "0.0", nil)
+	backend, err := talk.NewBackendClient(ctx, config, 1, "0.0", nil)
 	require.NoError(err)
 
-	p, err := NewRoomPing(backend, backend.capabilities)
+	p, err := NewRoomPing(backend)
 	require.NoError(err)
 
 	u, err := url.Parse(server.URL + "/" + PathToOcsSignalingBackend)

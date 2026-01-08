@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"context"
@@ -36,7 +36,6 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/pool"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
@@ -50,19 +49,27 @@ func init() {
 	RegisterBackendClientStats()
 }
 
+type FeaturesFunc = func() []string
+
+var (
+	emptyFeaturesFunc = func() []string {
+		return nil
+	}
+)
+
 type BackendClient struct {
-	hub      *Hub
 	version  string
-	backends *talk.BackendConfiguration
+	features FeaturesFunc
+	backends *BackendConfiguration
 
 	pool         *pool.HttpClientPool
-	capabilities *talk.Capabilities
+	capabilities *Capabilities
 	buffers      pool.BufferPool
 }
 
 func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurrentRequestsPerHost int, version string, etcdClient etcd.Client) (*BackendClient, error) {
 	logger := log.LoggerFromContext(ctx)
-	backends, err := talk.NewBackendConfiguration(logger, config, etcdClient)
+	backends, err := NewBackendConfiguration(logger, config, etcdClient)
 	if err != nil {
 		return nil, err
 	}
@@ -77,13 +84,14 @@ func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurr
 		return nil, err
 	}
 
-	capabilities, err := talk.NewCapabilities(version, pool)
+	capabilities, err := NewCapabilities(version, pool)
 	if err != nil {
 		return nil, err
 	}
 
 	return &BackendClient{
 		version:  version,
+		features: emptyFeaturesFunc,
 		backends: backends,
 
 		pool:         pool,
@@ -99,20 +107,44 @@ func (b *BackendClient) Reload(config *goconf.ConfigFile) {
 	b.backends.Reload(config)
 }
 
-func (b *BackendClient) GetCompatBackend() *talk.Backend {
+func (b *BackendClient) GetCompatBackend() *Backend {
 	return b.backends.GetCompatBackend()
 }
 
-func (b *BackendClient) GetBackend(u *url.URL) *talk.Backend {
+func (b *BackendClient) GetBackend(u *url.URL) *Backend {
 	return b.backends.GetBackend(u)
 }
 
-func (b *BackendClient) GetBackends() []*talk.Backend {
+func (b *BackendClient) GetBackends() []*Backend {
 	return b.backends.GetBackends()
 }
 
 func (b *BackendClient) IsUrlAllowed(u *url.URL) bool {
 	return b.backends.IsUrlAllowed(u)
+}
+
+func (b *BackendClient) HasCapabilityFeature(ctx context.Context, u *url.URL, feature string) bool {
+	return b.capabilities.HasCapabilityFeature(ctx, u, feature)
+}
+
+func (b *BackendClient) GetStringConfig(ctx context.Context, u *url.URL, group, key string) (string, bool, bool) {
+	return b.capabilities.GetStringConfig(ctx, u, group, key)
+}
+
+func (b *BackendClient) GetIntegerConfig(ctx context.Context, u *url.URL, group, key string) (int, bool, bool) {
+	return b.capabilities.GetIntegerConfig(ctx, u, group, key)
+}
+
+func (b *BackendClient) InvalidateCapabilities(u *url.URL) {
+	b.capabilities.InvalidateCapabilities(u)
+}
+
+func (b *BackendClient) SetFeaturesFunc(f func() []string) {
+	if f == nil {
+		f = emptyFeaturesFunc
+	}
+
+	b.features = f
 }
 
 // PerformJSONRequest sends a JSON POST request to the given url and decodes
@@ -129,7 +161,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	}
 
 	var requestUrl *url.URL
-	if b.capabilities.HasCapabilityFeature(ctx, u, talk.FeatureSignalingV3Api) {
+	if b.capabilities.HasCapabilityFeature(ctx, u, FeatureSignalingV3Api) {
 		newUrl := *u
 		newUrl.Path = strings.ReplaceAll(newUrl.Path, "/spreed/api/v1/signaling/", "/spreed/api/v3/signaling/")
 		newUrl.Path = strings.ReplaceAll(newUrl.Path, "/spreed/api/v2/signaling/", "/spreed/api/v3/signaling/")
@@ -161,12 +193,12 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("OCS-APIRequest", "true")
 	req.Header.Set("User-Agent", "nextcloud-spreed-signaling/"+b.version)
-	if b.hub != nil {
-		req.Header.Set("X-Spreed-Signaling-Features", strings.Join(b.hub.info.Features, ", "))
+	if features := b.features(); len(features) > 0 {
+		req.Header.Set("X-Spreed-Signaling-Features", strings.Join(features, ", "))
 	}
 
 	// Add checksum so the backend can validate the request.
-	talk.AddBackendChecksum(req, data.Bytes(), backend.Secret())
+	AddBackendChecksum(req, data.Bytes(), backend.Secret())
 
 	start := time.Now()
 	resp, err := c.Do(req)
@@ -203,7 +235,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 
 	defer b.buffers.Put(body)
 
-	if talk.IsOcsRequest(u) || req.Header.Get("OCS-APIRequest") != "" {
+	if IsOcsRequest(u) || req.Header.Get("OCS-APIRequest") != "" {
 		// OCS response are wrapped in an OCS container that needs to be parsed
 		// to get the actual contents:
 		// {
@@ -212,7 +244,7 @@ func (b *BackendClient) PerformJSONRequest(ctx context.Context, u *url.URL, requ
 		//     "data": { ... }
 		//   }
 		// }
-		var ocs talk.OcsResponse
+		var ocs OcsResponse
 		if err := json.Unmarshal(body.Bytes(), &ocs); err != nil {
 			logger.Printf("Could not decode OCS response %s from %s: %s", body.String(), req.URL, err)
 			statsBackendClientError.WithLabelValues(backend.Id(), "error_decoding_ocs").Inc()
