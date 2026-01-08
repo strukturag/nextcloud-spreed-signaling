@@ -27,23 +27,33 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/client"
 )
 
 type ProxyClient struct {
-	signaling.Client
+	client.Client
 
 	proxy *ProxyServer
 
 	session atomic.Pointer[ProxySession]
 }
 
-func NewProxyClient(ctx context.Context, proxy *ProxyServer, conn *websocket.Conn, addr string) (*ProxyClient, error) {
+func NewProxyClient(ctx context.Context, proxy *ProxyServer, conn *websocket.Conn, addr string, agent string) (*ProxyClient, error) {
 	client := &ProxyClient{
 		proxy: proxy,
 	}
-	client.SetConn(ctx, conn, addr, client)
+	client.SetConn(ctx, conn, addr, agent, false, client)
 	return client, nil
+}
+
+func (c *ProxyClient) GetSessionId() api.PublicSessionId {
+	if session := c.GetSession(); session != nil {
+		return session.PublicId()
+	}
+
+	return ""
 }
 
 func (c *ProxyClient) GetSession() *ProxySession {
@@ -54,18 +64,18 @@ func (c *ProxyClient) SetSession(session *ProxySession) {
 	c.session.Store(session)
 }
 
-func (c *ProxyClient) OnClosed(client signaling.HandlerClient) {
-	if session := c.GetSession(); session != nil {
+func (c *ProxyClient) OnClosed() {
+	if session := c.session.Swap(nil); session != nil {
 		session.MarkUsed()
 	}
-	c.proxy.clientClosed(&c.Client)
+	c.proxy.clientClosed(c)
 }
 
-func (c *ProxyClient) OnMessageReceived(client signaling.HandlerClient, data []byte) {
+func (c *ProxyClient) OnMessageReceived(data []byte) {
 	c.proxy.processMessage(c, data)
 }
 
-func (c *ProxyClient) OnRTTReceived(client signaling.HandlerClient, rtt time.Duration) {
+func (c *ProxyClient) OnRTTReceived(rtt time.Duration) {
 	if session := c.GetSession(); session != nil {
 		session.MarkUsed()
 	}

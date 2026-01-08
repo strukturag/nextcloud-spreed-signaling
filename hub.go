@@ -54,6 +54,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
@@ -139,12 +140,18 @@ var (
 
 	// Allow time differences of up to one minute between server and proxy.
 	tokenLeeway = time.Minute
-
-	DefaultTrustedProxies = container.DefaultPrivateIPs()
 )
 
 func init() {
 	RegisterHubStats()
+}
+
+type ClientWithSession interface {
+	client.HandlerClient
+
+	IsAuthenticated() bool
+	GetSession() Session
+	SetSession(session Session)
 }
 
 type Hub struct {
@@ -174,7 +181,7 @@ type Hub struct {
 
 	sid atomic.Uint64
 	// +checklocks:mu
-	clients map[uint64]HandlerClient
+	clients map[uint64]ClientWithSession
 	// +checklocks:mu
 	sessions map[uint64]Session
 	// +checklocks:ru
@@ -198,7 +205,7 @@ type Hub struct {
 	// +checklocks:mu
 	anonymousSessions map[*ClientSession]time.Time
 	// +checklocks:mu
-	expectHelloClients map[HandlerClient]time.Time
+	expectHelloClients map[ClientWithSession]time.Time
 	// +checklocks:mu
 	dialoutSessions map[*ClientSession]bool
 	// +checklocks:mu
@@ -309,7 +316,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	if !trustedProxiesIps.Empty() {
 		logger.Printf("Trusted proxies: %s", trustedProxiesIps)
 	} else {
-		trustedProxiesIps = DefaultTrustedProxies
+		trustedProxiesIps = client.DefaultTrustedProxies
 		logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 	}
 
@@ -388,7 +395,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		roomInCall:       make(chan *talk.BackendServerRoomRequest),
 		roomParticipants: make(chan *talk.BackendServerRoomRequest),
 
-		clients:  make(map[uint64]HandlerClient),
+		clients:  make(map[uint64]ClientWithSession),
 		sessions: make(map[uint64]Session),
 		rooms:    make(map[string]*Room),
 
@@ -405,7 +412,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 
 		expiredSessions:    make(map[Session]time.Time),
 		anonymousSessions:  make(map[*ClientSession]time.Time),
-		expectHelloClients: make(map[HandlerClient]time.Time),
+		expectHelloClients: make(map[ClientWithSession]time.Time),
 		dialoutSessions:    make(map[*ClientSession]bool),
 		remoteSessions:     make(map[*RemoteSession]bool),
 		federatedSessions:  make(map[*ClientSession]bool),
@@ -584,7 +591,7 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 		if !trustedProxiesIps.Empty() {
 			h.logger.Printf("Trusted proxies: %s", trustedProxiesIps)
 		} else {
-			trustedProxiesIps = DefaultTrustedProxies
+			trustedProxiesIps = client.DefaultTrustedProxies
 			h.logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 		}
 		h.trustedProxies.Store(trustedProxiesIps)
@@ -894,7 +901,7 @@ func (h *Hub) startWaitAnonymousSessionRoomLocked(session *ClientSession) {
 	h.anonymousSessions[session] = now.Add(anonmyousJoinRoomTimeout)
 }
 
-func (h *Hub) startExpectHello(client HandlerClient) {
+func (h *Hub) startExpectHello(client ClientWithSession) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !client.IsConnected() {
@@ -910,16 +917,16 @@ func (h *Hub) startExpectHello(client HandlerClient) {
 	h.expectHelloClients[client] = now.Add(initialHelloTimeout)
 }
 
-func (h *Hub) processNewClient(client HandlerClient) {
+func (h *Hub) processNewClient(client ClientWithSession) {
 	h.startExpectHello(client)
 	h.sendWelcome(client)
 }
 
-func (h *Hub) sendWelcome(client HandlerClient) {
+func (h *Hub) sendWelcome(client ClientWithSession) {
 	client.SendMessage(h.getWelcomeMessage())
 }
 
-func (h *Hub) registerClient(client HandlerClient) uint64 {
+func (h *Hub) registerClient(client ClientWithSession) uint64 {
 	sid := h.sid.Add(1)
 	for sid == 0 {
 		sid = h.sid.Add(1)
@@ -956,24 +963,17 @@ func (h *Hub) newSessionIdData(backend *talk.Backend) *SessionIdData {
 	return sessionIdData
 }
 
-func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backend *talk.Backend, auth *talk.BackendClientResponse) {
-	if !c.IsConnected() {
+func (h *Hub) processRegister(client ClientWithSession, message *api.ClientMessage, backend *talk.Backend, auth *talk.BackendClientResponse) {
+	if !client.IsConnected() {
 		// Client disconnected while waiting for "hello" response.
 		return
 	}
 
 	if auth.Type == "error" {
-		c.SendMessage(message.NewErrorServerMessage(auth.Error))
+		client.SendMessage(message.NewErrorServerMessage(auth.Error))
 		return
 	} else if auth.Type != "auth" {
-		c.SendMessage(message.NewErrorServerMessage(UserAuthFailed))
-		return
-	}
-
-	client, ok := c.(*Client)
-	if !ok {
-		h.logger.Printf("Can't register non-client %T", c)
-		client.SendMessage(message.NewWrappedErrorServerMessage(errors.New("can't register non-client")))
+		client.SendMessage(message.NewErrorServerMessage(UserAuthFailed))
 		return
 	}
 
@@ -1077,7 +1077,7 @@ func (h *Hub) processRegister(c HandlerClient, message *api.ClientMessage, backe
 	h.sendHelloResponse(session, message)
 }
 
-func (h *Hub) processUnregister(client HandlerClient) Session {
+func (h *Hub) processUnregister(client ClientWithSession) Session {
 	session := client.GetSession()
 
 	h.mu.Lock()
@@ -1090,10 +1090,8 @@ func (h *Hub) processUnregister(client HandlerClient) Session {
 	h.mu.Unlock()
 	if session != nil {
 		h.logger.Printf("Unregister %s (private=%s)", session.PublicId(), session.PrivateId())
-		if c, ok := client.(*Client); ok {
-			if cs, ok := session.(*ClientSession); ok {
-				cs.ClearClient(c)
-			}
+		if cs, ok := session.(*ClientSession); ok {
+			cs.ClearClient(client)
 		}
 	}
 
@@ -1101,7 +1099,7 @@ func (h *Hub) processUnregister(client HandlerClient) Session {
 	return session
 }
 
-func (h *Hub) processMessage(client HandlerClient, data []byte) {
+func (h *Hub) processMessage(client ClientWithSession, data []byte) {
 	var message api.ClientMessage
 	if err := message.UnmarshalJSON(data); err != nil {
 		if session := client.GetSession(); session != nil {
@@ -1198,8 +1196,8 @@ type remoteClientInfo struct {
 	response *grpc.LookupResumeIdReply
 }
 
-func (h *Hub) tryProxyResume(c HandlerClient, resumeId api.PrivateSessionId, message *api.ClientMessage) bool {
-	client, ok := c.(*Client)
+func (h *Hub) tryProxyResume(c ClientWithSession, resumeId api.PrivateSessionId, message *api.ClientMessage) bool {
+	client, ok := c.(*HubClient)
 	if !ok {
 		return false
 	}
@@ -1212,7 +1210,7 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId api.PrivateSessionId, mes
 		return false
 	}
 
-	rpcCtx, rpcCancel := context.WithTimeout(c.Context(), 5*time.Second)
+	rpcCtx, rpcCancel := context.WithTimeout(client.Context(), 5*time.Second)
 	defer rpcCancel()
 
 	var wg sync.WaitGroup
@@ -1274,7 +1272,7 @@ func (h *Hub) tryProxyResume(c HandlerClient, resumeId api.PrivateSessionId, mes
 	return true
 }
 
-func (h *Hub) processHello(client HandlerClient, message *api.ClientMessage) {
+func (h *Hub) processHello(client ClientWithSession, message *api.ClientMessage) {
 	ctx := log.NewLoggerContext(client.Context(), h.logger)
 	resumeId := message.Hello.ResumeId
 	if resumeId != "" {
@@ -1366,7 +1364,7 @@ func (h *Hub) processHello(client HandlerClient, message *api.ClientMessage) {
 	}
 }
 
-func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
+func (h *Hub) processHelloV1(ctx context.Context, client ClientWithSession, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
 	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
@@ -1390,7 +1388,7 @@ func (h *Hub) processHelloV1(ctx context.Context, client HandlerClient, message 
 	return backend, &auth, nil
 }
 
-func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
+func (h *Hub) processHelloV2(ctx context.Context, client ClientWithSession, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
 	url := message.Hello.Auth.ParsedUrl
 	backend := h.backend.GetBackend(url)
 	if backend == nil {
@@ -1543,11 +1541,11 @@ func (h *Hub) processHelloV2(ctx context.Context, client HandlerClient, message 
 	return backend, auth, nil
 }
 
-func (h *Hub) processHelloClient(client HandlerClient, message *api.ClientMessage) {
+func (h *Hub) processHelloClient(client ClientWithSession, message *api.ClientMessage) {
 	// Make sure the client must send another "hello" in case of errors.
 	defer h.startExpectHello(client)
 
-	var authFunc func(context.Context, HandlerClient, *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error)
+	var authFunc func(context.Context, ClientWithSession, *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error)
 	switch message.Hello.Version {
 	case api.HelloVersionV1:
 		// Auth information contains a ticket that must be validated against the
@@ -1574,7 +1572,7 @@ func (h *Hub) processHelloClient(client HandlerClient, message *api.ClientMessag
 	h.processRegister(client, message, backend, auth)
 }
 
-func (h *Hub) processHelloInternal(client HandlerClient, message *api.ClientMessage) {
+func (h *Hub) processHelloInternal(client ClientWithSession, message *api.ClientMessage) {
 	defer h.startExpectHello(client)
 	if len(h.internalClientsSecret) == 0 {
 		client.SendMessage(message.NewErrorServerMessage(InvalidClientType))
@@ -2957,7 +2955,7 @@ func (h *Hub) sendMcuMessageResponse(session *ClientSession, mcuClient sfu.Clien
 	session.SendMessage(response_message)
 }
 
-func (h *Hub) processByeMsg(client HandlerClient, message *api.ClientMessage) {
+func (h *Hub) processByeMsg(client ClientWithSession, message *api.ClientMessage) {
 	client.SendByeResponse(message)
 	if session := h.processUnregister(client); session != nil {
 		session.Close()
@@ -3076,66 +3074,8 @@ func (h *Hub) GetServerInfoDialout() (result []talk.BackendServerInfoDialout) {
 	return
 }
 
-func GetRealUserIP(r *http.Request, trusted *container.IPList) string {
-	addr := r.RemoteAddr
-	if host, _, err := net.SplitHostPort(addr); err == nil {
-		addr = host
-	}
-
-	ip := net.ParseIP(addr)
-	if len(ip) == 0 {
-		return addr
-	}
-
-	// Don't check any headers if the server can be reached by untrusted clients directly.
-	if trusted == nil || !trusted.Contains(ip) {
-		return addr
-	}
-
-	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
-		if ip := net.ParseIP(realIP); len(ip) > 0 {
-			return realIP
-		}
-	}
-
-	// See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-For#selecting_an_ip_address
-	forwarded := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
-	if len(forwarded) > 0 {
-		slices.Reverse(forwarded)
-		var lastTrusted string
-		for _, hop := range forwarded {
-			hop = strings.TrimSpace(hop)
-			// Make sure to remove any port.
-			if host, _, err := net.SplitHostPort(hop); err == nil {
-				hop = host
-			}
-
-			ip := net.ParseIP(hop)
-			if len(ip) == 0 {
-				continue
-			}
-
-			if trusted.Contains(ip) {
-				lastTrusted = hop
-				continue
-			}
-
-			return hop
-		}
-
-		// If all entries in the "X-Forwarded-For" list are trusted, the left-most
-		// will be the client IP. This can happen if a subnet is trusted and the
-		// client also has an IP from this subnet.
-		if lastTrusted != "" {
-			return lastTrusted
-		}
-	}
-
-	return addr
-}
-
 func (h *Hub) getRealUserIP(r *http.Request) string {
-	return GetRealUserIP(r, h.trustedProxies.Load())
+	return client.GetRealUserIP(r, h.trustedProxies.Load())
 }
 
 func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
@@ -3158,7 +3098,7 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewClient(ctx, conn, addr, agent, h)
+	client, err := NewHubClient(ctx, conn, addr, agent, h)
 	if err != nil {
 		h.logger.Printf("Could not create client for %s: %s", addr, err)
 		return
@@ -3176,8 +3116,8 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	client.ReadPump()
 }
 
-func (h *Hub) OnLookupCountry(client HandlerClient) geoip.Country {
-	ip := net.ParseIP(client.RemoteAddr())
+func (h *Hub) LookupCountry(addr string) geoip.Country {
+	ip := net.ParseIP(addr)
 	if ip == nil {
 		return geoip.NoCountry
 	}
@@ -3204,18 +3144,6 @@ func (h *Hub) OnLookupCountry(client HandlerClient) geoip.Country {
 		}
 	}
 	return country
-}
-
-func (h *Hub) OnClosed(client HandlerClient) {
-	h.processUnregister(client)
-}
-
-func (h *Hub) OnMessageReceived(client HandlerClient, data []byte) {
-	h.processMessage(client, data)
-}
-
-func (h *Hub) OnRTTReceived(client HandlerClient, rtt time.Duration) {
-	// Ignore
 }
 
 func (h *Hub) ShutdownChannel() <-chan struct{} {

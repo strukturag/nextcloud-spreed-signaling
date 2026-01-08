@@ -51,6 +51,7 @@ import (
 	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
@@ -87,6 +88,8 @@ const (
 )
 
 var (
+	InvalidFormat = client.InvalidFormat
+
 	defaultProxyFeatures = []string{
 		ProxyFeatureRemoteStreams,
 	}
@@ -279,7 +282,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 	if !trustedProxiesIps.Empty() {
 		logger.Printf("Trusted proxies: %s", trustedProxiesIps)
 	} else {
-		trustedProxiesIps = signaling.DefaultTrustedProxies
+		trustedProxiesIps = client.DefaultTrustedProxies
 		logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 	}
 
@@ -640,7 +643,7 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 		if !trustedProxiesIps.Empty() {
 			s.logger.Printf("Trusted proxies: %s", trustedProxiesIps)
 		} else {
-			trustedProxiesIps = signaling.DefaultTrustedProxies
+			trustedProxiesIps = client.DefaultTrustedProxies
 			s.logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 		}
 		s.trustedProxies.Store(trustedProxiesIps)
@@ -675,7 +678,7 @@ func (s *ProxyServer) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
-	addr := signaling.GetRealUserIP(r, s.trustedProxies.Load())
+	addr := client.GetRealUserIP(r, s.trustedProxies.Load())
 	header := http.Header{}
 	header.Set("Server", "nextcloud-spreed-signaling-proxy/"+s.version)
 	header.Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Features, ", "))
@@ -685,14 +688,14 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	agent := r.Header.Get("User-Agent")
 	ctx := log.NewLoggerContext(r.Context(), s.logger)
 	if conn.Subprotocol() == janus.EventsSubprotocol {
-		agent := r.Header.Get("User-Agent")
 		janus.RunEventsHandler(ctx, s.mcu, conn, addr, agent)
 		return
 	}
 
-	client, err := NewProxyClient(ctx, s, conn, addr)
+	client, err := NewProxyClient(ctx, s, conn, addr, agent)
 	if err != nil {
 		s.logger.Printf("Could not create client for %s: %s", addr, err)
 		return
@@ -702,7 +705,7 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	client.ReadPump()
 }
 
-func (s *ProxyServer) clientClosed(client *signaling.Client) {
+func (s *ProxyServer) clientClosed(client *ProxyClient) {
 	s.logger.Printf("Connection from %s closed", client.RemoteAddr())
 }
 
@@ -766,7 +769,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 		} else {
 			s.logger.Printf("Error decoding message from %s: %v", client.RemoteAddr(), err)
 		}
-		client.SendError(signaling.InvalidFormat)
+		client.SendError(InvalidFormat)
 		return
 	}
 
@@ -776,7 +779,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 		} else {
 			s.logger.Printf("Invalid message %+v from %s: %v", message, client.RemoteAddr(), err)
 		}
-		client.SendMessage(message.NewErrorServerMessage(signaling.InvalidFormat))
+		client.SendMessage(message.NewErrorServerMessage(InvalidFormat))
 		return
 	}
 
@@ -1654,7 +1657,7 @@ func (s *ProxyServer) getStats() api.StringMap {
 }
 
 func (s *ProxyServer) allowStatsAccess(r *http.Request) bool {
-	addr := signaling.GetRealUserIP(r, s.trustedProxies.Load())
+	addr := client.GetRealUserIP(r, s.trustedProxies.Load())
 	ip := net.ParseIP(addr)
 	if len(ip) == 0 {
 		return false

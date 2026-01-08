@@ -28,6 +28,10 @@ component_management:
       name: async
       paths:
         - async/**
+    - component_id: module_client
+      name: client
+      paths:
+        - client/**
     - component_id: module_cmd_client
       name: cmd/client
       paths:
