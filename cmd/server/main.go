@@ -46,9 +46,13 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu/janus"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu/proxy"
 )
 
 var (
@@ -228,7 +232,7 @@ func main() {
 	}()
 	defer rpcServer.Close()
 
-	rpcClients, err := signaling.NewGrpcClients(stopCtx, cfg, etcdClient, dnsMonitor, version)
+	rpcClients, err := grpc.NewClients(stopCtx, cfg, etcdClient, dnsMonitor, version)
 	if err != nil {
 		logger.Fatalf("Could not create RPC clients: %s", err)
 	}
@@ -243,15 +247,15 @@ func main() {
 	mcuUrl, _ := config.GetStringOptionWithEnv(cfg, "mcu", "url")
 	mcuType, _ := cfg.GetString("mcu", "type")
 	if mcuType == "" && mcuUrl != "" {
-		logger.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
-		mcuType = signaling.McuTypeJanus
-	} else if mcuType == signaling.McuTypeJanus && mcuUrl == "" {
+		logger.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", sfu.TypeJanus)
+		mcuType = sfu.TypeJanus
+	} else if mcuType == sfu.TypeJanus && mcuUrl == "" {
 		logger.Printf("WARNING: Old-style MCU configuration detected with type but no url, disabling")
 		mcuType = ""
 	}
 
 	if mcuType != "" {
-		var mcu signaling.Mcu
+		var mcu sfu.SFU
 		mcuRetry := initialMcuRetry
 		mcuRetryTimer := time.NewTimer(mcuRetry)
 	mcuTypeLoop:
@@ -259,14 +263,14 @@ func main() {
 			// Context should be cancelled on signals but need a way to differentiate later.
 			ctx := context.TODO()
 			switch mcuType {
-			case signaling.McuTypeJanus:
-				mcu, err = signaling.NewMcuJanus(ctx, mcuUrl, cfg)
-				signaling.UnregisterProxyMcuStats()
-				signaling.RegisterJanusMcuStats()
-			case signaling.McuTypeProxy:
-				mcu, err = signaling.NewMcuProxy(ctx, cfg, etcdClient, rpcClients, dnsMonitor)
-				signaling.UnregisterJanusMcuStats()
-				signaling.RegisterProxyMcuStats()
+			case sfu.TypeJanus:
+				mcu, err = janus.NewJanusSFU(ctx, mcuUrl, cfg)
+				proxy.UnregisterStats()
+				janus.RegisterStats()
+			case sfu.TypeProxy:
+				mcu, err = proxy.NewProxySFU(ctx, cfg, etcdClient, rpcClients, dnsMonitor)
+				janus.UnregisterStats()
+				proxy.RegisterStats()
 			default:
 				logger.Fatal("Unsupported MCU type: ", mcuType)
 			}
@@ -295,9 +299,9 @@ func main() {
 						mcuUrl, _ = config.GetStringOptionWithEnv(cfg, "mcu", "url")
 						mcuType, _ = cfg.GetString("mcu", "type")
 						if mcuType == "" && mcuUrl != "" {
-							logger.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", signaling.McuTypeJanus)
-							mcuType = signaling.McuTypeJanus
-						} else if mcuType == signaling.McuTypeJanus && mcuUrl == "" {
+							logger.Printf("WARNING: Old-style MCU configuration detected with url but no type, defaulting to type %s", sfu.TypeJanus)
+							mcuType = sfu.TypeJanus
+						} else if mcuType == sfu.TypeJanus && mcuUrl == "" {
 							logger.Printf("WARNING: Old-style MCU configuration detected with type but no url, disabling")
 							mcuType = ""
 							break mcuTypeLoop

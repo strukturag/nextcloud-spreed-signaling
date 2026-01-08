@@ -12,6 +12,7 @@ ignore:
   - "*_easyjson.go"
   - "**/*_easyjson.go"
   - "*.pb.go"
+  - "**/*.pb.go"
 
 component_management:
   individual_components:
@@ -59,6 +60,10 @@ component_management:
       name: geoip
       paths:
         - geoip/**
+    - component_id: module_grpc
+      name: grpc
+      paths:
+        - grpc/**
     - component_id: module_internal
       name: internal
       paths:
@@ -83,10 +88,18 @@ component_management:
       name: pool
       paths:
         - pool/**
+    - component_id: module_proxy
+      name: proxy
+      paths:
+        - proxy/**
     - component_id: module_security
       name: security
       paths:
         - security/**
+    - component_id: module_sfu
+      name: sfu
+      paths:
+        - sfu/**
     - component_id: module_talk
       name: talk
       paths:

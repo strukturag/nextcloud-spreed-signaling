@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
+	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
 )
 
 func (c *RemoteConnection) WaitForConnection(ctx context.Context) error {
@@ -202,9 +202,9 @@ func Test_ProxyRemoteConnectionCreatePublisher(t *testing.T) {
 	port := 1234
 	rtcpPort := 2345
 
-	_, err = conn.RequestMessage(ctx, &signaling.ProxyClientMessage{
+	_, err = conn.RequestMessage(ctx, &proxy.ClientMessage{
 		Type: "command",
-		Command: &signaling.CommandProxyClientMessage{
+		Command: &proxy.CommandClientMessage{
 			Type:     "publish-remote",
 			ClientId: publisherId,
 			Hostname: hostname,

@@ -23,14 +23,11 @@ package signaling
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/url"
-	"os"
 
 	"github.com/dlintw/goconf"
 	"google.golang.org/grpc"
@@ -40,27 +37,18 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	rpc "github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 var (
-	GrpcServerId string
-
 	ErrNoProxyMcu = errors.New("no proxy mcu")
 )
 
 func init() {
 	RegisterGrpcServerStats()
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = internal.RandomString(8)
-	}
-	md := sha256.New()
-	fmt.Fprintf(md, "%s-%s-%d", internal.RandomString(32), hostname, os.Getpid())
-	GrpcServerId = hex.EncodeToString(md.Sum(nil))
 }
 
 type GrpcServerHub interface {
@@ -74,10 +62,10 @@ type GrpcServerHub interface {
 }
 
 type GrpcServer struct {
-	UnimplementedRpcBackendServer
-	UnimplementedRpcInternalServer
-	UnimplementedRpcMcuServer
-	UnimplementedRpcSessionsServer
+	rpc.UnimplementedRpcBackendServer
+	rpc.UnimplementedRpcInternalServer
+	rpc.UnimplementedRpcMcuServer
+	rpc.UnimplementedRpcSessionsServer
 
 	logger   log.Logger
 	version  string
@@ -100,7 +88,7 @@ func NewGrpcServer(ctx context.Context, cfg *goconf.ConfigFile, version string) 
 	}
 
 	logger := log.LoggerFromContext(ctx)
-	creds, err := NewReloadableCredentials(logger, cfg, true)
+	creds, err := rpc.NewReloadableCredentials(logger, cfg, true)
 	if err != nil {
 		return nil, err
 	}
@@ -112,12 +100,12 @@ func NewGrpcServer(ctx context.Context, cfg *goconf.ConfigFile, version string) 
 		creds:    creds,
 		conn:     conn,
 		listener: listener,
-		serverId: GrpcServerId,
+		serverId: rpc.ServerId,
 	}
-	RegisterRpcBackendServer(conn, result)
-	RegisterRpcInternalServer(conn, result)
-	RegisterRpcSessionsServer(conn, result)
-	RegisterRpcMcuServer(conn, result)
+	rpc.RegisterRpcBackendServer(conn, result)
+	rpc.RegisterRpcInternalServer(conn, result)
+	rpc.RegisterRpcSessionsServer(conn, result)
+	rpc.RegisterRpcMcuServer(conn, result)
 	return result, nil
 }
 
@@ -129,14 +117,18 @@ func (s *GrpcServer) Run() error {
 	return s.conn.Serve(s.listener)
 }
 
+type SimpleCloser interface {
+	Close()
+}
+
 func (s *GrpcServer) Close() {
 	s.conn.GracefulStop()
-	if cr, ok := s.creds.(*reloadableCredentials); ok {
+	if cr, ok := s.creds.(SimpleCloser); ok {
 		cr.Close()
 	}
 }
 
-func (s *GrpcServer) LookupResumeId(ctx context.Context, request *LookupResumeIdRequest) (*LookupResumeIdReply, error) {
+func (s *GrpcServer) LookupResumeId(ctx context.Context, request *rpc.LookupResumeIdRequest) (*rpc.LookupResumeIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("LookupResumeId").Inc()
 	// TODO: Remove debug logging
 	s.logger.Printf("Lookup session for resume id %s", request.ResumeId)
@@ -145,12 +137,12 @@ func (s *GrpcServer) LookupResumeId(ctx context.Context, request *LookupResumeId
 		return nil, status.Error(codes.NotFound, "no such room session id")
 	}
 
-	return &LookupResumeIdReply{
+	return &rpc.LookupResumeIdReply{
 		SessionId: string(session.PublicId()),
 	}, nil
 }
 
-func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSessionIdRequest) (*LookupSessionIdReply, error) {
+func (s *GrpcServer) LookupSessionId(ctx context.Context, request *rpc.LookupSessionIdRequest) (*rpc.LookupSessionIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
 	s.logger.Printf("Lookup session id for room session id %s", request.RoomSessionId)
@@ -174,12 +166,12 @@ func (s *GrpcServer) LookupSessionId(ctx context.Context, request *LookupSession
 			session.Close()
 		}
 	}
-	return &LookupSessionIdReply{
+	return &rpc.LookupSessionIdReply{
 		SessionId: string(sid),
 	}, nil
 }
 
-func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCallRequest) (*IsSessionInCallReply, error) {
+func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *rpc.IsSessionInCallRequest) (*rpc.IsSessionInCallReply, error) {
 	statsGrpcServerCalls.WithLabelValues("IsSessionInCall").Inc()
 	// TODO: Remove debug logging
 	s.logger.Printf("Check if session %s is in call %s on %s", request.SessionId, request.RoomId, request.BackendUrl)
@@ -188,7 +180,7 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 		return nil, status.Error(codes.NotFound, "no such session id")
 	}
 
-	result := &IsSessionInCallReply{}
+	result := &rpc.IsSessionInCallReply{}
 	room := session.GetRoom()
 	if room == nil || room.Id() != request.GetRoomId() || !room.Backend().HasUrl(request.GetBackendUrl()) ||
 		(session.ClientType() != api.HelloClientTypeInternal && !room.IsSessionInCall(session)) {
@@ -200,22 +192,22 @@ func (s *GrpcServer) IsSessionInCall(ctx context.Context, request *IsSessionInCa
 	return result, nil
 }
 
-func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *GetInternalSessionsRequest) (*GetInternalSessionsReply, error) {
+func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *rpc.GetInternalSessionsRequest) (*rpc.GetInternalSessionsReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetInternalSessions").Inc()
 	// TODO: Remove debug logging
-	s.logger.Printf("Get internal sessions from %s on %v (fallback %s)", request.RoomId, request.BackendUrls, request.BackendUrl)
+	s.logger.Printf("Get internal sessions from %s on %v (fallback %s)", request.RoomId, request.BackendUrls, request.BackendUrl) // nolint
 
 	var backendUrls []string
 	if len(request.BackendUrls) > 0 {
 		backendUrls = request.BackendUrls
-	} else if request.BackendUrl != "" {
-		backendUrls = append(backendUrls, request.BackendUrl)
+	} else if request.BackendUrl != "" { // nolint
+		backendUrls = append(backendUrls, request.BackendUrl) // nolint
 	} else {
 		// Only compat backend.
 		backendUrls = []string{""}
 	}
 
-	result := &GetInternalSessionsReply{}
+	result := &rpc.GetInternalSessionsReply{}
 	processed := make(map[string]bool)
 	for _, bu := range backendUrls {
 		var parsed *url.URL
@@ -247,7 +239,7 @@ func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *GetIntern
 		defer room.mu.RUnlock()
 
 		for session := range room.internalSessions {
-			result.InternalSessions = append(result.InternalSessions, &InternalSessionData{
+			result.InternalSessions = append(result.InternalSessions, &rpc.InternalSessionData{
 				SessionId: string(session.PublicId()),
 				InCall:    uint32(session.GetInCall()),
 				Features:  session.GetFeatures(),
@@ -255,7 +247,7 @@ func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *GetIntern
 		}
 
 		for session := range room.virtualSessions {
-			result.VirtualSessions = append(result.VirtualSessions, &VirtualSessionData{
+			result.VirtualSessions = append(result.VirtualSessions, &rpc.VirtualSessionData{
 				SessionId: string(session.PublicId()),
 				InCall:    uint32(session.GetInCall()),
 			})
@@ -265,7 +257,7 @@ func (s *GrpcServer) GetInternalSessions(ctx context.Context, request *GetIntern
 	return result, nil
 }
 
-func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherIdRequest) (*GetPublisherIdReply, error) {
+func (s *GrpcServer) GetPublisherId(ctx context.Context, request *rpc.GetPublisherIdRequest) (*rpc.GetPublisherIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetPublisherId").Inc()
 	// TODO: Remove debug logging
 	s.logger.Printf("Get %s publisher id for session %s", request.StreamType, request.SessionId)
@@ -279,13 +271,14 @@ func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherId
 		return nil, status.Error(codes.NotFound, "no such session")
 	}
 
-	publisher := clientSession.GetOrWaitForPublisher(ctx, StreamType(request.StreamType))
-	if publisher, ok := publisher.(*mcuProxyPublisher); ok {
-		reply := &GetPublisherIdReply{
+	publisher := clientSession.GetOrWaitForPublisher(ctx, sfu.StreamType(request.StreamType))
+	if publisher, ok := publisher.(sfu.PublisherWithConnectionUrlAndIP); ok {
+		connUrl, ip := publisher.GetConnectionURL()
+		reply := &rpc.GetPublisherIdReply{
 			PublisherId: publisher.Id(),
-			ProxyUrl:    publisher.conn.rawUrl,
+			ProxyUrl:    connUrl,
 		}
-		if ip := publisher.conn.ip; ip != nil {
+		if len(ip) > 0 {
 			reply.Ip = ip.String()
 		}
 		var err error
@@ -303,15 +296,15 @@ func (s *GrpcServer) GetPublisherId(ctx context.Context, request *GetPublisherId
 	return nil, status.Error(codes.NotFound, "no such publisher")
 }
 
-func (s *GrpcServer) GetServerId(ctx context.Context, request *GetServerIdRequest) (*GetServerIdReply, error) {
+func (s *GrpcServer) GetServerId(ctx context.Context, request *rpc.GetServerIdRequest) (*rpc.GetServerIdReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetServerId").Inc()
-	return &GetServerIdReply{
+	return &rpc.GetServerIdReply{
 		ServerId: s.serverId,
 		Version:  s.version,
 	}, nil
 }
 
-func (s *GrpcServer) GetTransientData(ctx context.Context, request *GetTransientDataRequest) (*GetTransientDataReply, error) {
+func (s *GrpcServer) GetTransientData(ctx context.Context, request *rpc.GetTransientDataRequest) (*rpc.GetTransientDataReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetTransientData").Inc()
 
 	backendUrls := request.BackendUrls
@@ -320,7 +313,7 @@ func (s *GrpcServer) GetTransientData(ctx context.Context, request *GetTransient
 		backendUrls = []string{""}
 	}
 
-	result := &GetTransientDataReply{}
+	result := &rpc.GetTransientDataReply{}
 	processed := make(map[string]bool)
 	for _, bu := range backendUrls {
 		var parsed *url.URL
@@ -354,10 +347,10 @@ func (s *GrpcServer) GetTransientData(ctx context.Context, request *GetTransient
 		}
 
 		if result.Entries == nil {
-			result.Entries = make(map[string]*GrpcTransientDataEntry)
+			result.Entries = make(map[string]*rpc.GrpcTransientDataEntry)
 		}
 		for k, v := range entries {
-			e := &GrpcTransientDataEntry{}
+			e := &rpc.GrpcTransientDataEntry{}
 			var err error
 			if e.Value, err = json.Marshal(v.Value); err != nil {
 				return nil, status.Errorf(codes.Internal, "error marshalling data: %s", err)
@@ -372,7 +365,7 @@ func (s *GrpcServer) GetTransientData(ctx context.Context, request *GetTransient
 	return result, nil
 }
 
-func (s *GrpcServer) GetSessionCount(ctx context.Context, request *GetSessionCountRequest) (*GetSessionCountReply, error) {
+func (s *GrpcServer) GetSessionCount(ctx context.Context, request *rpc.GetSessionCountRequest) (*rpc.GetSessionCountReply, error) {
 	statsGrpcServerCalls.WithLabelValues("SessionCount").Inc()
 
 	u, err := url.Parse(request.Url)
@@ -385,18 +378,18 @@ func (s *GrpcServer) GetSessionCount(ctx context.Context, request *GetSessionCou
 		return nil, status.Error(codes.NotFound, "no such backend")
 	}
 
-	return &GetSessionCountReply{
+	return &rpc.GetSessionCountReply{
 		Count: uint32(backend.Len()),
 	}, nil
 }
 
-func (s *GrpcServer) ProxySession(request RpcSessions_ProxySessionServer) error {
+func (s *GrpcServer) ProxySession(request rpc.RpcSessions_ProxySessionServer) error {
 	statsGrpcServerCalls.WithLabelValues("ProxySession").Inc()
 	hub, ok := s.hub.(*Hub)
 	if !ok {
 		return status.Error(codes.Internal, "invalid hub type")
-
 	}
+
 	client, err := newRemoteGrpcClient(hub, request)
 	if err != nil {
 		return err

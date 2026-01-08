@@ -41,13 +41,19 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	rpc "github.com/strukturag/nextcloud-spreed-signaling/grpc"
+	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
+type CertificateReloadWaiter interface {
+	WaitForCertificateReload(ctx context.Context, counter uint64) error
+}
+
 func (s *GrpcServer) WaitForCertificateReload(ctx context.Context, counter uint64) error {
-	c, ok := s.creds.(*reloadableCredentials)
+	c, ok := s.creds.(CertificateReloadWaiter)
 	if !ok {
 		return errors.New("no reloadable credentials found")
 	}
@@ -55,8 +61,12 @@ func (s *GrpcServer) WaitForCertificateReload(ctx context.Context, counter uint6
 	return c.WaitForCertificateReload(ctx, counter)
 }
 
+type CertPoolReloadWaiter interface {
+	WaitForCertPoolReload(ctx context.Context, counter uint64) error
+}
+
 func (s *GrpcServer) WaitForCertPoolReload(ctx context.Context, counter uint64) error {
-	c, ok := s.creds.(*reloadableCredentials)
+	c, ok := s.creds.(CertPoolReloadWaiter)
 	if !ok {
 		return errors.New("no reloadable credentials found")
 	}
@@ -212,7 +222,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 		RootCAs:      pool,
 		Certificates: []tls.Certificate{pair1},
 	}
-	client1, err := NewGrpcClient(logger, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg1)))
+	client1, err := rpc.NewClient(logger, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg1)))
 	require.NoError(err)
 	defer client1.Close() // nolint
 
@@ -241,7 +251,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 		RootCAs:      pool,
 		Certificates: []tls.Certificate{pair2},
 	}
-	client2, err := NewGrpcClient(logger, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg2)))
+	client2, err := rpc.NewClient(logger, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg2)))
 	require.NoError(err)
 	defer client2.Close() // nolint
 
@@ -251,4 +261,54 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 	// This will fail if the CA certificate has not been reloaded by the server.
 	_, _, err = client2.GetServerId(ctx2)
 	require.NoError(err)
+}
+
+func Test_GrpcClients_Encryption(t *testing.T) { // nolint:paralleltest
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
+		require := require.New(t)
+		serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
+		require.NoError(err)
+		clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
+		require.NoError(err)
+
+		serverCert := internal.GenerateSelfSignedCertificateForTesting(t, "Server cert", serverKey)
+		clientCert := internal.GenerateSelfSignedCertificateForTesting(t, "Testing client", clientKey)
+
+		dir := t.TempDir()
+		serverPrivkeyFile := path.Join(dir, "server-privkey.pem")
+		serverPubkeyFile := path.Join(dir, "server-pubkey.pem")
+		serverCertFile := path.Join(dir, "server-cert.pem")
+		require.NoError(internal.WritePrivateKey(serverKey, serverPrivkeyFile))
+		require.NoError(internal.WritePublicKey(&serverKey.PublicKey, serverPubkeyFile))
+		require.NoError(internal.WriteCertificate(serverCert, serverCertFile))
+		clientPrivkeyFile := path.Join(dir, "client-privkey.pem")
+		clientPubkeyFile := path.Join(dir, "client-pubkey.pem")
+		clientCertFile := path.Join(dir, "client-cert.pem")
+		require.NoError(internal.WritePrivateKey(clientKey, clientPrivkeyFile))
+		require.NoError(internal.WritePublicKey(&clientKey.PublicKey, clientPubkeyFile))
+		require.NoError(internal.WriteCertificate(clientCert, clientCertFile))
+
+		serverConfig := goconf.NewConfigFile()
+		serverConfig.AddOption("grpc", "servercertificate", serverCertFile)
+		serverConfig.AddOption("grpc", "serverkey", serverPrivkeyFile)
+		serverConfig.AddOption("grpc", "clientca", clientCertFile)
+		_, addr := NewGrpcServerForTestWithConfig(t, serverConfig)
+
+		clientConfig := goconf.NewConfigFile()
+		clientConfig.AddOption("grpc", "targets", addr)
+		clientConfig.AddOption("grpc", "clientcertificate", clientCertFile)
+		clientConfig.AddOption("grpc", "clientkey", clientPrivkeyFile)
+		clientConfig.AddOption("grpc", "serverca", serverCertFile)
+		clients, _ := grpctest.NewClientsForTestWithConfig(t, clientConfig, nil, nil)
+
+		ctx, cancel1 := context.WithTimeout(context.Background(), time.Second)
+		defer cancel1()
+
+		require.NoError(clients.WaitForInitialized(ctx))
+
+		for _, client := range clients.GetClients() {
+			_, _, err := client.GetServerId(ctx)
+			require.NoError(err)
+		}
+	})
 }

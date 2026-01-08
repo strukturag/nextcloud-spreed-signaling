@@ -58,10 +58,12 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/async/eventstest"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	sfutest "github.com/strukturag/nextcloud-spreed-signaling/sfu/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
@@ -256,7 +258,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	})
 	config1, err := getConfigFunc(server1)
 	require.NoError(err)
-	client1, _ := NewGrpcClientsForTest(t, addr2, nil)
+	client1, _ := grpctest.NewClientsForTest(t, addr2, nil)
 	h1, err := NewHub(ctx, config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	require.NoError(err)
 	b1, err := NewBackendServer(ctx, config1, h1, "no-version")
@@ -270,7 +272,7 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	})
 	config2, err := getConfigFunc(server2)
 	require.NoError(err)
-	client2, _ := NewGrpcClientsForTest(t, addr1, nil)
+	client2, _ := grpctest.NewClientsForTest(t, addr1, nil)
 	h2, err := NewHub(ctx, config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	require.NoError(err)
 	b2, err := NewBackendServer(ctx, config2, h2, "no-version")
@@ -1991,11 +1993,11 @@ func TestClientMessageToSessionId(t *testing.T) {
 				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
 			}
 
-			mcu1 := NewTestMCU(t)
+			mcu1 := sfutest.NewSFU(t)
 			hub1.SetMcu(mcu1)
 
 			if hub1 != hub2 {
-				mcu2 := NewTestMCU(t)
+				mcu2 := sfutest.NewSFU(t)
 				hub2.SetMcu(mcu2)
 			}
 
@@ -2666,7 +2668,7 @@ func TestJoinRoomMcuBandwidth(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 	hub, _, _, server := CreateHubForTest(t)
-	mcu := NewTestMCU(t)
+	mcu := sfutest.NewSFU(t)
 	hub.SetMcu(mcu)
 
 	mcu.SetBandwidthLimits(1000, 2000)
@@ -2705,7 +2707,7 @@ func TestJoinRoomPreferMcuBandwidth(t *testing.T) {
 		return config, nil
 	})
 
-	mcu := NewTestMCU(t)
+	mcu := sfutest.NewSFU(t)
 	hub.SetMcu(mcu)
 
 	// The MCU bandwidth limits overwrite any backend limits.
@@ -3614,7 +3616,7 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu := NewTestMCU(t)
+	mcu := sfutest.NewSFU(t)
 	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
@@ -3701,7 +3703,7 @@ func TestClientSendOfferPermissionsAudioOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu := NewTestMCU(t)
+	mcu := sfutest.NewSFU(t)
 	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
@@ -3763,7 +3765,7 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu := NewTestMCU(t)
+	mcu := sfutest.NewSFU(t)
 	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
@@ -3840,7 +3842,7 @@ loop:
 		}
 
 		for _, pub := range pubs {
-			if pub.isClosed() {
+			if pub.IsClosed() {
 				break loop
 			}
 		}
@@ -3859,7 +3861,7 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu := NewTestMCU(t)
+	mcu := sfutest.NewSFU(t)
 	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
@@ -3939,7 +3941,7 @@ loop:
 		}
 
 		for _, pub := range pubs {
-			if !assert.False(pub.isClosed(), "publisher was closed") {
+			if !assert.False(pub.IsClosed(), "publisher was closed") {
 				break loop
 			}
 		}
@@ -3971,7 +3973,7 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
-			mcu := NewTestMCU(t)
+			mcu := sfutest.NewSFU(t)
 			require.NoError(mcu.Start(ctx))
 			defer mcu.Stop()
 
@@ -4370,7 +4372,7 @@ func TestClientSendOffer(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
-			mcu := NewTestMCU(t)
+			mcu := sfutest.NewSFU(t)
 			require.NoError(mcu.Start(ctx))
 			defer mcu.Stop()
 
@@ -4435,7 +4437,7 @@ func TestClientUnshareScreen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	mcu := NewTestMCU(t)
+	mcu := sfutest.NewSFU(t)
 	require.NoError(mcu.Start(ctx))
 	defer mcu.Stop()
 
@@ -4469,7 +4471,7 @@ func TestClientUnshareScreen(t *testing.T) {
 
 	publisher := mcu.GetPublisher(hello.Hello.SessionId)
 	require.NotNil(publisher, "No publisher for %s found", hello.Hello.SessionId)
-	require.False(publisher.isClosed(), "Publisher %s should not be closed", hello.Hello.SessionId)
+	require.False(publisher.IsClosed(), "Publisher %s should not be closed", hello.Hello.SessionId)
 
 	old := cleanupScreenPublisherDelay
 	cleanupScreenPublisherDelay = time.Millisecond
@@ -4488,7 +4490,7 @@ func TestClientUnshareScreen(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	require.True(publisher.isClosed(), "Publisher %s should be closed", hello.Hello.SessionId)
+	require.True(publisher.IsClosed(), "Publisher %s should be closed", hello.Hello.SessionId)
 }
 
 func TestVirtualClientSessions(t *testing.T) {

@@ -28,9 +28,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 )
 
 const (
@@ -58,23 +59,23 @@ type ProxySession struct {
 	// +checklocks:clientLock
 	client *ProxyClient
 	// +checklocks:clientLock
-	pendingMessages []*signaling.ProxyServerMessage
+	pendingMessages []*proxy.ServerMessage
 
 	publishersLock sync.Mutex
 	// +checklocks:publishersLock
-	publishers map[string]signaling.McuPublisher
+	publishers map[string]sfu.Publisher
 	// +checklocks:publishersLock
-	publisherIds map[signaling.McuPublisher]string
+	publisherIds map[sfu.Publisher]string
 
 	subscribersLock sync.Mutex
 	// +checklocks:subscribersLock
-	subscribers map[string]signaling.McuSubscriber
+	subscribers map[string]sfu.Subscriber
 	// +checklocks:subscribersLock
-	subscriberIds map[signaling.McuSubscriber]string
+	subscriberIds map[sfu.Subscriber]string
 
 	remotePublishersLock sync.Mutex
 	// +checklocks:remotePublishersLock
-	remotePublishers map[signaling.McuRemoteAwarePublisher]map[string]*remotePublisherData
+	remotePublishers map[sfu.RemoteAwarePublisher]map[string]*remotePublisherData
 }
 
 func NewProxySession(proxy *ProxyServer, sid uint64, id api.PublicSessionId) *ProxySession {
@@ -87,11 +88,11 @@ func NewProxySession(proxy *ProxyServer, sid uint64, id api.PublicSessionId) *Pr
 		ctx:       ctx,
 		closeFunc: closeFunc,
 
-		publishers:   make(map[string]signaling.McuPublisher),
-		publisherIds: make(map[signaling.McuPublisher]string),
+		publishers:   make(map[string]sfu.Publisher),
+		publisherIds: make(map[sfu.Publisher]string),
 
-		subscribers:   make(map[string]signaling.McuSubscriber),
-		subscriberIds: make(map[signaling.McuSubscriber]string),
+		subscribers:   make(map[string]sfu.Subscriber),
+		subscriberIds: make(map[sfu.Subscriber]string),
 	}
 	result.MarkUsed()
 	return result
@@ -131,9 +132,9 @@ func (s *ProxySession) Close() {
 		if s.IsExpired() {
 			reason = "session_expired"
 		}
-		prev.SendMessage(&signaling.ProxyServerMessage{
+		prev.SendMessage(&proxy.ServerMessage{
 			Type: "bye",
-			Bye: &signaling.ByeProxyServerMessage{
+			Bye: &proxy.ByeServerMessage{
 				Reason: reason,
 			},
 		})
@@ -150,7 +151,7 @@ func (s *ProxySession) SetClient(client *ProxyClient) *ProxyClient {
 	s.clientLock.Lock()
 	prev := s.client
 	s.client = client
-	var messages []*signaling.ProxyServerMessage
+	var messages []*proxy.ServerMessage
 	if client != nil {
 		messages, s.pendingMessages = s.pendingMessages, nil
 	}
@@ -168,16 +169,16 @@ func (s *ProxySession) SetClient(client *ProxyClient) *ProxyClient {
 	return prev
 }
 
-func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer api.StringMap) {
+func (s *ProxySession) OnUpdateOffer(client sfu.Client, offer api.StringMap) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
 		s.logger.Printf("Received offer %+v from unknown %s client %s (%+v)", offer, client.StreamType(), client.Id(), client)
 		return
 	}
 
-	msg := &signaling.ProxyServerMessage{
+	msg := &proxy.ServerMessage{
 		Type: "payload",
-		Payload: &signaling.PayloadProxyServerMessage{
+		Payload: &proxy.PayloadServerMessage{
 			Type:     "offer",
 			ClientId: id,
 			Payload: api.StringMap{
@@ -188,16 +189,16 @@ func (s *ProxySession) OnUpdateOffer(client signaling.McuClient, offer api.Strin
 	s.sendMessage(msg)
 }
 
-func (s *ProxySession) OnIceCandidate(client signaling.McuClient, candidate any) {
+func (s *ProxySession) OnIceCandidate(client sfu.Client, candidate any) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
 		s.logger.Printf("Received candidate %+v from unknown %s client %s (%+v)", candidate, client.StreamType(), client.Id(), client)
 		return
 	}
 
-	msg := &signaling.ProxyServerMessage{
+	msg := &proxy.ServerMessage{
 		Type: "payload",
-		Payload: &signaling.PayloadProxyServerMessage{
+		Payload: &proxy.PayloadServerMessage{
 			Type:     "candidate",
 			ClientId: id,
 			Payload: api.StringMap{
@@ -208,7 +209,7 @@ func (s *ProxySession) OnIceCandidate(client signaling.McuClient, candidate any)
 	s.sendMessage(msg)
 }
 
-func (s *ProxySession) sendMessage(message *signaling.ProxyServerMessage) {
+func (s *ProxySession) sendMessage(message *proxy.ServerMessage) {
 	var client *ProxyClient
 	s.clientLock.Lock()
 	client = s.client
@@ -221,16 +222,16 @@ func (s *ProxySession) sendMessage(message *signaling.ProxyServerMessage) {
 	}
 }
 
-func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
+func (s *ProxySession) OnIceCompleted(client sfu.Client) {
 	id := s.proxy.GetClientId(client)
 	if id == "" {
 		s.logger.Printf("Received ice completed event from unknown %s client %s (%+v)", client.StreamType(), client.Id(), client)
 		return
 	}
 
-	msg := &signaling.ProxyServerMessage{
+	msg := &proxy.ServerMessage{
 		Type: "event",
-		Event: &signaling.EventProxyServerMessage{
+		Event: &proxy.EventServerMessage{
 			Type:     "ice-completed",
 			ClientId: id,
 		},
@@ -238,16 +239,16 @@ func (s *ProxySession) OnIceCompleted(client signaling.McuClient) {
 	s.sendMessage(msg)
 }
 
-func (s *ProxySession) SubscriberSidUpdated(subscriber signaling.McuSubscriber) {
+func (s *ProxySession) SubscriberSidUpdated(subscriber sfu.Subscriber) {
 	id := s.proxy.GetClientId(subscriber)
 	if id == "" {
 		s.logger.Printf("Received subscriber sid updated event from unknown %s subscriber %s (%+v)", subscriber.StreamType(), subscriber.Id(), subscriber)
 		return
 	}
 
-	msg := &signaling.ProxyServerMessage{
+	msg := &proxy.ServerMessage{
 		Type: "event",
-		Event: &signaling.EventProxyServerMessage{
+		Event: &proxy.EventServerMessage{
 			Type:     "subscriber-sid-updated",
 			ClientId: id,
 			Sid:      subscriber.Sid(),
@@ -256,15 +257,15 @@ func (s *ProxySession) SubscriberSidUpdated(subscriber signaling.McuSubscriber) 
 	s.sendMessage(msg)
 }
 
-func (s *ProxySession) PublisherClosed(publisher signaling.McuPublisher) {
+func (s *ProxySession) PublisherClosed(publisher sfu.Publisher) {
 	if id := s.DeletePublisher(publisher); id != "" {
 		if s.proxy.DeleteClient(id, publisher) {
 			statsPublishersCurrent.WithLabelValues(string(publisher.StreamType())).Dec()
 		}
 
-		msg := &signaling.ProxyServerMessage{
+		msg := &proxy.ServerMessage{
 			Type: "event",
-			Event: &signaling.EventProxyServerMessage{
+			Event: &proxy.EventServerMessage{
 				Type:     "publisher-closed",
 				ClientId: id,
 			},
@@ -273,15 +274,15 @@ func (s *ProxySession) PublisherClosed(publisher signaling.McuPublisher) {
 	}
 }
 
-func (s *ProxySession) SubscriberClosed(subscriber signaling.McuSubscriber) {
+func (s *ProxySession) SubscriberClosed(subscriber sfu.Subscriber) {
 	if id := s.DeleteSubscriber(subscriber); id != "" {
 		if s.proxy.DeleteClient(id, subscriber) {
 			statsSubscribersCurrent.WithLabelValues(string(subscriber.StreamType())).Dec()
 		}
 
-		msg := &signaling.ProxyServerMessage{
+		msg := &proxy.ServerMessage{
 			Type: "event",
-			Event: &signaling.EventProxyServerMessage{
+			Event: &proxy.EventServerMessage{
 				Type:     "subscriber-closed",
 				ClientId: id,
 			},
@@ -290,7 +291,7 @@ func (s *ProxySession) SubscriberClosed(subscriber signaling.McuSubscriber) {
 	}
 }
 
-func (s *ProxySession) StorePublisher(ctx context.Context, id string, publisher signaling.McuPublisher) {
+func (s *ProxySession) StorePublisher(ctx context.Context, id string, publisher sfu.Publisher) {
 	s.publishersLock.Lock()
 	defer s.publishersLock.Unlock()
 
@@ -298,7 +299,7 @@ func (s *ProxySession) StorePublisher(ctx context.Context, id string, publisher 
 	s.publisherIds[publisher] = id
 }
 
-func (s *ProxySession) DeletePublisher(publisher signaling.McuPublisher) string {
+func (s *ProxySession) DeletePublisher(publisher sfu.Publisher) string {
 	s.publishersLock.Lock()
 	defer s.publishersLock.Unlock()
 
@@ -309,7 +310,7 @@ func (s *ProxySession) DeletePublisher(publisher signaling.McuPublisher) string 
 
 	delete(s.publishers, id)
 	delete(s.publisherIds, publisher)
-	if rp, ok := publisher.(signaling.McuRemoteAwarePublisher); ok {
+	if rp, ok := publisher.(sfu.RemoteAwarePublisher); ok {
 		s.remotePublishersLock.Lock()
 		defer s.remotePublishersLock.Unlock()
 		delete(s.remotePublishers, rp)
@@ -318,7 +319,7 @@ func (s *ProxySession) DeletePublisher(publisher signaling.McuPublisher) string 
 	return id
 }
 
-func (s *ProxySession) StoreSubscriber(ctx context.Context, id string, subscriber signaling.McuSubscriber) {
+func (s *ProxySession) StoreSubscriber(ctx context.Context, id string, subscriber sfu.Subscriber) {
 	s.subscribersLock.Lock()
 	defer s.subscribersLock.Unlock()
 
@@ -326,7 +327,7 @@ func (s *ProxySession) StoreSubscriber(ctx context.Context, id string, subscribe
 	s.subscriberIds[subscriber] = id
 }
 
-func (s *ProxySession) DeleteSubscriber(subscriber signaling.McuSubscriber) string {
+func (s *ProxySession) DeleteSubscriber(subscriber sfu.Subscriber) string {
 	s.subscribersLock.Lock()
 	defer s.subscribersLock.Unlock()
 
@@ -344,7 +345,7 @@ func (s *ProxySession) clearPublishers() {
 	s.publishersLock.Lock()
 	defer s.publishersLock.Unlock()
 
-	go func(publishers map[string]signaling.McuPublisher) {
+	go func(publishers map[string]sfu.Publisher) {
 		for id, publisher := range publishers {
 			if s.proxy.DeleteClient(id, publisher) {
 				statsPublishersCurrent.WithLabelValues(string(publisher.StreamType())).Dec()
@@ -353,7 +354,7 @@ func (s *ProxySession) clearPublishers() {
 		}
 	}(s.publishers)
 	// Can't use clear(...) here as the map is processed by the goroutine above.
-	s.publishers = make(map[string]signaling.McuPublisher)
+	s.publishers = make(map[string]sfu.Publisher)
 	clear(s.publisherIds)
 }
 
@@ -361,7 +362,7 @@ func (s *ProxySession) clearRemotePublishers() {
 	s.remotePublishersLock.Lock()
 	defer s.remotePublishersLock.Unlock()
 
-	go func(remotePublishers map[signaling.McuRemoteAwarePublisher]map[string]*remotePublisherData) {
+	go func(remotePublishers map[sfu.RemoteAwarePublisher]map[string]*remotePublisherData) {
 		for publisher, entries := range remotePublishers {
 			for _, data := range entries {
 				if err := publisher.UnpublishRemote(context.Background(), s.PublicId(), data.hostname, data.port, data.rtcpPort); err != nil {
@@ -377,7 +378,7 @@ func (s *ProxySession) clearSubscribers() {
 	s.subscribersLock.Lock()
 	defer s.subscribersLock.Unlock()
 
-	go func(subscribers map[string]signaling.McuSubscriber) {
+	go func(subscribers map[string]sfu.Subscriber) {
 		for id, subscriber := range subscribers {
 			if s.proxy.DeleteClient(id, subscriber) {
 				statsSubscribersCurrent.WithLabelValues(string(subscriber.StreamType())).Dec()
@@ -386,7 +387,7 @@ func (s *ProxySession) clearSubscribers() {
 		}
 	}(s.subscribers)
 	// Can't use clear(...) here as the map is processed by the goroutine above.
-	s.subscribers = make(map[string]signaling.McuSubscriber)
+	s.subscribers = make(map[string]sfu.Subscriber)
 	clear(s.subscriberIds)
 }
 
@@ -396,7 +397,7 @@ func (s *ProxySession) NotifyDisconnected() {
 	s.clearRemotePublishers()
 }
 
-func (s *ProxySession) AddRemotePublisher(publisher signaling.McuRemoteAwarePublisher, hostname string, port int, rtcpPort int) bool {
+func (s *ProxySession) AddRemotePublisher(publisher sfu.RemoteAwarePublisher, hostname string, port int, rtcpPort int) bool {
 	s.remotePublishersLock.Lock()
 	defer s.remotePublishersLock.Unlock()
 
@@ -404,7 +405,7 @@ func (s *ProxySession) AddRemotePublisher(publisher signaling.McuRemoteAwarePubl
 	if !found {
 		remote = make(map[string]*remotePublisherData)
 		if s.remotePublishers == nil {
-			s.remotePublishers = make(map[signaling.McuRemoteAwarePublisher]map[string]*remotePublisherData)
+			s.remotePublishers = make(map[sfu.RemoteAwarePublisher]map[string]*remotePublisherData)
 		}
 		s.remotePublishers[publisher] = remote
 	}
@@ -424,7 +425,7 @@ func (s *ProxySession) AddRemotePublisher(publisher signaling.McuRemoteAwarePubl
 	return true
 }
 
-func (s *ProxySession) RemoveRemotePublisher(publisher signaling.McuRemoteAwarePublisher, hostname string, port int, rtcpPort int) {
+func (s *ProxySession) RemoveRemotePublisher(publisher sfu.RemoteAwarePublisher, hostname string, port int, rtcpPort int) {
 	s.remotePublishersLock.Lock()
 	defer s.remotePublishersLock.Unlock()
 
@@ -443,13 +444,13 @@ func (s *ProxySession) RemoveRemotePublisher(publisher signaling.McuRemoteAwareP
 	}
 }
 
-func (s *ProxySession) OnPublisherDeleted(publisher signaling.McuPublisher) {
-	if publisher, ok := publisher.(signaling.McuRemoteAwarePublisher); ok {
+func (s *ProxySession) OnPublisherDeleted(publisher sfu.Publisher) {
+	if publisher, ok := publisher.(sfu.RemoteAwarePublisher); ok {
 		s.OnRemoteAwarePublisherDeleted(publisher)
 	}
 }
 
-func (s *ProxySession) OnRemoteAwarePublisherDeleted(publisher signaling.McuRemoteAwarePublisher) {
+func (s *ProxySession) OnRemoteAwarePublisherDeleted(publisher sfu.RemoteAwarePublisher) {
 	s.remotePublishersLock.Lock()
 	defer s.remotePublishersLock.Unlock()
 
@@ -457,9 +458,9 @@ func (s *ProxySession) OnRemoteAwarePublisherDeleted(publisher signaling.McuRemo
 		delete(s.remotePublishers, publisher)
 
 		for _, entry := range entries {
-			msg := &signaling.ProxyServerMessage{
+			msg := &proxy.ServerMessage{
 				Type: "event",
-				Event: &signaling.EventProxyServerMessage{
+				Event: &proxy.EventServerMessage{
 					Type:     "publisher-closed",
 					ClientId: string(entry.id),
 				},

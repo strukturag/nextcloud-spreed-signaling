@@ -39,10 +39,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
 )
 
 const (
@@ -91,9 +91,9 @@ type RemoteConnection struct {
 	helloReceived bool
 
 	// +checklocks:mu
-	pendingMessages []*signaling.ProxyClientMessage
+	pendingMessages []*proxy.ClientMessage
 	// +checklocks:mu
-	messageCallbacks map[string]chan *signaling.ProxyServerMessage
+	messageCallbacks map[string]chan *proxy.ServerMessage
 }
 
 func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenKey *rsa.PrivateKey, tlsConfig *tls.Config) (*RemoteConnection, error) {
@@ -117,7 +117,7 @@ func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenK
 
 		reconnectTimer: time.NewTimer(0),
 
-		messageCallbacks: make(map[string]chan *signaling.ProxyServerMessage),
+		messageCallbacks: make(map[string]chan *proxy.ServerMessage),
 	}
 	result.reconnectInterval.Store(int64(initialReconnectInterval))
 
@@ -226,10 +226,10 @@ func (c *RemoteConnection) scheduleReconnectLocked() {
 // +checklocks:c.mu
 func (c *RemoteConnection) sendHello(ctx context.Context) error {
 	c.helloMsgId = strconv.FormatInt(c.msgId.Add(1), 10)
-	msg := &signaling.ProxyClientMessage{
+	msg := &proxy.ClientMessage{
 		Id:   c.helloMsgId,
 		Type: "hello",
-		Hello: &signaling.HelloProxyClientMessage{
+		Hello: &proxy.HelloClientMessage{
 			Version: "1.0",
 		},
 	}
@@ -301,7 +301,7 @@ func (c *RemoteConnection) Close() error {
 }
 
 func (c *RemoteConnection) createToken(subject string) (string, error) {
-	claims := &signaling.TokenClaims{
+	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now()),
 			Issuer:   c.tokenId,
@@ -317,7 +317,7 @@ func (c *RemoteConnection) createToken(subject string) (string, error) {
 	return tokenString, nil
 }
 
-func (c *RemoteConnection) SendMessage(msg *signaling.ProxyClientMessage) error {
+func (c *RemoteConnection) SendMessage(msg *proxy.ClientMessage) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -325,7 +325,7 @@ func (c *RemoteConnection) SendMessage(msg *signaling.ProxyClientMessage) error 
 }
 
 // +checklocks:c.mu
-func (c *RemoteConnection) deferMessage(ctx context.Context, msg *signaling.ProxyClientMessage) {
+func (c *RemoteConnection) deferMessage(ctx context.Context, msg *proxy.ClientMessage) {
 	c.pendingMessages = append(c.pendingMessages, msg)
 	if ctx.Done() != nil {
 		go func() {
@@ -344,7 +344,7 @@ func (c *RemoteConnection) deferMessage(ctx context.Context, msg *signaling.Prox
 }
 
 // +checklocks:c.mu
-func (c *RemoteConnection) sendMessageLocked(ctx context.Context, msg *signaling.ProxyClientMessage) error {
+func (c *RemoteConnection) sendMessageLocked(ctx context.Context, msg *proxy.ClientMessage) error {
 	if c.conn == nil {
 		// Defer until connected.
 		c.deferMessage(ctx, msg)
@@ -390,7 +390,7 @@ func (c *RemoteConnection) readPump(conn *websocket.Conn) {
 			continue
 		}
 
-		var message signaling.ProxyServerMessage
+		var message proxy.ServerMessage
 		if err := json.Unmarshal(msg, &message); err != nil {
 			c.logger.Printf("could not decode message %s: %s", string(msg), err)
 			continue
@@ -446,7 +446,7 @@ func (c *RemoteConnection) writePump() {
 	}
 }
 
-func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
+func (c *RemoteConnection) processHello(msg *proxy.ServerMessage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -501,7 +501,7 @@ func (c *RemoteConnection) processHello(msg *signaling.ProxyServerMessage) {
 	}
 }
 
-func (c *RemoteConnection) handleCallback(msg *signaling.ProxyServerMessage) bool {
+func (c *RemoteConnection) handleCallback(msg *proxy.ServerMessage) bool {
 	if msg.Id == "" {
 		return false
 	}
@@ -520,7 +520,7 @@ func (c *RemoteConnection) handleCallback(msg *signaling.ProxyServerMessage) boo
 	return true
 }
 
-func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
+func (c *RemoteConnection) processMessage(msg *proxy.ServerMessage) {
 	if c.handleCallback(msg) {
 		return
 	}
@@ -542,7 +542,7 @@ func (c *RemoteConnection) processMessage(msg *signaling.ProxyServerMessage) {
 	}
 }
 
-func (c *RemoteConnection) processEvent(msg *signaling.ProxyServerMessage) {
+func (c *RemoteConnection) processEvent(msg *proxy.ServerMessage) {
 	switch msg.Event.Type {
 	case "update-load":
 		// Ignore
@@ -554,7 +554,7 @@ func (c *RemoteConnection) processEvent(msg *signaling.ProxyServerMessage) {
 	}
 }
 
-func (c *RemoteConnection) sendMessageWithCallbackLocked(ctx context.Context, msg *signaling.ProxyClientMessage) (string, <-chan *signaling.ProxyServerMessage, error) {
+func (c *RemoteConnection) sendMessageWithCallbackLocked(ctx context.Context, msg *proxy.ClientMessage) (string, <-chan *proxy.ServerMessage, error) {
 	msg.Id = strconv.FormatInt(c.msgId.Add(1), 10)
 
 	c.mu.Lock()
@@ -564,12 +564,12 @@ func (c *RemoteConnection) sendMessageWithCallbackLocked(ctx context.Context, ms
 		return "", nil, err
 	}
 
-	ch := make(chan *signaling.ProxyServerMessage, 1)
+	ch := make(chan *proxy.ServerMessage, 1)
 	c.messageCallbacks[msg.Id] = ch
 	return msg.Id, ch, nil
 }
 
-func (c *RemoteConnection) RequestMessage(ctx context.Context, msg *signaling.ProxyClientMessage) (*signaling.ProxyServerMessage, error) {
+func (c *RemoteConnection) RequestMessage(ctx context.Context, msg *proxy.ClientMessage) (*proxy.ServerMessage, error) {
 	id, ch, err := c.sendMessageWithCallbackLocked(ctx, msg)
 	if err != nil {
 		return nil, err
@@ -600,7 +600,7 @@ func (c *RemoteConnection) SendBye() error {
 		return nil
 	}
 
-	return c.sendMessageLocked(c.closeCtx, &signaling.ProxyClientMessage{
+	return c.sendMessageLocked(c.closeCtx, &proxy.ClientMessage{
 		Type: "bye",
 	})
 }

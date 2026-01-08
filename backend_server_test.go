@@ -49,6 +49,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/eventstest"
+	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
@@ -177,7 +178,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		defer cancel()
 		assert.NoError(events1.Close(ctx))
 	})
-	client1, _ := NewGrpcClientsForTest(t, addr2, nil)
+	client1, _ := grpctest.NewClientsForTest(t, addr2, nil)
 	hub1, err := NewHub(ctx, config1, events1, grpcServer1, client1, nil, r1, "no-version")
 	require.NoError(err)
 
@@ -202,7 +203,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		defer cancel()
 		assert.NoError(events2.Close(ctx))
 	})
-	client2, _ := NewGrpcClientsForTest(t, addr1, nil)
+	client2, _ := grpctest.NewClientsForTest(t, addr1, nil)
 	hub2, err := NewHub(ctx, config2, events2, grpcServer2, client2, nil, r2, "no-version")
 	require.NoError(err)
 

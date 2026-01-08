@@ -48,6 +48,7 @@ const (
 )
 
 var (
+	ErrNotConnected           = errors.New("not connected")
 	ErrFederationNotSupported = api.NewError("federation_unsupported", "The target server does not support federation.")
 
 	federationWriteBufferPool = &sync.Pool{}
@@ -936,8 +937,8 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 			}
 		}
 	case "transient":
-		if remoteSessionId != "" && msg.TransientData != nil && msg.TransientData.Key == TransientSessionDataPrefix+string(remoteSessionId) {
-			msg.TransientData.Key = TransientSessionDataPrefix + string(localSessionId)
+		if remoteSessionId != "" && msg.TransientData != nil && msg.TransientData.Key == api.TransientSessionDataPrefix+string(remoteSessionId) {
+			msg.TransientData.Key = api.TransientSessionDataPrefix + string(localSessionId)
 		}
 	}
 	c.session.SendMessage(msg)
@@ -955,8 +956,8 @@ func (c *FederationClient) ProxyMessage(message *api.ClientMessage) error {
 		}
 	case "transient":
 		if hello := c.hello.Load(); hello != nil {
-			if message.TransientData != nil && message.TransientData.Key == TransientSessionDataPrefix+string(c.session.PublicId()) {
-				message.TransientData.Key = TransientSessionDataPrefix + string(hello.SessionId)
+			if message.TransientData != nil && message.TransientData.Key == api.TransientSessionDataPrefix+string(c.session.PublicId()) {
+				message.TransientData.Key = api.TransientSessionDataPrefix + string(hello.SessionId)
 			}
 		}
 	}
