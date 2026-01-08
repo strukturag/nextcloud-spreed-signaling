@@ -70,18 +70,17 @@ type RoomPing struct {
 	mu     sync.Mutex
 	closer *internal.Closer
 
-	backend      *BackendClient
-	capabilities *talk.Capabilities
+	hub     *Hub
+	backend *talk.BackendClient
 
 	// +checklocks:mu
 	entries map[string]*pingEntries
 }
 
-func NewRoomPing(backend *BackendClient, capabilities *talk.Capabilities) (*RoomPing, error) {
+func NewRoomPing(backend *talk.BackendClient) (*RoomPing, error) {
 	result := &RoomPing{
-		closer:       internal.NewCloser(),
-		backend:      backend,
-		capabilities: capabilities,
+		closer:  internal.NewCloser(),
+		backend: backend,
 	}
 
 	return result, nil
@@ -121,7 +120,7 @@ func (p *RoomPing) publishEntries(ctx context.Context, entries *pingEntries, tim
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	limit, _, found := p.capabilities.GetIntegerConfig(ctx, entries.url, talk.ConfigGroupSignaling, talk.ConfigKeySessionPingLimit)
+	limit, _, found := p.backend.GetIntegerConfig(ctx, entries.url, talk.ConfigGroupSignaling, talk.ConfigKeySessionPingLimit)
 	if !found || limit <= 0 {
 		// Limit disabled while waiting for the next iteration, fallback to sending
 		// one request per room.
@@ -146,8 +145,8 @@ func (p *RoomPing) publishEntries(ctx context.Context, entries *pingEntries, tim
 
 func (p *RoomPing) publishActiveSessions(ctx context.Context) {
 	var timeout time.Duration
-	if p.backend.hub != nil {
-		timeout = p.backend.hub.backendTimeout
+	if p.hub != nil {
+		timeout = p.hub.backendTimeout
 	} else {
 		// Running from tests.
 		timeout = time.Second * time.Duration(defaultBackendTimeoutSeconds)
@@ -185,7 +184,7 @@ func (p *RoomPing) sendPingsCombined(ctx context.Context, url *url.URL, entries 
 }
 
 func (p *RoomPing) SendPings(ctx context.Context, roomId string, url *url.URL, entries []talk.BackendPingEntry) error {
-	limit, _, found := p.capabilities.GetIntegerConfig(ctx, url, talk.ConfigGroupSignaling, talk.ConfigKeySessionPingLimit)
+	limit, _, found := p.backend.GetIntegerConfig(ctx, url, talk.ConfigGroupSignaling, talk.ConfigKeySessionPingLimit)
 	if !found || limit <= 0 {
 		// Old-style Nextcloud or session limit not configured. Perform one request
 		// per room. Don't queue to avoid sending all ping requests to old-style

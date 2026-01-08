@@ -217,7 +217,7 @@ type Hub struct {
 	federationClients map[*FederationClient]bool
 
 	backendTimeout time.Duration
-	backend        *BackendClient
+	backend        *talk.BackendClient
 
 	trustedProxies atomic.Pointer[container.IPList]
 	geoip          *geoip.Lookup
@@ -274,7 +274,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
 	}
 
-	backend, err := NewBackendClient(ctx, cfg, maxConcurrentRequestsPerHost, version, etcdClient)
+	backend, err := talk.NewBackendClient(ctx, cfg, maxConcurrentRequestsPerHost, version, etcdClient)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +331,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		return nil, err
 	}
 
-	roomPing, err := NewRoomPing(backend, backend.capabilities)
+	roomPing, err := NewRoomPing(backend)
 	if err != nil {
 		return nil, err
 	}
@@ -463,7 +463,10 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		Type:    "welcome",
 		Welcome: api.NewWelcomeServerMessage(version, api.DefaultWelcomeFeatures...),
 	})
-	backend.hub = hub
+	backend.SetFeaturesFunc(func() []string {
+		return hub.info.Features
+	})
+	roomPing.hub = hub
 	if rpcServer != nil {
 		rpcServer.hub = hub
 	}
@@ -1403,7 +1406,7 @@ func (h *Hub) processHelloV2(ctx context.Context, client ClientWithSession, mess
 		tokenString = message.Hello.Auth.HelloV2Params.Token
 		tokenClaims = &api.HelloV2TokenClaims{}
 	case api.HelloClientTypeFederation:
-		if !h.backend.capabilities.HasCapabilityFeature(ctx, url, talk.FeatureFederationV2) {
+		if !h.backend.HasCapabilityFeature(ctx, url, talk.FeatureFederationV2) {
 			return nil, nil, ErrFederationNotSupported
 		}
 
@@ -1455,13 +1458,13 @@ func (h *Hub) processHelloV2(ctx context.Context, client ClientWithSession, mess
 		backendCtx, cancel := context.WithTimeout(ctx, h.backendTimeout)
 		defer cancel()
 
-		keyData, cached, found := h.backend.capabilities.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
+		keyData, cached, found := h.backend.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
 		if !found {
 			if cached {
 				// The Nextcloud instance might just have enabled JWT but we probably use
 				// the cached capabilities without the public key. Make sure to re-fetch.
-				h.backend.capabilities.InvalidateCapabilities(url)
-				keyData, _, found = h.backend.capabilities.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
+				h.backend.InvalidateCapabilities(url)
+				keyData, _, found = h.backend.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
 			}
 			if !found {
 				return nil, errors.New("no key found for issuer")

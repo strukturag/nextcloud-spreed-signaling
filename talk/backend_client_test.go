@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package talk
 
 import (
 	"encoding/json"
@@ -37,13 +37,12 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/pool"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
 func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
-	response := talk.OcsResponse{
-		Ocs: &talk.OcsBody{
-			Meta: talk.OcsMeta{
+	response := OcsResponse{
+		Ocs: &OcsBody{
+			Meta: OcsMeta{
 				Status:     "OK",
 				StatusCode: http.StatusOK,
 				Message:    "OK",
@@ -52,7 +51,7 @@ func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
 		},
 	}
 	if strings.Contains(t.Name(), "Throttled") {
-		response.Ocs.Meta = talk.OcsMeta{
+		response.Ocs.Meta = OcsMeta{
 			Status:     "failure",
 			StatusCode: 429,
 			Message:    "Reached maximum delay",
