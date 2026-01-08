@@ -63,6 +63,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/session"
 	sfutest "github.com/strukturag/nextcloud-spreed-signaling/sfu/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
@@ -823,17 +824,17 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 
 func Benchmark_DecodePrivateSessionIdCached(b *testing.B) {
 	require := require.New(b)
-	decodeCaches := make([]*container.LruCache[*SessionIdData], 0, numDecodeCaches)
+	decodeCaches := make([]*container.LruCache[*session.SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
+		decodeCaches = append(decodeCaches, container.NewLruCache[*session.SessionIdData](decodeCacheSize))
 	}
 	backend := talk.NewCompatBackend(nil)
-	data := &SessionIdData{
+	data := &session.SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
-	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	codec, err := session.NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
 	require.NoError(err)
 	sid, err := codec.EncodePrivate(data)
 	require.NoError(err, "could not create session id")
@@ -850,17 +851,17 @@ func Benchmark_DecodePrivateSessionIdCached(b *testing.B) {
 
 func Benchmark_DecodePublicSessionIdCached(b *testing.B) {
 	require := require.New(b)
-	decodeCaches := make([]*container.LruCache[*SessionIdData], 0, numDecodeCaches)
+	decodeCaches := make([]*container.LruCache[*session.SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
+		decodeCaches = append(decodeCaches, container.NewLruCache[*session.SessionIdData](decodeCacheSize))
 	}
 	backend := talk.NewCompatBackend(nil)
-	data := &SessionIdData{
+	data := &session.SessionIdData{
 		Sid:       1,
 		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),
 	}
-	codec, err := NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
+	codec, err := session.NewSessionIdCodec([]byte("12345678901234567890123456789012"), []byte("09876543210987654321098765432109"))
 	require.NoError(err)
 	sid, err := codec.EncodePublic(data)
 	require.NoError(err, "could not create session id")

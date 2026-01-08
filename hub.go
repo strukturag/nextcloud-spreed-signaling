@@ -62,6 +62,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/session"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu/janus"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -159,7 +160,7 @@ type Hub struct {
 	logger       log.Logger
 	events       events.AsyncEvents
 	upgrader     websocket.Upgrader
-	sessionIds   *SessionIdCodec
+	sessionIds   *session.SessionIdCodec
 	info         *api.WelcomeServerMessage
 	infoInternal *api.WelcomeServerMessage
 	welcome      atomic.Value // *api.ServerMessage
@@ -192,7 +193,7 @@ type Hub struct {
 	// +checklocks:mu
 	virtualSessions map[api.PublicSessionId]uint64
 
-	decodeCaches []*container.LruCache[*SessionIdData]
+	decodeCaches []*container.LruCache[*session.SessionIdData]
 
 	mcu                   sfu.SFU
 	mcuTimeout            time.Duration
@@ -258,7 +259,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		return nil, fmt.Errorf("the sessions block key must be 16, 24 or 32 bytes but is %d bytes", len(blockKey))
 	}
 
-	sessionIds, err := NewSessionIdCodec([]byte(hashKey), blockBytes)
+	sessionIds, err := session.NewSessionIdCodec([]byte(hashKey), blockBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error creating session id codec: %w", err)
 	}
@@ -320,9 +321,9 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 	}
 
-	decodeCaches := make([]*container.LruCache[*SessionIdData], 0, numDecodeCaches)
+	decodeCaches := make([]*container.LruCache[*session.SessionIdData], 0, numDecodeCaches)
 	for range numDecodeCaches {
-		decodeCaches = append(decodeCaches, container.NewLruCache[*SessionIdData](decodeCacheSize))
+		decodeCaches = append(decodeCaches, container.NewLruCache[*session.SessionIdData](decodeCacheSize))
 	}
 
 	roomSessions, err := NewBuiltinRoomSessions(rpcClients)
@@ -632,7 +633,7 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 	h.rpcClients.Reload(config)
 }
 
-func (h *Hub) getDecodeCache(cache_key string) *container.LruCache[*SessionIdData] {
+func (h *Hub) getDecodeCache(cache_key string) *container.LruCache[*session.SessionIdData] {
 	hash := fnv.New32a()
 	// Make sure we don't have a temporary allocation for the string -> []byte conversion.
 	hash.Write(unsafe.Slice(unsafe.StringData(cache_key), len(cache_key))) // nolint
@@ -657,15 +658,15 @@ func (h *Hub) invalidateSessionId(id string) {
 	cache.Remove(id)
 }
 
-func (h *Hub) setDecodedPublicSessionId(id api.PublicSessionId, data *SessionIdData) {
+func (h *Hub) setDecodedPublicSessionId(id api.PublicSessionId, data *session.SessionIdData) {
 	h.setDecodedSessionId(string(id), data)
 }
 
-func (h *Hub) setDecodedPrivateSessionId(id api.PrivateSessionId, data *SessionIdData) {
+func (h *Hub) setDecodedPrivateSessionId(id api.PrivateSessionId, data *session.SessionIdData) {
 	h.setDecodedSessionId(string(id), data)
 }
 
-func (h *Hub) setDecodedSessionId(id string, data *SessionIdData) {
+func (h *Hub) setDecodedSessionId(id string, data *session.SessionIdData) {
 	if len(id) == 0 {
 		return
 	}
@@ -674,7 +675,7 @@ func (h *Hub) setDecodedSessionId(id string, data *SessionIdData) {
 	cache.Set(id, data)
 }
 
-func (h *Hub) decodePrivateSessionId(id api.PrivateSessionId) *SessionIdData {
+func (h *Hub) decodePrivateSessionId(id api.PrivateSessionId) *session.SessionIdData {
 	if len(id) == 0 {
 		return nil
 	}
@@ -694,7 +695,7 @@ func (h *Hub) decodePrivateSessionId(id api.PrivateSessionId) *SessionIdData {
 	return data
 }
 
-func (h *Hub) decodePublicSessionId(id api.PublicSessionId) *SessionIdData {
+func (h *Hub) decodePublicSessionId(id api.PublicSessionId) *session.SessionIdData {
 	if len(id) == 0 {
 		return nil
 	}
@@ -950,12 +951,12 @@ func (h *Hub) unregisterRemoteSession(session *RemoteSession) {
 	delete(h.remoteSessions, session)
 }
 
-func (h *Hub) newSessionIdData(backend *talk.Backend) *SessionIdData {
+func (h *Hub) newSessionIdData(backend *talk.Backend) *session.SessionIdData {
 	sid := h.sid.Add(1)
 	for sid == 0 {
 		sid = h.sid.Add(1)
 	}
-	sessionIdData := &SessionIdData{
+	sessionIdData := &session.SessionIdData{
 		Sid:       sid,
 		Created:   time.Now().UnixMicro(),
 		BackendId: backend.Id(),

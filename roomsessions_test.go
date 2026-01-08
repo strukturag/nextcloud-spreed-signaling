@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/session"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -55,7 +56,7 @@ func (s *DummySession) ClientType() api.ClientType {
 	return ""
 }
 
-func (s *DummySession) Data() *SessionIdData {
+func (s *DummySession) Data() *session.SessionIdData {
 	return nil
 }
 

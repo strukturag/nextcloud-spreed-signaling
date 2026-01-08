@@ -21,9 +21,9 @@
  */
 syntax = "proto3";
 
-option go_package = "github.com/strukturag/nextcloud-spreed-signaling;signaling";
+option go_package = "github.com/strukturag/nextcloud-spreed-signaling/session";
 
-package signaling;
+package session;
 
 message SessionIdData {
 	uint64 Sid = 1;

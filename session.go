@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/session"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -37,7 +38,7 @@ type Session interface {
 	PrivateId() api.PrivateSessionId
 	PublicId() api.PublicSessionId
 	ClientType() api.ClientType
-	Data() *SessionIdData
+	Data() *session.SessionIdData
 
 	UserId() string
 	UserData() json.RawMessage
