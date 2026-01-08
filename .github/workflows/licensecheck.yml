@@ -33,7 +33,7 @@ jobs:
         run: |
           {
             echo 'CHECK_RESULT<<EOF'
-            licensecheck *.go */*.go
+            find -name "*.go" | sort | xargs licensecheck
             echo EOF
           } >> "$GITHUB_ENV"
 
