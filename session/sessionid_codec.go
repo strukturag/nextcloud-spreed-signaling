@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package session
 
 import (
 	"crypto/aes"
@@ -86,7 +86,7 @@ func (p *bytesPool) Put(b []byte) {
 // SessionIdCodec encodes and decodes session ids.
 //
 // Inspired by https://github.com/gorilla/securecookie
-type SessionIdCodec struct {
+type SessionIdCodec struct { // nolint
 	hashKey []byte
 	cipher  cipher.Block
 

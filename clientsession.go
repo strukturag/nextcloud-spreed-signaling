@@ -41,6 +41,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/session"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
@@ -63,7 +64,7 @@ type ClientSession struct {
 	events    events.AsyncEvents
 	privateId api.PrivateSessionId
 	publicId  api.PublicSessionId
-	data      *SessionIdData
+	data      *session.SessionIdData
 	ctx       context.Context
 	closeFunc context.CancelFunc
 
@@ -125,7 +126,7 @@ type ClientSession struct {
 	responseHandlers map[string]ResponseHandlerFunc
 }
 
-func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, backend *talk.Backend, hello *api.HelloClientMessage, auth *talk.BackendClientAuthResponse) (*ClientSession, error) {
+func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *session.SessionIdData, backend *talk.Backend, hello *api.HelloClientMessage, auth *talk.BackendClientAuthResponse) (*ClientSession, error) {
 	ctx := log.NewLoggerContext(context.Background(), hub.logger)
 	ctx, closeFunc := context.WithCancel(ctx)
 	s := &ClientSession{
@@ -183,7 +184,7 @@ func (s *ClientSession) RoomSessionId() api.RoomSessionId {
 	return s.roomSessionId
 }
 
-func (s *ClientSession) Data() *SessionIdData {
+func (s *ClientSession) Data() *session.SessionIdData {
 	return s.data
 }
 

@@ -34,6 +34,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/session"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -49,7 +50,7 @@ type VirtualSession struct {
 	session   *ClientSession
 	privateId api.PrivateSessionId
 	publicId  api.PublicSessionId
-	data      *SessionIdData
+	data      *session.SessionIdData
 	ctx       context.Context
 	closeFunc context.CancelFunc
 	room      atomic.Pointer[Room]
@@ -70,7 +71,7 @@ func GetVirtualSessionId(session Session, sessionId api.PublicSessionId) api.Pub
 	return session.PublicId() + "|" + sessionId
 }
 
-func NewVirtualSession(session *ClientSession, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *SessionIdData, msg *api.AddSessionInternalClientMessage) (*VirtualSession, error) {
+func NewVirtualSession(session *ClientSession, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *session.SessionIdData, msg *api.AddSessionInternalClientMessage) (*VirtualSession, error) {
 	ctx := log.NewLoggerContext(session.Context(), session.hub.logger)
 	ctx, closeFunc := context.WithCancel(ctx)
 
@@ -138,7 +139,7 @@ func (s *VirtualSession) SetInCall(inCall int) bool {
 	return s.inCall.Set(uint32(inCall))
 }
 
-func (s *VirtualSession) Data() *SessionIdData {
+func (s *VirtualSession) Data() *session.SessionIdData {
 	return s.data
 }
 

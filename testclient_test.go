@@ -44,6 +44,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/session"
 )
 
 var (
@@ -71,7 +72,7 @@ func getWebsocketUrl(url string) string {
 	}
 }
 
-func getPubliceSessionIdData(h *Hub, publicId api.PublicSessionId) *SessionIdData {
+func getPubliceSessionIdData(h *Hub, publicId api.PublicSessionId) *session.SessionIdData {
 	decodedPublic := h.decodePublicSessionId(publicId)
 	if decodedPublic == nil {
 		panic("invalid public session id")

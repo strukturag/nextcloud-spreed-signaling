@@ -48,7 +48,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/client"
@@ -57,6 +56,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
+	"github.com/strukturag/nextcloud-spreed-signaling/session"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu/janus"
 	janusapi "github.com/strukturag/nextcloud-spreed-signaling/sfu/janus/janus"
@@ -147,7 +147,7 @@ type ProxyServer struct {
 	trustedProxies  atomic.Pointer[container.IPList]
 
 	sid          atomic.Uint64
-	cookie       *signaling.SessionIdCodec
+	cookie       *session.SessionIdCodec
 	sessionsLock sync.RWMutex
 	// +checklocks:sessionsLock
 	sessions map[uint64]*ProxySession
@@ -242,7 +242,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		return nil, fmt.Errorf("could not generate random block key: %s", err)
 	}
 
-	sessionIds, err := signaling.NewSessionIdCodec(hashKey, blockKey)
+	sessionIds, err := session.NewSessionIdCodec(hashKey, blockKey)
 	if err != nil {
 		return nil, fmt.Errorf("error creating session id codec: %w", err)
 	}
@@ -1507,7 +1507,7 @@ func (s *ProxyServer) NewSession(hello *proxy.HelloClientMessage) (*ProxySession
 		sid = s.sid.Add(1)
 	}
 
-	sessionIdData := &signaling.SessionIdData{
+	sessionIdData := &session.SessionIdData{
 		Sid:     sid,
 		Created: time.Now().UnixMicro(),
 	}
