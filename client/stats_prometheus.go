@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package client
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,12 +28,6 @@ import (
 )
 
 var (
-	statsClientCountries = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "signaling",
-		Subsystem: "client",
-		Name:      "countries_total",
-		Help:      "The total number of connections by country",
-	}, []string{"country"})
 	statsClientRTT = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "signaling",
 		Subsystem: "client",
@@ -55,7 +49,6 @@ var (
 	}, []string{"direction"})
 
 	clientStats = []prometheus.Collector{
-		statsClientCountries,
 		statsClientRTT,
 		statsClientBytesTotal,
 		statsClientMessagesTotal,

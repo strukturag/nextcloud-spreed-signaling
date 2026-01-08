@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -37,14 +38,14 @@ import (
 type RemoteSession struct {
 	logger       log.Logger
 	hub          *Hub
-	client       *Client
+	client       *HubClient
 	remoteClient *grpc.Client
 	sessionId    api.PublicSessionId
 
 	proxy atomic.Pointer[grpc.SessionProxy]
 }
 
-func NewRemoteSession(hub *Hub, client *Client, remoteClient *grpc.Client, sessionId api.PublicSessionId) (*RemoteSession, error) {
+func NewRemoteSession(hub *Hub, client *HubClient, remoteClient *grpc.Client, sessionId api.PublicSessionId) (*RemoteSession, error) {
 	remoteSession := &RemoteSession{
 		logger:       hub.logger,
 		hub:          hub,
@@ -65,6 +66,10 @@ func NewRemoteSession(hub *Hub, client *Client, remoteClient *grpc.Client, sessi
 	remoteSession.proxy.Store(proxy)
 
 	return remoteSession, nil
+}
+
+func (s *RemoteSession) GetSessionId() api.PublicSessionId {
+	return s.sessionId
 }
 
 func (s *RemoteSession) Country() geoip.Country {
@@ -107,7 +112,7 @@ func (s *RemoteSession) OnProxyClose(err error) {
 	s.Close()
 }
 
-func (s *RemoteSession) SendMessage(message WritableClientMessage) bool {
+func (s *RemoteSession) SendMessage(message client.WritableClientMessage) bool {
 	return s.sendMessage(message) == nil
 }
 
@@ -140,20 +145,25 @@ func (s *RemoteSession) Close() {
 	s.client.Close()
 }
 
-func (s *RemoteSession) OnLookupCountry(client HandlerClient) geoip.Country {
-	return s.hub.OnLookupCountry(client)
+func (s *RemoteSession) OnLookupCountry(addr string) geoip.Country {
+	return s.hub.LookupCountry(addr)
 }
 
-func (s *RemoteSession) OnClosed(client HandlerClient) {
+func (s *RemoteSession) OnClosed() {
 	s.Close()
 }
 
-func (s *RemoteSession) OnMessageReceived(client HandlerClient, message []byte) {
+func (s *RemoteSession) OnMessageReceived(message []byte) {
 	if err := s.sendProxyMessage(message); err != nil {
 		s.logger.Printf("Error sending %s to the proxy for session %s: %s", string(message), s.sessionId, err)
 		s.Close()
 	}
 }
 
-func (s *RemoteSession) OnRTTReceived(client HandlerClient, rtt time.Duration) {
+func (s *RemoteSession) OnRTTReceived(rtt time.Duration) {
+	// Ignore
+}
+
+func (s *RemoteSession) IsInRoom(id string) bool {
+	return s.client.IsInRoom(id)
 }

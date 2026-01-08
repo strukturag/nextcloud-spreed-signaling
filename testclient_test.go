@@ -319,10 +319,8 @@ func (c *TestClient) WaitForClientRemoved(ctx context.Context) error {
 	for {
 		found := false
 		for _, client := range c.hub.clients {
-			if cc, ok := client.(*Client); ok {
-				cc.mu.Lock()
-				conn := cc.conn
-				cc.mu.Unlock()
+			if cc, ok := client.(*HubClient); ok {
+				conn := cc.GetConn()
 				if conn != nil && conn.RemoteAddr().String() == c.localAddr.String() {
 					found = true
 					break
@@ -736,7 +734,7 @@ func (c *TestClient) RunUntilMessage(ctx context.Context) (*api.ServerMessage, b
 func (c *TestClient) RunUntilMessageOrClosed(ctx context.Context) (*api.ServerMessage, bool) {
 	select {
 	case err := <-c.readErrorChan:
-		if c.assert.Error(err) && websocket.IsCloseError(err, websocket.CloseNoStatusReceived) {
+		if c.assert.Error(err) && websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
 			return nil, true
 		}
 

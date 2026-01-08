@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2025 struktur AG
+ * Copyright (C) 2021 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -22,26 +22,24 @@
 package signaling
 
 import (
-	"bytes"
-	"testing"
+	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
 )
 
-func TestCounterWriter(t *testing.T) {
-	t.Parallel()
-	assert := assert.New(t)
+var (
+	statsClientCountries = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "client",
+		Name:      "countries_total",
+		Help:      "The total number of connections by country",
+	}, []string{"country"})
 
-	var b bytes.Buffer
-	var written int
-	w := &counterWriter{
-		w:       &b,
-		counter: &written,
+	clientStats = []prometheus.Collector{
+		statsClientCountries,
 	}
-	if count, err := w.Write(nil); assert.NoError(err) && assert.Equal(0, count) {
-		assert.Equal(0, written)
-	}
-	if count, err := w.Write([]byte("foo")); assert.NoError(err) && assert.Equal(3, count) {
-		assert.Equal(3, written)
-	}
+)
+
+func RegisterClientStats() {
+	metrics.RegisterAll(clientStats...)
 }

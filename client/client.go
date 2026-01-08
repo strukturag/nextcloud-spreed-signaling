@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package signaling
+package client
 
 import (
 	"bytes"
@@ -80,10 +80,6 @@ type HandlerClient interface {
 	Country() geoip.Country
 	UserAgent() string
 	IsConnected() bool
-	IsAuthenticated() bool
-
-	GetSession() Session
-	SetSession(session Session)
 
 	SendError(e *api.Error) bool
 	SendByeResponse(message *api.ClientMessage) bool
@@ -93,19 +89,30 @@ type HandlerClient interface {
 	Close()
 }
 
-type ClientHandler interface {
-	OnClosed(HandlerClient)
-	OnMessageReceived(HandlerClient, []byte)
-	OnRTTReceived(HandlerClient, time.Duration)
+type Handler interface {
+	GetSessionId() api.PublicSessionId
+
+	OnClosed()
+	OnMessageReceived([]byte)
+	OnRTTReceived(time.Duration)
 }
 
-type ClientGeoIpHandler interface {
-	OnLookupCountry(HandlerClient) geoip.Country
+type GeoIpHandler interface {
+	OnLookupCountry(addr string) geoip.Country
+}
+
+type InRoomHandler interface {
+	IsInRoom(string) bool
+}
+
+type SessionCloserHandler interface {
+	CloseSession()
 }
 
 type Client struct {
-	logger  log.Logger
-	ctx     context.Context
+	logger log.Logger
+	ctx    context.Context
+	// +checklocks:mu
 	conn    *websocket.Conn
 	addr    string
 	agent   string
@@ -115,9 +122,8 @@ type Client struct {
 
 	handlerMu sync.RWMutex
 	// +checklocks:handlerMu
-	handler ClientHandler
+	handler Handler
 
-	session   atomic.Pointer[Session]
 	sessionId atomic.Pointer[api.PublicSessionId]
 
 	mu sync.Mutex
@@ -128,42 +134,36 @@ type Client struct {
 	messageChan  chan *bytes.Buffer
 }
 
-func NewClient(ctx context.Context, conn *websocket.Conn, remoteAddress string, agent string, handler ClientHandler) (*Client, error) {
-	remoteAddress = strings.TrimSpace(remoteAddress)
-	if remoteAddress == "" {
-		remoteAddress = "unknown remote address"
-	}
-	agent = strings.TrimSpace(agent)
-	if agent == "" {
-		agent = "unknown user agent"
-	}
+func (c *Client) SetConn(ctx context.Context, conn *websocket.Conn, remoteAddress string, agent string, logRTT bool, handler Handler) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	client := &Client{
-		agent:  agent,
-		logRTT: true,
-	}
-	client.SetConn(ctx, conn, remoteAddress, handler)
-	return client, nil
-}
-
-func (c *Client) SetConn(ctx context.Context, conn *websocket.Conn, remoteAddress string, handler ClientHandler) {
 	c.logger = log.LoggerFromContext(ctx)
 	c.ctx = ctx
 	c.conn = conn
 	c.addr = remoteAddress
+	c.agent = agent
+	c.logRTT = logRTT
 	c.SetHandler(handler)
 	c.closer = internal.NewCloser()
 	c.messageChan = make(chan *bytes.Buffer, 16)
 	c.messagesDone = make(chan struct{})
 }
 
-func (c *Client) SetHandler(handler ClientHandler) {
+func (c *Client) GetConn() *websocket.Conn {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.conn
+}
+
+func (c *Client) SetHandler(handler Handler) {
 	c.handlerMu.Lock()
 	defer c.handlerMu.Unlock()
 	c.handler = handler
 }
 
-func (c *Client) getHandler() ClientHandler {
+func (c *Client) getHandler() Handler {
 	c.handlerMu.RLock()
 	defer c.handlerMu.RUnlock()
 	return c.handler
@@ -177,27 +177,6 @@ func (c *Client) IsConnected() bool {
 	return c.closed.Load() == 0
 }
 
-func (c *Client) IsAuthenticated() bool {
-	return c.GetSession() != nil
-}
-
-func (c *Client) GetSession() Session {
-	session := c.session.Load()
-	if session == nil {
-		return nil
-	}
-
-	return *session
-}
-
-func (c *Client) SetSession(session Session) {
-	if session == nil {
-		c.session.Store(nil)
-	} else {
-		c.session.Store(&session)
-	}
-}
-
 func (c *Client) SetSessionId(sessionId api.PublicSessionId) {
 	c.sessionId.Store(&sessionId)
 }
@@ -205,12 +184,12 @@ func (c *Client) SetSessionId(sessionId api.PublicSessionId) {
 func (c *Client) GetSessionId() api.PublicSessionId {
 	sessionId := c.sessionId.Load()
 	if sessionId == nil {
-		session := c.GetSession()
-		if session == nil {
+		sessionId := c.getHandler().GetSessionId()
+		if sessionId == "" {
 			return ""
 		}
 
-		return session.PublicId()
+		return sessionId
 	}
 
 	return *sessionId
@@ -227,8 +206,8 @@ func (c *Client) UserAgent() string {
 func (c *Client) Country() geoip.Country {
 	if c.country == nil {
 		var country geoip.Country
-		if handler, ok := c.getHandler().(ClientGeoIpHandler); ok {
-			country = handler.OnLookupCountry(c)
+		if handler, ok := c.getHandler().(GeoIpHandler); ok {
+			country = handler.OnLookupCountry(c.addr)
 		} else {
 			country = geoip.UnknownCountry
 		}
@@ -236,6 +215,14 @@ func (c *Client) Country() geoip.Country {
 	}
 
 	return *c.country
+}
+
+func (c *Client) IsInRoom(id string) bool {
+	if handler, ok := c.getHandler().(InRoomHandler); ok {
+		return handler.IsInRoom(id)
+	}
+
+	return false
 }
 
 func (c *Client) Close() {
@@ -267,8 +254,7 @@ func (c *Client) doClose() {
 		c.closer.Close()
 		<-c.messagesDone
 
-		c.getHandler().OnClosed(c)
-		c.SetSession(nil)
+		c.getHandler().OnClosed()
 	}
 }
 
@@ -340,7 +326,7 @@ func (c *Client) ReadPump() {
 				}
 			}
 			statsClientRTT.Observe(float64(rtt.Milliseconds()))
-			c.getHandler().OnRTTReceived(c, rtt)
+			c.getHandler().OnRTTReceived(rtt)
 		}
 		return nil
 	})
@@ -404,7 +390,7 @@ func (c *Client) processMessages() {
 			break
 		}
 
-		c.getHandler().OnMessageReceived(c, buffer.Bytes())
+		c.getHandler().OnMessageReceived(buffer.Bytes())
 		bufferPool.Put(buffer)
 	}
 
@@ -425,6 +411,7 @@ func (w *counterWriter) Write(p []byte) (int, error) {
 	return written, err
 }
 
+// +checklocks:c.mu
 func (c *Client) writeInternal(message json.Marshaler) bool {
 	var closeData []byte
 
@@ -512,19 +499,19 @@ func (c *Client) writeMessage(message WritableClientMessage) bool {
 	return c.writeMessageLocked(message)
 }
 
+// +checklocks:c.mu
 func (c *Client) writeMessageLocked(message WritableClientMessage) bool {
 	if !c.writeInternal(message) {
 		return false
 	}
 
-	session := c.GetSession()
-	if message.CloseAfterSend(session) {
-		c.conn.SetWriteDeadline(time.Now().Add(writeWait))    // nolint
-		c.conn.WriteMessage(websocket.CloseMessage, []byte{}) // nolint
-		if session != nil {
-			go session.Close()
-		}
-		go c.Close()
+	if message.CloseAfterSend(c) {
+		go func() {
+			if sc, ok := c.getHandler().(SessionCloserHandler); ok {
+				sc.CloseSession()
+			}
+			c.Close()
+		}()
 	}
 
 	return true

@@ -88,7 +88,7 @@ type ClientSession struct {
 	asyncCh events.AsyncChannel
 
 	// +checklocks:mu
-	client       HandlerClient
+	client       ClientWithSession
 	room         atomic.Pointer[Room]
 	roomJoinTime atomic.Int64
 	federation   atomic.Pointer[FederationClient]
@@ -604,7 +604,7 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 	s.roomSessionId = ""
 }
 
-func (s *ClientSession) ClearClient(client HandlerClient) {
+func (s *ClientSession) ClearClient(client ClientWithSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -612,7 +612,7 @@ func (s *ClientSession) ClearClient(client HandlerClient) {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) clearClientLocked(client HandlerClient) {
+func (s *ClientSession) clearClientLocked(client ClientWithSession) {
 	if s.client == nil {
 		return
 	} else if client != nil && s.client != client {
@@ -625,7 +625,7 @@ func (s *ClientSession) clearClientLocked(client HandlerClient) {
 	prevClient.SetSession(nil)
 }
 
-func (s *ClientSession) GetClient() HandlerClient {
+func (s *ClientSession) GetClient() ClientWithSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -633,11 +633,11 @@ func (s *ClientSession) GetClient() HandlerClient {
 }
 
 // +checklocks:s.mu
-func (s *ClientSession) getClientUnlocked() HandlerClient {
+func (s *ClientSession) getClientUnlocked() ClientWithSession {
 	return s.client
 }
 
-func (s *ClientSession) SetClient(client HandlerClient) HandlerClient {
+func (s *ClientSession) SetClient(client ClientWithSession) ClientWithSession {
 	if client == nil {
 		panic("Use ClearClient to set the client to nil")
 	}
@@ -1551,7 +1551,7 @@ func (s *ClientSession) filterAsyncMessage(msg *events.AsyncMessage) *api.Server
 	}
 }
 
-func (s *ClientSession) NotifySessionResumed(client HandlerClient) {
+func (s *ClientSession) NotifySessionResumed(client ClientWithSession) {
 	s.mu.Lock()
 	if len(s.pendingClientMessages) == 0 {
 		s.mu.Unlock()

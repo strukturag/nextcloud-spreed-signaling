@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -57,7 +58,7 @@ type remoteGrpcClient struct {
 	hub    *Hub
 	client grpc.RpcSessions_ProxySessionServer
 
-	sessionId  string
+	sessionId  api.PublicSessionId
 	remoteAddr string
 	country    geoip.Country
 	userAgent  string
@@ -66,7 +67,7 @@ type remoteGrpcClient struct {
 	closeFunc context.CancelCauseFunc
 
 	session  atomic.Pointer[Session]
-	messages chan WritableClientMessage
+	messages chan client.WritableClientMessage
 }
 
 func newRemoteGrpcClient(hub *Hub, request grpc.RpcSessions_ProxySessionServer) (*remoteGrpcClient, error) {
@@ -82,7 +83,7 @@ func newRemoteGrpcClient(hub *Hub, request grpc.RpcSessions_ProxySessionServer) 
 		hub:    hub,
 		client: request,
 
-		sessionId:  getMD(md, "sessionId"),
+		sessionId:  api.PublicSessionId(getMD(md, "sessionId")),
 		remoteAddr: getMD(md, "remoteAddr"),
 		country:    geoip.Country(getMD(md, "country")),
 		userAgent:  getMD(md, "userAgent"),
@@ -90,7 +91,7 @@ func newRemoteGrpcClient(hub *Hub, request grpc.RpcSessions_ProxySessionServer) 
 		closeCtx:  closeCtx,
 		closeFunc: closeFunc,
 
-		messages: make(chan WritableClientMessage, grpcRemoteClientMessageQueue),
+		messages: make(chan client.WritableClientMessage, grpcRemoteClientMessageQueue),
 	}
 	return result, nil
 }
@@ -99,7 +100,7 @@ func (c *remoteGrpcClient) readPump() {
 	var closeError error
 	defer func() {
 		c.closeFunc(closeError)
-		c.hub.OnClosed(c)
+		c.hub.processUnregister(c)
 	}()
 
 	for {
@@ -117,7 +118,7 @@ func (c *remoteGrpcClient) readPump() {
 			break
 		}
 
-		c.hub.OnMessageReceived(c, msg.Message)
+		c.hub.processMessage(c, msg.Message)
 	}
 }
 
@@ -143,6 +144,10 @@ func (c *remoteGrpcClient) IsConnected() bool {
 
 func (c *remoteGrpcClient) IsAuthenticated() bool {
 	return c.GetSession() != nil
+}
+
+func (c *remoteGrpcClient) GetSessionId() api.PublicSessionId {
+	return c.sessionId
 }
 
 func (c *remoteGrpcClient) GetSession() Session {
@@ -190,7 +195,7 @@ func (c *remoteGrpcClient) SendByeResponseWithReason(message *api.ClientMessage,
 	return c.SendMessage(response)
 }
 
-func (c *remoteGrpcClient) SendMessage(message WritableClientMessage) bool {
+func (c *remoteGrpcClient) SendMessage(message client.WritableClientMessage) bool {
 	if c.closeCtx.Err() != nil {
 		return false
 	}
