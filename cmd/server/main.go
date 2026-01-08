@@ -41,7 +41,6 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
 
-	signaling "github.com/strukturag/nextcloud-spreed-signaling"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
@@ -50,6 +49,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/server"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu/janus"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu/proxy"
@@ -183,7 +183,7 @@ func main() {
 
 	logger.Printf("Using a maximum of %d CPUs", runtime.GOMAXPROCS(0))
 
-	signaling.RegisterStats()
+	server.RegisterStats()
 
 	natsUrl, _ := config.GetStringOptionWithEnv(cfg, "nats", "url")
 	if natsUrl == "" {
@@ -221,7 +221,7 @@ func main() {
 		}
 	}()
 
-	rpcServer, err := signaling.NewGrpcServer(stopCtx, cfg, version)
+	rpcServer, err := server.NewGrpcServer(stopCtx, cfg, version)
 	if err != nil {
 		logger.Fatalf("Could not create RPC server: %s", err)
 	}
@@ -239,7 +239,7 @@ func main() {
 	defer rpcClients.Close()
 
 	r := mux.NewRouter()
-	hub, err := signaling.NewHub(stopCtx, cfg, events, rpcServer, rpcClients, etcdClient, r, version)
+	hub, err := server.NewHub(stopCtx, cfg, events, rpcServer, rpcClients, etcdClient, r, version)
 	if err != nil {
 		logger.Fatal("Could not create hub: ", err)
 	}
@@ -324,7 +324,7 @@ func main() {
 	go hub.Run()
 	defer hub.Stop()
 
-	server, err := signaling.NewBackendServer(stopCtx, cfg, hub, version)
+	server, err := server.NewBackendServer(stopCtx, cfg, hub, version)
 	if err != nil {
 		logger.Fatal("Could not create backend server: ", err)
 	}

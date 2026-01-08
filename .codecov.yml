@@ -100,6 +100,10 @@ component_management:
       name: security
       paths:
         - security/**
+    - component_id: module_server
+      name: server
+      paths:
+        - server/**
     - component_id: module_session
       name: session
       paths:
