@@ -228,6 +228,9 @@ type CommandProxyClientMessage struct {
 	Hostname string `json:"hostname,omitempty"`
 	Port     int    `json:"port,omitempty"`
 	RtcpPort int    `json:"rtcpPort,omitempty"`
+
+	// Bandwidth is set if Type is "update-bandwidth"
+	Bandwidth api.Bandwidth `json:"bandwidth,omitempty"`
 }
 
 func (m *CommandProxyClientMessage) CheckValid() error {
@@ -358,6 +361,8 @@ type EventProxyServerMessage struct {
 	Sid      string `json:"sid,omitempty"`
 
 	Bandwidth *EventProxyServerBandwidth `json:"bandwidth,omitempty"`
+
+	ClientBandwidths map[string]EventProxyServerBandwidth `json:"clientBandwidths,omitempty"`
 }
 
 // Information on a proxy in the etcd cluster.

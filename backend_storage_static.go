@@ -45,6 +45,31 @@ type backendStorageStatic struct {
 	compatBackend *Backend
 }
 
+func updateBackendBandwidths(logger log.Logger, backend *Backend, config *goconf.ConfigFile, id string) {
+	bandwidthPerRoomValue, err := config.GetInt(id, "bitrateperroom")
+	if err != nil || bandwidthPerRoomValue < 0 {
+		bandwidthPerRoomValue = 0
+	}
+	minPublisherBandwidthValue, err := config.GetInt(id, "minpublisherbitrate")
+	if err != nil || minPublisherBandwidthValue < 0 {
+		minPublisherBandwidthValue = 0
+	}
+	maxPublisherBandwidthValue, err := config.GetInt(id, "maxpublisherbitrate")
+	if err != nil || maxPublisherBandwidthValue < 0 {
+		maxPublisherBandwidthValue = 0
+	}
+
+	bandwidthPerRoom := api.BandwidthFromBits(uint64(bandwidthPerRoomValue))
+	minPublisherBandwidth := api.BandwidthFromBits(uint64(minPublisherBandwidthValue))
+	maxPublisherBandwidth := api.BandwidthFromBits(uint64(maxPublisherBandwidthValue))
+	if bandwidthPerRoom > 0 && minPublisherBandwidth > 0 && maxPublisherBandwidth > 0 {
+		logger.Printf("Target bandwidth per room: %s (min=%s, max=%s)", bandwidthPerRoom, minPublisherBandwidth, maxPublisherBandwidth)
+	}
+	backend.bandwidthPerRoom.Store(bandwidthPerRoom)
+	backend.minPublisherBandwidth.Store(minPublisherBandwidth)
+	backend.maxPublisherBandwidth.Store(maxPublisherBandwidth)
+}
+
 func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats BackendStorageStats) (BackendStorage, error) {
 	allowAll, _ := config.GetBool("backend", "allowall")
 	allowHttp, _ := config.GetBool("backend", "allowhttp")
@@ -82,6 +107,7 @@ func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats
 		if sessionLimit > 0 {
 			logger.Printf("Allow a maximum of %d sessions", sessionLimit)
 		}
+		updateBackendBandwidths(logger, compatBackend, config, "backend")
 		updateBackendStats(compatBackend)
 		backendsById[compatBackend.id] = compatBackend
 		numBackends++
@@ -137,6 +163,7 @@ func NewBackendStorageStatic(logger log.Logger, config *goconf.ConfigFile, stats
 				maxStreamBitrate: api.BandwidthFromBits(uint64(maxStreamBitrate)),
 				maxScreenBitrate: api.BandwidthFromBits(uint64(maxScreenBitrate)),
 			}
+			updateBackendBandwidths(logger, compatBackend, config, "backend")
 			hosts := make([]string, 0, len(allowMap))
 			for host := range allowMap {
 				hosts = append(hosts, host)
@@ -352,6 +379,7 @@ func getConfiguredHosts(logger log.Logger, backendIds string, config *goconf.Con
 
 			sessionLimit: uint64(sessionLimit),
 		}
+		updateBackendBandwidths(logger, backend, config, id)
 
 		added := make(map[string]bool)
 		for _, u := range urls {
