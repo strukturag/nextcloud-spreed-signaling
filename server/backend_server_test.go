@@ -150,8 +150,8 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	})
 
 	nats, _ := nats.StartLocalServer(t)
-	grpcServer1, addr1 := NewGrpcServerForTest(t)
-	grpcServer2, addr2 := NewGrpcServerForTest(t)
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
 
 	if config1 == nil {
 		config1 = goconf.NewConfigFile()

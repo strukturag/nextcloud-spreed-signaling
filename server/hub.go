@@ -50,6 +50,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async"
@@ -92,6 +94,8 @@ var (
 	TokenExpired = api.NewError("token_expired", "The token is expired.")
 	// TooManyRequests is returned if brute force detection reports too many failed "hello" requests.
 	TooManyRequests = api.NewError("too_many_requests", "Too many requests.")
+
+	ErrNoProxyTokenSupported = errors.New("proxy token generation not supported")
 
 	// Maximum number of concurrent requests to a backend.
 	defaultMaxConcurrentRequestsPerHost = 8
@@ -225,7 +229,7 @@ type Hub struct {
 	geoipUpdating  atomic.Bool
 
 	etcdClient etcd.Client
-	rpcServer  *GrpcServer
+	rpcServer  *grpc.Server
 	rpcClients *grpc.Clients
 
 	throttler async.Throttler
@@ -237,7 +241,7 @@ type Hub struct {
 	blockedCandidates atomic.Pointer[container.IPList]
 }
 
-func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *GrpcServer, rpcClients *grpc.Clients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
+func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *grpc.Server, rpcClients *grpc.Clients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
 	logger := log.LoggerFromContext(ctx)
 	hashKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "hashkey")
 	switch len(hashKey) {
@@ -468,7 +472,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	})
 	roomPing.hub = hub
 	if rpcServer != nil {
-		rpcServer.hub = hub
+		rpcServer.SetHub(hub)
 	}
 	hub.upgrader.CheckOrigin = hub.checkOrigin
 	r.HandleFunc("/spreed", func(w http.ResponseWriter, r *http.Request) {
@@ -750,8 +754,70 @@ func (h *Hub) GetSessionByResumeId(resumeId api.PrivateSessionId) Session {
 	return session
 }
 
+func (h *Hub) GetSessionIdByResumeId(resumeId api.PrivateSessionId) api.PublicSessionId {
+	session := h.GetSessionByResumeId(resumeId)
+	if session == nil {
+		return ""
+	}
+
+	return session.PublicId()
+}
+
 func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
 	return h.roomSessions.GetSessionId(roomSessionId)
+}
+
+func (h *Hub) IsSessionIdInCall(sessionId api.PublicSessionId, roomId string, backendUrl string) (bool, bool) {
+	session := h.GetSessionByPublicId(sessionId)
+	if session == nil {
+		return false, false
+	}
+
+	inCall := true
+	room := session.GetRoom()
+	if room == nil || room.Id() != roomId || !room.Backend().HasUrl(backendUrl) ||
+		(session.ClientType() != api.HelloClientTypeInternal && !room.IsSessionInCall(session)) {
+		// Recipient is not in a room, a different room or not in the call.
+		inCall = false
+	}
+
+	return inCall, true
+}
+
+func (h *Hub) GetPublisherIdForSessionId(ctx context.Context, sessionId api.PublicSessionId, streamType sfu.StreamType) (*grpc.GetPublisherIdReply, error) {
+	session := h.GetSessionByPublicId(sessionId)
+	if session == nil {
+		return nil, status.Error(codes.NotFound, "no such session")
+	}
+
+	clientSession, ok := session.(*ClientSession)
+	if !ok {
+		return nil, status.Error(codes.NotFound, "no such session")
+	}
+
+	publisher := clientSession.GetOrWaitForPublisher(ctx, streamType)
+	if publisher, ok := publisher.(sfu.PublisherWithConnectionUrlAndIP); ok {
+		connUrl, ip := publisher.GetConnectionURL()
+		reply := &grpc.GetPublisherIdReply{
+			PublisherId: publisher.Id(),
+			ProxyUrl:    connUrl,
+		}
+		if len(ip) > 0 {
+			reply.Ip = ip.String()
+		}
+		var err error
+		if reply.ConnectToken, err = h.CreateProxyToken(""); err != nil && !errors.Is(err, ErrNoProxyTokenSupported) {
+			h.logger.Printf("Error creating proxy token for connection: %s", err)
+			return nil, status.Error(codes.Internal, "error creating proxy connect token")
+		}
+		if reply.PublisherToken, err = h.CreateProxyToken(publisher.Id()); err != nil && !errors.Is(err, ErrNoProxyTokenSupported) {
+			h.logger.Printf("Error creating proxy token for publisher %s: %s", publisher.Id(), err)
+			return nil, status.Error(codes.Internal, "error creating proxy publisher token")
+		}
+		return reply, nil
+	}
+
+	return nil, status.Error(codes.NotFound, "no such publisher")
 }
 
 func (h *Hub) GetDialoutSessions(roomId string, backend *talk.Backend) (result []*ClientSession) {
@@ -780,7 +846,7 @@ func (h *Hub) GetBackend(u *url.URL) *talk.Backend {
 func (h *Hub) CreateProxyToken(publisherId string) (string, error) {
 	withToken, ok := h.mcu.(sfu.WithToken)
 	if !ok {
-		return "", ErrNoProxyMcu
+		return "", ErrNoProxyTokenSupported
 	}
 
 	return withToken.CreateToken(publisherId)
@@ -1648,11 +1714,25 @@ func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId api.R
 	}
 
 	h.logger.Printf("Closing session %s because same room session %s connected", session.PublicId(), roomSessionId)
+	h.disconnectSessionWithReason(session, "room_session_reconnected")
+}
+
+func (h *Hub) DisconnectSessionByRoomSessionId(sessionId api.PublicSessionId, roomSessionId api.RoomSessionId, reason string) {
+	session := h.GetSessionByPublicId(sessionId)
+	if session == nil {
+		return
+	}
+
+	h.logger.Printf("Closing session %s because same room session %s connected", session.PublicId(), roomSessionId)
+	h.disconnectSessionWithReason(session, reason)
+}
+
+func (h *Hub) disconnectSessionWithReason(session Session, reason string) {
 	session.LeaveRoom(false)
 	switch sess := session.(type) {
 	case *ClientSession:
 		if client := sess.GetClient(); client != nil {
-			client.SendByeResponseWithReason(nil, "room_session_reconnected")
+			client.SendByeResponseWithReason(nil, reason)
 		}
 	}
 	session.Close()
@@ -1979,6 +2059,45 @@ func (h *Hub) GetRoomForBackend(id string, backend *talk.Backend) *Room {
 	h.ru.RLock()
 	defer h.ru.RUnlock()
 	return h.rooms[internalRoomId]
+}
+
+func (h *Hub) GetInternalSessions(roomId string, backend *talk.Backend) ([]*grpc.InternalSessionData, []*grpc.VirtualSessionData, bool) {
+	room := h.GetRoomForBackend(roomId, backend)
+	if room == nil {
+		return nil, nil, false
+	}
+
+	room.mu.RLock()
+	defer room.mu.RUnlock()
+
+	var internalSessions []*grpc.InternalSessionData
+	var virtualSessions []*grpc.VirtualSessionData
+	for session := range room.internalSessions {
+		internalSessions = append(internalSessions, &grpc.InternalSessionData{
+			SessionId: string(session.PublicId()),
+			InCall:    uint32(session.GetInCall()),
+			Features:  session.GetFeatures(),
+		})
+	}
+
+	for session := range room.virtualSessions {
+		virtualSessions = append(virtualSessions, &grpc.VirtualSessionData{
+			SessionId: string(session.PublicId()),
+			InCall:    uint32(session.GetInCall()),
+		})
+	}
+
+	return internalSessions, virtualSessions, true
+}
+
+func (h *Hub) GetTransientEntries(roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {
+	room := h.GetRoomForBackend(roomId, backend)
+	if room == nil {
+		return nil, false
+	}
+
+	entries := room.transientData.GetEntries()
+	return entries, true
 }
 
 func (h *Hub) removeRoom(room *Room) {
@@ -3118,6 +3237,18 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 	h.readPumpActive.Add(1)
 	defer h.readPumpActive.Add(-1)
 	client.ReadPump()
+}
+
+func (h *Hub) ProxySession(request grpc.RpcSessions_ProxySessionServer) error {
+	client, err := newRemoteGrpcClient(h, request)
+	if err != nil {
+		return err
+	}
+
+	sid := h.registerClient(client)
+	defer h.unregisterClient(sid)
+
+	return client.run()
 }
 
 func (h *Hub) LookupCountry(addr string) geoip.Country {

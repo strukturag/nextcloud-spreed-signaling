@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2022 struktur AG
+ * Copyright (C) 2026 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,27 +19,33 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package server
+package test
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
+	"testing"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-var (
-	statsGrpcServerCalls = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "signaling",
-		Subsystem: "grpc",
-		Name:      "server_calls_total",
-		Help:      "The total number of GRPC server calls",
-	}, []string{"method"})
+func TestServer(t *testing.T) {
+	t.Parallel()
 
-	grpcServerStats = []prometheus.Collector{
-		statsGrpcServerCalls,
+	require := require.New(t)
+	assert := assert.New(t)
+
+	serverId := "the-test-server-id"
+	server, addr := NewServerForTest(t)
+	server.SetServerId(serverId)
+
+	clients, _ := NewClientsForTest(t, addr, nil)
+
+	require.NoError(clients.WaitForInitialized(t.Context()))
+
+	for _, client := range clients.GetClients() {
+		if id, version, err := client.GetServerId(t.Context()); assert.NoError(err) {
+			assert.Equal(serverId, id)
+			assert.NotEmpty(version)
+		}
 	}
-)
-
-func RegisterGrpcServerStats() {
-	metrics.RegisterAll(grpcServerStats...)
 }

@@ -34,11 +34,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
+	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
+	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu/mock"
 	proxytest "github.com/strukturag/nextcloud-spreed-signaling/sfu/proxy/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu/proxy/testserver"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type mockGrpcServerHub struct {
@@ -56,6 +60,13 @@ func (h *mockGrpcServerHub) setProxy(t *testing.T, proxy sfu.SFU) {
 	h.proxy.Store(&wt)
 }
 
+func (h *mockGrpcServerHub) getSession(sessionId api.PublicSessionId) Session {
+	h.sessionsLock.Lock()
+	defer h.sessionsLock.Unlock()
+
+	return h.sessionByPublicId[sessionId]
+}
+
 func (h *mockGrpcServerHub) addSession(session *ClientSession) {
 	h.sessionsLock.Lock()
 	defer h.sessionsLock.Unlock()
@@ -71,35 +82,67 @@ func (h *mockGrpcServerHub) removeSession(session *ClientSession) {
 	delete(h.sessionByPublicId, session.PublicId())
 }
 
-func (h *mockGrpcServerHub) GetSessionByResumeId(resumeId api.PrivateSessionId) Session {
-	return nil
-}
-
-func (h *mockGrpcServerHub) GetSessionByPublicId(sessionId api.PublicSessionId) Session {
-	h.sessionsLock.Lock()
-	defer h.sessionsLock.Unlock()
-	return h.sessionByPublicId[sessionId]
+func (h *mockGrpcServerHub) GetSessionIdByResumeId(resumeId api.PrivateSessionId) api.PublicSessionId {
+	return ""
 }
 
 func (h *mockGrpcServerHub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
 	return "", nil
 }
 
+func (h *mockGrpcServerHub) IsSessionIdInCall(sessionId api.PublicSessionId, roomId string, backendUrl string) (bool, bool) {
+	return false, false
+}
+
+func (h *mockGrpcServerHub) DisconnectSessionByRoomSessionId(sessionId api.PublicSessionId, roomSessionId api.RoomSessionId, reason string) {
+}
+
 func (h *mockGrpcServerHub) GetBackend(u *url.URL) *talk.Backend {
 	return nil
 }
 
-func (h *mockGrpcServerHub) GetRoomForBackend(roomId string, backend *talk.Backend) *Room {
-	return nil
+func (h *mockGrpcServerHub) GetInternalSessions(roomId string, backend *talk.Backend) ([]*grpc.InternalSessionData, []*grpc.VirtualSessionData, bool) {
+	return nil, nil, false
 }
 
-func (h *mockGrpcServerHub) CreateProxyToken(publisherId string) (string, error) {
-	proxy := h.proxy.Load()
-	if proxy == nil {
-		return "", errors.New("not a proxy mcu")
+func (h *mockGrpcServerHub) GetTransientEntries(roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {
+	return nil, false
+}
+
+func (h *mockGrpcServerHub) GetPublisherIdForSessionId(ctx context.Context, sessionId api.PublicSessionId, streamType sfu.StreamType) (*grpc.GetPublisherIdReply, error) {
+	session := h.getSession(sessionId)
+	if session == nil {
+		return nil, status.Error(codes.NotFound, "no such session")
 	}
 
-	return (*proxy).CreateToken(publisherId)
+	clientSession, ok := session.(*ClientSession)
+	if !ok {
+		return nil, status.Error(codes.NotFound, "no such session")
+	}
+
+	publisher := clientSession.GetOrWaitForPublisher(ctx, streamType)
+	if publisher, ok := publisher.(sfu.PublisherWithConnectionUrlAndIP); ok {
+		connUrl, ip := publisher.GetConnectionURL()
+		reply := &grpc.GetPublisherIdReply{
+			PublisherId: publisher.Id(),
+			ProxyUrl:    connUrl,
+		}
+		if len(ip) > 0 {
+			reply.Ip = ip.String()
+		}
+
+		if proxy := h.proxy.Load(); proxy != nil {
+			reply.ConnectToken, _ = (*proxy).CreateToken("")
+			reply.PublisherToken, _ = (*proxy).CreateToken(publisher.Id())
+		}
+		return reply, nil
+	}
+
+	return nil, status.Error(codes.NotFound, "no such publisher")
+}
+
+func (h *mockGrpcServerHub) ProxySession(request grpc.RpcSessions_ProxySessionServer) error {
+	return errors.New("not implemented")
 }
 
 func Test_ProxyRemotePublisher(t *testing.T) {
@@ -107,13 +150,13 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 
 	embedEtcd := etcdtest.NewServerForTest(t)
 
-	grpcServer1, addr1 := NewGrpcServerForTest(t)
-	grpcServer2, addr2 := NewGrpcServerForTest(t)
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
 
 	hub1 := &mockGrpcServerHub{}
 	hub2 := &mockGrpcServerHub{}
-	grpcServer1.hub = hub1
-	grpcServer2.hub = hub2
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
 
 	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
@@ -178,16 +221,16 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 
 	embedEtcd := etcdtest.NewServerForTest(t)
 
-	grpcServer1, addr1 := NewGrpcServerForTest(t)
-	grpcServer2, addr2 := NewGrpcServerForTest(t)
-	grpcServer3, addr3 := NewGrpcServerForTest(t)
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
+	grpcServer3, addr3 := grpctest.NewServerForTest(t)
 
 	hub1 := &mockGrpcServerHub{}
 	hub2 := &mockGrpcServerHub{}
 	hub3 := &mockGrpcServerHub{}
-	grpcServer1.hub = hub1
-	grpcServer2.hub = hub2
-	grpcServer3.hub = hub3
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
+	grpcServer3.SetHub(hub3)
 
 	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
@@ -272,13 +315,13 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 
 	embedEtcd := etcdtest.NewServerForTest(t)
 
-	grpcServer1, addr1 := NewGrpcServerForTest(t)
-	grpcServer2, addr2 := NewGrpcServerForTest(t)
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
 
 	hub1 := &mockGrpcServerHub{}
 	hub2 := &mockGrpcServerHub{}
-	grpcServer1.hub = hub1
-	grpcServer2.hub = hub2
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
 
 	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
@@ -360,13 +403,13 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)
 
-	grpcServer1, addr1 := NewGrpcServerForTest(t)
-	grpcServer2, addr2 := NewGrpcServerForTest(t)
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
 
 	hub1 := &mockGrpcServerHub{}
 	hub2 := &mockGrpcServerHub{}
-	grpcServer1.hub = hub1
-	grpcServer2.hub = hub2
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
 
 	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
@@ -465,13 +508,13 @@ func Test_ProxyConnectToken(t *testing.T) {
 
 	embedEtcd := etcdtest.NewServerForTest(t)
 
-	grpcServer1, addr1 := NewGrpcServerForTest(t)
-	grpcServer2, addr2 := NewGrpcServerForTest(t)
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
 
 	hub1 := &mockGrpcServerHub{}
 	hub2 := &mockGrpcServerHub{}
-	grpcServer1.hub = hub1
-	grpcServer2.hub = hub2
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
 
 	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
@@ -537,13 +580,13 @@ func Test_ProxyPublisherToken(t *testing.T) {
 
 	embedEtcd := etcdtest.NewServerForTest(t)
 
-	grpcServer1, addr1 := NewGrpcServerForTest(t)
-	grpcServer2, addr2 := NewGrpcServerForTest(t)
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
 
 	hub1 := &mockGrpcServerHub{}
 	hub2 := &mockGrpcServerHub{}
-	grpcServer1.hub = hub1
-	grpcServer2.hub = hub2
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
 
 	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
 	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))

@@ -242,8 +242,8 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 	} else {
 		nats2 = nats1
 	}
-	grpcServer1, addr1 := NewGrpcServerForTest(t)
-	grpcServer2, addr2 := NewGrpcServerForTest(t)
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
 
 	if strings.Contains(t.Name(), "Federation") {
 		// Signaling servers should not form a cluster in federation tests.
@@ -1905,7 +1905,7 @@ func TestClientHelloResumeProxy_Disconnect(t *testing.T) { // nolint:paralleltes
 			assert.Equal(hello.Hello.ResumeId, hello2.Hello.ResumeId, "%+v", hello2.Hello)
 
 			// Simulate unclean shutdown of second instance.
-			hub2.rpcServer.conn.Stop()
+			hub2.rpcServer.CloseUnclean()
 
 			assert.NoError(client2.WaitForClientRemoved(ctx))
 		})
