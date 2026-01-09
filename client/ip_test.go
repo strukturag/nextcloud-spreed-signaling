@@ -45,6 +45,18 @@ func TestGetRealUserIP(t *testing.T) {
 			"192.168.1.2:23456",
 		},
 		{
+			"invalid-ip",
+			nil,
+			"192.168.0.0/16",
+			"invalid-ip",
+		},
+		{
+			"invalid-ip",
+			nil,
+			"192.168.0.0/16",
+			"invalid-ip:12345",
+		},
+		{
 			"10.11.12.13",
 			nil,
 			"192.168.0.0/16",
@@ -70,6 +82,14 @@ func TestGetRealUserIP(t *testing.T) {
 			"11.12.13.14",
 			http.Header{
 				http.CanonicalHeaderKey("x-forwarded-for"): []string{"11.12.13.14, 192.168.30.32"},
+			},
+			"192.168.0.0/16",
+			"192.168.1.2:23456",
+		},
+		{
+			"11.12.13.14",
+			http.Header{
+				http.CanonicalHeaderKey("x-forwarded-for"): []string{"11.12.13.14:1234, 192.168.30.32:2345"},
 			},
 			"192.168.0.0/16",
 			"192.168.1.2:23456",
