@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package server
+package grpc
 
 import (
 	"context"
@@ -41,8 +41,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	rpc "github.com/strukturag/nextcloud-spreed-signaling/grpc"
-	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
@@ -52,7 +50,7 @@ type CertificateReloadWaiter interface {
 	WaitForCertificateReload(ctx context.Context, counter uint64) error
 }
 
-func (s *GrpcServer) WaitForCertificateReload(ctx context.Context, counter uint64) error {
+func (s *Server) WaitForCertificateReload(ctx context.Context, counter uint64) error {
 	c, ok := s.creds.(CertificateReloadWaiter)
 	if !ok {
 		return errors.New("no reloadable credentials found")
@@ -65,7 +63,7 @@ type CertPoolReloadWaiter interface {
 	WaitForCertPoolReload(ctx context.Context, counter uint64) error
 }
 
-func (s *GrpcServer) WaitForCertPoolReload(ctx context.Context, counter uint64) error {
+func (s *Server) WaitForCertPoolReload(ctx context.Context, counter uint64) error {
 	c, ok := s.creds.(CertPoolReloadWaiter)
 	if !ok {
 		return errors.New("no reloadable credentials found")
@@ -74,14 +72,14 @@ func (s *GrpcServer) WaitForCertPoolReload(ctx context.Context, counter uint64) 
 	return c.WaitForCertPoolReload(ctx, counter)
 }
 
-func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (server *GrpcServer, addr string) {
+func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (server *Server, addr string) {
 	logger := log.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	for port := 50000; port < 50100; port++ {
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 		config.AddOption("grpc", "listen", addr)
 		var err error
-		server, err = NewGrpcServer(ctx, config, "0.0.0")
+		server, err = NewServer(ctx, config, "0.0.0")
 		if test.IsErrorAddressAlreadyInUse(err) {
 			continue
 		}
@@ -93,7 +91,7 @@ func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (se
 	require.NotNil(t, server, "could not find free port")
 
 	// Don't match with own server id by default.
-	server.serverId = "dont-match"
+	server.SetServerId("dont-match")
 
 	go func() {
 		assert.NoError(t, server.Run(), "could not start GRPC server")
@@ -105,7 +103,7 @@ func NewGrpcServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (se
 	return server, addr
 }
 
-func NewGrpcServerForTest(t *testing.T) (server *GrpcServer, addr string) {
+func NewGrpcServerForTest(t *testing.T) (server *Server, addr string) {
 	config := goconf.NewConfigFile()
 	return NewGrpcServerForTestWithConfig(t, config)
 }
@@ -222,7 +220,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 		RootCAs:      pool,
 		Certificates: []tls.Certificate{pair1},
 	}
-	client1, err := rpc.NewClient(logger, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg1)))
+	client1, err := NewClient(logger, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg1)))
 	require.NoError(err)
 	defer client1.Close() // nolint
 
@@ -251,7 +249,7 @@ func Test_GrpcServer_ReloadCA(t *testing.T) {
 		RootCAs:      pool,
 		Certificates: []tls.Certificate{pair2},
 	}
-	client2, err := rpc.NewClient(logger, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg2)))
+	client2, err := NewClient(logger, addr, nil, grpc.WithTransportCredentials(credentials.NewTLS(cfg2)))
 	require.NoError(err)
 	defer client2.Close() // nolint
 
@@ -299,7 +297,7 @@ func Test_GrpcClients_Encryption(t *testing.T) { // nolint:paralleltest
 		clientConfig.AddOption("grpc", "clientcertificate", clientCertFile)
 		clientConfig.AddOption("grpc", "clientkey", clientPrivkeyFile)
 		clientConfig.AddOption("grpc", "serverca", serverCertFile)
-		clients, _ := grpctest.NewClientsForTestWithConfig(t, clientConfig, nil, nil)
+		clients, _ := NewClientsForTestWithConfig(t, clientConfig, nil, nil)
 
 		ctx, cancel1 := context.WithTimeout(context.Background(), time.Second)
 		defer cancel1()

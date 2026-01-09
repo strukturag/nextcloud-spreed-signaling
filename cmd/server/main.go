@@ -221,7 +221,7 @@ func main() {
 		}
 	}()
 
-	rpcServer, err := server.NewGrpcServer(stopCtx, cfg, version)
+	rpcServer, err := grpc.NewServer(stopCtx, cfg, version)
 	if err != nil {
 		logger.Fatalf("Could not create RPC server: %s", err)
 	}
