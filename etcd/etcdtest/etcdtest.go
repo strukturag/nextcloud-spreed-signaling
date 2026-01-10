@@ -287,6 +287,30 @@ func (c *testClient) notifyDeleted(key string, oldValue []byte) {
 	}
 }
 
+func (c *testClient) addWatcher(w *testWatch, opts ...clientv3.OpOption) error {
+	keys, values, _ := c.server.getValues(w.key, w.rev, opts...)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return errors.New("closed")
+	}
+
+	c.watchers = append(c.watchers, w)
+	c.processCh <- func() {
+		w.watcher.EtcdWatchCreated(c, w.key)
+	}
+
+	for idx, key := range keys {
+		c.processCh <- func() {
+			w.watcher.EtcdKeyUpdated(c, key, values[idx], nil)
+		}
+	}
+
+	return nil
+}
+
 func (c *testClient) Watch(ctx context.Context, key string, nextRevision int64, watcher etcd.ClientWatcher, opts ...clientv3.OpOption) (int64, error) {
 	w := &testWatch{
 		key: key,
@@ -298,28 +322,10 @@ func (c *testClient) Watch(ctx context.Context, key string, nextRevision int64, 
 		o(&w.op)
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.closed {
-		return 0, errors.New("closed")
+	if err := c.addWatcher(w, opts...); err != nil {
+		return 0, err
 	}
 
-	c.watchers = append(c.watchers, w)
-	c.processCh <- func() {
-		watcher.EtcdWatchCreated(c, key)
-	}
-
-	if keys, values, _ := c.server.getValues(key, nextRevision, opts...); len(keys) > 0 {
-		for idx, key := range keys {
-			c.processCh <- func() {
-				watcher.EtcdKeyUpdated(c, key, values[idx], nil)
-			}
-		}
-	}
-
-	c.mu.Unlock()
-	defer c.mu.Lock()
 	select {
 	case <-c.closeCh:
 		// Client is closed.
