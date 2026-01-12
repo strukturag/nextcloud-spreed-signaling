@@ -19,20 +19,20 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package internal
+package test
 
 import (
 	"sync"
 	"testing"
 )
 
-type TestStorage[T any] struct {
+type Storage[T any] struct {
 	mu sync.Mutex
 	// +checklocks:mu
 	entries map[string]T // +checklocksignore: Not supported yet, see https://github.com/google/gvisor/issues/11671
 }
 
-func (s *TestStorage[T]) cleanup(key string) {
+func (s *Storage[T]) cleanup(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -42,7 +42,7 @@ func (s *TestStorage[T]) cleanup(key string) {
 	}
 }
 
-func (s *TestStorage[T]) Set(tb testing.TB, value T) {
+func (s *Storage[T]) Set(tb testing.TB, value T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -59,7 +59,7 @@ func (s *TestStorage[T]) Set(tb testing.TB, value T) {
 	s.entries[key] = value
 }
 
-func (s *TestStorage[T]) Get(tb testing.TB) (T, bool) {
+func (s *Storage[T]) Get(tb testing.TB) (T, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -72,7 +72,7 @@ func (s *TestStorage[T]) Get(tb testing.TB) (T, bool) {
 	return defaultValue, false
 }
 
-func (s *TestStorage[T]) Del(tb testing.TB) {
+func (s *Storage[T]) Del(tb testing.TB) {
 	key := tb.Name()
 	s.cleanup(key)
 }

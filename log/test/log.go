@@ -27,8 +27,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 type testLogWriter struct {
@@ -47,7 +47,7 @@ func (w *testLogWriter) Write(b []byte) (int, error) {
 }
 
 var (
-	testLoggers internal.TestStorage[log.Logger]
+	testLoggers test.Storage[log.Logger]
 )
 
 func NewLoggerForTest(t testing.TB) log.Logger {

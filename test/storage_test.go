@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package internal
+package test
 
 import (
 	"testing"
@@ -30,7 +30,7 @@ import (
 func Test_TestStorage(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
-	var storage TestStorage[int]
+	var storage Storage[int]
 
 	t.Cleanup(func() {
 		storage.mu.Lock()

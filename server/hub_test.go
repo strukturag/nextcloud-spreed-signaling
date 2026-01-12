@@ -553,7 +553,7 @@ func processSessionRequest(t *testing.T, w http.ResponseWriter, r *http.Request,
 }
 
 var (
-	pingRequests internal.TestStorage[[]*talk.BackendClientRequest]
+	pingRequests test.Storage[[]*talk.BackendClientRequest]
 )
 
 func getPingRequests(t *testing.T) []*talk.BackendClientRequest {
@@ -599,7 +599,7 @@ type testAuthToken struct {
 }
 
 var (
-	authTokens internal.TestStorage[testAuthToken]
+	authTokens test.Storage[testAuthToken]
 )
 
 func ensureAuthTokens(t *testing.T) (string, string) {
@@ -708,7 +708,7 @@ func registerBackendHandler(t *testing.T, router *mux.Router) {
 }
 
 var (
-	skipV2Capabilities internal.TestStorage[bool]
+	skipV2Capabilities test.Storage[bool]
 )
 
 func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
