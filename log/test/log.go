@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2025 struktur AG
+ * Copyright (C) 2024 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,30 +19,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package log
+package test
 
 import (
 	"bytes"
-	"log"
+	stdlog "log"
 	"sync"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/log"
 )
-
-func TestGlobalLogger(t *testing.T) {
-	t.Parallel()
-	assert := assert.New(t)
-
-	defer func() {
-		if err := recover(); assert.NotNil(err) {
-			assert.Equal("accessed global logger", err)
-		}
-	}()
-
-	logger := LoggerFromContext(t.Context())
-	assert.Fail("should have paniced", "got logger %+v", logger)
-}
 
 type testLogWriter struct {
 	mu sync.Mutex
@@ -56,34 +43,23 @@ func (w *testLogWriter) Write(b []byte) (int, error) {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.t.Logf("%s", string(b))
-	return len(b), nil
+	return writeTestOutput(w.t, b)
 }
 
-func TestLoggerContext(t *testing.T) {
-	t.Parallel()
-	assert := assert.New(t)
+var (
+	testLoggers internal.TestStorage[log.Logger]
+)
 
-	testLogger := log.New(&testLogWriter{
-		t: t,
-	}, t.Name()+": ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
-	testLogger.Printf("Hello %s!", "world")
+func NewLoggerForTest(t testing.TB) log.Logger {
+	t.Helper()
 
-	ctx := NewLoggerContext(t.Context(), testLogger)
-	logger2 := LoggerFromContext(ctx)
-	assert.Equal(testLogger, logger2)
-}
+	logger, found := testLoggers.Get(t)
+	if !found {
+		logger = stdlog.New(&testLogWriter{
+			t: t,
+		}, t.Name()+": ", stdlog.LstdFlags|stdlog.Lmicroseconds|stdlog.Lshortfile)
 
-func TestNilLoggerContext(t *testing.T) {
-	t.Parallel()
-	assert := assert.New(t)
-
-	defer func() {
-		if err := recover(); assert.NotNil(err) {
-			assert.Equal("logger is nil", err)
-		}
-	}()
-
-	ctx := NewLoggerContext(t.Context(), nil)
-	assert.Fail("should have paniced", "got context %+v", ctx)
+		testLoggers.Set(t, logger)
+	}
+	return logger
 }

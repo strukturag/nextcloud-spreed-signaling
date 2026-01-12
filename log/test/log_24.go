@@ -1,6 +1,8 @@
+//go:build !go1.25
+
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2024 struktur AG
+ * Copyright (C) 2025 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,46 +21,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package log
+package test
 
 import (
-	"bytes"
-	"log"
-	"sync"
 	"testing"
-
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
-type testLogWriter struct {
-	mu sync.Mutex
-	t  testing.TB
-}
-
-func (w *testLogWriter) Write(b []byte) (int, error) {
-	w.t.Helper()
-	if !bytes.HasSuffix(b, []byte("\n")) {
-		b = append(b, '\n')
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return writeTestOutput(w.t, b)
-}
-
-var (
-	testLoggers internal.TestStorage[Logger]
-)
-
-func NewLoggerForTest(t testing.TB) Logger {
+func writeTestOutput(t testing.TB, p []byte) (int, error) {
 	t.Helper()
-
-	logger, found := testLoggers.Get(t)
-	if !found {
-		logger = log.New(&testLogWriter{
-			t: t,
-		}, t.Name()+": ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
-
-		testLoggers.Set(t, logger)
-	}
-	return logger
+	t.Logf("%s", string(p))
+	return len(p), nil
 }

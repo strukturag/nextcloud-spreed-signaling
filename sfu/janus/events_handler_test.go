@@ -40,6 +40,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	metricstest "github.com/strukturag/nextcloud-spreed-signaling/metrics/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	sfutest "github.com/strukturag/nextcloud-spreed-signaling/sfu/test"
@@ -70,7 +71,7 @@ func (h *TestJanusEventsServerHandler) ServeHTTP(w http.ResponseWriter, r *http.
 		if host, _, err := net.SplitHostPort(addr); err == nil {
 			addr = host
 		}
-		logger := log.NewLoggerForTest(h.t)
+		logger := logtest.NewLoggerForTest(h.t)
 		ctx := log.NewLoggerContext(r.Context(), logger)
 		RunEventsHandler(ctx, h.mcu, conn, addr, r.Header.Get("User-Agent"))
 		return

@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
@@ -42,7 +43,7 @@ func TestLocalServer(t *testing.T) {
 	server, port := StartLocalServer(t)
 	assert.NotEqual(0, port)
 
-	ctx := log.NewLoggerContext(t.Context(), log.NewLoggerForTest(t))
+	ctx := log.NewLoggerContext(t.Context(), logtest.NewLoggerForTest(t))
 
 	client, err := nats.NewClient(ctx, server.ClientURL())
 	require.NoError(err)
@@ -56,7 +57,7 @@ func TestWaitForSubscriptionsEmpty(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
 
-	ctx := log.NewLoggerContext(t.Context(), log.NewLoggerForTest(t))
+	ctx := log.NewLoggerContext(t.Context(), logtest.NewLoggerForTest(t))
 
 	client, err := nats.NewClient(ctx, nats.LoopbackUrl)
 	require.NoError(err)

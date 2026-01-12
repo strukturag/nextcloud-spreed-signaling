@@ -46,7 +46,7 @@ import (
 	"go.uber.org/zap/zaptest"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
@@ -129,7 +129,7 @@ func NewServerForTest(t *testing.T) *Server {
 func NewEtcdClientForTest(t *testing.T, server *Server) etcd.Client {
 	t.Helper()
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", server.URL().String())

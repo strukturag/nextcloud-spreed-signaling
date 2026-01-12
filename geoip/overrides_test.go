@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
 func mustSucceed1[T any, A1 any](t *testing.T, f func(a1 A1) (T, bool), a1 A1) T {
@@ -48,7 +49,7 @@ func TestOverridesEmpty(t *testing.T) {
 	assert := assert.New(t)
 
 	config := goconf.NewConfigFile()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 
 	overrides, err := LoadOverrides(ctx, config, true)
@@ -69,7 +70,7 @@ func TestOverrides(t *testing.T) {
 	config.AddOption("geoip-overrides", "10.4.5.6", "loopback")
 	config.AddOption("geoip-overrides", "192.168.1.0", "")
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 
 	overrides, err := LoadOverrides(ctx, config, true)
@@ -101,7 +102,7 @@ func TestOverridesInvalidIgnoreErrors(t *testing.T) {
 	config.AddOption("geoip-overrides", "300.1.2.3/8", "DE")
 	config.AddOption("geoip-overrides", "10.2.0.0/16", "FR")
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 
 	overrides, err := LoadOverrides(ctx, config, true)
@@ -127,7 +128,7 @@ func TestOverridesInvalidIPReturnErrors(t *testing.T) {
 	config.AddOption("geoip-overrides", "invalid-ip", "DE")
 	config.AddOption("geoip-overrides", "10.2.0.0/16", "FR")
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 
 	overrides, err := LoadOverrides(ctx, config, false)
@@ -143,7 +144,7 @@ func TestOverridesInvalidCIDRReturnErrors(t *testing.T) {
 	config.AddOption("geoip-overrides", "300.1.2.3/8", "DE")
 	config.AddOption("geoip-overrides", "10.2.0.0/16", "FR")
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 
 	overrides, err := LoadOverrides(ctx, config, false)

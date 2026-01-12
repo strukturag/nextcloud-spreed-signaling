@@ -36,6 +36,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	metricstest "github.com/strukturag/nextcloud-spreed-signaling/metrics/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
@@ -59,7 +60,7 @@ func newMcuJanusForTesting(t *testing.T) (*janusSFU, *janustest.JanusGateway) {
 	if strings.Contains(t.Name(), "Filter") {
 		config.AddOption("mcu", "blockedcandidates", "192.0.0.0/24, 192.168.0.0/16")
 	}
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	mcu, err := NewJanusSFU(ctx, "", config)
 	require.NoError(t, err)

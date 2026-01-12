@@ -1,4 +1,4 @@
-//go:build !go1.25
+//go:build go1.25
 
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
@@ -21,7 +21,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package log
+package test
 
 import (
 	"testing"
@@ -29,6 +29,5 @@ import (
 
 func writeTestOutput(t testing.TB, p []byte) (int, error) {
 	t.Helper()
-	t.Logf("%s", string(p))
-	return len(p), nil
+	return t.Output().Write(p)
 }

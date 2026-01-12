@@ -36,12 +36,13 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func NewClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *dns.MockLookup) (*Clients, *dns.Monitor) {
 	dnsMonitor := dns.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	client, err := NewClients(ctx, config, etcdClient, dnsMonitor, "0.0.0")
 	require.NoError(t, err)
@@ -67,7 +68,7 @@ func NewClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup 
 	config.AddOption("grpc", "targettype", "etcd")
 	config.AddOption("grpc", "targetprefix", "/grpctargets")
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	etcdClient, err := etcd.NewClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -89,7 +90,7 @@ func waitForEvent(ctx context.Context, t *testing.T, ch <-chan struct{}) {
 }
 
 func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
@@ -174,7 +175,7 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 }
 
 func Test_GrpcClients_EtcdInitial(t *testing.T) { // nolint:paralleltest
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		_, addr1 := NewServerForTest(t)
@@ -197,7 +198,7 @@ func Test_GrpcClients_EtcdInitial(t *testing.T) { // nolint:paralleltest
 
 func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)
@@ -244,7 +245,7 @@ func Test_GrpcClients_EtcdUpdate(t *testing.T) {
 
 func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)

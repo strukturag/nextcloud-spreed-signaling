@@ -29,7 +29,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
@@ -56,7 +56,7 @@ func (tl *testListener) EtcdClientCreated(client etcd.Client) {
 }
 
 func Test_BackendStorageEtcdNoLeak(t *testing.T) { // nolint:paralleltest
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		embedEtcd, client := etcdtest.NewClientForTest(t)
 		tl := &testListener{

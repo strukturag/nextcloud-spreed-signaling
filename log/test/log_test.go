@@ -1,8 +1,6 @@
-//go:build go1.25
-
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2025 struktur AG
+ * Copyright (C) 2026 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -21,13 +19,21 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package log
+package test
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func writeTestOutput(t testing.TB, p []byte) (int, error) {
-	t.Helper()
-	return t.Output().Write(p)
+func TestLoggerForTest(t *testing.T) {
+	t.Parallel()
+
+	log1 := NewLoggerForTest(t)
+	log2 := NewLoggerForTest(t)
+	assert.Equal(t, log1, log2)
+
+	log1.Printf("Test output")
+	log1.Println("Test output")
 }

@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
 func newProxyConfigStatic(t *testing.T, proxy McuProxy, dnsDiscovery bool, lookup *dns.MockLookup, urls ...string) (Config, *dns.Monitor) {
@@ -41,7 +41,7 @@ func newProxyConfigStatic(t *testing.T, proxy McuProxy, dnsDiscovery bool, looku
 		cfg.AddOption("mcu", "dnsdiscovery", "true")
 	}
 	dnsMonitor := dns.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	p, err := NewConfigStatic(logger, cfg, proxy, dnsMonitor)
 	require.NoError(t, err)
 	t.Cleanup(func() {

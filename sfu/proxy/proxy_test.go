@@ -47,6 +47,7 @@ import (
 	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	metricstest "github.com/strukturag/nextcloud-spreed-signaling/metrics/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
@@ -241,7 +242,7 @@ func newMcuProxyForTestWithOptions(t *testing.T, options testserver.ProxyTestOpt
 	etcdConfig.AddOption("etcd", "endpoints", options.Etcd.URL().String())
 	etcdConfig.AddOption("etcd", "loglevel", "error")
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	etcdClient, err := etcd.NewClient(logger, etcdConfig, "")
 	require.NoError(err)

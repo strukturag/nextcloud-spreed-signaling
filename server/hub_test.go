@@ -61,6 +61,7 @@ import (
 	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 	natstest "github.com/strukturag/nextcloud-spreed-signaling/nats/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/session"
@@ -164,7 +165,7 @@ func getTestConfigWithMultipleUrls(server *httptest.Server) (*goconf.ConfigFile,
 }
 
 func CreateHubForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, events.AsyncEvents, *mux.Router, *httptest.Server) {
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	r := mux.NewRouter()
@@ -215,7 +216,7 @@ func CreateHubWithMultipleUrlsForTest(t *testing.T) (*Hub, events.AsyncEvents, *
 }
 
 func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*httptest.Server) (*goconf.ConfigFile, error)) (*Hub, *Hub, *mux.Router, *mux.Router, *httptest.Server, *httptest.Server) {
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -5037,7 +5038,7 @@ func TestGeoipOverrides(t *testing.T) {
 
 func TestDialoutStatus(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)

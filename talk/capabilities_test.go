@@ -43,6 +43,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 )
 
@@ -182,7 +183,7 @@ func SetCapabilitiesGetNow(t *testing.T, capabilities *Capabilities, f func() ti
 
 func TestCapabilities(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	url, capabilities := NewCapabilitiesForTest(t)
@@ -226,7 +227,7 @@ func TestCapabilities(t *testing.T) {
 
 func TestInvalidateCapabilities(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
@@ -287,7 +288,7 @@ func TestInvalidateCapabilities(t *testing.T) {
 
 func TestCapabilitiesNoCache(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
@@ -332,7 +333,7 @@ func TestCapabilitiesNoCache(t *testing.T) {
 
 func TestCapabilitiesShortCache(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
@@ -387,7 +388,7 @@ func TestCapabilitiesShortCache(t *testing.T) {
 
 func TestCapabilitiesNoCacheETag(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
@@ -429,7 +430,7 @@ func TestCapabilitiesNoCacheETag(t *testing.T) {
 
 func TestCapabilitiesCacheNoMustRevalidate(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
@@ -470,7 +471,7 @@ func TestCapabilitiesCacheNoMustRevalidate(t *testing.T) {
 
 func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
@@ -511,7 +512,7 @@ func TestCapabilitiesNoCacheNoMustRevalidate(t *testing.T) {
 
 func TestCapabilitiesNoCacheMustRevalidate(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32
@@ -550,7 +551,7 @@ func TestCapabilitiesNoCacheMustRevalidate(t *testing.T) {
 
 func TestConcurrentExpired(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	var called atomic.Uint32

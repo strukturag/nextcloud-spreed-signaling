@@ -32,6 +32,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 	natstest "github.com/strukturag/nextcloud-spreed-signaling/nats/test"
 )
@@ -61,7 +62,7 @@ func GetAsyncEventsForTest(t *testing.T) events.AsyncEvents {
 }
 
 func getRealAsyncEventsForTest(t *testing.T) events.AsyncEvents {
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	server, _ := natstest.StartLocalServer(t)
 	events, err := events.NewAsyncEvents(ctx, server.ClientURL())
@@ -76,7 +77,7 @@ type natsEvents interface {
 }
 
 func getLoopbackAsyncEventsForTest(t *testing.T) events.AsyncEvents {
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	events, err := events.NewAsyncEvents(ctx, nats.LoopbackUrl)
 	if err != nil {

@@ -34,11 +34,12 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
 func NewClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *dns.MockLookup) (*grpc.Clients, *dns.Monitor) {
 	dnsMonitor := dns.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	client, err := grpc.NewClients(ctx, config, etcdClient, dnsMonitor, "0.0.0")
 	require.NoError(t, err)
@@ -64,7 +65,7 @@ func NewClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup 
 	config.AddOption("grpc", "targettype", "etcd")
 	config.AddOption("grpc", "targetprefix", "/grpctargets")
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	etcdClient, err := etcd.NewClient(logger, config, "")
 	require.NoError(t, err)
 	t.Cleanup(func() {

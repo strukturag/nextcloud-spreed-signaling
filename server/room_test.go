@@ -36,6 +36,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -80,7 +81,7 @@ func TestRoom_InCall(t *testing.T) {
 
 func TestRoom_Update(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -175,7 +176,7 @@ loop:
 
 func TestRoom_Delete(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -273,7 +274,7 @@ loop:
 
 func TestRoom_RoomJoinFeatures(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -311,7 +312,7 @@ func TestRoom_RoomJoinFeatures(t *testing.T) {
 
 func TestRoom_RoomSessionData(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -355,7 +356,7 @@ func TestRoom_RoomSessionData(t *testing.T) {
 
 func TestRoom_InCallAll(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)

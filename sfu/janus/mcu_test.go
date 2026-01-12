@@ -34,7 +34,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -193,7 +193,7 @@ func (c *TestMCUClient) MaxBitrate() api.Bandwidth {
 
 func (c *TestMCUClient) Close(ctx context.Context) {
 	if c.closed.CompareAndSwap(false, true) {
-		logger := log.NewLoggerForTest(c.t)
+		logger := logtest.NewLoggerForTest(c.t)
 		logger.Printf("Close MCU client %s", c.id)
 	}
 }

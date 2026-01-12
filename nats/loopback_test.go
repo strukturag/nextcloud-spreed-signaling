@@ -29,11 +29,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
 func CreateLoopbackClientForTest(t *testing.T) Client {
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	result, err := NewLoopbackClient(logger)
 	require.NoError(t, err)
 	t.Cleanup(func() {

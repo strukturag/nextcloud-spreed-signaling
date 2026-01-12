@@ -36,6 +36,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/pool"
 )
 
@@ -69,7 +70,7 @@ func returnOCS(t *testing.T, w http.ResponseWriter, body []byte) {
 
 func TestPostOnRedirect(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	r := mux.NewRouter()
@@ -117,7 +118,7 @@ func TestPostOnRedirect(t *testing.T) {
 
 func TestPostOnRedirectDifferentHost(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	r := mux.NewRouter()
@@ -154,7 +155,7 @@ func TestPostOnRedirectDifferentHost(t *testing.T) {
 
 func TestPostOnRedirectStatusFound(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -197,7 +198,7 @@ func TestPostOnRedirectStatusFound(t *testing.T) {
 
 func TestHandleThrottled(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)

@@ -52,6 +52,7 @@ import (
 	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 	natstest "github.com/strukturag/nextcloud-spreed-signaling/nats/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -107,7 +108,7 @@ func CreateBackendServerForTestFromConfig(t *testing.T, config *goconf.ConfigFil
 	config.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config.AddOption("geoip", "url", "none")
 	events := eventstest.GetAsyncEventsForTest(t)
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	hub, err := NewHub(ctx, config, events, nil, nil, nil, r, "no-version")
 	require.NoError(err)
@@ -169,7 +170,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 	config1.AddOption("clients", "internalsecret", string(testInternalSecret))
 	config1.AddOption("geoip", "url", "none")
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 
 	events1, err := events.NewAsyncEvents(ctx, nats.ClientURL())
@@ -404,7 +405,7 @@ func TestBackendServer_RoomInvite(t *testing.T) {
 	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
-			logger := log.NewLoggerForTest(t)
+			logger := logtest.NewLoggerForTest(t)
 			ctx := log.NewLoggerContext(t.Context(), logger)
 			RunTestBackendServer_RoomInvite(ctx, t)
 		})
@@ -474,7 +475,7 @@ func TestBackendServer_RoomDisinvite(t *testing.T) {
 	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
-			logger := log.NewLoggerForTest(t)
+			logger := logtest.NewLoggerForTest(t)
 			ctx := log.NewLoggerContext(t.Context(), logger)
 			RunTestBackendServer_RoomDisinvite(ctx, t)
 		})
@@ -555,7 +556,7 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 
 func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -638,7 +639,7 @@ func TestBackendServer_RoomUpdate(t *testing.T) {
 	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
-			logger := log.NewLoggerForTest(t)
+			logger := logtest.NewLoggerForTest(t)
 			ctx := log.NewLoggerContext(t.Context(), logger)
 			RunTestBackendServer_RoomUpdate(ctx, t)
 		})
@@ -710,7 +711,7 @@ func TestBackendServer_RoomDelete(t *testing.T) {
 	for _, backend := range eventstest.EventBackendsForTest {
 		t.Run(backend, func(t *testing.T) {
 			t.Parallel()
-			logger := log.NewLoggerForTest(t)
+			logger := logtest.NewLoggerForTest(t)
 			ctx := log.NewLoggerContext(t.Context(), logger)
 			RunTestBackendServer_RoomDelete(ctx, t)
 		})
@@ -779,7 +780,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
-			logger := log.NewLoggerForTest(t)
+			logger := logtest.NewLoggerForTest(t)
 			ctx := log.NewLoggerContext(t.Context(), logger)
 			require := require.New(t)
 			assert := assert.New(t)
@@ -877,7 +878,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 
 func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -942,7 +943,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 
 func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -1105,7 +1106,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 	for _, subtest := range clusteredTests {
 		t.Run(subtest, func(t *testing.T) {
 			t.Parallel()
-			logger := log.NewLoggerForTest(t)
+			logger := logtest.NewLoggerForTest(t)
 			ctx := log.NewLoggerContext(t.Context(), logger)
 			require := require.New(t)
 			assert := assert.New(t)
@@ -1277,7 +1278,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 
 func TestBackendServer_RoomMessage(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -1447,7 +1448,7 @@ func Test_IsNumeric(t *testing.T) {
 
 func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -1491,7 +1492,7 @@ func TestBackendServer_DialoutNoSipBridge(t *testing.T) {
 
 func TestBackendServer_DialoutAccepted(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -1578,7 +1579,7 @@ func TestBackendServer_DialoutAccepted(t *testing.T) {
 
 func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -1665,7 +1666,7 @@ func TestBackendServer_DialoutAcceptedCompat(t *testing.T) {
 
 func TestBackendServer_DialoutRejected(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)
@@ -1750,7 +1751,7 @@ func TestBackendServer_DialoutRejected(t *testing.T) {
 
 func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	require := require.New(t)
 	assert := assert.New(t)

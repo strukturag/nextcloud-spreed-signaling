@@ -35,6 +35,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
@@ -59,7 +60,7 @@ func StartLocalServerPort(t *testing.T, port int) (*server.Server, int) {
 func CreateLocalClientForTest(t *testing.T, options ...nats.Option) (*server.Server, int, Client) {
 	t.Helper()
 	server, port := StartLocalServer(t)
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	result, err := NewClient(ctx, server.ClientURL(), options...)
 	require.NoError(t, err)

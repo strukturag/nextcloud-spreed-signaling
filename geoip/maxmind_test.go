@@ -36,7 +36,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
 func testLookupReader(t *testing.T, reader *Lookup) {
@@ -79,7 +79,7 @@ func GetIpUrlForTest(t *testing.T) string {
 
 func TestLookup(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	require := require.New(t)
 	reader, err := NewLookupFromUrl(logger, GetIpUrlForTest(t))
 	require.NoError(err)
@@ -92,7 +92,7 @@ func TestLookup(t *testing.T) {
 
 func TestLookupCaching(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	require := require.New(t)
 	reader, err := NewLookupFromUrl(logger, GetIpUrlForTest(t))
 	require.NoError(err)
@@ -133,7 +133,7 @@ func TestLookupContinent(t *testing.T) {
 
 func TestLookupCloseEmpty(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	reader, err := NewLookupFromUrl(logger, "ignore-url")
 	require.NoError(t, err)
 	reader.Close()
@@ -141,7 +141,7 @@ func TestLookupCloseEmpty(t *testing.T) {
 
 func TestLookupFromFile(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	require := require.New(t)
 	geoIpUrl := GetIpUrlForTest(t)
 

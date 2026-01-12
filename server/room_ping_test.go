@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -62,7 +63,7 @@ func NewRoomPingForTest(ctx context.Context, t *testing.T) (*url.URL, *RoomPing)
 
 func TestSingleRoomPing(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(ctx, t)
@@ -106,7 +107,7 @@ func TestSingleRoomPing(t *testing.T) {
 
 func TestMultiRoomPing(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(ctx, t)
@@ -146,7 +147,7 @@ func TestMultiRoomPing(t *testing.T) {
 
 func TestMultiRoomPing_Separate(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(ctx, t)
@@ -182,7 +183,7 @@ func TestMultiRoomPing_Separate(t *testing.T) {
 
 func TestMultiRoomPing_DeleteRoom(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	assert := assert.New(t)
 	u, ping := NewRoomPingForTest(ctx, t)

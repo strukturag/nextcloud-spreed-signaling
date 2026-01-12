@@ -29,7 +29,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
 type MockLookup struct {
@@ -81,7 +81,7 @@ func NewMonitorForTest(t *testing.T, interval time.Duration, lookup *MockLookup)
 	t.Helper()
 	require := require.New(t)
 
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	var lookupFunc MonitorLookupFunc
 	if lookup != nil {
 		lookupFunc = lookup.lookup

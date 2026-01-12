@@ -32,11 +32,12 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func NewServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (server *grpc.Server, addr string) {
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	for port := 50000; port < 50100; port++ {
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))

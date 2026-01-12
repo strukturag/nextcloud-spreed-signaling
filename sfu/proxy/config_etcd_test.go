@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
 type TestProxyInformationEtcd struct {
@@ -45,7 +45,7 @@ func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*etcdtest.TestServer, Con
 	embedEtcd, client := etcdtest.NewClientForTest(t)
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "keyprefix", "proxies/")
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	p, err := NewConfigEtcd(logger, cfg, client, proxy)
 	require.NoError(t, err)
 	t.Cleanup(func() {

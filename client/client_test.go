@@ -44,6 +44,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
 func TestCounterWriter(t *testing.T) {
@@ -87,7 +88,7 @@ func newTestClient(h *testHandler, r *http.Request, conn *websocket.Conn, id uin
 		addr = host
 	}
 
-	logger := log.NewLoggerForTest(h.t)
+	logger := logtest.NewLoggerForTest(h.t)
 	ctx := log.NewLoggerContext(r.Context(), logger)
 	result.SetConn(ctx, conn, addr, r.Header.Get("User-Agent"), false, result)
 	return result

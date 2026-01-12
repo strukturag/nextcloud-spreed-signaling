@@ -50,6 +50,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
@@ -82,7 +83,7 @@ func (s *Server) WaitForCertPoolReload(ctx context.Context, counter uint64) erro
 }
 
 func NewServerForTestWithConfig(t *testing.T, config *goconf.ConfigFile) (server *Server, addr string) {
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	for port := 50000; port < 50100; port++ {
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
@@ -185,7 +186,7 @@ func TestServer_ReloadCerts(t *testing.T) {
 
 func TestServer_ReloadCA(t *testing.T) {
 	t.Parallel()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 	require := require.New(t)
 	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	require.NoError(err)
@@ -335,7 +336,7 @@ type testServerHub struct {
 
 func newTestServerHub(t *testing.T) *testServerHub {
 	t.Helper()
-	logger := log.NewLoggerForTest(t)
+	logger := logtest.NewLoggerForTest(t)
 
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption(testBackendId, "secret", "not-so-secret")
