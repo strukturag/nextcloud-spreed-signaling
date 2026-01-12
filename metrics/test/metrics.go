@@ -22,9 +22,6 @@
 package test
 
 import (
-	"fmt"
-	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -58,7 +55,7 @@ func AssertCollectorChangeBy(t *testing.T, collector prometheus.Collector, delta
 	})
 }
 
-func CheckStatsValue(t *testing.T, collector prometheus.Collector, value float64) { // nolint:unused
+func CheckStatsValue(t *testing.T, collector prometheus.Collector, value float64) {
 	// Make sure test is not executed with "t.Parallel()"
 	t.Setenv("PARALLEL_CHECK", "1")
 
@@ -66,30 +63,7 @@ func CheckStatsValue(t *testing.T, collector prometheus.Collector, value float64
 	collector.Describe(ch)
 	desc := <-ch
 	v := testutil.ToFloat64(collector)
-	if v != value {
-		assert := assert.New(t)
-		pc := make([]uintptr, 10)
-		n := runtime.Callers(2, pc)
-		if n == 0 {
-			assert.InDelta(value, v, 0.0001, "failed for %s", desc)
-			return
-		}
-
-		pc = pc[:n]
-		frames := runtime.CallersFrames(pc)
-		var stack strings.Builder
-		for {
-			frame, more := frames.Next()
-			if !strings.Contains(frame.File, "nextcloud-spreed-signaling") {
-				break
-			}
-			fmt.Fprintf(&stack, "%s:%d\n", frame.File, frame.Line)
-			if !more {
-				break
-			}
-		}
-		assert.InDelta(value, v, 0.0001, "Unexpected value for %s at\n%s", desc, stack.String())
-	}
+	assert.InDelta(t, value, v, 0.0001, "unexpected value for %s", desc)
 }
 
 func CollectAndLint(t *testing.T, collectors ...prometheus.Collector) {
