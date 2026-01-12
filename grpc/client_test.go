@@ -35,7 +35,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
 	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
@@ -62,7 +62,7 @@ func NewClientsForTest(t *testing.T, addr string, lookup *dnstest.MockLookup) (*
 	return NewClientsForTestWithConfig(t, config, nil, lookup)
 }
 
-func NewClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup *dnstest.MockLookup) (*Clients, *dns.Monitor) {
+func NewClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.EtcdServer, lookup *dnstest.MockLookup) (*Clients, *dns.Monitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", embedEtcd.URL().String())
 

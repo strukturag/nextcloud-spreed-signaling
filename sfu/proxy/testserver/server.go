@@ -42,7 +42,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
@@ -62,7 +62,7 @@ type ProxyTestServer interface {
 }
 
 type ProxyTestOptions struct {
-	Etcd    *etcdtest.Server
+	Etcd    *etcdtest.EtcdServer
 	Servers []ProxyTestServer
 }
 

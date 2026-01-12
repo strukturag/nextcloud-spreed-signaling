@@ -42,7 +42,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"

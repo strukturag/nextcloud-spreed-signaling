@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
 )
 
 func TestClientsWithEtcd(t *testing.T) {

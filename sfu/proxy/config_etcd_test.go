@@ -30,7 +30,7 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
@@ -40,7 +40,7 @@ type TestProxyInformationEtcd struct {
 	OtherData string `json:"otherdata,omitempty"`
 }
 
-func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*etcdtest.TestServer, Config) {
+func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*etcdtest.Server, Config) {
 	t.Helper()
 	embedEtcd, client := etcdtest.NewClientForTest(t)
 	cfg := goconf.NewConfigFile()
@@ -54,7 +54,7 @@ func newProxyConfigEtcd(t *testing.T, proxy McuProxy) (*etcdtest.TestServer, Con
 	return embedEtcd, p
 }
 
-func SetEtcdProxy(t *testing.T, server *etcdtest.TestServer, path string, proxy *TestProxyInformationEtcd) {
+func SetEtcdProxy(t *testing.T, server *etcdtest.Server, path string, proxy *TestProxyInformationEtcd) {
 	t.Helper()
 	data, _ := json.Marshal(proxy)
 	server.SetValue(path, data)

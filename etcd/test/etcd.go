@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package etcdtest
+package test
 
 import (
 	"bytes"
@@ -54,29 +54,29 @@ var (
 	etcdListenUrl = "http://localhost:8080"
 )
 
-type Server struct {
+type EtcdServer struct {
 	embed *embed.Etcd
 }
 
-func (s *Server) URL() *url.URL {
+func (s *EtcdServer) URL() *url.URL {
 	return &s.embed.Config().ListenClientUrls[0]
 }
 
-func (s *Server) SetValue(key string, value []byte) {
+func (s *EtcdServer) SetValue(key string, value []byte) {
 	if kv := s.embed.Server.KV(); kv != nil {
 		kv.Put([]byte(key), value, lease.NoLease)
 		kv.Commit()
 	}
 }
 
-func (s *Server) DeleteValue(key string) {
+func (s *EtcdServer) DeleteValue(key string) {
 	if kv := s.embed.Server.KV(); kv != nil {
 		kv.DeleteRange([]byte(key), nil)
 		kv.Commit()
 	}
 }
 
-func NewServerForTest(t *testing.T) *Server {
+func NewServerForTest(t *testing.T) *EtcdServer {
 	t.Helper()
 	require := require.New(t)
 	cfg := embed.NewConfig()
@@ -120,13 +120,13 @@ func NewServerForTest(t *testing.T) *Server {
 	// Wait for server to be ready.
 	<-etcd.Server.ReadyNotify()
 
-	server := &Server{
+	server := &EtcdServer{
 		embed: etcd,
 	}
 	return server
 }
 
-func NewEtcdClientForTest(t *testing.T, server *Server) etcd.Client {
+func NewEtcdClientForTest(t *testing.T, server *EtcdServer) etcd.Client {
 	t.Helper()
 
 	logger := logtest.NewLoggerForTest(t)
@@ -154,7 +154,7 @@ type testWatch struct {
 
 type testClient struct {
 	mu     sync.Mutex
-	server *TestServer
+	server *Server
 
 	// +checklocks:mu
 	closed    bool
@@ -166,7 +166,7 @@ type testClient struct {
 	watchers []*testWatch
 }
 
-func newTestClient(server *TestServer) *testClient {
+func newTestClient(server *Server) *testClient {
 	client := &testClient{
 		server:    server,
 		closeCh:   make(chan struct{}),
@@ -340,7 +340,7 @@ type testServerValue struct {
 	revision int64
 }
 
-type TestServer struct {
+type Server struct {
 	t  *testing.T
 	mu sync.Mutex
 	// +checklocks:mu
@@ -351,20 +351,20 @@ type TestServer struct {
 	revision int64
 }
 
-func (s *TestServer) newClient() *testClient {
+func (s *Server) newClient() *testClient {
 	client := newTestClient(s)
 	s.addClient(client)
 	return client
 }
 
-func (s *TestServer) addClient(client *testClient) {
+func (s *Server) addClient(client *testClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.clients = append(s.clients, client)
 }
 
-func (s *TestServer) removeClient(client *testClient) {
+func (s *Server) removeClient(client *testClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -373,14 +373,14 @@ func (s *TestServer) removeClient(client *testClient) {
 	})
 }
 
-func (s *TestServer) getRevision() int64 {
+func (s *Server) getRevision() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.revision
 }
 
-func (s *TestServer) getValues(key string, minRevision int64, opts ...clientv3.OpOption) (keys []string, values [][]byte, revision int64) {
+func (s *Server) getValues(key string, minRevision int64, opts ...clientv3.OpOption) (keys []string, values [][]byte, revision int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -409,7 +409,7 @@ func (s *TestServer) getValues(key string, minRevision int64, opts ...clientv3.O
 	return
 }
 
-func (s *TestServer) SetValue(key string, value []byte) {
+func (s *Server) SetValue(key string, value []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -435,7 +435,7 @@ func (s *TestServer) SetValue(key string, value []byte) {
 	}
 }
 
-func (s *TestServer) DeleteValue(key string) {
+func (s *Server) DeleteValue(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -452,9 +452,9 @@ func (s *TestServer) DeleteValue(key string) {
 	}
 }
 
-func NewClientForTest(t *testing.T) (*TestServer, etcd.Client) {
+func NewClientForTest(t *testing.T) (*Server, etcd.Client) {
 	t.Helper()
-	server := &TestServer{
+	server := &Server{
 		t:        t,
 		revision: 1,
 	}

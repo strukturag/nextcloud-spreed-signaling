@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
@@ -47,7 +47,7 @@ func (s *backendStorageEtcd) getWakeupChannelForTesting() <-chan struct{} {
 }
 
 type testListener struct {
-	etcd   *etcdtest.TestServer
+	etcd   *etcdtest.Server
 	closed chan struct{}
 }
 
