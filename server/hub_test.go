@@ -62,7 +62,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
-	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	natstest "github.com/strukturag/nextcloud-spreed-signaling/nats/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/session"
 	sfutest "github.com/strukturag/nextcloud-spreed-signaling/sfu/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -235,10 +235,10 @@ func CreateClusteredHubsForTestWithConfig(t *testing.T, getConfigFunc func(*http
 		server2.Close()
 	})
 
-	nats1, _ := nats.StartLocalServer(t)
+	nats1, _ := natstest.StartLocalServer(t)
 	var nats2 *server.Server
 	if strings.Contains(t.Name(), "Federation") {
-		nats2, _ = nats.StartLocalServer(t)
+		nats2, _ = natstest.StartLocalServer(t)
 	} else {
 		nats2 = nats1
 	}

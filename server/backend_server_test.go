@@ -53,6 +53,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	natstest "github.com/strukturag/nextcloud-spreed-signaling/nats/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -149,7 +150,7 @@ func CreateBackendServerWithClusteringForTestFromConfig(t *testing.T, config1 *g
 		server2.Close()
 	})
 
-	nats, _ := nats.StartLocalServer(t)
+	nats, _ := natstest.StartLocalServer(t)
 	grpcServer1, addr1 := grpctest.NewServerForTest(t)
 	grpcServer2, addr2 := grpctest.NewServerForTest(t)
 

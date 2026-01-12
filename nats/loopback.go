@@ -60,6 +60,13 @@ func NewLoopbackClient(logger log.Logger) (Client, error) {
 	return client, nil
 }
 
+func (c *LoopbackClient) SubscriptionCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return len(c.subscriptions)
+}
+
 func (c *LoopbackClient) processMessages() {
 	defer close(c.closed)
 

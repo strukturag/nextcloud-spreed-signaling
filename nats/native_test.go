@@ -31,11 +31,30 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/nats-io/nats-server/v2/server"
+	natsservertest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
+
+func StartLocalServer(t *testing.T) (*server.Server, int) {
+	t.Helper()
+	return StartLocalServerPort(t, server.RANDOM_PORT)
+}
+
+func StartLocalServerPort(t *testing.T, port int) (*server.Server, int) {
+	t.Helper()
+	opts := natsservertest.DefaultTestOptions
+	opts.Port = port
+	opts.Cluster.Name = "testing"
+	srv := natsservertest.RunServer(&opts)
+	t.Cleanup(func() {
+		srv.Shutdown()
+		srv.WaitForShutdown()
+	})
+	return srv, opts.Port
+}
 
 func CreateLocalClientForTest(t *testing.T, options ...nats.Option) (*server.Server, int, Client) {
 	t.Helper()

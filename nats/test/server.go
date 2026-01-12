@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package nats
+package test
 
 import (
 	"context"
@@ -29,6 +29,8 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats-server/v2/test"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/nats"
 )
 
 func StartLocalServer(t *testing.T) (*server.Server, int) {
@@ -49,22 +51,18 @@ func StartLocalServerPort(t *testing.T, port int) (*server.Server, int) {
 	return srv, opts.Port
 }
 
-func WaitForSubscriptionsEmpty(ctx context.Context, t *testing.T, client Client) {
+func WaitForSubscriptionsEmpty(ctx context.Context, t *testing.T, client nats.Client) {
 	t.Helper()
-	if c, ok := client.(*LoopbackClient); assert.True(t, ok, "expected LoopbackNatsClient, got %T", client) {
+	if c, ok := client.(*nats.LoopbackClient); assert.True(t, ok, "expected LoopbackNatsClient, got %T", client) {
 		for {
-			c.mu.Lock()
-			count := len(c.subscriptions)
-			c.mu.Unlock()
-			if count == 0 {
+			remaining := c.SubscriptionCount()
+			if remaining == 0 {
 				break
 			}
 
 			select {
 			case <-ctx.Done():
-				c.mu.Lock()
-				assert.NoError(t, ctx.Err(), "Error waiting for subscriptions %+v to terminate", c.subscriptions)
-				c.mu.Unlock()
+				assert.NoError(t, ctx.Err(), "Error waiting for %d subscriptions to terminate", remaining)
 				return
 			default:
 				time.Sleep(time.Millisecond)
