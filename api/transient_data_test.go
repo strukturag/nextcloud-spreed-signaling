@@ -23,6 +23,7 @@ package api
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -140,4 +141,96 @@ func Test_TransientDataDeadlock(t *testing.T) {
 
 	data.Set("foo", "bar")
 	<-listener.done
+}
+
+type initialDataListener struct {
+	t *testing.T
+
+	expected StringMap
+	sent     atomic.Int32
+}
+
+func (l *initialDataListener) SendMessage(message *ServerMessage) bool {
+	switch l.sent.Add(1) {
+	case 1:
+		if assert.Equal(l.t, "transient", message.Type) &&
+			assert.NotNil(l.t, message.TransientData) &&
+			assert.Equal(l.t, "initial", message.TransientData.Type) {
+			assert.Equal(l.t, l.expected, message.TransientData.Data)
+		}
+	case 2:
+		if assert.Equal(l.t, "transient", message.Type) &&
+			assert.NotNil(l.t, message.TransientData) &&
+			assert.Equal(l.t, "remove", message.TransientData.Type) {
+			assert.Equal(l.t, "foo", message.TransientData.Key)
+			assert.Equal(l.t, "bar", message.TransientData.OldValue)
+		}
+	default:
+		assert.Fail(l.t, "unexpected message", "received %+v", message)
+	}
+	return true
+}
+
+func Test_TransientDataNotifyInitial(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	data := NewTransientData()
+	assert.True(data.Set("foo", "bar"))
+
+	listener := &initialDataListener{
+		t: t,
+		expected: StringMap{
+			"foo": "bar",
+		},
+	}
+	data.AddListener(listener)
+	assert.EqualValues(1, listener.sent.Load())
+}
+
+func Test_TransientDataSetInitial(t *testing.T) {
+	t.Parallel()
+	test.SynctestTest(t, func(t *testing.T) {
+		assert := assert.New(t)
+
+		now := time.Now()
+		data := NewTransientData()
+		listener1 := &initialDataListener{
+			t: t,
+			expected: StringMap{
+				"foo": "bar",
+				"bar": 1234,
+			},
+		}
+		data.AddListener(listener1)
+		assert.EqualValues(0, listener1.sent.Load())
+
+		data.SetInitial(TransientDataEntries{
+			"foo":     NewTransientDataEntryWithExpires("bar", now.Add(time.Minute)),
+			"bar":     NewTransientDataEntry(1234, 0),
+			"expired": NewTransientDataEntryWithExpires(1234, now.Add(-time.Second)),
+		})
+
+		entries := data.GetEntries()
+		assert.Equal(TransientDataEntries{
+			"foo": NewTransientDataEntryWithExpires("bar", now.Add(time.Minute)),
+			"bar": NewTransientDataEntry(1234, 0),
+		}, entries)
+
+		listener2 := &initialDataListener{
+			t: t,
+			expected: StringMap{
+				"foo": "bar",
+				"bar": 1234,
+			},
+		}
+		data.AddListener(listener2)
+		assert.EqualValues(1, listener1.sent.Load())
+		assert.EqualValues(1, listener2.sent.Load())
+
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		assert.EqualValues(2, listener1.sent.Load())
+		assert.EqualValues(2, listener2.sent.Load())
+	})
 }

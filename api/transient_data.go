@@ -370,6 +370,7 @@ func (t *TransientData) SetInitial(data TransientDataEntries) {
 		t.data = make(TransientDataEntries)
 	}
 
+	now := time.Now()
 	msgData := make(StringMap, len(data))
 	for k, v := range data {
 		if _, found := t.data[k]; found {
@@ -377,6 +378,14 @@ func (t *TransientData) SetInitial(data TransientDataEntries) {
 			continue
 		}
 
+		if e := v.Expires; !e.IsZero() {
+			if now.After(e) {
+				// Already expired
+				continue
+			}
+
+			t.removeAfterTTL(k, v.Value, e.Sub(now))
+		}
 		msgData[k] = v.Value
 		t.data[k] = v
 	}
