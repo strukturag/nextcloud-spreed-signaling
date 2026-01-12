@@ -36,7 +36,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
@@ -57,7 +57,7 @@ type ConnectionWaiter interface {
 	WaitForConnectionsEstablished(ctx context.Context, waitMap map[string]bool) error
 }
 
-func NewMcuProxyForTestWithOptions(t *testing.T, options testserver.ProxyTestOptions, idx int, lookup *dns.MockLookup) (sfu.SFU, *goconf.ConfigFile) {
+func NewMcuProxyForTestWithOptions(t *testing.T, options testserver.ProxyTestOptions, idx int, lookup *dnstest.MockLookup) (sfu.SFU, *goconf.ConfigFile) {
 	t.Helper()
 	require := require.New(t)
 	require.NotEmpty(options.Servers)

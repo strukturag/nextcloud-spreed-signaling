@@ -40,7 +40,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
@@ -198,7 +198,7 @@ func Test_sortConnectionsForCountryWithOverride(t *testing.T) {
 	}
 }
 
-func newMcuProxyForTestWithOptions(t *testing.T, options testserver.ProxyTestOptions, idx int, lookup *dns.MockLookup) (*proxySFU, *goconf.ConfigFile) {
+func newMcuProxyForTestWithOptions(t *testing.T, options testserver.ProxyTestOptions, idx int, lookup *dnstest.MockLookup) (*proxySFU, *goconf.ConfigFile) {
 	t.Helper()
 	require := require.New(t)
 	if options.Etcd == nil {
@@ -286,7 +286,7 @@ func newMcuProxyForTestWithOptions(t *testing.T, options testserver.ProxyTestOpt
 	return proxy, cfg
 }
 
-func newMcuProxyForTestWithServers(t *testing.T, servers []testserver.ProxyTestServer, idx int, lookup *dns.MockLookup) *proxySFU {
+func newMcuProxyForTestWithServers(t *testing.T, servers []testserver.ProxyTestServer, idx int, lookup *dnstest.MockLookup) *proxySFU {
 	t.Helper()
 
 	proxy, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
@@ -295,7 +295,7 @@ func newMcuProxyForTestWithServers(t *testing.T, servers []testserver.ProxyTestS
 	return proxy
 }
 
-func newMcuProxyForTest(t *testing.T, idx int, lookup *dns.MockLookup) *proxySFU {
+func newMcuProxyForTest(t *testing.T, idx int, lookup *dnstest.MockLookup) *proxySFU {
 	t.Helper()
 	server := testserver.NewProxyServerForTest(t, "DE")
 
@@ -381,7 +381,7 @@ func Test_ProxyAddRemoveConnectionsDnsDiscovery(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
 
-	lookup := dns.NewMockLookupForTest(t)
+	lookup := dnstest.NewMockLookup()
 
 	server1 := testserver.NewProxyServerForTest(t, "DE")
 	server1.Start()

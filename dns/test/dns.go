@@ -19,74 +19,35 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package dns
+package test
 
 import (
-	"net"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns/internal"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
-type MockLookup struct {
-	sync.RWMutex
+type MockLookup = internal.MockLookup
 
-	// +checklocks:RWMutex
-	ips map[string][]net.IP
+func NewMockLookup() *MockLookup {
+	return internal.NewMockLookup()
 }
 
-func NewMockLookupForTest(t *testing.T) *MockLookup {
-	t.Helper()
-	mock := &MockLookup{
-		ips: make(map[string][]net.IP),
-	}
-	return mock
-}
-
-func (m *MockLookup) Set(host string, ips []net.IP) {
-	m.Lock()
-	defer m.Unlock()
-
-	m.ips[host] = ips
-}
-
-func (m *MockLookup) Get(host string) []net.IP {
-	m.Lock()
-	defer m.Unlock()
-
-	return m.ips[host]
-}
-
-func (m *MockLookup) lookup(host string) ([]net.IP, error) {
-	m.RLock()
-	defer m.RUnlock()
-
-	ips, found := m.ips[host]
-	if !found {
-		return nil, &net.DNSError{
-			Err:        "could not resolve " + host,
-			Name:       host,
-			IsNotFound: true,
-		}
-	}
-
-	return append([]net.IP{}, ips...), nil
-}
-
-func NewMonitorForTest(t *testing.T, interval time.Duration, lookup *MockLookup) *Monitor {
+func NewMonitorForTest(t *testing.T, interval time.Duration, lookup *MockLookup) *dns.Monitor {
 	t.Helper()
 	require := require.New(t)
 
 	logger := logtest.NewLoggerForTest(t)
-	var lookupFunc MonitorLookupFunc
+	var lookupFunc dns.MonitorLookupFunc
 	if lookup != nil {
-		lookupFunc = lookup.lookup
+		lookupFunc = lookup.Lookup
 	}
-	monitor, err := NewMonitor(logger, interval, lookupFunc)
+	monitor, err := dns.NewMonitor(logger, interval, lookupFunc)
 	require.NoError(err)
 
 	t.Cleanup(func() {

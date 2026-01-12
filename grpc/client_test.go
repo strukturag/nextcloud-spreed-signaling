@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -40,8 +41,8 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
-func NewClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *dns.MockLookup) (*Clients, *dns.Monitor) {
-	dnsMonitor := dns.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
+func NewClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *dnstest.MockLookup) (*Clients, *dns.Monitor) {
+	dnsMonitor := dnstest.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
 	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	client, err := NewClients(ctx, config, etcdClient, dnsMonitor, "0.0.0")
@@ -53,7 +54,7 @@ func NewClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdCl
 	return client, dnsMonitor
 }
 
-func NewClientsForTest(t *testing.T, addr string, lookup *dns.MockLookup) (*Clients, *dns.Monitor) {
+func NewClientsForTest(t *testing.T, addr string, lookup *dnstest.MockLookup) (*Clients, *dns.Monitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("grpc", "targets", addr)
 	config.AddOption("grpc", "dnsdiscovery", "true")
@@ -61,7 +62,7 @@ func NewClientsForTest(t *testing.T, addr string, lookup *dns.MockLookup) (*Clie
 	return NewClientsForTestWithConfig(t, config, nil, lookup)
 }
 
-func NewClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup *dns.MockLookup) (*Clients, *dns.Monitor) {
+func NewClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup *dnstest.MockLookup) (*Clients, *dns.Monitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", embedEtcd.URL().String())
 
@@ -95,7 +96,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
-		lookup := dns.NewMockLookupForTest(t)
+		lookup := dnstest.NewMockLookup()
 		target := "testgrpc:12345"
 		ip1 := net.ParseIP("192.168.0.1")
 		ip2 := net.ParseIP("192.168.0.2")
@@ -147,7 +148,7 @@ func Test_GrpcClients_DnsDiscovery(t *testing.T) { // nolint:paralleltest
 func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
-	lookup := dns.NewMockLookupForTest(t)
+	lookup := dnstest.NewMockLookup()
 	target := "testgrpc:12345"
 	ip1 := net.ParseIP("192.168.0.1")
 	targetWithIp1 := fmt.Sprintf("%s (%s)", target, ip1)

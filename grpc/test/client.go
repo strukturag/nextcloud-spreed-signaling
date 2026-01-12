@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd/etcdtest"
 	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
@@ -37,8 +38,8 @@ import (
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
-func NewClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *dns.MockLookup) (*grpc.Clients, *dns.Monitor) {
-	dnsMonitor := dns.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
+func NewClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *dnstest.MockLookup) (*grpc.Clients, *dns.Monitor) {
+	dnsMonitor := dnstest.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
 	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	client, err := grpc.NewClients(ctx, config, etcdClient, dnsMonitor, "0.0.0")
@@ -50,7 +51,7 @@ func NewClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdCl
 	return client, dnsMonitor
 }
 
-func NewClientsForTest(t *testing.T, addr string, lookup *dns.MockLookup) (*grpc.Clients, *dns.Monitor) {
+func NewClientsForTest(t *testing.T, addr string, lookup *dnstest.MockLookup) (*grpc.Clients, *dns.Monitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("grpc", "targets", addr)
 	config.AddOption("grpc", "dnsdiscovery", "true")
@@ -58,7 +59,7 @@ func NewClientsForTest(t *testing.T, addr string, lookup *dns.MockLookup) (*grpc
 	return NewClientsForTestWithConfig(t, config, nil, lookup)
 }
 
-func NewClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup *dns.MockLookup) (*grpc.Clients, *dns.Monitor) {
+func NewClientsWithEtcdForTest(t *testing.T, embedEtcd *etcdtest.Server, lookup *dnstest.MockLookup) (*grpc.Clients, *dns.Monitor) {
 	config := goconf.NewConfigFile()
 	config.AddOption("etcd", "endpoints", embedEtcd.URL().String())
 

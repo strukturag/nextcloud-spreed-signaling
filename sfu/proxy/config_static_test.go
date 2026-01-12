@@ -31,16 +31,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/dns"
+	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
 
-func newProxyConfigStatic(t *testing.T, proxy McuProxy, dnsDiscovery bool, lookup *dns.MockLookup, urls ...string) (Config, *dns.Monitor) {
+func newProxyConfigStatic(t *testing.T, proxy McuProxy, dnsDiscovery bool, lookup *dnstest.MockLookup, urls ...string) (Config, *dns.Monitor) {
 	cfg := goconf.NewConfigFile()
 	cfg.AddOption("mcu", "url", strings.Join(urls, " "))
 	if dnsDiscovery {
 		cfg.AddOption("mcu", "dnsdiscovery", "true")
 	}
-	dnsMonitor := dns.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
+	dnsMonitor := dnstest.NewMonitorForTest(t, time.Hour, lookup) // will be updated manually
 	logger := logtest.NewLoggerForTest(t)
 	p, err := NewConfigStatic(logger, cfg, proxy, dnsMonitor)
 	require.NoError(t, err)
@@ -78,7 +79,7 @@ func TestProxyConfigStaticSimple(t *testing.T) {
 
 func TestProxyConfigStaticDNS(t *testing.T) {
 	t.Parallel()
-	lookup := dns.NewMockLookupForTest(t)
+	lookup := dnstest.NewMockLookup()
 	proxy := newMcuProxyForConfig(t)
 	config, dnsMonitor := newProxyConfigStatic(t, proxy, true, lookup, "https://foo/")
 	require.NoError(t, config.Start())

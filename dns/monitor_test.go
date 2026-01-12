@@ -33,7 +33,29 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/strukturag/nextcloud-spreed-signaling/dns/internal"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 )
+
+func NewMonitorForTest(t *testing.T, interval time.Duration, lookup *internal.MockLookup) *Monitor {
+	t.Helper()
+	require := require.New(t)
+
+	logger := logtest.NewLoggerForTest(t)
+	var lookupFunc MonitorLookupFunc
+	if lookup != nil {
+		lookupFunc = lookup.Lookup
+	}
+	monitor, err := NewMonitor(logger, interval, lookupFunc)
+	require.NoError(err)
+
+	t.Cleanup(func() {
+		monitor.Stop()
+	})
+
+	require.NoError(monitor.Start())
+	return monitor
+}
 
 type monitorReceiverRecord struct {
 	all    []net.IP
@@ -158,7 +180,7 @@ func (r *monitorReceiver) ExpectNone() {
 
 func TestMonitor(t *testing.T) {
 	t.Parallel()
-	lookup := NewMockLookupForTest(t)
+	lookup := internal.NewMockLookup()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -339,7 +361,7 @@ func (r *deadlockMonitorReceiver) Close() {
 
 func TestMonitorDeadlock(t *testing.T) {
 	t.Parallel()
-	lookup := NewMockLookupForTest(t)
+	lookup := internal.NewMockLookup()
 	ip1 := net.ParseIP("192.168.0.1")
 	ip2 := net.ParseIP("192.168.0.2")
 	lookup.Set("foo", []net.IP{ip1})
