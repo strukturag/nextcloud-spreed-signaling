@@ -2,5 +2,5 @@ jinja2==3.1.6
 markdown==3.10
 mkdocs==1.6.1
 readthedocs-sphinx-search==0.3.2
-sphinx==8.2.3
+sphinx==9.1.0
 sphinx_rtd_theme==3.1.0
