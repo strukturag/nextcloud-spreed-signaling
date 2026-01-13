@@ -22,6 +22,9 @@
 package log
 
 import (
+	"bytes"
+	"log"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,11 +44,29 @@ func TestGlobalLogger(t *testing.T) {
 	assert.Fail("should have paniced", "got logger %+v", logger)
 }
 
+type testLogWriter struct {
+	mu sync.Mutex
+	t  testing.TB
+}
+
+func (w *testLogWriter) Write(b []byte) (int, error) {
+	w.t.Helper()
+	if !bytes.HasSuffix(b, []byte("\n")) {
+		b = append(b, '\n')
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.t.Logf("%s", string(b))
+	return len(b), nil
+}
+
 func TestLoggerContext(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	testLogger := NewLoggerForTest(t)
+	testLogger := log.New(&testLogWriter{
+		t: t,
+	}, t.Name()+": ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
 	testLogger.Printf("Hello %s!", "world")
 
 	ctx := NewLoggerContext(t.Context(), testLogger)
