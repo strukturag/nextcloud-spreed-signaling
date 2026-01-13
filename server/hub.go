@@ -1760,29 +1760,25 @@ func (h *Hub) sendRoom(session *ClientSession, message *api.ClientMessage, room 
 			mcuStreamBitrate, mcuScreenBitrate = mcu.GetBandwidthLimits()
 		}
 
-		var backendStreamBitrate api.Bandwidth
-		var backendScreenBitrate api.Bandwidth
-		if backend := room.Backend(); backend != nil {
-			backendStreamBitrate = backend.MaxStreamBitrate()
-			backendScreenBitrate = backend.MaxScreenBitrate()
-		}
+		roomStreamBitrate := room.GetNextPublisherBandwidth(sfu.StreamTypeVideo)
+		roomScreenBitrate := room.GetNextPublisherBandwidth(sfu.StreamTypeScreen)
 
 		var maxStreamBitrate api.Bandwidth
-		if mcuStreamBitrate != 0 && backendStreamBitrate != 0 {
-			maxStreamBitrate = min(mcuStreamBitrate, backendStreamBitrate)
+		if mcuStreamBitrate != 0 && roomStreamBitrate != 0 {
+			maxStreamBitrate = min(mcuStreamBitrate, roomStreamBitrate)
 		} else if mcuStreamBitrate != 0 {
 			maxStreamBitrate = mcuStreamBitrate
 		} else {
-			maxStreamBitrate = backendStreamBitrate
+			maxStreamBitrate = roomStreamBitrate
 		}
 
 		var maxScreenBitrate api.Bandwidth
-		if mcuScreenBitrate != 0 && backendScreenBitrate != 0 {
-			maxScreenBitrate = min(mcuScreenBitrate, backendScreenBitrate)
+		if mcuScreenBitrate != 0 && roomScreenBitrate != 0 {
+			maxScreenBitrate = min(mcuScreenBitrate, roomScreenBitrate)
 		} else if mcuScreenBitrate != 0 {
 			maxScreenBitrate = mcuScreenBitrate
 		} else {
-			maxScreenBitrate = backendScreenBitrate
+			maxScreenBitrate = roomScreenBitrate
 		}
 
 		if maxStreamBitrate != 0 || maxScreenBitrate != 0 {
@@ -2098,6 +2094,16 @@ func (h *Hub) GetTransientEntries(roomId string, backend *talk.Backend) (api.Tra
 
 	entries := room.transientData.GetEntries()
 	return entries, true
+}
+
+func (h *Hub) GetRoomBandwidth(roomId string, backend *talk.Backend) (uint32, uint32, *sfu.ClientBandwidthInfo, bool) {
+	room := h.GetRoomForBackend(roomId, backend)
+	if room == nil {
+		return 0, 0, nil, false
+	}
+
+	publishers, subscribers, bandwidth := room.Bandwidth()
+	return publishers, subscribers, bandwidth, true
 }
 
 func (h *Hub) removeRoom(room *Room) {

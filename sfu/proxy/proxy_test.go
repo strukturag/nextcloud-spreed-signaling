@@ -1238,3 +1238,77 @@ func Test_ProxyResumeFail(t *testing.T) {
 		assert.NotEqual(sessionId, connections[0].SessionId())
 	}
 }
+
+func Test_ProxyUpdateBandwidth(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	server := testserver.NewProxyServerForTest(t, "DE")
+	mcu, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Servers: []testserver.ProxyTestServer{server},
+	}, 0, nil)
+
+	connections := mcu.getSortedConnections(nil)
+	require.Len(connections, 1)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("the-publisher")
+	pubSid := "1234567890"
+	pubListener := mock.NewListener(pubId + "-public")
+	pubInitiator := mock.NewInitiator("DE")
+
+	pub, err := mcu.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
+		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(err)
+
+	defer pub.Close(context.Background())
+
+	pubBw, ok := pub.(sfu.ClientWithBandwidth)
+	require.True(ok)
+
+	assert.Nil(pubBw.Bandwidth())
+
+	client := server.GetSingleClient()
+	require.NotNil(client)
+
+	client.SendMessage(&proxy.ServerMessage{
+		Type: "event",
+		Event: &proxy.EventServerMessage{
+			Type: "update-load",
+			ClientBandwidths: map[string]proxy.EventServerBandwidth{
+				pub.Id(): {
+					Sent:     1000,
+					Received: 2000,
+				},
+			},
+		},
+	})
+
+	// Wait until message has been processed
+	bw := pubBw.Bandwidth()
+	for bw == nil {
+		require.NoError(ctx.Err())
+		time.Sleep(time.Millisecond)
+		bw = pubBw.Bandwidth()
+	}
+
+	if assert.NotNil(bw) {
+		assert.EqualValues(1000, bw.Sent)
+		assert.EqualValues(2000, bw.Received)
+	}
+
+	if assert.NoError(pubBw.SetBandwidth(ctx, 3000)) {
+		if serverPub := server.GetPublisher(api.PublicSessionId(pub.Id())); assert.NotNil(serverPub) {
+			bw := serverPub.Bandwidth()
+			for bw == 0 {
+				require.NoError(ctx.Err())
+				time.Sleep(time.Millisecond)
+				bw = serverPub.Bandwidth()
+			}
+			assert.EqualValues(3000, bw)
+		}
+	}
+}

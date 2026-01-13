@@ -750,10 +750,12 @@ func (m *janusSFU) createPublisherRoom(ctx context.Context, handle *janus.Handle
 	bitrate := settings.Bitrate
 	if bitrate <= 0 {
 		bitrate = maxBitrate
-	} else {
+	} else if maxBitrate > 0 {
 		bitrate = min(bitrate, maxBitrate)
 	}
-	create_msg["bitrate"] = bitrate.Bits()
+	if bitrate > 0 {
+		create_msg["bitrate"] = bitrate.Bits()
+	}
 	create_response, err := handle.Request(ctx, create_msg)
 	if err != nil {
 		if _, err2 := handle.Detach(ctx); err2 != nil {

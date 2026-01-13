@@ -28,6 +28,7 @@ import (
 
 	"github.com/dlintw/goconf"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -45,9 +46,35 @@ type backendStorageStatic struct {
 	compatBackend *Backend
 }
 
+func updateBackendBandwidths(logger log.Logger, backend *Backend, config *goconf.ConfigFile, id string) {
+	bandwidthPerRoomValue, err := config.GetInt(id, "bitrateperroom")
+	if err != nil || bandwidthPerRoomValue < 0 {
+		bandwidthPerRoomValue = 0
+	}
+	minPublisherBandwidthValue, err := config.GetInt(id, "minpublisherbitrate")
+	if err != nil || minPublisherBandwidthValue < 0 {
+		minPublisherBandwidthValue = 0
+	}
+	maxPublisherBandwidthValue, err := config.GetInt(id, "maxpublisherbitrate")
+	if err != nil || maxPublisherBandwidthValue < 0 {
+		maxPublisherBandwidthValue = 0
+	}
+
+	bandwidthPerRoom := api.BandwidthFromBits(uint64(bandwidthPerRoomValue))
+	minPublisherBandwidth := api.BandwidthFromBits(uint64(minPublisherBandwidthValue))
+	maxPublisherBandwidth := api.BandwidthFromBits(uint64(maxPublisherBandwidthValue))
+	if bandwidthPerRoom > 0 && minPublisherBandwidth > 0 && maxPublisherBandwidth > 0 {
+		logger.Printf("Target bandwidth per room: %s (min=%s, max=%s)", bandwidthPerRoom, minPublisherBandwidth, maxPublisherBandwidth)
+	}
+	backend.bandwidthPerRoom.Store(bandwidthPerRoom)
+	backend.minPublisherBandwidth.Store(minPublisherBandwidth)
+	backend.maxPublisherBandwidth.Store(maxPublisherBandwidth)
+}
+
 func NewBackendStorageStatic(logger log.Logger, cfg *goconf.ConfigFile, stats BackendStorageStats) (BackendStorage, error) {
 	allowAll, _ := cfg.GetBool("backend", "allowall")
 	commonSecret, _ := config.GetStringOptionWithEnv(cfg, "backend", "secret")
+
 	backends := make(map[string][]*Backend)
 	backendsById := make(map[string]*Backend)
 	var compatBackend *Backend
@@ -58,6 +85,7 @@ func NewBackendStorageStatic(logger log.Logger, cfg *goconf.ConfigFile, stats Ba
 		if sessionLimit := compatBackend.Limit(); sessionLimit > 0 {
 			logger.Printf("Allow a maximum of %d sessions", sessionLimit)
 		}
+		updateBackendBandwidths(logger, compatBackend, cfg, "backend")
 		compatBackend.UpdateStats()
 		backendsById[compatBackend.Id()] = compatBackend
 		numBackends++
@@ -94,6 +122,7 @@ func NewBackendStorageStatic(logger log.Logger, cfg *goconf.ConfigFile, stats Ba
 			logger.Println("WARNING: No backend hostnames are allowed, check your configuration!")
 		} else {
 			compatBackend = NewCompatBackend(cfg)
+			updateBackendBandwidths(logger, compatBackend, cfg, "backend")
 			hosts := make([]string, 0, len(allowMap))
 			for host := range allowMap {
 				hosts = append(hosts, host)
@@ -279,6 +308,7 @@ func getConfiguredHosts(logger log.Logger, backendIds string, cfg *goconf.Config
 		if sessionLimit := backend.Limit(); sessionLimit > 0 {
 			logger.Printf("Backend %s allows a maximum of %d sessions", id, sessionLimit)
 		}
+		updateBackendBandwidths(logger, backend, cfg, id)
 
 		added := make(map[string]bool)
 		for _, u := range urls {

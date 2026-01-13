@@ -45,6 +45,7 @@ import (
 	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
 )
 
@@ -58,7 +59,7 @@ type ProxyTestServer interface {
 	SetToken(tokenId string, key *rsa.PublicKey)
 
 	getToken(tokenId string) (*rsa.PublicKey, bool)
-	getPublisher(id api.PublicSessionId) *testProxyServerPublisher
+	GetPublisher(id api.PublicSessionId) *testProxyServerPublisher
 }
 
 type ProxyTestOptions struct {
@@ -69,7 +70,12 @@ type ProxyTestOptions struct {
 type proxyServerClientHandler func(msg *proxy.ClientMessage) (*proxy.ServerMessage, error)
 
 type testProxyServerPublisher struct {
-	id api.PublicSessionId
+	id        api.PublicSessionId
+	bandwidth api.AtomicBandwidth
+}
+
+func (p *testProxyServerPublisher) Bandwidth() api.Bandwidth {
+	return p.bandwidth.Load()
 }
 
 type testProxyServerSubscriber struct {
@@ -174,6 +180,8 @@ func (c *testProxyServerClient) processRegularMessage(msg *proxy.ClientMessage) 
 	switch msg.Type {
 	case "command":
 		handler = c.processCommandMessage
+	case "payload":
+		handler = c.processPayloadMessage
 	}
 
 	if handler == nil {
@@ -261,11 +269,11 @@ func (c *testProxyServerClient) processCommandMessage(msg *proxy.ClientMessage) 
 					}
 				}
 
-				pub = server.getPublisher(msg.Command.PublisherId)
+				pub = server.GetPublisher(msg.Command.PublisherId)
 				break
 			}
 		} else {
-			pub = c.server.getPublisher(msg.Command.PublisherId)
+			pub = c.server.GetPublisher(msg.Command.PublisherId)
 		}
 
 		if pub == nil {
@@ -307,9 +315,54 @@ func (c *testProxyServerClient) processCommandMessage(msg *proxy.ClientMessage) 
 			}
 			c.server.updateLoad(-1)
 		}
+	case "update-bandwidth":
+		pub := c.server.GetPublisher(api.PublicSessionId(msg.Command.ClientId))
+		if pub == nil {
+			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("publisher %s not found", msg.Command.ClientId))
+			return response, nil
+		}
+
+		pub.bandwidth.Store(msg.Command.Bandwidth)
+		response = &proxy.ServerMessage{
+			Id:   msg.Id,
+			Type: "command",
+			Command: &proxy.CommandServerMessage{
+				Id: string(pub.id),
+			},
+		}
 	}
 	if response == nil {
 		response = msg.NewWrappedErrorServerMessage(fmt.Errorf("command \"%s\" is not implemented", msg.Command.Type))
+	}
+
+	return response, nil
+}
+
+func (c *testProxyServerClient) processPayloadMessage(msg *proxy.ClientMessage) (*proxy.ServerMessage, error) {
+	var response *proxy.ServerMessage
+	switch msg.Payload.Type {
+	case "offer":
+		pub := c.server.GetPublisher(api.PublicSessionId(msg.Payload.ClientId))
+		if pub == nil {
+			response = msg.NewWrappedErrorServerMessage(fmt.Errorf("no such publisher: %s", msg.Payload.ClientId))
+			return response, nil
+		}
+
+		assert.Equal(c.t, mock.MockSdpOfferAudioAndVideo, msg.Payload.Payload["sdp"])
+		response = &proxy.ServerMessage{
+			Id:   msg.Id,
+			Type: "payload",
+			Payload: &proxy.PayloadServerMessage{
+				ClientId: string(pub.id),
+				Type:     "answer",
+				Payload: api.StringMap{
+					"type": "answer",
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
+				},
+			},
+		}
+	default:
+		response = msg.NewWrappedErrorServerMessage(fmt.Errorf("payload type \"%s\" is not implemented", msg.Payload.Type))
 	}
 
 	return response, nil
@@ -500,7 +553,7 @@ func (h *TestProxyServerHandler) createPublisher() *testProxyServerPublisher {
 	return pub
 }
 
-func (h *TestProxyServerHandler) getPublisher(id api.PublicSessionId) *testProxyServerPublisher {
+func (h *TestProxyServerHandler) GetPublisher(id api.PublicSessionId) *testProxyServerPublisher { // nolint
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
