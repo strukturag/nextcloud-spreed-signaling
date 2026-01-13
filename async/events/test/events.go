@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package eventstest
+package test
 
 import (
 	"context"
@@ -66,9 +66,7 @@ func getRealAsyncEventsForTest(t *testing.T) events.AsyncEvents {
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	server, _ := natstest.StartLocalServer(t)
 	events, err := events.NewAsyncEvents(ctx, server.ClientURL())
-	if err != nil {
-		require.NoError(t, err)
-	}
+	require.NoError(t, err)
 	return events
 }
 
@@ -80,9 +78,7 @@ func getLoopbackAsyncEventsForTest(t *testing.T) events.AsyncEvents {
 	logger := logtest.NewLoggerForTest(t)
 	ctx := log.NewLoggerContext(t.Context(), logger)
 	events, err := events.NewAsyncEvents(ctx, nats.LoopbackUrl)
-	if err != nil {
-		require.NoError(t, err)
-	}
+	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)

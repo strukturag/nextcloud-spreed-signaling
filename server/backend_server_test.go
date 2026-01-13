@@ -48,7 +48,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
-	"github.com/strukturag/nextcloud-spreed-signaling/async/eventstest"
+	eventstest "github.com/strukturag/nextcloud-spreed-signaling/async/events/test"
 	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
