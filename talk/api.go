@@ -137,15 +137,13 @@ type BackendRoomDeleteRequest struct {
 
 type BackendRoomInCallRequest struct {
 	// TODO(jojo): Change "InCall" to "int" when #914 has landed in NC Talk.
-	InCall  json.RawMessage `json:"incall,omitempty"`
-	All     bool            `json:"all,omitempty"`
-	Changed []api.StringMap `json:"changed,omitempty"`
-	Users   []api.StringMap `json:"users,omitempty"`
+	InCall  json.RawMessage  `json:"incall,omitempty"`
+	All     bool             `json:"all,omitempty"`
+	Changed api.UserDataList `json:"changed,omitempty"`
 }
 
 type BackendRoomParticipantsRequest struct {
-	Changed []api.StringMap `json:"changed,omitempty"`
-	Users   []api.StringMap `json:"users,omitempty"`
+	Changed api.UserDataList `json:"changed,omitempty"`
 }
 
 type BackendRoomMessageRequest struct {
