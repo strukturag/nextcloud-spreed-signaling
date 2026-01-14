@@ -1775,9 +1775,6 @@ Message format (Backend -> Server)
       "participants" {
         "changed": [
           ...list of users that were changed...
-        ],
-        "users": [
-          ...list of users in the room...
         ]
       }
     }
@@ -1795,9 +1792,6 @@ Message format (Backend -> Server)
         "incall": new-incall-state,
         "changed": [
           ...list of users that were changed...
-        ],
-        "users": [
-          ...list of users in the room...
         ]
       }
     }
