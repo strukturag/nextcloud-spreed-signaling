@@ -399,16 +399,6 @@ func TestRoom_InCall(t *testing.T) {
 					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
 				},
 			},
-			Users: []api.StringMap{
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
-				},
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
-				},
-			},
 		},
 	}
 
@@ -424,11 +414,9 @@ func TestRoom_InCall(t *testing.T) {
 	if msg, ok := client1.RunUntilMessage(ctx); ok {
 		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
 			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 2) {
+			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
 				assert.EqualValues(FlagInCall, message.Users[0]["inCall"])
-				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
-				assert.EqualValues(0, message.Users[1]["inCall"])
 			}
 		}
 	}
@@ -436,11 +424,9 @@ func TestRoom_InCall(t *testing.T) {
 	if msg, ok := client2.RunUntilMessage(ctx); ok {
 		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
 			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 2) {
+			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
 				assert.EqualValues(FlagInCall, message.Users[0]["inCall"])
-				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
-				assert.EqualValues(0, message.Users[1]["inCall"])
 			}
 		}
 	}
@@ -452,16 +438,6 @@ func TestRoom_InCall(t *testing.T) {
 			Changed: []api.StringMap{
 				{
 					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
-				},
-			},
-			Users: []api.StringMap{
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
-				},
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
 					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
 				},
 			},
@@ -480,11 +456,9 @@ func TestRoom_InCall(t *testing.T) {
 	if msg, ok := client1.RunUntilMessage(ctx); ok {
 		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
 			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 2) {
+			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
 				assert.EqualValues(0, message.Users[0]["inCall"])
-				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
-				assert.EqualValues(0, message.Users[1]["inCall"])
 			}
 		}
 	}
@@ -492,11 +466,9 @@ func TestRoom_InCall(t *testing.T) {
 	if msg, ok := client2.RunUntilMessage(ctx); ok {
 		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
 			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 2) {
+			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
 				assert.EqualValues(0, message.Users[0]["inCall"])
-				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
-				assert.EqualValues(0, message.Users[1]["inCall"])
 			}
 		}
 	}
@@ -652,12 +624,6 @@ func TestRoom_InCallAllLeave(t *testing.T) {
 		InCall: &talk.BackendRoomInCallRequest{
 			InCall: json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
 			Changed: []api.StringMap{
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
-				},
-			},
-			Users: []api.StringMap{
 				{
 					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
