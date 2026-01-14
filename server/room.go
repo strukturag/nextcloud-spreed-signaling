@@ -103,7 +103,7 @@ type Room struct {
 
 	// Users currently in the room
 	// +checklocks:mu
-	users []api.StringMap
+	users api.UserDataMap
 
 	// Timestamps of last backend requests for the different types.
 	lastRoomRequests map[string]int64
@@ -151,6 +151,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 			"backend": backend.Id(),
 		}),
 		statsCallRoomsTotal: statsCallRoomsTotal.WithLabelValues(backend.Id()),
+		users:               make(api.UserDataMap),
 
 		lastRoomRequests: make(map[string]int64),
 
@@ -573,18 +574,9 @@ func (r *Room) RemoveSession(session Session) bool {
 	sid := session.PublicId()
 	r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": string(session.ClientType())}).Dec()
 	delete(r.sessions, sid)
+	delete(r.users, sid)
 	if virtualSession, ok := session.(*VirtualSession); ok {
 		delete(r.virtualSessions, virtualSession)
-		// Handle case where virtual session was also sent by Nextcloud.
-		users := make([]api.StringMap, 0, len(r.users))
-		for _, u := range r.users {
-			if value, found := api.GetStringMapString[api.PublicSessionId](u, "sessionId"); !found || value != sid {
-				users = append(users, u)
-			}
-		}
-		if len(users) != len(r.users) {
-			r.users = users
-		}
 	}
 	if clientSession, ok := session.(*ClientSession); ok {
 		delete(r.internalSessions, clientSession)
@@ -751,7 +743,7 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSes
 	return
 }
 
-func (r *Room) addInternalSessions(users []api.StringMap) []api.StringMap {
+func (r *Room) addInternalSessions(users api.UserDataList) api.UserDataList {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -774,7 +766,7 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap 
 
 	skipSession := make(map[api.PublicSessionId]bool)
 	for _, user := range users {
-		sessionid, found := api.GetStringMapString[api.PublicSessionId](user, "sessionId")
+		sessionid, found := user.SessionId()
 		if !found || sessionid == "" {
 			continue
 		}
@@ -799,7 +791,7 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap 
 		}
 	}
 	for session := range r.internalSessions {
-		u := api.StringMap{
+		u := api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
@@ -811,7 +803,7 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap 
 		users = append(users, u)
 	}
 	for _, session := range clusteredInternalSessions {
-		u := api.StringMap{
+		u := api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.GetSessionId(),
 			"lastPing":  now,
@@ -828,7 +820,7 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap 
 			continue
 		}
 		skipSession[sid] = true
-		users = append(users, api.StringMap{
+		users = append(users, api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
@@ -840,7 +832,7 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap 
 			continue
 		}
 
-		users = append(users, api.StringMap{
+		users = append(users, api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
@@ -850,7 +842,7 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap 
 	return users
 }
 
-func (r *Room) filterPermissions(users []api.StringMap) []api.StringMap {
+func (r *Room) filterPermissions(users api.UserDataList) api.UserDataList {
 	for _, user := range users {
 		delete(user, "permissions")
 	}
@@ -877,17 +869,25 @@ func IsInCall(value any) (bool, bool) {
 	}
 }
 
-func (r *Room) setUsers(users []api.StringMap) {
+func (r *Room) addUser(sessionId api.PublicSessionId, user api.UserData) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.users = users
+	r.users[sessionId] = user
 }
 
-func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.StringMap) {
-	r.setUsers(users)
-
+func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
 	for _, user := range changed {
+		sessionId, found := user.SessionId()
+		if !found {
+			// TODO: Do we still need this fallback?
+			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
+			if !found {
+				continue
+			}
+		}
+
+		r.addUser(sessionId, user)
 		inCallInterface, found := user["inCall"]
 		if !found {
 			continue
@@ -895,14 +895,6 @@ func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.St
 		inCall, ok := IsInCall(inCallInterface)
 		if !ok {
 			continue
-		}
-
-		sessionId, found := api.GetStringMapString[api.PublicSessionId](user, "sessionId")
-		if !found {
-			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
-			if !found {
-				continue
-			}
 		}
 
 		session := r.hub.GetSessionByPublicId(sessionId)
@@ -923,7 +915,8 @@ func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.St
 	}
 
 	changed = r.filterPermissions(changed)
-	users = r.filterPermissions(users)
+	// TODO: Do we still need the whole list of users to send to all participants?
+	users := r.filterPermissions(r.getUsers())
 
 	message := &api.ServerMessage{
 		Type: "event",
@@ -1024,9 +1017,10 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	}
 }
 
-func (r *Room) PublishUsersChanged(changed []api.StringMap, users []api.StringMap) {
+func (r *Room) PublishUsersChanged(changed api.UserDataList) {
 	changed = r.filterPermissions(changed)
-	users = r.filterPermissions(users)
+	// TODO: Do we still need the whole list of users to send to all participants?
+	users := r.filterPermissions(r.getUsers())
 
 	message := &api.ServerMessage{
 		Type: "event",
@@ -1045,11 +1039,15 @@ func (r *Room) PublishUsersChanged(changed []api.StringMap, users []api.StringMa
 	}
 }
 
-func (r *Room) getParticipantsUpdateMessage() *api.ServerMessage {
+func (r *Room) getUsers() api.UserDataList {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	users := r.filterPermissions(r.users)
+	return r.users.Users().Clone()
+}
+
+func (r *Room) getParticipantsUpdateMessage() *api.ServerMessage {
+	users := r.filterPermissions(r.getUsers())
 
 	message := &api.ServerMessage{
 		Type: "event",
@@ -1058,7 +1056,7 @@ func (r *Room) getParticipantsUpdateMessage() *api.ServerMessage {
 			Type:   "update",
 			Update: &api.RoomEventServerMessage{
 				RoomId: r.id,
-				Users:  r.addInternalSessionsLocked(users),
+				Users:  r.addInternalSessions(users),
 			},
 		},
 	}
