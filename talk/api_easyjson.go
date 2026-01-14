@@ -2413,9 +2413,9 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk16(in 
 				in.Delim('[')
 				if out.Changed == nil {
 					if !in.IsDelim(']') {
-						out.Changed = make([]api.StringMap, 0, 8)
+						out.Changed = make(api.UserDataList, 0, 8)
 					} else {
-						out.Changed = []api.StringMap{}
+						out.Changed = api.UserDataList{}
 					}
 				} else {
 					out.Changed = (out.Changed)[:0]
@@ -2452,53 +2452,6 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk16(in 
 				}
 				in.Delim(']')
 			}
-		case "users":
-			if in.IsNull() {
-				in.Skip()
-				out.Users = nil
-			} else {
-				in.Delim('[')
-				if out.Users == nil {
-					if !in.IsDelim(']') {
-						out.Users = make([]api.StringMap, 0, 8)
-					} else {
-						out.Users = []api.StringMap{}
-					}
-				} else {
-					out.Users = (out.Users)[:0]
-				}
-				for !in.IsDelim(']') {
-					var v35 api.StringMap
-					if in.IsNull() {
-						in.Skip()
-					} else {
-						in.Delim('{')
-						if !in.IsDelim('}') {
-							v35 = make(api.StringMap)
-						} else {
-							v35 = nil
-						}
-						for !in.IsDelim('}') {
-							key := string(in.String())
-							in.WantColon()
-							var v36 interface{}
-							if m, ok := v36.(easyjson.Unmarshaler); ok {
-								m.UnmarshalEasyJSON(in)
-							} else if m, ok := v36.(json.Unmarshaler); ok {
-								_ = m.UnmarshalJSON(in.Raw())
-							} else {
-								v36 = in.Interface()
-							}
-							(v35)[key] = v36
-							in.WantComma()
-						}
-						in.Delim('}')
-					}
-					out.Users = append(out.Users, v35)
-					in.WantComma()
-				}
-				in.Delim(']')
-			}
 		default:
 			in.SkipRecursive()
 		}
@@ -2519,70 +2472,29 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk16(out
 		out.RawString(prefix[1:])
 		{
 			out.RawByte('[')
-			for v37, v38 := range in.Changed {
-				if v37 > 0 {
+			for v35, v36 := range in.Changed {
+				if v35 > 0 {
 					out.RawByte(',')
 				}
-				if v38 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
+				if v36 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
 					out.RawString(`null`)
 				} else {
 					out.RawByte('{')
-					v39First := true
-					for v39Name, v39Value := range v38 {
-						if v39First {
-							v39First = false
+					v37First := true
+					for v37Name, v37Value := range v36 {
+						if v37First {
+							v37First = false
 						} else {
 							out.RawByte(',')
 						}
-						out.String(string(v39Name))
+						out.String(string(v37Name))
 						out.RawByte(':')
-						if m, ok := v39Value.(easyjson.Marshaler); ok {
+						if m, ok := v37Value.(easyjson.Marshaler); ok {
 							m.MarshalEasyJSON(out)
-						} else if m, ok := v39Value.(json.Marshaler); ok {
+						} else if m, ok := v37Value.(json.Marshaler); ok {
 							out.Raw(m.MarshalJSON())
 						} else {
-							out.Raw(json.Marshal(v39Value))
-						}
-					}
-					out.RawByte('}')
-				}
-			}
-			out.RawByte(']')
-		}
-	}
-	if len(in.Users) != 0 {
-		const prefix string = ",\"users\":"
-		if first {
-			first = false
-			out.RawString(prefix[1:])
-		} else {
-			out.RawString(prefix)
-		}
-		{
-			out.RawByte('[')
-			for v40, v41 := range in.Users {
-				if v40 > 0 {
-					out.RawByte(',')
-				}
-				if v41 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
-					out.RawString(`null`)
-				} else {
-					out.RawByte('{')
-					v42First := true
-					for v42Name, v42Value := range v41 {
-						if v42First {
-							v42First = false
-						} else {
-							out.RawByte(',')
-						}
-						out.String(string(v42Name))
-						out.RawByte(':')
-						if m, ok := v42Value.(easyjson.Marshaler); ok {
-							m.MarshalEasyJSON(out)
-						} else if m, ok := v42Value.(json.Marshaler); ok {
-							out.Raw(m.MarshalJSON())
-						} else {
-							out.Raw(json.Marshal(v42Value))
+							out.Raw(json.Marshal(v37Value))
 						}
 					}
 					out.RawByte('}')
@@ -2715,13 +2627,13 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk18(in 
 					out.UserIds = (out.UserIds)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v43 string
+					var v38 string
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						v43 = string(in.String())
+						v38 = string(in.String())
 					}
-					out.UserIds = append(out.UserIds, v43)
+					out.UserIds = append(out.UserIds, v38)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -2742,13 +2654,13 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk18(in 
 					out.AllUserIds = (out.AllUserIds)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v44 string
+					var v39 string
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						v44 = string(in.String())
+						v39 = string(in.String())
 					}
-					out.AllUserIds = append(out.AllUserIds, v44)
+					out.AllUserIds = append(out.AllUserIds, v39)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -2781,11 +2693,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk18(out
 		out.RawString(prefix[1:])
 		{
 			out.RawByte('[')
-			for v45, v46 := range in.UserIds {
-				if v45 > 0 {
+			for v40, v41 := range in.UserIds {
+				if v40 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v46))
+				out.String(string(v41))
 			}
 			out.RawByte(']')
 		}
@@ -2800,11 +2712,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk18(out
 		}
 		{
 			out.RawByte('[')
-			for v47, v48 := range in.AllUserIds {
-				if v47 > 0 {
+			for v42, v43 := range in.AllUserIds {
+				if v42 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v48))
+				out.String(string(v43))
 			}
 			out.RawByte(']')
 		}
@@ -2881,88 +2793,41 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk19(in 
 				in.Delim('[')
 				if out.Changed == nil {
 					if !in.IsDelim(']') {
-						out.Changed = make([]api.StringMap, 0, 8)
+						out.Changed = make(api.UserDataList, 0, 8)
 					} else {
-						out.Changed = []api.StringMap{}
+						out.Changed = api.UserDataList{}
 					}
 				} else {
 					out.Changed = (out.Changed)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v49 api.StringMap
+					var v44 api.StringMap
 					if in.IsNull() {
 						in.Skip()
 					} else {
 						in.Delim('{')
 						if !in.IsDelim('}') {
-							v49 = make(api.StringMap)
+							v44 = make(api.StringMap)
 						} else {
-							v49 = nil
+							v44 = nil
 						}
 						for !in.IsDelim('}') {
 							key := string(in.String())
 							in.WantColon()
-							var v50 interface{}
-							if m, ok := v50.(easyjson.Unmarshaler); ok {
+							var v45 interface{}
+							if m, ok := v45.(easyjson.Unmarshaler); ok {
 								m.UnmarshalEasyJSON(in)
-							} else if m, ok := v50.(json.Unmarshaler); ok {
+							} else if m, ok := v45.(json.Unmarshaler); ok {
 								_ = m.UnmarshalJSON(in.Raw())
 							} else {
-								v50 = in.Interface()
+								v45 = in.Interface()
 							}
-							(v49)[key] = v50
+							(v44)[key] = v45
 							in.WantComma()
 						}
 						in.Delim('}')
 					}
-					out.Changed = append(out.Changed, v49)
-					in.WantComma()
-				}
-				in.Delim(']')
-			}
-		case "users":
-			if in.IsNull() {
-				in.Skip()
-				out.Users = nil
-			} else {
-				in.Delim('[')
-				if out.Users == nil {
-					if !in.IsDelim(']') {
-						out.Users = make([]api.StringMap, 0, 8)
-					} else {
-						out.Users = []api.StringMap{}
-					}
-				} else {
-					out.Users = (out.Users)[:0]
-				}
-				for !in.IsDelim(']') {
-					var v51 api.StringMap
-					if in.IsNull() {
-						in.Skip()
-					} else {
-						in.Delim('{')
-						if !in.IsDelim('}') {
-							v51 = make(api.StringMap)
-						} else {
-							v51 = nil
-						}
-						for !in.IsDelim('}') {
-							key := string(in.String())
-							in.WantColon()
-							var v52 interface{}
-							if m, ok := v52.(easyjson.Unmarshaler); ok {
-								m.UnmarshalEasyJSON(in)
-							} else if m, ok := v52.(json.Unmarshaler); ok {
-								_ = m.UnmarshalJSON(in.Raw())
-							} else {
-								v52 = in.Interface()
-							}
-							(v51)[key] = v52
-							in.WantComma()
-						}
-						in.Delim('}')
-					}
-					out.Users = append(out.Users, v51)
+					out.Changed = append(out.Changed, v44)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -3007,70 +2872,29 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk19(out
 		}
 		{
 			out.RawByte('[')
-			for v53, v54 := range in.Changed {
-				if v53 > 0 {
+			for v46, v47 := range in.Changed {
+				if v46 > 0 {
 					out.RawByte(',')
 				}
-				if v54 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
+				if v47 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
 					out.RawString(`null`)
 				} else {
 					out.RawByte('{')
-					v55First := true
-					for v55Name, v55Value := range v54 {
-						if v55First {
-							v55First = false
+					v48First := true
+					for v48Name, v48Value := range v47 {
+						if v48First {
+							v48First = false
 						} else {
 							out.RawByte(',')
 						}
-						out.String(string(v55Name))
+						out.String(string(v48Name))
 						out.RawByte(':')
-						if m, ok := v55Value.(easyjson.Marshaler); ok {
+						if m, ok := v48Value.(easyjson.Marshaler); ok {
 							m.MarshalEasyJSON(out)
-						} else if m, ok := v55Value.(json.Marshaler); ok {
+						} else if m, ok := v48Value.(json.Marshaler); ok {
 							out.Raw(m.MarshalJSON())
 						} else {
-							out.Raw(json.Marshal(v55Value))
-						}
-					}
-					out.RawByte('}')
-				}
-			}
-			out.RawByte(']')
-		}
-	}
-	if len(in.Users) != 0 {
-		const prefix string = ",\"users\":"
-		if first {
-			first = false
-			out.RawString(prefix[1:])
-		} else {
-			out.RawString(prefix)
-		}
-		{
-			out.RawByte('[')
-			for v56, v57 := range in.Users {
-				if v56 > 0 {
-					out.RawByte(',')
-				}
-				if v57 == nil && (out.Flags&jwriter.NilMapAsEmpty) == 0 {
-					out.RawString(`null`)
-				} else {
-					out.RawByte('{')
-					v58First := true
-					for v58Name, v58Value := range v57 {
-						if v58First {
-							v58First = false
-						} else {
-							out.RawByte(',')
-						}
-						out.String(string(v58Name))
-						out.RawByte(':')
-						if m, ok := v58Value.(easyjson.Marshaler); ok {
-							m.MarshalEasyJSON(out)
-						} else if m, ok := v58Value.(json.Marshaler); ok {
-							out.Raw(m.MarshalJSON())
-						} else {
-							out.Raw(json.Marshal(v58Value))
+							out.Raw(json.Marshal(v48Value))
 						}
 					}
 					out.RawByte('}')
@@ -3135,13 +2959,13 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk20(in 
 					out.UserIds = (out.UserIds)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v59 string
+					var v49 string
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						v59 = string(in.String())
+						v49 = string(in.String())
 					}
-					out.UserIds = append(out.UserIds, v59)
+					out.UserIds = append(out.UserIds, v49)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -3162,13 +2986,13 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk20(in 
 					out.SessionIds = (out.SessionIds)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v60 api.RoomSessionId
+					var v50 api.RoomSessionId
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						v60 = api.RoomSessionId(in.String())
+						v50 = api.RoomSessionId(in.String())
 					}
-					out.SessionIds = append(out.SessionIds, v60)
+					out.SessionIds = append(out.SessionIds, v50)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -3189,13 +3013,13 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk20(in 
 					out.AllUserIds = (out.AllUserIds)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v61 string
+					var v51 string
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						v61 = string(in.String())
+						v51 = string(in.String())
 					}
-					out.AllUserIds = append(out.AllUserIds, v61)
+					out.AllUserIds = append(out.AllUserIds, v51)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -3228,11 +3052,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk20(out
 		out.RawString(prefix[1:])
 		{
 			out.RawByte('[')
-			for v62, v63 := range in.UserIds {
-				if v62 > 0 {
+			for v52, v53 := range in.UserIds {
+				if v52 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v63))
+				out.String(string(v53))
 			}
 			out.RawByte(']')
 		}
@@ -3247,11 +3071,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk20(out
 		}
 		{
 			out.RawByte('[')
-			for v64, v65 := range in.SessionIds {
-				if v64 > 0 {
+			for v54, v55 := range in.SessionIds {
+				if v54 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v65))
+				out.String(string(v55))
 			}
 			out.RawByte(']')
 		}
@@ -3266,11 +3090,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk20(out
 		}
 		{
 			out.RawByte('[')
-			for v66, v67 := range in.AllUserIds {
-				if v66 > 0 {
+			for v56, v57 := range in.AllUserIds {
+				if v56 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v67))
+				out.String(string(v57))
 			}
 			out.RawByte(']')
 		}
@@ -3585,13 +3409,13 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk24(in 
 					out.UserIds = (out.UserIds)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v68 string
+					var v58 string
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						v68 = string(in.String())
+						v58 = string(in.String())
 					}
-					out.UserIds = append(out.UserIds, v68)
+					out.UserIds = append(out.UserIds, v58)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -3616,11 +3440,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk24(out
 		out.RawString(prefix[1:])
 		{
 			out.RawByte('[')
-			for v69, v70 := range in.UserIds {
-				if v69 > 0 {
+			for v59, v60 := range in.UserIds {
+				if v59 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v70))
+				out.String(string(v60))
 			}
 			out.RawByte(']')
 		}
@@ -3996,13 +3820,13 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk28(in 
 						*out.Permissions = (*out.Permissions)[:0]
 					}
 					for !in.IsDelim(']') {
-						var v71 api.Permission
+						var v61 api.Permission
 						if in.IsNull() {
 							in.Skip()
 						} else {
-							v71 = api.Permission(in.String())
+							v61 = api.Permission(in.String())
 						}
-						*out.Permissions = append(*out.Permissions, v71)
+						*out.Permissions = append(*out.Permissions, v61)
 						in.WantComma()
 					}
 					in.Delim(']')
@@ -4049,11 +3873,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk28(out
 			out.RawString("null")
 		} else {
 			out.RawByte('[')
-			for v72, v73 := range *in.Permissions {
-				if v72 > 0 {
+			for v62, v63 := range *in.Permissions {
+				if v62 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v73))
+				out.String(string(v63))
 			}
 			out.RawByte(']')
 		}
@@ -4645,13 +4469,13 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingTalk33(in 
 					out.Entries = (out.Entries)[:0]
 				}
 				for !in.IsDelim(']') {
-					var v74 BackendPingEntry
+					var v64 BackendPingEntry
 					if in.IsNull() {
 						in.Skip()
 					} else {
-						(v74).UnmarshalEasyJSON(in)
+						(v64).UnmarshalEasyJSON(in)
 					}
-					out.Entries = append(out.Entries, v74)
+					out.Entries = append(out.Entries, v64)
 					in.WantComma()
 				}
 				in.Delim(']')
@@ -4687,11 +4511,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingTalk33(out
 			out.RawString("null")
 		} else {
 			out.RawByte('[')
-			for v75, v76 := range in.Entries {
-				if v75 > 0 {
+			for v65, v66 := range in.Entries {
+				if v65 > 0 {
 					out.RawByte(',')
 				}
-				(v76).MarshalEasyJSON(out)
+				(v66).MarshalEasyJSON(out)
 			}
 			out.RawByte(']')
 		}
