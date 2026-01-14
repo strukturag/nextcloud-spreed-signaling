@@ -832,17 +832,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 			msg := &talk.BackendServerRoomRequest{
 				Type: "participants",
 				Participants: &talk.BackendRoomParticipantsRequest{
-					Changed: []api.StringMap{
-						{
-							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
-						},
-						{
-							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
-							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_SCREEN},
-						},
-					},
-					Users: []api.StringMap{
+					Changed: api.UserDataList{
 						{
 							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
@@ -910,13 +900,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	msg := &talk.BackendServerRoomRequest{
 		Type: "participants",
 		Participants: &talk.BackendRoomParticipantsRequest{
-			Changed: []api.StringMap{
-				{
-					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []api.Permission{},
-				},
-			},
-			Users: []api.StringMap{
+			Changed: api.UserDataList{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []api.Permission{},
@@ -979,17 +963,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			Type: "incall",
 			InCall: &talk.BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
-				Changed: []api.StringMap{
-					{
-						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-						"inCall":    7,
-					},
-					{
-						"sessionId": "unknown-room-session-id",
-						"inCall":    3,
-					},
-				},
-				Users: []api.StringMap{
+				Changed: api.UserDataList{
 					{
 						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 						"inCall":    7,
@@ -1026,17 +1000,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			Type: "incall",
 			InCall: &talk.BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
-				Changed: []api.StringMap{
-					{
-						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-						"inCall":    7,
-					},
-					{
-						"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
-						"inCall":    3,
-					},
-				},
-				Users: []api.StringMap{
+				Changed: api.UserDataList{
 					{
 						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 						"inCall":    7,

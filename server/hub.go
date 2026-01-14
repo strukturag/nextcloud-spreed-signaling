@@ -3135,7 +3135,7 @@ func (h *Hub) processRoomInCallChanged(message *talk.BackendServerRoomRequest) {
 
 		room.PublishUsersInCallChangedAll(flags)
 	} else {
-		room.PublishUsersInCallChanged(message.InCall.Changed, message.InCall.Users)
+		room.PublishUsersInCallChanged(message.InCall.Changed)
 	}
 }
 
@@ -3145,7 +3145,7 @@ func (h *Hub) processRoomParticipants(message *talk.BackendServerRoomRequest) {
 		return
 	}
 
-	room.PublishUsersChanged(message.Participants.Changed, message.Participants.Users)
+	room.PublishUsersChanged(message.Participants.Changed)
 }
 
 func (h *Hub) GetStats() api.StringMap {

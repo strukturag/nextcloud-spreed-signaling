@@ -388,7 +388,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, 
 		wg.Add(1)
 		go func(sessionid api.RoomSessionId) {
 			defer wg.Done()
-			if sid, err := b.lookupByRoomSessionId(ctx, sessionid, nil); err != nil {
+			if sid, err := b.lookupByRoomSessionId(ctx, sessionid); err != nil {
 				b.logger.Printf("Could not lookup by room session %s: %s", sessionid, err)
 			} else if sid != "" {
 				if err := b.events.PublishSessionMessage(sid, backend, msg); err != nil {
@@ -431,16 +431,10 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, not
 	}
 }
 
-func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, cache *container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId]) (api.PublicSessionId, error) {
+func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
 	if roomSessionId == sessionIdNotInMeeting {
 		b.logger.Printf("Trying to lookup empty room session id: %s", roomSessionId)
 		return "", nil
-	}
-
-	if cache != nil {
-		if result, found := cache.Get(roomSessionId); found {
-			return result, nil
-		}
 	}
 
 	sid, err := b.roomSessions.LookupSessionId(ctx, roomSessionId, "")
@@ -450,36 +444,33 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 		return "", err
 	}
 
-	if cache != nil {
-		cache.Set(roomSessionId, sid)
-	}
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId], users []api.StringMap) []api.StringMap {
+func (b *BackendServer) fixupUserSessions(ctx context.Context, users api.UserDataList) api.UserDataList {
 	if len(users) == 0 {
 		return users
 	}
 
 	var wg sync.WaitGroup
 	for _, user := range users {
-		roomSessionId, found := api.GetStringMapString[api.RoomSessionId](user, "sessionId")
+		roomSessionId, found := user.SessionId()
 		if !found {
 			b.logger.Printf("User %+v has invalid room session id, ignoring", user)
 			delete(user, "sessionId")
 			continue
 		}
 
-		if roomSessionId == sessionIdNotInMeeting {
+		if api.RoomSessionId(roomSessionId) == sessionIdNotInMeeting {
 			b.logger.Printf("User %+v is not in the meeting, ignoring", user)
 			delete(user, "sessionId")
 			continue
 		}
 
 		wg.Add(1)
-		go func(roomSessionId api.RoomSessionId, u api.StringMap) {
+		go func(roomSessionId api.RoomSessionId, u api.UserData) {
 			defer wg.Done()
-			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
+			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId); err != nil {
 				b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
 				delete(u, "sessionId")
 			} else if sessionId != "" {
@@ -488,16 +479,14 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *container.
 				// sessionId == ""
 				delete(u, "sessionId")
 			}
-		}(roomSessionId, user)
+		}(api.RoomSessionId(roomSessionId), user)
 	}
 	wg.Wait()
 
-	result := make([]api.StringMap, 0, len(users))
-	for _, user := range users {
-		if _, found := user["sessionId"]; found {
-			result = append(result, user)
-		}
-	}
+	result := slices.DeleteFunc(users, func(user api.UserData) bool {
+		_, found := user["sessionId"]
+		return !found
+	})
 	return result
 }
 
@@ -508,13 +497,10 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, req
 		ctx := log.NewLoggerContext(context.Background(), b.logger)
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		var cache container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId]
-		// Convert (Nextcloud) session ids to signaling session ids.
-		request.InCall.Users = b.fixupUserSessions(ctx, &cache, request.InCall.Users)
-		// Entries in "Changed" are most likely already fetched through the "Users" list.
-		request.InCall.Changed = b.fixupUserSessions(ctx, &cache, request.InCall.Changed)
 
-		if len(request.InCall.Users) == 0 && len(request.InCall.Changed) == 0 {
+		// Convert (Nextcloud) session ids to signaling session ids.
+		request.InCall.Changed = b.fixupUserSessions(ctx, request.InCall.Changed)
+		if len(request.InCall.Changed) == 0 {
 			return nil
 		}
 	}
@@ -532,11 +518,9 @@ func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid s
 	// Convert (Nextcloud) session ids to signaling session ids.
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var cache container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId]
-	request.Participants.Users = b.fixupUserSessions(ctx, &cache, request.Participants.Users)
-	request.Participants.Changed = b.fixupUserSessions(ctx, &cache, request.Participants.Changed)
 
-	if len(request.Participants.Users) == 0 && len(request.Participants.Changed) == 0 {
+	request.Participants.Changed = b.fixupUserSessions(ctx, request.Participants.Changed)
+	if len(request.Participants.Changed) == 0 {
 		return nil
 	}
 
@@ -548,7 +532,7 @@ loop:
 			continue
 		}
 
-		sessionId, found := api.GetStringMapString[api.PublicSessionId](user, "sessionId")
+		sessionId, found := user.SessionId()
 		if !found {
 			b.logger.Printf("User entry has no session id: %+v", user)
 			continue
@@ -628,7 +612,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 				wg.Add(1)
 				go func(roomSessionId api.RoomSessionId) {
 					defer wg.Done()
-					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
+					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId); err != nil {
 						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
 					} else if sessionId != "" {
 						mu.Lock()
@@ -666,7 +650,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 				wg.Add(1)
 				go func(roomSessionId api.RoomSessionId, details json.RawMessage) {
 					defer wg.Done()
-					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
+					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId); err != nil {
 						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
 					} else if sessionId != "" {
 						mu.Lock()
