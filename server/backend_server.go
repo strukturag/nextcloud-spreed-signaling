@@ -903,12 +903,12 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
 		b.sendRoomUpdate(roomid, backend, request.Update.Properties)
 	case "delete":
+		// Notify the backend about the room deletion.
 		message := &events.AsyncMessage{
 			Type: "room",
 			Room: &request,
 		}
 		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
-		b.sendRoomDisinvite(roomid, backend, api.DisinviteReasonDeleted, request.Delete.UserIds, nil)
 	case "incall":
 		err = b.sendRoomIncall(roomid, backend, &request)
 	case "participants":

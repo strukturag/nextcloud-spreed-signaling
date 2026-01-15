@@ -200,12 +200,8 @@ func TestRoom_Delete(t *testing.T) {
 
 	// Simulate backend request from Nextcloud to update the room.
 	msg := &talk.BackendServerRoomRequest{
-		Type: "delete",
-		Delete: &talk.BackendRoomDeleteRequest{
-			UserIds: []string{
-				testDefaultUserId,
-			},
-		},
+		Type:   "delete",
+		Delete: &talk.BackendRoomDeleteRequest{},
 	}
 
 	data, err := json.Marshal(msg)
@@ -226,6 +222,9 @@ func TestRoom_Delete(t *testing.T) {
 		if message2, ok := client.RunUntilMessage(ctx); ok {
 			checkMessageRoomlistDisinvite(t, message2)
 		}
+		if !client.RunUntilClosed(ctx) {
+			return
+		}
 	} else {
 		// Ordering should be "disinvited", "leave room".
 		checkMessageRoomlistDisinvite(t, message1)
@@ -233,7 +232,9 @@ func TestRoom_Delete(t *testing.T) {
 		// However due to the asynchronous processing, the "leave room" message might be received before.
 		if message2, ok := client.RunUntilMessageOrClosed(ctx); ok && message2 != nil {
 			checkMessageRoomId(t, message2, "")
-			client.RunUntilClosed(ctx)
+			if !client.RunUntilClosed(ctx) {
+				return
+			}
 		}
 	}
 
