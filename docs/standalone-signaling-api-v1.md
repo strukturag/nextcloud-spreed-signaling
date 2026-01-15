@@ -1745,18 +1745,15 @@ Message format (Backend -> Server)
 
 ### Room deleted
 
-This can be used to notify about a deleted room. All sessions currently
-connected to the room will leave the room.
+This can be used to notify about a deleted room. Only sessions currently
+connected to the room will get notified about the deletion and also leave
+the room.
 
 Message format (Backend -> Server)
 
     {
       "type": "delete"
-      "delete" {
-        "userids": [
-          ...list of user ids that were invited to the room...
-        ]
-      }
+      "delete" {}
     }
 
 
