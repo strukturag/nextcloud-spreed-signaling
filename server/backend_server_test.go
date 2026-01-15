@@ -336,9 +336,6 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 			UserIds: []string{
 				userid,
 			},
-			AllUserIds: []string{
-				userid,
-			},
 			Properties: roomProperties,
 		},
 	}
@@ -447,9 +444,6 @@ func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 			UserIds: []string{
 				userid,
 			},
-			AllUserIds: []string{
-				userid,
-			},
 			Properties: roomProperties,
 		},
 	}
@@ -527,7 +521,6 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 			SessionIds: []api.RoomSessionId{
 				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId, hello.Hello.SessionId)),
 			},
-			AllUserIds: []string{},
 			Properties: roomProperties,
 		},
 	}
@@ -547,6 +540,9 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 		assert.Empty(string(event.Disinvite.Properties))
 	}
 
+	if message, ok := client.RunUntilRoomlistUpdate(ctx); ok {
+		assert.Equal(roomId, message.RoomId)
+	}
 	if message, ok := client.RunUntilRoomlistDisinvite(ctx); ok {
 		assert.Equal(roomId, message.RoomId)
 	}
@@ -587,7 +583,6 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 			SessionIds: []api.RoomSessionId{
 				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId1, hello1.Hello.SessionId)),
 			},
-			AllUserIds: []string{},
 		},
 	}
 
@@ -600,6 +595,9 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
+	if message, ok := client1.RunUntilRoomlistUpdate(ctx); ok {
+		assert.Equal(roomId1, message.RoomId)
+	}
 	if message, ok := client1.RunUntilRoomlistDisinvite(ctx); ok {
 		assert.Equal(roomId1, message.RoomId)
 	}
@@ -613,9 +611,6 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	msg = &talk.BackendServerRoomRequest{
 		Type: "update",
 		Update: &talk.BackendRoomUpdateRequest{
-			UserIds: []string{
-				testDefaultUserId,
-			},
 			Properties: testRoomProperties,
 		},
 	}
@@ -662,24 +657,20 @@ func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 	require.NoError(err, "Could not create room")
 	defer room.Close()
 
-	userid := "test-userid"
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
 	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterRoomListener(roomId, backend, listener))
 	defer func() {
-		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterRoomListener(roomId, backend, listener))
 	}()
 
 	msg := &talk.BackendServerRoomRequest{
 		Type: "update",
 		Update: &talk.BackendRoomUpdateRequest{
-			UserIds: []string{
-				userid,
-			},
 			Properties: roomProperties,
 		},
 	}
