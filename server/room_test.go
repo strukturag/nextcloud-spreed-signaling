@@ -111,9 +111,6 @@ func TestRoom_Update(t *testing.T) {
 	msg := &talk.BackendServerRoomRequest{
 		Type: "update",
 		Update: &talk.BackendRoomUpdateRequest{
-			UserIds: []string{
-				testDefaultUserId,
-			},
 			Properties: roomProperties,
 		},
 	}

@@ -110,24 +110,17 @@ type BackendServerRoomRequest struct {
 }
 
 type BackendRoomInviteRequest struct {
-	UserIds []string `json:"userids,omitempty"`
-	// TODO(jojo): We should get rid of "AllUserIds" and find a better way to
-	// notify existing users the room has changed and they need to update it.
-	AllUserIds []string        `json:"alluserids,omitempty"`
+	UserIds    []string        `json:"userids,omitempty"`
 	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 type BackendRoomDisinviteRequest struct {
 	UserIds    []string            `json:"userids,omitempty"`
 	SessionIds []api.RoomSessionId `json:"sessionids,omitempty"`
-	// TODO(jojo): We should get rid of "AllUserIds" and find a better way to
-	// notify existing users the room has changed and they need to update it.
-	AllUserIds []string        `json:"alluserids,omitempty"`
-	Properties json.RawMessage `json:"properties,omitempty"`
+	Properties json.RawMessage     `json:"properties,omitempty"`
 }
 
 type BackendRoomUpdateRequest struct {
-	UserIds    []string        `json:"userids,omitempty"`
 	Properties json.RawMessage `json:"properties,omitempty"`
 }
 

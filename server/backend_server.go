@@ -400,7 +400,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, 
 	wg.Wait()
 }
 
-func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, notified_userids []string, all_userids []string, properties json.RawMessage) {
+func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, properties json.RawMessage) {
 	msg := &events.AsyncMessage{
 		Type: "message",
 		Message: &api.ServerMessage{
@@ -415,19 +415,8 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, not
 			},
 		},
 	}
-	notified := make(map[string]bool)
-	for _, userid := range notified_userids {
-		notified[userid] = true
-	}
-	// Only send to users not notified otherwise.
-	for _, userid := range all_userids {
-		if notified[userid] {
-			continue
-		}
-
-		if err := b.events.PublishUserMessage(userid, backend, msg); err != nil {
-			b.logger.Printf("Could not publish room update for user %s in backend %s: %s", userid, backend.Id(), err)
-		}
+	if err := b.events.PublishRoomMessage(roomid, backend, msg); err != nil {
+		b.logger.Printf("Could not publish room update for %s in backend %s: %s", roomid, backend.Id(), err)
 	}
 }
 
@@ -902,17 +891,17 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 	switch request.Type {
 	case "invite":
 		b.sendRoomInvite(roomid, backend, request.Invite.UserIds, request.Invite.Properties)
-		b.sendRoomUpdate(roomid, backend, request.Invite.UserIds, request.Invite.AllUserIds, request.Invite.Properties)
+		b.sendRoomUpdate(roomid, backend, request.Invite.Properties)
 	case "disinvite":
+		b.sendRoomUpdate(roomid, backend, request.Disinvite.Properties)
 		b.sendRoomDisinvite(roomid, backend, api.DisinviteReasonDisinvited, request.Disinvite.UserIds, request.Disinvite.SessionIds)
-		b.sendRoomUpdate(roomid, backend, request.Disinvite.UserIds, request.Disinvite.AllUserIds, request.Disinvite.Properties)
 	case "update":
 		message := &events.AsyncMessage{
 			Type: "room",
 			Room: &request,
 		}
 		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
-		b.sendRoomUpdate(roomid, backend, nil, request.Update.UserIds, request.Update.Properties)
+		b.sendRoomUpdate(roomid, backend, request.Update.Properties)
 	case "delete":
 		message := &events.AsyncMessage{
 			Type: "room",
