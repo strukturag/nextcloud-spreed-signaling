@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -220,14 +221,20 @@ func TestRoom_Delete(t *testing.T) {
 		// Ordering should be "leave room", "disinvited".
 		checkMessageRoomId(t, message1, "")
 		if message2, ok := client.RunUntilMessage(ctx); ok {
-			checkMessageRoomlistDisinvite(t, message2)
+			if msg, ok := checkMessageRoomlistDisinvite(t, message2); ok {
+				assert.Equal(roomId, msg.RoomId)
+				assert.Equal(api.DisinviteReasonDeleted, msg.Reason)
+			}
 		}
 		if !client.RunUntilClosed(ctx) {
 			return
 		}
 	} else {
 		// Ordering should be "disinvited", "leave room".
-		checkMessageRoomlistDisinvite(t, message1)
+		if msg, ok := checkMessageRoomlistDisinvite(t, message1); ok {
+			assert.Equal(roomId, msg.RoomId)
+			assert.Equal(api.DisinviteReasonDeleted, msg.Reason)
+		}
 		// The connection should get closed after the "disinvited".
 		// However due to the asynchronous processing, the "leave room" message might be received before.
 		if message2, ok := client.RunUntilMessageOrClosed(ctx); ok && message2 != nil {
