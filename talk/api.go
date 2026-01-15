@@ -125,7 +125,6 @@ type BackendRoomUpdateRequest struct {
 }
 
 type BackendRoomDeleteRequest struct {
-	UserIds []string `json:"userids,omitempty"`
 }
 
 type BackendRoomInCallRequest struct {

@@ -249,32 +249,42 @@ func performBackendRequest(requestUrl string, body []byte) (*http.Response, erro
 	return client.Do(request)
 }
 
-func expectRoomlistEvent(t *testing.T, ch events.AsyncChannel, msgType string) (*api.EventServerMessage, bool) {
+func expectAsyncMessage(t *testing.T, ch events.AsyncChannel) (*events.AsyncMessage, bool) {
 	assert := assert.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	select {
 	case natsMsg := <-ch:
 		var message events.AsyncMessage
-		if !assert.NoError(nats.Decode(natsMsg, &message)) ||
-			!assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
-			!assert.NotNil(message.Message, "message missing, got %+v", message) {
+		if !assert.NoError(nats.Decode(natsMsg, &message)) {
 			return nil, false
 		}
 
-		msg := message.Message
-		if !assert.Equal("event", msg.Type, "invalid message type, got %+v", msg) ||
-			!assert.NotNil(msg.Event, "event missing, got %+v", msg) ||
-			!assert.Equal("roomlist", msg.Event.Target, "invalid event target, got %+v", msg.Event) ||
-			!assert.Equal(msgType, msg.Event.Type, "invalid event type, got %+v", msg.Event) {
-			return nil, false
-		}
-
-		return msg.Event, true
+		return &message, true
 	case <-ctx.Done():
 		assert.NoError(ctx.Err())
 		return nil, false
 	}
+}
+
+func expectRoomlistEvent(t *testing.T, ch events.AsyncChannel, msgType string) (*api.EventServerMessage, bool) {
+	assert := assert.New(t)
+	message, ok := expectAsyncMessage(t, ch)
+	if !ok ||
+		!assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
+		!assert.NotNil(message.Message, "message missing, got %+v", message) {
+		return nil, false
+	}
+
+	msg := message.Message
+	if !assert.Equal("event", msg.Type, "invalid message type, got %+v", msg) ||
+		!assert.NotNil(msg.Event, "event missing, got %+v", msg) ||
+		!assert.Equal("roomlist", msg.Event.Target, "invalid event target, got %+v", msg.Event) ||
+		!assert.Equal(msgType, msg.Event.Type, "invalid event type, got %+v", msg.Event) {
+		return nil, false
+	}
+
+	return msg.Event, true
 }
 
 func TestBackendServer_NoAuth(t *testing.T) {
@@ -724,23 +734,18 @@ func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	_, err = hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 
-	userid := "test-userid"
 	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterBackendRoomListener(roomId, backend, listener))
 	defer func() {
-		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterBackendRoomListener(roomId, backend, listener))
 	}()
 
 	msg := &talk.BackendServerRoomRequest{
-		Type: "delete",
-		Delete: &talk.BackendRoomDeleteRequest{
-			UserIds: []string{
-				userid,
-			},
-		},
+		Type:   "delete",
+		Delete: &talk.BackendRoomDeleteRequest{},
 	}
 
 	data, err := json.Marshal(msg)
@@ -752,11 +757,12 @@ func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
-	// A deleted room is signalled as a "disinvite" event.
-	if event, ok := expectRoomlistEvent(t, eventsChan, "disinvite"); ok && assert.NotNil(event.Disinvite) {
-		assert.Equal(roomId, event.Disinvite.RoomId)
-		assert.Empty(event.Disinvite.Properties)
-		assert.Equal("deleted", event.Disinvite.Reason)
+	// A deleted room is signalled as a backend room event.
+	if message, ok := expectAsyncMessage(t, eventsChan); ok {
+		assert.Equal("room", message.Type)
+		if assert.NotNil(message.Room) {
+			assert.Equal("delete", message.Room.Type)
+		}
 	}
 
 	// TODO: Use event to wait for asynchronous messages.
