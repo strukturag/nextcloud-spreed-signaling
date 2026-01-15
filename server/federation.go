@@ -650,7 +650,7 @@ func (c *FederationClient) joinRoom() error {
 	})
 }
 
-func (c *FederationClient) updateActor(u api.StringMap, actorIdKey, actorTypeKey string, localCloudUrl string, remoteCloudUrl string) (changed bool) {
+func (c *FederationClient) updateActor(u api.UserData, actorIdKey, actorTypeKey string, localCloudUrl string, remoteCloudUrl string) (changed bool) {
 	if actorType, found := api.GetStringMapEntry[string](u, actorTypeKey); found {
 		if actorId, found := api.GetStringMapEntry[string](u, actorIdKey); found {
 			switch actorType {
@@ -726,7 +726,7 @@ func (c *FederationClient) updateComment(comment api.StringMap, localCloudUrl st
 	return changed
 }
 
-func (c *FederationClient) updateEventUsers(users []api.StringMap, localSessionId api.PublicSessionId, remoteSessionId api.PublicSessionId) {
+func (c *FederationClient) updateEventUsers(users api.UserDataList, localSessionId api.PublicSessionId, remoteSessionId api.PublicSessionId) {
 	localCloudUrl := "@" + getCloudUrl(c.session.BackendUrl())
 	remoteCloudUrl := "@" + getCloudUrl(c.federation.Load().NextcloudUrl)
 	checkSessionId := true

@@ -173,7 +173,7 @@ func Test_JanusSubscriberNoSuchRoom(t *testing.T) {
 	}
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
-	room.PublishUsersInCallChanged(users1, users1)
+	room.PublishUsersInCallChanged(users1)
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -275,7 +275,7 @@ func test_JanusSubscriberAlreadyJoined(t *testing.T) {
 	}
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
-	room.PublishUsersInCallChanged(users1, users1)
+	room.PublishUsersInCallChanged(users1)
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -390,7 +390,7 @@ func Test_JanusSubscriberTimeout(t *testing.T) {
 	}
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
-	room.PublishUsersInCallChanged(users1, users1)
+	room.PublishUsersInCallChanged(users1)
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -498,7 +498,7 @@ func Test_JanusSubscriberCloseEmptyStreams(t *testing.T) {
 	}
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
-	room.PublishUsersInCallChanged(users1, users1)
+	room.PublishUsersInCallChanged(users1)
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -612,7 +612,7 @@ func Test_JanusSubscriberRoomDestroyed(t *testing.T) {
 	}
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
-	room.PublishUsersInCallChanged(users1, users1)
+	room.PublishUsersInCallChanged(users1)
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -726,7 +726,7 @@ func Test_JanusSubscriberUpdateOffer(t *testing.T) {
 	}
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
-	room.PublishUsersInCallChanged(users1, users1)
+	room.PublishUsersInCallChanged(users1)
 	checkReceiveClientEvent(ctx, t, client1, "update", nil)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 

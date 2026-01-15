@@ -3101,8 +3101,26 @@ func (h *Hub) processRoomDeleted(message *talk.BackendServerRoomRequest) {
 	}
 
 	sessions := room.Close()
+	if len(sessions) == 0 {
+		return
+	}
+
+	msg := &api.ServerMessage{
+		Type: "event",
+		Event: &api.EventServerMessage{
+			Target: "roomlist",
+			Type:   "disinvite",
+			Disinvite: &api.RoomDisinviteEventServerMessage{
+				RoomEventServerMessage: api.RoomEventServerMessage{
+					RoomId: message.RoomId,
+				},
+				Reason: api.DisinviteReasonDeleted,
+			},
+		},
+	}
 	for _, session := range sessions {
 		// The session is no longer in the room
+		session.SendMessage(msg)
 		session.LeaveRoom(true)
 		switch sess := session.(type) {
 		case *ClientSession:
@@ -3135,7 +3153,7 @@ func (h *Hub) processRoomInCallChanged(message *talk.BackendServerRoomRequest) {
 
 		room.PublishUsersInCallChangedAll(flags)
 	} else {
-		room.PublishUsersInCallChanged(message.InCall.Changed, message.InCall.Users)
+		room.PublishUsersInCallChanged(message.InCall.Changed)
 	}
 }
 
@@ -3145,7 +3163,7 @@ func (h *Hub) processRoomParticipants(message *talk.BackendServerRoomRequest) {
 		return
 	}
 
-	room.PublishUsersChanged(message.Participants.Changed, message.Participants.Users)
+	room.PublishUsersChanged(message.Participants.Changed)
 }
 
 func (h *Hub) GetStats() api.StringMap {
