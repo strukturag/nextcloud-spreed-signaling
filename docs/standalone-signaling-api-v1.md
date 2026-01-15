@@ -1688,7 +1688,9 @@ sent as `POST` request with proper checksum headers as described above.
 
 ### New users invited to room
 
-This can be used to notify users that they are now invited to a room.
+This can be used to notify users that they are now invited to a room. Only
+sessions currently connected to the room (in addition to the invited users)
+will receive an event that they need to update the participant list.
 
 Message format (Backend -> Server)
 
@@ -1697,9 +1699,6 @@ Message format (Backend -> Server)
       "invite" {
         "userids": [
           ...list of user ids that are now invited to the room...
-        ],
-        "alluserids": [
-          ...list of all user ids that invited to the room...
         ],
         "properties": [
           ...additional room properties...
@@ -1711,6 +1710,8 @@ Message format (Backend -> Server)
 ### Users no longer invited to room
 
 This can be used to notify users that they are no longer invited to a room.
+Only sessions currently connected to the room (in addition to the disinvited
+users) will receive an event that they need to update the participant list.
 
 Message format (Backend -> Server)
 
@@ -1719,9 +1720,6 @@ Message format (Backend -> Server)
       "disinvite" {
         "userids": [
           ...list of user ids that are no longer invited to the room...
-        ],
-        "alluserids": [
-          ...list of all user ids that still invited to the room...
         ]
       }
     }
@@ -1730,16 +1728,14 @@ Message format (Backend -> Server)
 ### Room updated
 
 This can be used to notify about changes to a room. The room properties are the
-same as described in section "Join room" above.
+same as described in section "Join room" above. Only sessions currently
+connected to the room will receive an event about the update.
 
 Message format (Backend -> Server)
 
     {
       "type": "update"
       "update" {
-        "userids": [
-          ...list of user ids that are invited to the room...
-        ],
         "properties": [
           ...additional room properties...
         ]
