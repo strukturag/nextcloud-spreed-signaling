@@ -380,22 +380,15 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, 
 	defer cancel()
 	var wg sync.WaitGroup
 	for _, sessionid := range sessionids {
-		if sessionid == sessionIdNotInMeeting {
-			// Ignore entries that are no longer in the meeting.
-			continue
-		}
-
-		wg.Add(1)
-		go func(sessionid api.RoomSessionId) {
-			defer wg.Done()
-			if sid, err := b.lookupByRoomSessionId(ctx, sessionid); err != nil {
-				b.logger.Printf("Could not lookup by room session %s: %s", sessionid, err)
-			} else if sid != "" {
-				if err := b.events.PublishSessionMessage(sid, backend, msg); err != nil {
-					b.logger.Printf("Could not publish room disinvite for session %s: %s", sid, err)
-				}
+		b.asyncLookupByRoomSessionId(ctx, sessionid, &wg, func(sid api.PublicSessionId) {
+			if sid == "" {
+				return
 			}
-		}(sessionid)
+
+			if err := b.events.PublishSessionMessage(sid, backend, msg); err != nil {
+				b.logger.Printf("Could not publish room disinvite for session %s: %s", sid, err)
+			}
+		})
 	}
 	wg.Wait()
 }
@@ -456,19 +449,13 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, users api.UserDat
 			continue
 		}
 
-		wg.Add(1)
-		go func(roomSessionId api.RoomSessionId, u api.UserData) {
-			defer wg.Done()
-			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId); err != nil {
-				b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
-				delete(u, "sessionId")
-			} else if sessionId != "" {
-				u["sessionId"] = sessionId
+		b.asyncLookupByRoomSessionId(ctx, api.RoomSessionId(roomSessionId), &wg, func(sessionId api.PublicSessionId) {
+			if sessionId == "" {
+				delete(user, "sessionId")
 			} else {
-				// sessionId == ""
-				delete(u, "sessionId")
+				user["sessionId"] = sessionId
 			}
-		}(api.RoomSessionId(roomSessionId), user)
+		})
 	}
 	wg.Wait()
 
@@ -571,6 +558,24 @@ func (b *BackendServer) sendRoomMessage(roomid string, backend *talk.Backend, re
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
+func (b *BackendServer) asyncLookupByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, wg *sync.WaitGroup, callback func(sessionId api.PublicSessionId)) {
+	if roomSessionId == sessionIdNotInMeeting {
+		return
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId); err != nil {
+			b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
+			callback("")
+		} else {
+			callback(sessionId)
+		}
+	}()
+}
+
 func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
 	timeout := time.Second
 
@@ -594,21 +599,15 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 
 			var internalSessionsList talk.BackendRoomSwitchToPublicSessionsList
 			for _, roomSessionId := range sessionsList {
-				if roomSessionId == sessionIdNotInMeeting {
-					continue
-				}
-
-				wg.Add(1)
-				go func(roomSessionId api.RoomSessionId) {
-					defer wg.Done()
-					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId); err != nil {
-						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
-					} else if sessionId != "" {
-						mu.Lock()
-						defer mu.Unlock()
-						internalSessionsList = append(internalSessionsList, sessionId)
+				b.asyncLookupByRoomSessionId(ctx, roomSessionId, &wg, func(sessionId api.PublicSessionId) {
+					if sessionId == "" {
+						return
 					}
-				}(roomSessionId)
+
+					mu.Lock()
+					defer mu.Unlock()
+					internalSessionsList = append(internalSessionsList, sessionId)
+				})
 			}
 			wg.Wait()
 
@@ -632,21 +631,15 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 
 			internalSessionsMap := make(talk.BackendRoomSwitchToPublicSessionsMap)
 			for roomSessionId, details := range sessionsMap {
-				if roomSessionId == sessionIdNotInMeeting {
-					continue
-				}
-
-				wg.Add(1)
-				go func(roomSessionId api.RoomSessionId, details json.RawMessage) {
-					defer wg.Done()
-					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId); err != nil {
-						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
-					} else if sessionId != "" {
-						mu.Lock()
-						defer mu.Unlock()
-						internalSessionsMap[sessionId] = details
+				b.asyncLookupByRoomSessionId(ctx, roomSessionId, &wg, func(sessionId api.PublicSessionId) {
+					if sessionId == "" {
+						return
 					}
-				}(roomSessionId, details)
+
+					mu.Lock()
+					defer mu.Unlock()
+					internalSessionsMap[sessionId] = details
+				})
 			}
 			wg.Wait()
 
