@@ -201,12 +201,8 @@ func TestRoom_Delete(t *testing.T) {
 
 	// Simulate backend request from Nextcloud to update the room.
 	msg := &talk.BackendServerRoomRequest{
-		Type: "delete",
-		Delete: &talk.BackendRoomDeleteRequest{
-			UserIds: []string{
-				testDefaultUserId,
-			},
-		},
+		Type:   "delete",
+		Delete: &talk.BackendRoomDeleteRequest{},
 	}
 
 	data, err := json.Marshal(msg)
