@@ -530,7 +530,7 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 				testDefaultUserId,
 			},
 			SessionIds: []api.RoomSessionId{
-				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId, hello.Hello.SessionId)),
+				api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
 			},
 			Properties: roomProperties,
 		},
@@ -551,14 +551,36 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 		assert.Empty(string(event.Disinvite.Properties))
 	}
 
-	if message, ok := client.RunUntilRoomlistUpdate(ctx); ok {
-		assert.Equal(roomId, message.RoomId)
+	// Ordering of "update" and "disinvite" is not defined due to asynchronous
+	// NATS processing. Mostly an issue in tests.
+	var messages []*api.ServerMessage
+	if msg, ok := client.RunUntilMessage(ctx); ok {
+		messages = append(messages, msg)
 	}
-	if message, ok := client.RunUntilRoomlistDisinvite(ctx); ok {
-		assert.Equal(roomId, message.RoomId)
+	if msg, ok := client.RunUntilMessageOrClosed(ctx); msg != nil && ok {
+		messages = append(messages, msg)
+
+		// The client might receive a second disinvite message as both the userid and the session id were disinvited.
+		if msg, ok := client.RunUntilMessageOrClosed(ctx); msg != nil && ok {
+			messages = append(messages, msg)
+			client.RunUntilClosed(ctx)
+		}
 	}
 
-	client.RunUntilClosed(ctx)
+	seen := 0
+	for _, m := range messages {
+		if m.Type == "event" && m.Event.Target == "roomlist" && m.Event.Type == "update" {
+			if message, ok := checkMessageRoomlistUpdate(t, m); ok {
+				assert.Equal(roomId, message.RoomId)
+				seen |= 1
+			}
+		} else if message, ok := checkMessageRoomlistDisinvite(t, m); ok {
+			assert.Equal(roomId, message.RoomId)
+			assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
+			seen |= 2
+		}
+	}
+	assert.True(seen == 2 || seen == 3, "expected a disinvite and optional update, got %+v", messages)
 }
 
 func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
@@ -592,7 +614,7 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 				testDefaultUserId,
 			},
 			SessionIds: []api.RoomSessionId{
-				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId1, hello1.Hello.SessionId)),
+				api.RoomSessionId(fmt.Sprintf("%s-%s", roomId1, hello1.Hello.SessionId)),
 			},
 		},
 	}
@@ -611,12 +633,20 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	}
 	if message, ok := client1.RunUntilRoomlistDisinvite(ctx); ok {
 		assert.Equal(roomId1, message.RoomId)
+		assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
 	}
-
-	client1.RunUntilClosed(ctx)
+	if message, ok := client1.RunUntilMessageOrClosed(ctx); ok && message != nil {
+		// The client might receive a second disinvite message as both the userid and the session id were disinvited.
+		if message, ok := checkMessageRoomlistDisinvite(t, message); ok {
+			assert.Equal(roomId1, message.RoomId)
+			assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
+		}
+		client1.RunUntilClosed(ctx)
+	}
 
 	if message, ok := client2.RunUntilRoomlistDisinvite(ctx); ok {
 		assert.Equal(roomId1, message.RoomId)
+		assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
 	}
 
 	msg = &talk.BackendServerRoomRequest{
@@ -638,6 +668,62 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	if message, ok := client2.RunUntilRoomlistUpdate(ctx); ok {
 		assert.Equal(roomId2, message.RoomId)
 	}
+}
+
+func TestBackendServer_RoomDisinviteClustered(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	_, _, hub1, hub2, server1, server2 := CreateBackendServerWithClusteringForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
+	client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
+
+	// Join room by id.
+	roomId := "test-room1"
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+	msg := &talk.BackendServerRoomRequest{
+		Type: "disinvite",
+		Disinvite: &talk.BackendRoomDisinviteRequest{
+			SessionIds: []api.RoomSessionId{
+				api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId)),
+			},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	require.NoError(err)
+	res, err := performBackendRequest(server1.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if message, ok := client1.RunUntilRoomlistUpdate(ctx); ok {
+		assert.Equal(roomId, message.RoomId)
+	}
+
+	if message, ok := client2.RunUntilRoomlistUpdate(ctx); ok {
+		assert.Equal(roomId, message.RoomId)
+	}
+	if message, ok := client2.RunUntilRoomlistDisinvite(ctx); ok {
+		assert.Equal(roomId, message.RoomId)
+		assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
+	}
+	client2.RunUntilClosed(ctx)
+
+	client1.RunUntilLeft(ctx, hello2.Hello)
 }
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
