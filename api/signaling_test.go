@@ -603,3 +603,77 @@ func TestNoFilterSDPCandidates(t *testing.T) {
 		assert.Equal(mock.MockSdpOfferAudioOnlyNoFilter, strings.ReplaceAll(string(encoded), "\r\n", "\n"))
 	}
 }
+
+func TestUserData(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	type s struct {
+		value any
+	}
+
+	d := UserData{
+		"foo": "bar",
+		"baz": &s{
+			value: 1234,
+		},
+	}
+
+	// Clone is *not* a deep copy.
+	d2 := d.Clone()
+	assert.Equal(d, d2)
+
+	d["baz"].(*s).value = 2345
+	assert.Equal(UserData{
+		"foo": "bar",
+		"baz": &s{
+			value: 2345,
+		},
+	}, d2)
+
+	delete(d2, "foo")
+	assert.Equal(UserData{
+		"baz": &s{
+			value: 2345,
+		},
+	}, d2)
+
+	sid, found := d2.SessionId()
+	assert.False(found, "expected no session id, got %s", sid)
+
+	d2["sessionid"] = "not-found"
+	sid, found = d2.SessionId()
+	assert.False(found, "expected no session id, got %s", sid)
+
+	d2["sessionId"] = "session-id"
+	if sid, found = d2.SessionId(); assert.True(found) {
+		assert.EqualValues("session-id", sid)
+	}
+}
+
+func TestUserDataList(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	l := UserDataList{
+		{
+			"foo": "bar",
+		},
+	}
+
+	// Clone is a deep clone.
+	l2 := l.Clone()
+	assert.Equal(l, l2)
+
+	l[0]["bar"] = "baz"
+	assert.NotEqual(l, l2)
+
+	m := l.Map()
+	assert.Empty(m)
+
+	l[0]["sessionId"] = "session-id"
+	if m := l.Map(); assert.Len(m, 1) {
+		l3 := m.Users()
+		assert.Equal(l, l3)
+	}
+}

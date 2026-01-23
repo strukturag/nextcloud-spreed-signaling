@@ -1144,9 +1144,9 @@ func easyjson6128dd2DecodeGithubComStrukturagNextcloudSpreedSignalingApi8(in *jl
 				in.Delim('[')
 				if out.Changed == nil {
 					if !in.IsDelim(']') {
-						out.Changed = make([]StringMap, 0, 8)
+						out.Changed = make(UserDataList, 0, 8)
 					} else {
-						out.Changed = []StringMap{}
+						out.Changed = UserDataList{}
 					}
 				} else {
 					out.Changed = (out.Changed)[:0]
@@ -1191,9 +1191,9 @@ func easyjson6128dd2DecodeGithubComStrukturagNextcloudSpreedSignalingApi8(in *jl
 				in.Delim('[')
 				if out.Users == nil {
 					if !in.IsDelim(']') {
-						out.Users = make([]StringMap, 0, 8)
+						out.Users = make(UserDataList, 0, 8)
 					} else {
-						out.Users = []StringMap{}
+						out.Users = UserDataList{}
 					}
 				} else {
 					out.Users = (out.Users)[:0]
@@ -1741,9 +1741,9 @@ func easyjson6128dd2DecodeGithubComStrukturagNextcloudSpreedSignalingApi13(in *j
 				in.Delim('[')
 				if out.Changed == nil {
 					if !in.IsDelim(']') {
-						out.Changed = make([]StringMap, 0, 8)
+						out.Changed = make(UserDataList, 0, 8)
 					} else {
-						out.Changed = []StringMap{}
+						out.Changed = UserDataList{}
 					}
 				} else {
 					out.Changed = (out.Changed)[:0]
@@ -1788,9 +1788,9 @@ func easyjson6128dd2DecodeGithubComStrukturagNextcloudSpreedSignalingApi13(in *j
 				in.Delim('[')
 				if out.Users == nil {
 					if !in.IsDelim(']') {
-						out.Users = make([]StringMap, 0, 8)
+						out.Users = make(UserDataList, 0, 8)
 					} else {
-						out.Users = []StringMap{}
+						out.Users = UserDataList{}
 					}
 				} else {
 					out.Users = (out.Users)[:0]

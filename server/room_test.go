@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
@@ -111,9 +112,6 @@ func TestRoom_Update(t *testing.T) {
 	msg := &talk.BackendServerRoomRequest{
 		Type: "update",
 		Update: &talk.BackendRoomUpdateRequest{
-			UserIds: []string{
-				testDefaultUserId,
-			},
 			Properties: roomProperties,
 		},
 	}
@@ -203,12 +201,8 @@ func TestRoom_Delete(t *testing.T) {
 
 	// Simulate backend request from Nextcloud to update the room.
 	msg := &talk.BackendServerRoomRequest{
-		Type: "delete",
-		Delete: &talk.BackendRoomDeleteRequest{
-			UserIds: []string{
-				testDefaultUserId,
-			},
-		},
+		Type:   "delete",
+		Delete: &talk.BackendRoomDeleteRequest{},
 	}
 
 	data, err := json.Marshal(msg)
@@ -227,16 +221,27 @@ func TestRoom_Delete(t *testing.T) {
 		// Ordering should be "leave room", "disinvited".
 		checkMessageRoomId(t, message1, "")
 		if message2, ok := client.RunUntilMessage(ctx); ok {
-			checkMessageRoomlistDisinvite(t, message2)
+			if msg, ok := checkMessageRoomlistDisinvite(t, message2); ok {
+				assert.Equal(roomId, msg.RoomId)
+				assert.Equal(api.DisinviteReasonDeleted, msg.Reason)
+			}
+		}
+		if !client.RunUntilClosed(ctx) {
+			return
 		}
 	} else {
 		// Ordering should be "disinvited", "leave room".
-		checkMessageRoomlistDisinvite(t, message1)
+		if msg, ok := checkMessageRoomlistDisinvite(t, message1); ok {
+			assert.Equal(roomId, msg.RoomId)
+			assert.Equal(api.DisinviteReasonDeleted, msg.Reason)
+		}
 		// The connection should get closed after the "disinvited".
 		// However due to the asynchronous processing, the "leave room" message might be received before.
 		if message2, ok := client.RunUntilMessageOrClosed(ctx); ok && message2 != nil {
 			checkMessageRoomId(t, message2, "")
-			client.RunUntilClosed(ctx)
+			if !client.RunUntilClosed(ctx) {
+				return
+			}
 		}
 	}
 

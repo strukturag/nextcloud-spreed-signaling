@@ -380,27 +380,20 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, 
 	defer cancel()
 	var wg sync.WaitGroup
 	for _, sessionid := range sessionids {
-		if sessionid == sessionIdNotInMeeting {
-			// Ignore entries that are no longer in the meeting.
-			continue
-		}
-
-		wg.Add(1)
-		go func(sessionid api.RoomSessionId) {
-			defer wg.Done()
-			if sid, err := b.lookupByRoomSessionId(ctx, sessionid, nil); err != nil {
-				b.logger.Printf("Could not lookup by room session %s: %s", sessionid, err)
-			} else if sid != "" {
-				if err := b.events.PublishSessionMessage(sid, backend, msg); err != nil {
-					b.logger.Printf("Could not publish room disinvite for session %s: %s", sid, err)
-				}
+		b.asyncLookupByRoomSessionId(ctx, sessionid, &wg, func(sid api.PublicSessionId) {
+			if sid == "" {
+				return
 			}
-		}(sessionid)
+
+			if err := b.events.PublishSessionMessage(sid, backend, msg); err != nil {
+				b.logger.Printf("Could not publish room disinvite for session %s: %s", sid, err)
+			}
+		})
 	}
 	wg.Wait()
 }
 
-func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, notified_userids []string, all_userids []string, properties json.RawMessage) {
+func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, properties json.RawMessage) {
 	msg := &events.AsyncMessage{
 		Type: "message",
 		Message: &api.ServerMessage{
@@ -415,32 +408,15 @@ func (b *BackendServer) sendRoomUpdate(roomid string, backend *talk.Backend, not
 			},
 		},
 	}
-	notified := make(map[string]bool)
-	for _, userid := range notified_userids {
-		notified[userid] = true
-	}
-	// Only send to users not notified otherwise.
-	for _, userid := range all_userids {
-		if notified[userid] {
-			continue
-		}
-
-		if err := b.events.PublishUserMessage(userid, backend, msg); err != nil {
-			b.logger.Printf("Could not publish room update for user %s in backend %s: %s", userid, backend.Id(), err)
-		}
+	if err := b.events.PublishRoomMessage(roomid, backend, msg); err != nil {
+		b.logger.Printf("Could not publish room update for %s in backend %s: %s", roomid, backend.Id(), err)
 	}
 }
 
-func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, cache *container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId]) (api.PublicSessionId, error) {
+func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
 	if roomSessionId == sessionIdNotInMeeting {
 		b.logger.Printf("Trying to lookup empty room session id: %s", roomSessionId)
 		return "", nil
-	}
-
-	if cache != nil {
-		if result, found := cache.Get(roomSessionId); found {
-			return result, nil
-		}
 	}
 
 	sid, err := b.roomSessions.LookupSessionId(ctx, roomSessionId, "")
@@ -450,54 +426,43 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 		return "", err
 	}
 
-	if cache != nil {
-		cache.Set(roomSessionId, sid)
-	}
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId], users []api.StringMap) []api.StringMap {
+func (b *BackendServer) fixupUserSessions(ctx context.Context, users api.UserDataList) api.UserDataList {
 	if len(users) == 0 {
 		return users
 	}
 
 	var wg sync.WaitGroup
 	for _, user := range users {
-		roomSessionId, found := api.GetStringMapString[api.RoomSessionId](user, "sessionId")
+		roomSessionId, found := user.SessionId()
 		if !found {
 			b.logger.Printf("User %+v has invalid room session id, ignoring", user)
 			delete(user, "sessionId")
 			continue
 		}
 
-		if roomSessionId == sessionIdNotInMeeting {
+		if api.RoomSessionId(roomSessionId) == sessionIdNotInMeeting {
 			b.logger.Printf("User %+v is not in the meeting, ignoring", user)
 			delete(user, "sessionId")
 			continue
 		}
 
-		wg.Add(1)
-		go func(roomSessionId api.RoomSessionId, u api.StringMap) {
-			defer wg.Done()
-			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
-				b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
-				delete(u, "sessionId")
-			} else if sessionId != "" {
-				u["sessionId"] = sessionId
+		b.asyncLookupByRoomSessionId(ctx, api.RoomSessionId(roomSessionId), &wg, func(sessionId api.PublicSessionId) {
+			if sessionId == "" {
+				delete(user, "sessionId")
 			} else {
-				// sessionId == ""
-				delete(u, "sessionId")
+				user["sessionId"] = sessionId
 			}
-		}(roomSessionId, user)
+		})
 	}
 	wg.Wait()
 
-	result := make([]api.StringMap, 0, len(users))
-	for _, user := range users {
-		if _, found := user["sessionId"]; found {
-			result = append(result, user)
-		}
-	}
+	result := slices.DeleteFunc(users, func(user api.UserData) bool {
+		_, found := user["sessionId"]
+		return !found
+	})
 	return result
 }
 
@@ -508,13 +473,10 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, req
 		ctx := log.NewLoggerContext(context.Background(), b.logger)
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		var cache container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId]
-		// Convert (Nextcloud) session ids to signaling session ids.
-		request.InCall.Users = b.fixupUserSessions(ctx, &cache, request.InCall.Users)
-		// Entries in "Changed" are most likely already fetched through the "Users" list.
-		request.InCall.Changed = b.fixupUserSessions(ctx, &cache, request.InCall.Changed)
 
-		if len(request.InCall.Users) == 0 && len(request.InCall.Changed) == 0 {
+		// Convert (Nextcloud) session ids to signaling session ids.
+		request.InCall.Changed = b.fixupUserSessions(ctx, request.InCall.Changed)
+		if len(request.InCall.Changed) == 0 {
 			return nil
 		}
 	}
@@ -532,11 +494,9 @@ func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid s
 	// Convert (Nextcloud) session ids to signaling session ids.
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var cache container.ConcurrentMap[api.RoomSessionId, api.PublicSessionId]
-	request.Participants.Users = b.fixupUserSessions(ctx, &cache, request.Participants.Users)
-	request.Participants.Changed = b.fixupUserSessions(ctx, &cache, request.Participants.Changed)
 
-	if len(request.Participants.Users) == 0 && len(request.Participants.Changed) == 0 {
+	request.Participants.Changed = b.fixupUserSessions(ctx, request.Participants.Changed)
+	if len(request.Participants.Changed) == 0 {
 		return nil
 	}
 
@@ -548,7 +508,7 @@ loop:
 			continue
 		}
 
-		sessionId, found := api.GetStringMapString[api.PublicSessionId](user, "sessionId")
+		sessionId, found := user.SessionId()
 		if !found {
 			b.logger.Printf("User entry has no session id: %+v", user)
 			continue
@@ -598,6 +558,24 @@ func (b *BackendServer) sendRoomMessage(roomid string, backend *talk.Backend, re
 	return b.events.PublishBackendRoomMessage(roomid, backend, message)
 }
 
+func (b *BackendServer) asyncLookupByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, wg *sync.WaitGroup, callback func(sessionId api.PublicSessionId)) {
+	if roomSessionId == sessionIdNotInMeeting {
+		return
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId); err != nil {
+			b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
+			callback("")
+		} else {
+			callback(sessionId)
+		}
+	}()
+}
+
 func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
 	timeout := time.Second
 
@@ -621,21 +599,15 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 
 			var internalSessionsList talk.BackendRoomSwitchToPublicSessionsList
 			for _, roomSessionId := range sessionsList {
-				if roomSessionId == sessionIdNotInMeeting {
-					continue
-				}
-
-				wg.Add(1)
-				go func(roomSessionId api.RoomSessionId) {
-					defer wg.Done()
-					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
-						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
-					} else if sessionId != "" {
-						mu.Lock()
-						defer mu.Unlock()
-						internalSessionsList = append(internalSessionsList, sessionId)
+				b.asyncLookupByRoomSessionId(ctx, roomSessionId, &wg, func(sessionId api.PublicSessionId) {
+					if sessionId == "" {
+						return
 					}
-				}(roomSessionId)
+
+					mu.Lock()
+					defer mu.Unlock()
+					internalSessionsList = append(internalSessionsList, sessionId)
+				})
 			}
 			wg.Wait()
 
@@ -659,21 +631,15 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 
 			internalSessionsMap := make(talk.BackendRoomSwitchToPublicSessionsMap)
 			for roomSessionId, details := range sessionsMap {
-				if roomSessionId == sessionIdNotInMeeting {
-					continue
-				}
-
-				wg.Add(1)
-				go func(roomSessionId api.RoomSessionId, details json.RawMessage) {
-					defer wg.Done()
-					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
-						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
-					} else if sessionId != "" {
-						mu.Lock()
-						defer mu.Unlock()
-						internalSessionsMap[sessionId] = details
+				b.asyncLookupByRoomSessionId(ctx, roomSessionId, &wg, func(sessionId api.PublicSessionId) {
+					if sessionId == "" {
+						return
 					}
-				}(roomSessionId, details)
+
+					mu.Lock()
+					defer mu.Unlock()
+					internalSessionsMap[sessionId] = details
+				})
 			}
 			wg.Wait()
 
@@ -918,24 +884,24 @@ func (b *BackendServer) roomHandler(ctx context.Context, w http.ResponseWriter, 
 	switch request.Type {
 	case "invite":
 		b.sendRoomInvite(roomid, backend, request.Invite.UserIds, request.Invite.Properties)
-		b.sendRoomUpdate(roomid, backend, request.Invite.UserIds, request.Invite.AllUserIds, request.Invite.Properties)
+		b.sendRoomUpdate(roomid, backend, request.Invite.Properties)
 	case "disinvite":
+		b.sendRoomUpdate(roomid, backend, request.Disinvite.Properties)
 		b.sendRoomDisinvite(roomid, backend, api.DisinviteReasonDisinvited, request.Disinvite.UserIds, request.Disinvite.SessionIds)
-		b.sendRoomUpdate(roomid, backend, request.Disinvite.UserIds, request.Disinvite.AllUserIds, request.Disinvite.Properties)
 	case "update":
 		message := &events.AsyncMessage{
 			Type: "room",
 			Room: &request,
 		}
 		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
-		b.sendRoomUpdate(roomid, backend, nil, request.Update.UserIds, request.Update.Properties)
+		b.sendRoomUpdate(roomid, backend, request.Update.Properties)
 	case "delete":
+		// Notify the backend about the room deletion.
 		message := &events.AsyncMessage{
 			Type: "room",
 			Room: &request,
 		}
 		err = b.events.PublishBackendRoomMessage(roomid, backend, message)
-		b.sendRoomDisinvite(roomid, backend, api.DisinviteReasonDeleted, request.Delete.UserIds, nil)
 	case "incall":
 		err = b.sendRoomIncall(roomid, backend, &request)
 	case "participants":
