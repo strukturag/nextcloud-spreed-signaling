@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -270,6 +271,10 @@ func (p *SFUPublisher) PublishRemote(ctx context.Context, remoteId api.PublicSes
 
 func (p *SFUPublisher) UnpublishRemote(ctx context.Context, remoteId api.PublicSessionId, hostname string, port int, rtcpPort int) error {
 	return errors.New("remote publishing not supported")
+}
+
+func (p *SFUPublisher) GetConnectionURL() (string, net.IP) {
+	return "https://proxy.domain.invalid", net.ParseIP("10.20.30.40")
 }
 
 type SFUSubscriber struct {
