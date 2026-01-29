@@ -29,7 +29,7 @@ import (
 type Storage[T any] struct {
 	mu sync.Mutex
 	// +checklocks:mu
-	entries map[string]T // +checklocksignore: Not supported yet, see https://github.com/google/gvisor/issues/11671
+	entries map[string]T
 }
 
 func (s *Storage[T]) cleanup(key string) {
