@@ -34,9 +34,30 @@ var (
 		Name:      "sessions",
 		Help:      "The current number of sessions in a room",
 	}, []string{"backend", "room", "clienttype"})
+	statsCallSessionsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "signaling",
+		Subsystem: "call",
+		Name:      "sessions",
+		Help:      "The current number of sessions in a call",
+	}, []string{"backend", "room", "clienttype"})
+	statsCallSessionsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "call",
+		Name:      "sessions_total",
+		Help:      "The total number of sessions in a call",
+	}, []string{"backend", "clienttype"})
+	statsCallRoomsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "signaling",
+		Subsystem: "call",
+		Name:      "rooms_total",
+		Help:      "The total number of rooms with an active call",
+	}, []string{"backend"})
 
 	roomStats = []prometheus.Collector{
 		statsRoomSessionsCurrent,
+		statsCallSessionsCurrent,
+		statsCallSessionsTotal,
+		statsCallRoomsTotal,
 	}
 )
 
