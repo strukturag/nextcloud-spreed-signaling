@@ -589,6 +589,30 @@ func TestVirtualSessionCustomInCall(t *testing.T) {
 		checkHasEntryWithInCall(t, updateMsg, sessionId, "virtual", newInCall)
 		checkHasEntryWithInCall(t, updateMsg, helloInternal.Hello.SessionId, "internal", FlagInCall|FlagWithAudio)
 	}
+
+	newInCall2 := FlagDisconnected
+	msgInCall3 := &api.ClientMessage{
+		Type: "internal",
+		Internal: &api.InternalClientMessage{
+			Type: "updatesession",
+			UpdateSession: &api.UpdateSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
+					SessionId: internalSessionId,
+					RoomId:    roomId,
+				},
+				InCall: &newInCall2,
+			},
+		},
+	}
+	require.NoError(clientInternal.WriteJSON(msgInCall3))
+
+	msg6 := MustSucceed1(t, client.RunUntilMessage, ctx)
+	if updateMsg, ok := checkMessageParticipantsInCall(t, msg6); ok {
+		assert.Equal(roomId, updateMsg.RoomId)
+		assert.Len(updateMsg.Users, 2)
+		checkHasEntryWithInCall(t, updateMsg, sessionId, "virtual", newInCall2)
+		checkHasEntryWithInCall(t, updateMsg, helloInternal.Hello.SessionId, "internal", FlagInCall|FlagWithAudio)
+	}
 }
 
 func TestVirtualSessionCleanup(t *testing.T) {
