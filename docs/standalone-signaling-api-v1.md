@@ -1867,6 +1867,36 @@ Message format (Backend -> Server)
     }
 
 
+The signaling server also supports combining multiple chat comments into one
+request which will then be sent out individually to clients.
+
+Message format (Backend -> Server)
+
+    {
+      "type": "message"
+      "message" {
+        "data": {
+          "type": "chat",
+          "chat": {
+            "refresh": true,
+            "comments": [
+              {
+                ...properties of the first comment written in the chat...
+              },
+              {
+                ...properties of the second comment written in the chat...
+              }
+            ]
+          }
+        }
+      }
+    }
+
+In this case, clients will either receive a single `"refresh": true` message
+(if they don't support `chat-relay`) or multiple messages with the different
+comments.
+
+
 ### Notify sessions to switch to a different room
 
 This can be used to let sessions in a room know that they switch to a different
