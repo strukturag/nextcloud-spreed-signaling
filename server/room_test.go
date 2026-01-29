@@ -35,12 +35,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
-func TestRoom_InCall(t *testing.T) {
+func TestRoom_InCallFlag(t *testing.T) {
 	t.Parallel()
 	type Testcase struct {
 		Value  any
@@ -352,6 +353,153 @@ func TestRoom_RoomSessionData(t *testing.T) {
 	entries, wg := room.publishActiveSessions()
 	assert.Equal(1, entries)
 	wg.Wait()
+}
+
+func TestRoom_InCall(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, router, server := CreateHubForTest(t)
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	b, err := NewBackendServer(ctx, config, hub, "no-version")
+	require.NoError(err)
+	require.NoError(b.Start(router))
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	client1.RunUntilJoined(ctx, hello1.Hello)
+
+	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	client1.RunUntilJoined(ctx, hello2.Hello)
+
+	msg1 := &talk.BackendServerRoomRequest{
+		Type: "incall",
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall: json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
+			Changed: []api.StringMap{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
+					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
+				},
+			},
+			Users: []api.StringMap{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
+					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
+				},
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
+					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
+				},
+			},
+		},
+	}
+
+	data1, err := json.Marshal(msg1)
+	require.NoError(err)
+	res1, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data1)
+	require.NoError(err)
+	defer res1.Body.Close()
+	body1, err := io.ReadAll(res1.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res1.StatusCode, "Expected successful request, got %s", string(body1))
+
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
+			assert.Equal(roomId, message.RoomId)
+			if assert.Len(message.Users, 2) {
+				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
+				assert.EqualValues(FlagInCall, message.Users[0]["inCall"])
+				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
+				assert.EqualValues(0, message.Users[1]["inCall"])
+			}
+		}
+	}
+
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
+			assert.Equal(roomId, message.RoomId)
+			if assert.Len(message.Users, 2) {
+				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
+				assert.EqualValues(FlagInCall, message.Users[0]["inCall"])
+				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
+				assert.EqualValues(0, message.Users[1]["inCall"])
+			}
+		}
+	}
+
+	msg2 := &talk.BackendServerRoomRequest{
+		Type: "incall",
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall: json.RawMessage(strconv.FormatInt(0, 10)),
+			Changed: []api.StringMap{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
+					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
+				},
+			},
+			Users: []api.StringMap{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
+					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
+				},
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
+					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
+				},
+			},
+		},
+	}
+
+	data2, err := json.Marshal(msg2)
+	require.NoError(err)
+	res2, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data2)
+	require.NoError(err)
+	defer res2.Body.Close()
+	body2, err := io.ReadAll(res2.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res2.StatusCode, "Expected successful request, got %s", string(body2))
+
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
+			assert.Equal(roomId, message.RoomId)
+			if assert.Len(message.Users, 2) {
+				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
+				assert.EqualValues(0, message.Users[0]["inCall"])
+				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
+				assert.EqualValues(0, message.Users[1]["inCall"])
+			}
+		}
+	}
+
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
+			assert.Equal(roomId, message.RoomId)
+			if assert.Len(message.Users, 2) {
+				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
+				assert.EqualValues(0, message.Users[0]["inCall"])
+				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
+				assert.EqualValues(0, message.Users[1]["inCall"])
+			}
+		}
+	}
 }
 
 func TestRoom_InCallAll(t *testing.T) {

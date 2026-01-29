@@ -74,3 +74,6 @@ The following metrics are available:
 | `signaling_mcu_media_lost_total`                  | Counter   | 2.0.5     | The total number of lost media packets                                    | `media`, `origin`                 |
 | `signaling_client_bytes_total`                    | Counter   | 2.0.5     | The total number of bytes sent to or received by clients                  | `direction`                       |
 | `signaling_client_messages_total`                 | Counter   | 2.0.5     | The total number of messages sent to or received by clients               | `direction`                       |
+| `signaling_call_sessions`                         | Gauge     | 2.0.5     | The current number of sessions in a call                                  | `backend`, `room`, `clienttype`   |
+| `signaling_call_sessions_total`                   | Counter   | 2.0.5     | The total number of sessions in a call                                    | `backend`, `clienttype`           |
+| `signaling_call_rooms_total`                      | Counter   | 2.0.5     | The total number of rooms with an active call                             | `backend`                         |
