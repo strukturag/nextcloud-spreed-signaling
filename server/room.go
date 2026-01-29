@@ -94,6 +94,12 @@ type Room struct {
 
 	// +checklocks:mu
 	statsRoomSessionsCurrent *prometheus.GaugeVec
+	// +checklocks:mu
+	statsCallSessionsCurrent *prometheus.GaugeVec
+	// +checklocks:mu
+	statsCallSessionsTotal *prometheus.CounterVec
+	// +checklocks:mu
+	statsCallRoomsTotal prometheus.Counter
 
 	// Users currently in the room
 	users []api.StringMap
@@ -136,6 +142,14 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 			"backend": backend.Id(),
 			"room":    roomId,
 		}),
+		statsCallSessionsCurrent: statsCallSessionsCurrent.MustCurryWith(prometheus.Labels{
+			"backend": backend.Id(),
+			"room":    roomId,
+		}),
+		statsCallSessionsTotal: statsCallSessionsTotal.MustCurryWith(prometheus.Labels{
+			"backend": backend.Id(),
+		}),
+		statsCallRoomsTotal: statsCallRoomsTotal.WithLabelValues(backend.Id()),
 
 		lastRoomRequests: make(map[string]int64),
 
@@ -223,6 +237,7 @@ func (r *Room) Close() []Session {
 	r.hub.removeRoom(r)
 	r.doClose()
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.unsubscribeBackend()
 	result := make([]Session, 0, len(r.sessions))
 	for _, s := range r.sessions {
@@ -230,9 +245,10 @@ func (r *Room) Close() []Session {
 	}
 	r.sessions = nil
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeClient)})
+	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeFederation)})
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeInternal)})
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeVirtual)})
-	r.mu.Unlock()
+	r.clearInCallStats()
 	return result
 }
 
@@ -480,16 +496,69 @@ func (r *Room) notifySessionJoined(sessionId api.PublicSessionId) {
 
 func (r *Room) HasSession(session Session) bool {
 	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	_, result := r.sessions[session.PublicId()]
-	r.mu.RUnlock()
 	return result
 }
 
 func (r *Room) IsSessionInCall(session Session) bool {
 	r.mu.RLock()
-	_, result := r.inCallSessions[session]
-	r.mu.RUnlock()
-	return result
+	defer r.mu.RUnlock()
+
+	return r.inCallSessions[session]
+}
+
+// +checklocks:r.mu
+func (r *Room) clearInCallStats() {
+	r.statsCallSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeClient)})
+	r.statsCallSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeFederation)})
+	r.statsCallSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeInternal)})
+	r.statsCallSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeVirtual)})
+}
+
+func (r *Room) addSessionToCall(session Session) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.addSessionToCallLocked(session)
+}
+
+// +checklocks:r.mu
+func (r *Room) addSessionToCallLocked(session Session) bool {
+	if r.inCallSessions[session] {
+		return false
+	}
+
+	if len(r.inCallSessions) == 0 {
+		r.statsCallRoomsTotal.Inc()
+	}
+	r.inCallSessions[session] = true
+	r.statsCallSessionsCurrent.WithLabelValues(string(session.ClientType())).Inc()
+	r.statsCallSessionsTotal.WithLabelValues(string(session.ClientType())).Inc()
+	return true
+}
+
+func (r *Room) removeSessionFromCall(session Session) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.removeSessionFromCallLocked(session)
+}
+
+// +checklocks:r.mu
+func (r *Room) removeSessionFromCallLocked(session Session) bool {
+	if !r.inCallSessions[session] {
+		return false
+	}
+
+	delete(r.inCallSessions, session)
+	if len(r.inCallSessions) == 0 {
+		r.clearInCallStats()
+	} else {
+		r.statsCallSessionsCurrent.WithLabelValues(string(session.ClientType())).Dec()
+	}
+	return true
 }
 
 // Returns "true" if there are still clients in the room.
@@ -520,7 +589,7 @@ func (r *Room) RemoveSession(session Session) bool {
 		delete(r.internalSessions, clientSession)
 		r.transientData.RemoveListener(clientSession)
 	}
-	delete(r.inCallSessions, session)
+	r.removeSessionFromCallLocked(session)
 	delete(r.roomSessionData, sid)
 	if len(r.sessions) > 0 {
 		r.mu.Unlock()
@@ -829,16 +898,11 @@ func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.St
 		}
 
 		if inCall {
-			r.mu.Lock()
-			if !r.inCallSessions[session] {
-				r.inCallSessions[session] = true
+			if r.addSessionToCall(session) {
 				r.logger.Printf("Session %s joined call %s", session.PublicId(), r.id)
 			}
-			r.mu.Unlock()
 		} else {
-			r.mu.Lock()
-			delete(r.inCallSessions, session)
-			r.mu.Unlock()
+			r.removeSessionFromCall(session)
 			if clientSession, ok := session.(*ClientSession); ok {
 				clientSession.LeaveCall()
 			}
@@ -884,8 +948,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 				continue
 			}
 
-			if !r.inCallSessions[session] {
-				r.inCallSessions[session] = true
+			if r.addSessionToCallLocked(session) {
 				joined = append(joined, session.PublicId())
 			}
 			notify = append(notify, clientSession)
@@ -925,7 +988,8 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 			}
 		}
 		close(ch)
-		r.inCallSessions = make(map[Session]bool)
+		clear(r.inCallSessions)
+		r.clearInCallStats()
 	} else {
 		// All sessions already left the call, no need to notify.
 		return
@@ -1021,16 +1085,11 @@ func (r *Room) NotifySessionChanged(session Session, flags SessionChangeFlag) {
 		if joinLeave != 0 {
 			switch joinLeave {
 			case 1:
-				r.mu.Lock()
-				if !r.inCallSessions[session] {
-					r.inCallSessions[session] = true
+				if r.addSessionToCall(session) {
 					r.logger.Printf("Session %s joined call %s", session.PublicId(), r.id)
 				}
-				r.mu.Unlock()
 			case 2:
-				r.mu.Lock()
-				delete(r.inCallSessions, session)
-				r.mu.Unlock()
+				r.removeSessionFromCall(session)
 				if clientSession, ok := session.(*ClientSession); ok {
 					clientSession.LeaveCall()
 				}
