@@ -1215,6 +1215,14 @@ type RoomEventMessageDataChat struct {
 
 	// Comment will be included if the client supports the "chat-relay" feature.
 	Comment json.RawMessage `json:"comment,omitempty"`
+	// Comments will be included if the client supports the "chat-relay" feature.
+	Comments []json.RawMessage `json:"comments,omitempty"`
+}
+
+func (m *RoomEventMessageDataChat) HasComment() bool {
+	return len(m.Comment) > 0 || slices.ContainsFunc(m.Comments, func(comment json.RawMessage) bool {
+		return len(comment) > 0
+	})
 }
 
 type RoomEventMessageData struct {

@@ -249,6 +249,72 @@ func TestFeatureChatRelay(t *testing.T) {
 					}
 				}
 			}
+
+			chatComment2 := api.StringMap{
+				"hello": "world",
+			}
+			message2 := api.StringMap{
+				"type": "chat",
+				"chat": api.StringMap{
+					"refresh": true,
+					"comments": []api.StringMap{
+						chatComment,
+						chatComment2,
+					},
+				},
+			}
+			data2, err := json.Marshal(message2)
+			require.NoError(err)
+
+			// Simulate request from the backend.
+			room.processAsyncMessage(&events.AsyncMessage{
+				Type: "room",
+				Room: &talk.BackendServerRoomRequest{
+					Type: "message",
+					Message: &talk.BackendRoomMessageRequest{
+						Data: data2,
+					},
+				},
+			})
+
+			if msg, ok := client.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(roomId, msg.RoomId)
+				var data api.StringMap
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+						if feature {
+							assert.EqualValues(chatComment, chat["comment"])
+							_, found := chat["refresh"]
+							assert.False(found, "refresh should not be included")
+
+							// A second message with the second comment will be sent
+							if msg, ok := client.RunUntilRoomMessage(ctx); ok {
+								assert.Equal(roomId, msg.RoomId)
+
+								if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+									assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+									if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+										assert.EqualValues(chatComment2, chat["comment"])
+										_, found := chat["refresh"]
+										assert.False(found, "refresh should not be included")
+									}
+								}
+							}
+						} else {
+							// Only a single refresh will be sent
+							assert.Equal(true, chat["refresh"])
+							_, found := chat["comment"]
+							assert.False(found, "the comment should not be included")
+
+							ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+							defer cancel2()
+
+							client.RunUntilErrorIs(ctx2, context.DeadlineExceeded)
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -457,6 +523,99 @@ func TestFeatureChatRelayFederation(t *testing.T) {
 							assert.Equal(true, chat["refresh"])
 							_, found := chat["comment"]
 							assert.False(found, "the comment should not be included")
+						}
+					}
+				}
+			}
+
+			chatComment2 := api.StringMap{
+				"hello": "world",
+			}
+			message2 := api.StringMap{
+				"type": "chat",
+				"chat": api.StringMap{
+					"refresh": true,
+					"comments": []api.StringMap{
+						chatComment,
+						chatComment2,
+					},
+				},
+			}
+			data2, err := json.Marshal(message2)
+			require.NoError(err)
+
+			// Simulate request from the backend.
+			room.processAsyncMessage(&events.AsyncMessage{
+				Type: "room",
+				Room: &talk.BackendServerRoomRequest{
+					Type: "message",
+					Message: &talk.BackendRoomMessageRequest{
+						Data: data2,
+					},
+				},
+			})
+
+			// The first client will receive the message for the local room (always including the actual message).
+			if msg, ok := client1.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(roomId, msg.RoomId)
+				var data api.StringMap
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+						AssertEqualSerialized(t, chatComment, chat["comment"])
+						_, found := chat["refresh"]
+						assert.False(found, "refresh should not be included")
+					}
+				}
+			}
+			// A second message with the second comment will be sent
+			if msg, ok := client1.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(roomId, msg.RoomId)
+				var data api.StringMap
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+						assert.EqualValues(chatComment2, chat["comment"])
+						_, found := chat["refresh"]
+						assert.False(found, "refresh should not be included")
+					}
+				}
+			}
+
+			// The second client will receive the message from the federated room (either as refresh or with the message).
+			if msg, ok := client2.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(federatedRoomId, msg.RoomId)
+				var data api.StringMap
+				if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+					assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+					if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+						if feature {
+							AssertEqualSerialized(t, federatedChatComment, chat["comment"])
+							_, found := chat["refresh"]
+							assert.False(found, "refresh should not be included")
+
+							// A second message with the second comment will be sent
+							if msg, ok := client2.RunUntilRoomMessage(ctx); ok {
+								assert.Equal(federatedRoomId, msg.RoomId)
+								if err := json.Unmarshal(msg.Data, &data); assert.NoError(err) {
+									assert.Equal("chat", data["type"], "invalid type entry in %+v", data)
+									if chat, found := api.GetStringMapEntry[map[string]any](data, "chat"); assert.True(found, "chat entry is missing in %+v", data) {
+										assert.EqualValues(chatComment2, chat["comment"])
+										_, found := chat["refresh"]
+										assert.False(found, "refresh should not be included")
+									}
+								}
+							}
+						} else {
+							// Only a single refresh will be sent
+							assert.Equal(true, chat["refresh"])
+							_, found := chat["comment"]
+							assert.False(found, "the comment should not be included")
+
+							ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+							defer cancel2()
+
+							client2.RunUntilErrorIs(ctx2, context.DeadlineExceeded)
 						}
 					}
 				}
