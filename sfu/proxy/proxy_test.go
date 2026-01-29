@@ -25,6 +25,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -32,6 +33,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,10 +42,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/async"
 	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
 	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
@@ -1237,4 +1241,510 @@ func Test_ProxyResumeFail(t *testing.T) {
 	if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
 		assert.NotEqual(sessionId, connections[0].SessionId())
 	}
+}
+
+type publisherHub struct {
+	grpctest.MockHub
+
+	mu sync.Mutex
+	// +checklocks:mu
+	publishers map[api.PublicSessionId]*proxyPublisher
+	waiter     async.ChannelWaiters // +checklocksignore: Has its own locking.
+}
+
+func newPublisherHub() *publisherHub {
+	return &publisherHub{
+		publishers: make(map[api.PublicSessionId]*proxyPublisher),
+	}
+}
+
+func (h *publisherHub) addPublisher(publisher *proxyPublisher) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.publishers[publisher.PublisherId()] = publisher
+	h.waiter.Wakeup()
+}
+
+func (h *publisherHub) GetPublisherIdForSessionId(ctx context.Context, sessionId api.PublicSessionId, streamType sfu.StreamType) (*grpc.GetPublisherIdReply, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	pub, found := h.publishers[sessionId]
+	if !found {
+		ch := make(chan struct{}, 1)
+		id := h.waiter.Add(ch)
+		defer h.waiter.Remove(id)
+
+		for !found {
+			h.mu.Unlock()
+			select {
+			case <-ch:
+				h.mu.Lock()
+				pub, found = h.publishers[sessionId]
+			case <-ctx.Done():
+				h.mu.Lock()
+				return nil, ctx.Err()
+			}
+		}
+	}
+
+	connToken, err := pub.conn.proxy.CreateToken("")
+	if err != nil {
+		return nil, err
+	}
+	pubToken, err := pub.conn.proxy.CreateToken(string(pub.Id()))
+	if err != nil {
+		return nil, err
+	}
+
+	reply := &grpc.GetPublisherIdReply{
+		PublisherId:    pub.Id(),
+		ProxyUrl:       pub.conn.rawUrl,
+		ConnectToken:   connToken,
+		PublisherToken: pubToken,
+	}
+	if ip := pub.conn.ip; len(ip) > 0 {
+		reply.Ip = ip.String()
+	}
+	return reply, nil
+}
+
+func Test_ProxyRemotePublisher(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
+
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
+
+	hub1 := newPublisherHub()
+	hub2 := newPublisherHub()
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
+
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+
+	server1 := testserver.NewProxyServerForTest(t, "DE")
+	server2 := testserver.NewProxyServerForTest(t, "DE")
+
+	mcu1, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+			server2,
+		},
+	}, 1, nil)
+	mcu2, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+			server2,
+		},
+	}, 2, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("the-publisher")
+	pubSid := "1234567890"
+	pubListener := mock.NewListener(pubId + "-public")
+	pubInitiator := mock.NewInitiator("DE")
+
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
+		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(t, err)
+
+	defer pub.Close(context.Background())
+
+	if proxyPub, ok := pub.(*proxyPublisher); assert.True(ok) {
+		hub1.addPublisher(proxyPub)
+	}
+
+	subListener := mock.NewListener("subscriber-public")
+	subInitiator := mock.NewInitiator("DE")
+	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, sfu.StreamTypeVideo, subInitiator)
+	require.NoError(t, err)
+
+	defer sub.Close(context.Background())
+}
+
+func Test_ProxyMultipleRemotePublisher(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
+
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
+	grpcServer3, addr3 := grpctest.NewServerForTest(t)
+
+	hub1 := newPublisherHub()
+	hub2 := newPublisherHub()
+	hub3 := newPublisherHub()
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
+	grpcServer3.SetHub(hub3)
+
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+	embedEtcd.SetValue("/grpctargets/three", []byte("{\"address\":\""+addr3+"\"}"))
+
+	server1 := testserver.NewProxyServerForTest(t, "DE")
+	server2 := testserver.NewProxyServerForTest(t, "US")
+	server3 := testserver.NewProxyServerForTest(t, "US")
+
+	mcu1, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+			server2,
+			server3,
+		},
+	}, 1, nil)
+	mcu2, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+			server2,
+			server3,
+		},
+	}, 2, nil)
+	mcu3, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+			server2,
+			server3,
+		},
+	}, 3, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("the-publisher")
+	pubSid := "1234567890"
+	pubListener := mock.NewListener(pubId + "-public")
+	pubInitiator := mock.NewInitiator("DE")
+
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
+		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(t, err)
+
+	defer pub.Close(context.Background())
+
+	if proxyPub, ok := pub.(*proxyPublisher); assert.True(ok) {
+		hub1.addPublisher(proxyPub)
+	}
+
+	sub1Listener := mock.NewListener("subscriber-public-1")
+	sub1Initiator := mock.NewInitiator("US")
+	sub1, err := mcu2.NewSubscriber(ctx, sub1Listener, pubId, sfu.StreamTypeVideo, sub1Initiator)
+	require.NoError(t, err)
+
+	defer sub1.Close(context.Background())
+
+	sub2Listener := mock.NewListener("subscriber-public-2")
+	sub2Initiator := mock.NewInitiator("US")
+	sub2, err := mcu3.NewSubscriber(ctx, sub2Listener, pubId, sfu.StreamTypeVideo, sub2Initiator)
+	require.NoError(t, err)
+
+	defer sub2.Close(context.Background())
+}
+
+func Test_ProxyRemotePublisherWait(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
+
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
+
+	hub1 := newPublisherHub()
+	hub2 := newPublisherHub()
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
+
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+
+	server1 := testserver.NewProxyServerForTest(t, "DE")
+	server2 := testserver.NewProxyServerForTest(t, "DE")
+
+	mcu1, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+			server2,
+		},
+	}, 1, nil)
+	mcu2, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+			server2,
+		},
+	}, 2, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("the-publisher")
+	pubSid := "1234567890"
+	pubListener := mock.NewListener(pubId + "-public")
+	pubInitiator := mock.NewInitiator("DE")
+
+	subListener := mock.NewListener("subscriber-public")
+	subInitiator := mock.NewInitiator("DE")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, sfu.StreamTypeVideo, subInitiator)
+		if !assert.NoError(err) {
+			return
+		}
+
+		defer sub.Close(context.Background())
+	}()
+
+	// Give subscriber goroutine some time to start
+	time.Sleep(100 * time.Millisecond)
+
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
+		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(t, err)
+
+	defer pub.Close(context.Background())
+
+	if proxyPub, ok := pub.(*proxyPublisher); assert.True(ok) {
+		hub1.addPublisher(proxyPub)
+	}
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		assert.NoError(ctx.Err())
+	}
+}
+
+func Test_ProxyRemotePublisherTemporary(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+	assert := assert.New(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
+
+	server, addr1 := grpctest.NewServerForTest(t)
+	hub := newPublisherHub()
+	server.SetHub(hub)
+
+	target := grpc.TargetInformationEtcd{
+		Address: addr1,
+	}
+	encoded, err := json.Marshal(target)
+	require.NoError(err)
+	embedEtcd.SetValue("/grpctargets/server", encoded)
+
+	server1 := testserver.NewProxyServerForTest(t, "DE")
+	server2 := testserver.NewProxyServerForTest(t, "DE")
+
+	mcu1, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+		},
+	}, 1, nil)
+	mcu2, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server2,
+		},
+	}, 2, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("the-publisher")
+	pubSid := "1234567890"
+	pubListener := mock.NewListener(pubId + "-public")
+	pubInitiator := mock.NewInitiator("DE")
+
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
+		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(err)
+
+	defer pub.Close(context.Background())
+
+	if proxyPub, ok := pub.(*proxyPublisher); assert.True(ok) {
+		hub.addPublisher(proxyPub)
+	}
+
+	subListener := mock.NewListener("subscriber-public")
+	subInitiator := mock.NewInitiator("DE")
+	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, sfu.StreamTypeVideo, subInitiator)
+	require.NoError(err)
+
+	defer sub.Close(context.Background())
+
+	if connSub, ok := sub.(*proxySubscriber); assert.True(ok) {
+		assert.Equal(server1.URL(), connSub.conn.rawUrl)
+		assert.Empty(connSub.conn.ip)
+	}
+
+	// The temporary connection has been added
+	assert.Equal(2, mcu2.ConnectionsCount())
+
+	sub.Close(context.Background())
+
+	// Wait for temporary connection to be removed.
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			assert.NoError(ctx.Err())
+		default:
+			if mcu2.ConnectionsCount() == 1 {
+				break loop
+			}
+		}
+	}
+}
+
+func Test_ProxyConnectToken(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
+
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
+
+	hub1 := newPublisherHub()
+	hub2 := newPublisherHub()
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
+
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+
+	server1 := testserver.NewProxyServerForTest(t, "DE")
+	server2 := testserver.NewProxyServerForTest(t, "DE")
+
+	// Signaling server instances are in a cluster but don't share their proxies,
+	// i.e. they are only known to their local proxy, not the one of the other
+	// signaling server - so the connection token must be passed between them.
+	mcu1, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+		},
+	}, 1, nil)
+	mcu2, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server2,
+		},
+	}, 2, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("the-publisher")
+	pubSid := "1234567890"
+	pubListener := mock.NewListener(pubId + "-public")
+	pubInitiator := mock.NewInitiator("DE")
+
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
+		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(t, err)
+
+	defer pub.Close(context.Background())
+
+	if proxyPub, ok := pub.(*proxyPublisher); assert.True(ok) {
+		hub1.addPublisher(proxyPub)
+	}
+
+	subListener := mock.NewListener("subscriber-public")
+	subInitiator := mock.NewInitiator("DE")
+	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, sfu.StreamTypeVideo, subInitiator)
+	require.NoError(t, err)
+
+	defer sub.Close(context.Background())
+}
+
+func Test_ProxyPublisherToken(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+	embedEtcd := etcdtest.NewServerForTest(t)
+
+	grpcServer1, addr1 := grpctest.NewServerForTest(t)
+	grpcServer2, addr2 := grpctest.NewServerForTest(t)
+
+	hub1 := newPublisherHub()
+	hub2 := newPublisherHub()
+	grpcServer1.SetHub(hub1)
+	grpcServer2.SetHub(hub2)
+
+	embedEtcd.SetValue("/grpctargets/one", []byte("{\"address\":\""+addr1+"\"}"))
+	embedEtcd.SetValue("/grpctargets/two", []byte("{\"address\":\""+addr2+"\"}"))
+
+	server1 := testserver.NewProxyServerForTest(t, "DE")
+	server2 := testserver.NewProxyServerForTest(t, "US")
+
+	// Signaling server instances are in a cluster but don't share their proxies,
+	// i.e. they are only known to their local proxy, not the one of the other
+	// signaling server - so the connection token must be passed between them.
+	// Also the subscriber is connecting from a different country, so a remote
+	// stream will be created that needs a valid token from the remote proxy.
+	mcu1, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server1,
+		},
+	}, 1, nil)
+	mcu2, _ := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Etcd: embedEtcd,
+		Servers: []testserver.ProxyTestServer{
+			server2,
+		},
+	}, 2, nil)
+	// Support remote subscribers for the tests.
+	server1.Servers = append(server1.Servers, server2)
+	server2.Servers = append(server2.Servers, server1)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("the-publisher")
+	pubSid := "1234567890"
+	pubListener := mock.NewListener(pubId + "-public")
+	pubInitiator := mock.NewInitiator("DE")
+
+	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
+		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
+	}, pubInitiator)
+	require.NoError(t, err)
+
+	defer pub.Close(context.Background())
+
+	if proxyPub, ok := pub.(*proxyPublisher); assert.True(ok) {
+		hub1.addPublisher(proxyPub)
+	}
+
+	subListener := mock.NewListener("subscriber-public")
+	subInitiator := mock.NewInitiator("US")
+	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, sfu.StreamTypeVideo, subInitiator)
+	require.NoError(t, err)
+
+	defer sub.Close(context.Background())
 }
