@@ -835,6 +835,8 @@ func (m *MessageClientMessageData) CheckValid() error {
 		return fmt.Errorf("invalid room type: %s", m.RoomType)
 	}
 	switch m.Type {
+	case "":
+		return errors.New("type missing")
 	case "offer", "answer":
 		sdpText, ok := GetStringMapEntry[string](m.Payload, "sdp")
 		if !ok {
@@ -1333,6 +1335,8 @@ type TransientDataClientMessage struct {
 
 func (m *TransientDataClientMessage) CheckValid() error {
 	switch m.Type {
+	case "":
+		return errors.New("type missing")
 	case "set":
 		if m.Key == "" {
 			return errors.New("key missing")
