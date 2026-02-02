@@ -36,6 +36,20 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 )
 
+func TestRoomSessionIds(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+
+	var s1 RoomSessionId = "foo"
+	assert.False(s1.IsFederated())
+	assert.EqualValues("foo", s1.WithoutFederation())
+
+	var s2 RoomSessionId = "federated|bar"
+	assert.True(s2.IsFederated())
+	assert.EqualValues("bar", s2.WithoutFederation())
+}
+
 type testCheckValid interface {
 	CheckValid() error
 }
