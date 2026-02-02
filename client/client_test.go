@@ -111,6 +111,7 @@ func (c *serverClient) GetSessionId() api.PublicSessionId {
 }
 
 func (c *serverClient) OnClosed() {
+	c.Close()
 	c.handler.removeClient(c)
 }
 
@@ -120,6 +121,9 @@ func (c *serverClient) OnMessageReceived(message []byte) {
 		var s string
 		if err := json.Unmarshal(message, &s); assert.NoError(c.t, err) {
 			assert.Equal(c.t, "Hello world!", s)
+			c.sendPing()
+			assert.EqualValues(c.t, "DE", c.Country())
+			assert.False(c.t, c.Client.IsInRoom("room-id"))
 			c.SendMessage(&api.ServerMessage{
 				Type: "welcome",
 				Welcome: &api.WelcomeServerMessage{
@@ -212,8 +216,15 @@ func (h *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id := h.id.Add(1)
 	client := newTestClient(h, r, conn, id)
 	h.addClient(client)
+
+	closed := make(chan struct{})
+	context.AfterFunc(client.Context(), func() {
+		close(closed)
+	})
+
 	go client.WritePump()
 	client.ReadPump()
+	<-closed
 }
 
 type localClient struct {
@@ -244,6 +255,10 @@ func (c *localClient) Close() error {
 
 func (c *localClient) WriteJSON(v any) error {
 	return c.conn.WriteJSON(v)
+}
+
+func (c *localClient) Write(v []byte) error {
+	return c.conn.WriteMessage(websocket.BinaryMessage, v)
 }
 
 func (c *localClient) ReadJSON(v any) error {
@@ -279,6 +294,14 @@ func TestClient(t *testing.T) {
 	if clients := serverHandler.getClients(); assert.Len(clients, 1) {
 		assert.False(clients[0].sessionClosed.Load())
 		assert.EqualValues(1, clients[0].received.Load())
+	}
+
+	require.NoError(client.Write([]byte("Hello world!")))
+	if assert.NoError(client.ReadJSON(&msg)) &&
+		assert.Equal("error", msg.Type) &&
+		assert.NotNil(msg.Error) {
+		assert.Equal("invalid_format", msg.Error.Code)
+		assert.Equal("Invalid data format.", msg.Error.Message)
 	}
 
 	require.NoError(client.WriteJSON("Send error"))

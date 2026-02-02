@@ -462,33 +462,6 @@ close:
 	return false
 }
 
-func (c *Client) writeError(e error) bool { // nolint
-	message := &api.ServerMessage{
-		Type:  "error",
-		Error: api.NewError("internal_error", e.Error()),
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.conn == nil {
-		return false
-	}
-
-	if !c.writeMessageLocked(message) {
-		return false
-	}
-
-	closeData := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, e.Error())
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
-	if err := c.conn.WriteMessage(websocket.CloseMessage, closeData); err != nil {
-		if sessionId := c.GetSessionId(); sessionId != "" {
-			c.logger.Printf("Could not send close message to client %s: %v", sessionId, err)
-		} else {
-			c.logger.Printf("Could not send close message to %s: %v", c.RemoteAddr(), err)
-		}
-	}
-	return false
-}
-
 func (c *Client) writeMessage(message WritableClientMessage) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
