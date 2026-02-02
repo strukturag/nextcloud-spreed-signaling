@@ -84,7 +84,7 @@ func (t *tokensStatic) load(cfg *goconf.ConfigFile, ignoreErrors bool) error {
 		keyData, err := os.ReadFile(filename)
 		if err != nil {
 			if !ignoreErrors {
-				return fmt.Errorf("could not read public key from %s: %s", filename, err)
+				return fmt.Errorf("could not read public key from %s: %w", filename, err)
 			}
 
 			t.logger.Printf("Could not read public key from %s, ignoring: %s", filename, err)
@@ -93,7 +93,7 @@ func (t *tokensStatic) load(cfg *goconf.ConfigFile, ignoreErrors bool) error {
 		key, err := jwt.ParseRSAPublicKeyFromPEM(keyData)
 		if err != nil {
 			if !ignoreErrors {
-				return fmt.Errorf("could not parse public key from %s: %s", filename, err)
+				return fmt.Errorf("could not parse public key from %s: %w", filename, err)
 			}
 
 			t.logger.Printf("Could not parse public key from %s, ignoring: %s", filename, err)
