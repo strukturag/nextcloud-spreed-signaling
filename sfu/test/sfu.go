@@ -32,6 +32,7 @@ import (
 	"testing"
 
 	"github.com/dlintw/goconf"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
@@ -145,6 +146,14 @@ func (m *SFU) GetPublisher(id api.PublicSessionId) *SFUPublisher {
 	return m.publishers[id]
 }
 
+func (m *SFU) GetSubscriber(id api.PublicSessionId, streamType sfu.StreamType) *SFUSubscriber {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := fmt.Sprintf("%s|%s", id, streamType)
+	return m.subscribers[key]
+}
+
 func (m *SFU) NewSubscriber(ctx context.Context, listener sfu.Listener, publisher api.PublicSessionId, streamType sfu.StreamType, initiator sfu.Initiator) (sfu.Subscriber, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -164,6 +173,9 @@ func (m *SFU) NewSubscriber(ctx context.Context, listener sfu.Listener, publishe
 
 		publisher: pub,
 	}
+	key := fmt.Sprintf("%s|%s", publisher, streamType)
+	assert.Empty(m.t, m.subscribers[key], "duplicate subscriber")
+	m.subscribers[key] = sub
 	return sub, nil
 }
 
