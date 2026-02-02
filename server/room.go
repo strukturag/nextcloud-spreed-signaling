@@ -31,6 +31,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -41,6 +42,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -62,6 +64,7 @@ const (
 
 var (
 	updateActiveSessionsInterval = 10 * time.Second
+	updateRoomBandwidthInterval  = 1 * time.Second
 )
 
 func init() {
@@ -108,6 +111,12 @@ type Room struct {
 	lastRoomRequests map[string]int64
 
 	transientData *api.TransientData
+
+	allPublishersCount    atomic.Uint32
+	localPublishersCount  atomic.Uint32
+	localSubscribersCount atomic.Uint32
+	localBandwidth        atomic.Pointer[sfu.ClientBandwidthInfo]
+	bandwidthConfigured   bool
 }
 
 func getRoomIdForBackend(id string, backend *talk.Backend) string {
@@ -206,7 +215,9 @@ func (r *Room) AsyncChannel() events.AsyncChannel {
 }
 
 func (r *Room) run() {
-	ticker := time.NewTicker(updateActiveSessionsInterval)
+	sessionsTicker := time.NewTicker(updateActiveSessionsInterval)
+	bandwidtTicker := time.NewTicker(updateRoomBandwidthInterval)
+
 loop:
 	for {
 		select {
@@ -217,8 +228,10 @@ loop:
 			for count := len(r.asyncCh); count > 0; count-- {
 				r.processAsyncNatsMessage(<-r.asyncCh)
 			}
-		case <-ticker.C:
+		case <-sessionsTicker.C:
 			r.publishActiveSessions()
+		case <-bandwidtTicker.C:
+			r.updateBandwidth()
 		}
 	}
 }
@@ -1411,4 +1424,198 @@ func (r *Room) fetchInitialTransientData() {
 	if len(initial) > 0 {
 		r.transientData.SetInitial(initial)
 	}
+}
+
+// Bandwidth returns information on the local streams.
+func (r *Room) Bandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo) {
+	return r.localPublishersCount.Load(), r.localSubscribersCount.Load(), r.localBandwidth.Load()
+}
+
+func (r *Room) getLocalBandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo, []SessionWithBandwidth) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var publishers uint32
+	var subscribers uint32
+	var bandwidth *sfu.ClientBandwidthInfo
+	var publisherSessions []SessionWithBandwidth
+	for _, session := range r.sessions {
+		if s, ok := session.(SessionWithBandwidth); ok {
+			pub, sub, bw := s.Bandwidth()
+			if bw != nil {
+				if bandwidth == nil {
+					bandwidth = &sfu.ClientBandwidthInfo{}
+				}
+
+				bandwidth.Received += bw.Received
+				bandwidth.Sent += bw.Sent
+			}
+			publishers += pub
+			subscribers += sub
+			if pub > 0 {
+				publisherSessions = append(publisherSessions, s)
+			}
+		}
+	}
+
+	r.localPublishersCount.Store(publishers)
+	r.localSubscribersCount.Store(subscribers)
+	r.localBandwidth.Store(bandwidth)
+	return publishers, subscribers, bandwidth, publisherSessions
+}
+
+func (r *Room) getRemoteBandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo) {
+	if r.hub.rpcClients == nil {
+		return 0, 0, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	var publishers atomic.Uint32
+	var subscribers atomic.Uint32
+	var bandwidth *sfu.ClientBandwidthInfo
+
+	for _, client := range r.hub.rpcClients.GetClients() {
+		wg.Add(1)
+		go func(c *grpc.Client) {
+			defer wg.Done()
+
+			pub, sub, bw, err := c.GetRoomBandwidth(ctx, r.id, r.backend.Urls())
+			if err != nil {
+				r.logger.Printf("Received error while getting bandwidth for %s@%s from %s: %s", r.Id(), r.Backend().Id(), c.Target(), err)
+				return
+			}
+
+			publishers.Add(pub)
+			subscribers.Add(sub)
+
+			if bw != nil {
+				mu.Lock()
+				defer mu.Unlock()
+
+				if bandwidth == nil {
+					bandwidth = bw
+				} else {
+					bandwidth.Received += bw.Received
+					bandwidth.Sent += bw.Sent
+				}
+			}
+		}(client)
+	}
+	wg.Wait()
+
+	return publishers.Load(), subscribers.Load(), bandwidth
+}
+
+func (r *Room) GetNextPublisherBandwidth(streamType sfu.StreamType) api.Bandwidth {
+	if streamType == sfu.StreamTypeScreen {
+		return r.backend.MaxScreenBitrate()
+	}
+
+	maxStreamBitrate := r.backend.MaxStreamBitrate()
+	// bandwidthPerRoom is the maximum incoming bandwidth per room.
+	bandwidthPerRoom := r.backend.BandwidthPerRoom()
+	// minPublisherBandwidth is the minimum bandwidth per publisher.
+	minPublisherBandwidth := r.backend.MinPublisherBandwidth()
+	// maxPublisherBandwidth is the maximum bandwidth per publisher.
+	maxPublisherBandwidth := r.backend.MaxPublisherBandwidth()
+	if bandwidthPerRoom == 0 || minPublisherBandwidth == 0 || maxPublisherBandwidth == 0 {
+		return maxStreamBitrate
+	}
+
+	perPublisher := api.BandwidthFromBits(bandwidthPerRoom.Bits() / max(uint64(r.allPublishersCount.Load()+1), 2))
+	if maxStreamBitrate > 0 && perPublisher > maxStreamBitrate {
+		perPublisher = maxStreamBitrate
+	}
+	perPublisher = min(maxPublisherBandwidth, perPublisher)
+	perPublisher = max(minPublisherBandwidth, perPublisher)
+	return perPublisher
+}
+
+func (r *Room) updateBandwidth() *sync.WaitGroup {
+	var wg sync.WaitGroup
+	// bandwidthPerRoom is the maximum incoming bandwidth per room.
+	bandwidthPerRoom := r.backend.BandwidthPerRoom()
+	// minPublisherBandwidth is the minimum bandwidth per publisher.
+	minPublisherBandwidth := r.backend.MinPublisherBandwidth()
+	// maxPublisherBandwidth is the maximum bandwidth per publisher.
+	maxPublisherBandwidth := r.backend.MaxPublisherBandwidth()
+	if bandwidthPerRoom == 0 || minPublisherBandwidth == 0 || maxPublisherBandwidth == 0 {
+		if !r.bandwidthConfigured {
+			return &wg
+		}
+
+		// Reset bandwidths to default.
+		r.bandwidthConfigured = false
+		bitrate := r.backend.MaxStreamBitrate()
+		if bitrate == 0 {
+			return &wg
+		}
+
+		_, _, _, publisherSessions := r.getLocalBandwidth()
+		for _, session := range publisherSessions {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				ctx, cancel := context.WithTimeout(context.Background(), r.hub.mcuTimeout)
+				defer cancel()
+
+				if err := session.UpdatePublisherBandwidth(ctx, sfu.StreamTypeVideo, bitrate); err != nil {
+					r.logger.Printf("Could not update bandwidth of %s publisher in %s: %s", sfu.StreamTypeVideo, session.PublicId(), err)
+				}
+			}()
+		}
+		return &wg
+	}
+
+	publishers, subscribers, bandwidth, publisherSessions := r.getLocalBandwidth()
+	if remotePublishers, remoteSubscribers, remote := r.getRemoteBandwidth(); remote != nil {
+		if bandwidth == nil {
+			bandwidth = &sfu.ClientBandwidthInfo{
+				Received: remote.Received,
+				Sent:     remote.Sent,
+			}
+		} else {
+			bandwidth = &sfu.ClientBandwidthInfo{
+				Received: bandwidth.Received + remote.Received,
+				Sent:     bandwidth.Sent + remote.Sent,
+			}
+		}
+		publishers += remotePublishers
+		subscribers += remoteSubscribers
+	}
+
+	r.allPublishersCount.Store(publishers)
+	if publishers != 0 || subscribers != 0 || bandwidth != nil {
+		perPublisher := api.BandwidthFromBits(bandwidthPerRoom.Bits() / max(uint64(publishers), 2))
+		if maxBitrate := r.Backend().MaxStreamBitrate(); maxBitrate > 0 && perPublisher > maxBitrate {
+			perPublisher = maxBitrate
+		}
+		perPublisher = min(maxPublisherBandwidth, perPublisher)
+		perPublisher = max(minPublisherBandwidth, perPublisher)
+		r.logger.Printf("Bandwidth in room %s for %d pub / %d sub: %+v (max %s)", r.Id(), publishers, subscribers, bandwidth, perPublisher)
+
+		if perPublisher != 0 {
+			r.bandwidthConfigured = true
+			for _, session := range publisherSessions {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+
+					ctx, cancel := context.WithTimeout(context.Background(), r.hub.mcuTimeout)
+					defer cancel()
+
+					if err := session.UpdatePublisherBandwidth(ctx, sfu.StreamTypeVideo, perPublisher); err != nil {
+						r.logger.Printf("Could not update bandwidth of %s publisher in %s: %s", sfu.StreamTypeVideo, session.PublicId(), err)
+					}
+				}()
+			}
+		}
+	}
+	return &wg
 }

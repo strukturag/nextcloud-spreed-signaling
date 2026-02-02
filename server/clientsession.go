@@ -53,6 +53,10 @@ var (
 	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
 	// feature is returned by the capabilities endpoint.
 	PathToOcsSignalingBackend = "ocs/v2.php/apps/spreed/api/v1/signaling/backend"
+
+	// minBandwidthOfActivePublisher is the bandwidth a publisher must be sending
+	// to be counted as "active".
+	minBandwidthOfActivePublisher = api.BandwidthFromBits(64 * 1024) // +checklocksignore: Global readonly variable.
 )
 
 // ResponseHandlerFunc will return "true" has been fully processed.
@@ -1692,4 +1696,72 @@ func (s *ClientSession) ProcessResponse(message *api.ClientMessage) bool {
 	}
 
 	return cb(message)
+}
+
+func (s *ClientSession) Bandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var publishers uint32
+	var subscribers uint32
+	var bandwidth *sfu.ClientBandwidthInfo
+	for _, pub := range s.publishers {
+		if pub.StreamType() != sfu.StreamTypeVideo {
+			continue
+		}
+
+		if pub, ok := pub.(sfu.ClientWithBandwidth); ok {
+			if bw := pub.Bandwidth(); bw != nil {
+				if bandwidth == nil {
+					bandwidth = &sfu.ClientBandwidthInfo{}
+				}
+
+				bandwidth.Received += bw.Received
+				bandwidth.Sent += bw.Sent
+				if bw.Received >= minBandwidthOfActivePublisher {
+					publishers++
+				}
+			}
+		}
+	}
+
+	for _, sub := range s.subscribers {
+		if sub.StreamType() != sfu.StreamTypeVideo {
+			continue
+		}
+
+		if sub, ok := sub.(sfu.ClientWithBandwidth); ok {
+			if bw := sub.Bandwidth(); bw != nil {
+				if bandwidth == nil {
+					bandwidth = &sfu.ClientBandwidthInfo{}
+				}
+
+				bandwidth.Received += bw.Received
+				bandwidth.Sent += bw.Sent
+				subscribers++
+			}
+		}
+	}
+
+	return publishers, subscribers, bandwidth
+}
+
+func (s *ClientSession) UpdatePublisherBandwidth(ctx context.Context, streamType sfu.StreamType, bandwidth api.Bandwidth) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, pub := range s.publishers {
+		if pub.StreamType() != streamType {
+			continue
+		}
+
+		if pub, ok := pub.(sfu.ClientWithBandwidth); ok {
+			s.mu.Unlock()
+			defer s.mu.Lock()
+
+			return pub.SetBandwidth(ctx, bandwidth)
+		}
+	}
+
+	return nil
 }

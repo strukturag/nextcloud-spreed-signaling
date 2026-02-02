@@ -139,11 +139,21 @@ connectionsperhost = 8
 
 # The maximum bitrate per publishing stream (in bits per second).
 # Defaults to the maximum bitrate configured for the proxy / MCU.
+# Will not be used if per-room / -publisher bitrates are configured below.
 #maxstreambitrate = 1048576
 
 # The maximum bitrate per screensharing stream (in bits per second).
 # Defaults to the maximum bitrate configured for the proxy / MCU.
 #maxscreenbitrate = 2097152
+
+# The target bitrate in bits per second for all publishers in a room.
+#bitrateperroom = 15728640
+
+# The minimum bitrate in bits per second for a publisher.
+#minpublisherbitrate = 1048576
+
+# The maximum bitrate in bits per second for a publisher.
+#maxpublisherbitrate = 3145728
 
 #[another-backend]
 # Comma-separated list of urls of the Nextcloud instance
@@ -172,6 +182,7 @@ connectionsperhost = 8
 
 # The maximum bitrate per publishing stream (in bits per second).
 # Defaults to 1 mbit/sec.
+# Should be at least the "maxpublisherbitrate" from backend configuration above.
 # For type "proxy": will be capped to the maximum bitrate configured at the
 # proxy server that is used.
 #maxstreambitrate = 1048576

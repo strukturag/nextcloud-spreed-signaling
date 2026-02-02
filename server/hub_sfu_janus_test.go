@@ -23,6 +23,7 @@ package server
 
 import (
 	"context"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -755,4 +756,102 @@ func Test_JanusSubscriberUpdateOffer(t *testing.T) {
 
 	// Test MCU will trigger an updated offer.
 	client2.RunUntilOffer(ctx, mock.MockSdpOfferAudioOnly)
+}
+
+func Test_JanusSetBandwidth(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	var counter atomic.Int32
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			switch counter.Add(1) {
+			case 1:
+				return &janus.EventMsg{
+					Jsep: api.StringMap{
+						"type": "answer",
+						"sdp":  mock.MockSdpAnswerAudioAndVideo,
+					},
+				}, nil
+			case 2:
+				// When the room updates the bandwidth per publisher, it will notify
+				// Janus about it.
+				assert.EqualValues(500000, body["bitrate"], "got %+v", body)
+				return &janus.EventMsg{}, nil
+			default:
+				assert.Fail("too many configure requests", "received body=%+v, jsep=%+v", body, jsep)
+				return &janus.ErrorMsg{
+					Err: janus.ErrorData{
+						Code:   janus.JANUS_ERROR_UNKNOWN,
+						Reason: "too many configure requests",
+					},
+				}, nil
+			}
+		},
+	})
+
+	hub, _, _, server := CreateHubForTestWithConfig(t, func(s *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(s)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("backend", "maxstreambitrate", "700000")
+		config.AddOption("backend", "maxscreenbitrate", "800000")
+
+		config.AddOption("backend", "bitrateperroom", "1000000")
+		config.AddOption("backend", "minpublisherbitrate", "10000")
+		config.AddOption("backend", "maxpublisherbitrate", "500000")
+		return config, err
+	})
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello.Hello.SessionId,
+	}, api.MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}))
+
+	client.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo)
+
+	sess := hub.GetSessionByPublicId(hello.Hello.SessionId)
+	require.NotNil(sess)
+
+	session, ok := sess.(*ClientSession)
+	require.True(ok, "expected clientsession, got %T", sess)
+
+	pub := session.GetPublisher(sfu.StreamTypeVideo)
+	require.NotNil(pub)
+	type withBandwidth interface {
+		UpdateBandwidth(media string, sent api.Bandwidth, received api.Bandwidth)
+	}
+	bwPub, ok := pub.(withBandwidth)
+	require.True(ok, "expected publisher with bandwidth support, got %T", pub)
+
+	bwPub.UpdateBandwidth("video", api.BandwidthFromBits(2000), api.BandwidthFromBits(100000))
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+	room.updateBandwidth().Wait()
+
+	assert.EqualValues(2, counter.Load())
 }

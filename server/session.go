@@ -30,6 +30,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/session"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 )
 
@@ -63,6 +64,13 @@ type Session interface {
 
 type SessionWithInCall interface {
 	GetInCall() int
+}
+
+type SessionWithBandwidth interface {
+	Session
+
+	Bandwidth() (uint32, uint32, *sfu.ClientBandwidthInfo)
+	UpdatePublisherBandwidth(ctx context.Context, streamType sfu.StreamType, bandwidth api.Bandwidth) error
 }
 
 func parseUserData(data json.RawMessage) func() (api.StringMap, error) {
