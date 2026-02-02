@@ -88,6 +88,7 @@ func TestPublisherStatsPrometheus(t *testing.T) {
 	t.Parallel()
 
 	RegisterStats()
+	UnregisterStats()
 }
 
 func TestPublisherStatsCounter(t *testing.T) {
