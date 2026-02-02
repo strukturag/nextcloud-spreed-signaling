@@ -32,10 +32,6 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu/janus/janus"
 )
 
-type Subscriber interface {
-	JanusHandle() *janus.Handle
-}
-
 type janusSubscriber struct {
 	janusClient
 
