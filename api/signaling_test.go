@@ -142,6 +142,14 @@ func TestHelloClientMessage(t *testing.T) {
 			Version:  HelloVersionV2,
 			ResumeId: "the-resume-id",
 		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: &HelloClientMessageAuth{
+				Type:   "federation",
+				Params: tokenAuthParams,
+				Url:    "https://domain.invalid",
+			},
+		},
 	}
 	invalid_messages := []testCheckValid{
 		// Hello version 1
@@ -220,6 +228,28 @@ func TestHelloClientMessage(t *testing.T) {
 			Auth: &HelloClientMessageAuth{
 				Params: json.RawMessage("xyz"), // Invalid JSON.
 				Url:    "https://domain.invalid",
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: &HelloClientMessageAuth{
+				Type:   HelloClientTypeFederation,
+				Params: json.RawMessage("xyz"), // Invalid JSON.
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: &HelloClientMessageAuth{
+				Type:   HelloClientTypeFederation,
+				Params: json.RawMessage("{}"),
+				Url:    "https://domain.invalid",
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: &HelloClientMessageAuth{
+				Type:   HelloClientTypeFederation,
+				Params: tokenAuthParams,
 			},
 		},
 	}
@@ -335,11 +365,44 @@ func TestByeClientMessage(t *testing.T) {
 
 func TestRoomClientMessage(t *testing.T) {
 	t.Parallel()
-	// Any "room" message is valid.
+	// Any regular "room" message is valid.
 	valid_messages := []testCheckValid{
 		&RoomClientMessage{},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: "http://signaling.domain.invalid/",
+				NextcloudUrl: "http://nextcloud.domain.invalid",
+				Token:        "the token",
+			},
+		},
 	}
-	invalid_messages := []testCheckValid{}
+	invalid_messages := []testCheckValid{
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{},
+		},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: ":",
+			},
+		},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: "http://signaling.domain.invalid",
+			},
+		},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: "http://signaling.domain.invalid/",
+				NextcloudUrl: ":",
+			},
+		},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: "http://signaling.domain.invalid/",
+				NextcloudUrl: "http://nextcloud.domain.invalid",
+			},
+		},
+	}
 
 	testMessages(t, "room", valid_messages, invalid_messages)
 
