@@ -55,25 +55,25 @@ The following metrics are available:
 | `signaling_backend_client_requests_total`         | Counter   | 2.0.3     | The total number of backend client requests                               | `backend`                         |
 | `signaling_backend_client_requests_duration`      | Histogram | 2.0.3     | The duration of backend client requests in seconds                        | `backend`                         |
 | `signaling_backend_client_requests_errors_total`  | Counter   | 2.0.3     | The total number of backend client requests that had an error             | `backend`, `error`                |
-| `signaling_mcu_bandwidth`                         | Gauge     | 2.0.5     | The current bandwidth in bytes per second                                 | `direction`                       |
-| `signaling_mcu_backend_usage`                     | Gauge     | 2.0.5     | The current usage of signaling proxy backends in percent                  | `url`, `direction`                |
-| `signaling_mcu_backend_bandwidth`                 | Gauge     | 2.0.5     | The current bandwidth of signaling proxy backends in bytes per second     | `url`, `direction`                |
-| `signaling_proxy_load`                            | Gauge     | 2.0.5     | The current load of the signaling proxy                                   |                                   |
-| `signaling_client_rtt`                            | Histogram | 2.0.5     | The roundtrip time of WebSocket ping messages in milliseconds             |                                   |
-| `signaling_mcu_selected_candidate_total`          | Counter   | 2.0.5     | Total number of selected candidates                                       | `origin`, `type`, `transport`, `family` |
-| `signaling_mcu_peerconnection_state_total`        | Counter   | 2.0.5     | Total number PeerConnection states                                        | `state`, `reason`                 |
-| `signaling_mcu_ice_state_total`                   | Counter   | 2.0.5     | Total number of ICE connection states                                     | `state`                           |
-| `signaling_mcu_dtls_state_total`                  | Counter   | 2.0.5     | Total number of DTLS connection states                                    | `state`                           |
-| `signaling_mcu_slow_link_total`                   | Counter   | 2.0.5     | Total number of slow link events                                          | `media`, `direction`              |
-| `signaling_mcu_media_rtt`                         | Histogram | 2.0.5     | The roundtrip time of WebRTC media in milliseconds                        | `media`                           |
-| `signaling_mcu_media_jitter`                      | Histogram | 2.0.5     | The jitter of WebRTC media in milliseconds                                | `media`, `origin`                 |
-| `signaling_mcu_media_codecs_total`                | Counter   | 2.0.5     | The total number of codecs                                                | `media`, `codec`                  |
-| `signaling_mcu_media_nacks_total`                 | Counter   | 2.0.5     | The total number of NACKs                                                 | `media`, `direction`              |
-| `signaling_mcu_media_retransmissions_total`       | Counter   | 2.0.5     | The total number of received retransmissions                              | `media`                           |
-| `signaling_mcu_media_bytes_total`                 | Counter   | 2.0.5     | The total number of media bytes sent / received                           | `media`, `direction`              |
-| `signaling_mcu_media_lost_total`                  | Counter   | 2.0.5     | The total number of lost media packets                                    | `media`, `origin`                 |
-| `signaling_client_bytes_total`                    | Counter   | 2.0.5     | The total number of bytes sent to or received by clients                  | `direction`                       |
-| `signaling_client_messages_total`                 | Counter   | 2.0.5     | The total number of messages sent to or received by clients               | `direction`                       |
-| `signaling_call_sessions`                         | Gauge     | 2.0.5     | The current number of sessions in a call                                  | `backend`, `room`, `clienttype`   |
-| `signaling_call_sessions_total`                   | Counter   | 2.0.5     | The total number of sessions in a call                                    | `backend`, `clienttype`           |
-| `signaling_call_rooms_total`                      | Counter   | 2.0.5     | The total number of rooms with an active call                             | `backend`                         |
+| `signaling_mcu_bandwidth`                         | Gauge     | 2.1.0     | The current bandwidth in bytes per second                                 | `direction`                       |
+| `signaling_mcu_backend_usage`                     | Gauge     | 2.1.0     | The current usage of signaling proxy backends in percent                  | `url`, `direction`                |
+| `signaling_mcu_backend_bandwidth`                 | Gauge     | 2.1.0     | The current bandwidth of signaling proxy backends in bytes per second     | `url`, `direction`                |
+| `signaling_proxy_load`                            | Gauge     | 2.1.0     | The current load of the signaling proxy                                   |                                   |
+| `signaling_client_rtt`                            | Histogram | 2.1.0     | The roundtrip time of WebSocket ping messages in milliseconds             |                                   |
+| `signaling_mcu_selected_candidate_total`          | Counter   | 2.1.0     | Total number of selected candidates                                       | `origin`, `type`, `transport`, `family` |
+| `signaling_mcu_peerconnection_state_total`        | Counter   | 2.1.0     | Total number PeerConnection states                                        | `state`, `reason`                 |
+| `signaling_mcu_ice_state_total`                   | Counter   | 2.1.0     | Total number of ICE connection states                                     | `state`                           |
+| `signaling_mcu_dtls_state_total`                  | Counter   | 2.1.0     | Total number of DTLS connection states                                    | `state`                           |
+| `signaling_mcu_slow_link_total`                   | Counter   | 2.1.0     | Total number of slow link events                                          | `media`, `direction`              |
+| `signaling_mcu_media_rtt`                         | Histogram | 2.1.0     | The roundtrip time of WebRTC media in milliseconds                        | `media`                           |
+| `signaling_mcu_media_jitter`                      | Histogram | 2.1.0     | The jitter of WebRTC media in milliseconds                                | `media`, `origin`                 |
+| `signaling_mcu_media_codecs_total`                | Counter   | 2.1.0     | The total number of codecs                                                | `media`, `codec`                  |
+| `signaling_mcu_media_nacks_total`                 | Counter   | 2.1.0     | The total number of NACKs                                                 | `media`, `direction`              |
+| `signaling_mcu_media_retransmissions_total`       | Counter   | 2.1.0     | The total number of received retransmissions                              | `media`                           |
+| `signaling_mcu_media_bytes_total`                 | Counter   | 2.1.0     | The total number of media bytes sent / received                           | `media`, `direction`              |
+| `signaling_mcu_media_lost_total`                  | Counter   | 2.1.0     | The total number of lost media packets                                    | `media`, `origin`                 |
+| `signaling_client_bytes_total`                    | Counter   | 2.1.0     | The total number of bytes sent to or received by clients                  | `direction`                       |
+| `signaling_client_messages_total`                 | Counter   | 2.1.0     | The total number of messages sent to or received by clients               | `direction`                       |
+| `signaling_call_sessions`                         | Gauge     | 2.1.0     | The current number of sessions in a call                                  | `backend`, `room`, `clienttype`   |
+| `signaling_call_sessions_total`                   | Counter   | 2.1.0     | The total number of sessions in a call                                    | `backend`, `clienttype`           |
+| `signaling_call_rooms_total`                      | Counter   | 2.1.0     | The total number of rooms with an active call                             | `backend`                         |
