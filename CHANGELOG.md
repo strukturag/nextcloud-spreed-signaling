@@ -2,6 +2,243 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.1.0 - 2026-02-03
+
+### Added
+- Introduce "internal" package
+  [#1082](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1082)
+- Add etcd TLS tests.
+  [#1084](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1084)
+- Add missing stats registration.
+  [#1086](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1086)
+- Add commands to the readme on how to build Docker images locally.
+  [#1088](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1088)
+- Use gvisor checklocks for static lock analysis.
+  [#1078](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1078)
+- Support relaying of chat messages.
+  [#868](https://github.com/strukturag/nextcloud-spreed-signaling/pull/868)
+- Return bandwidth information in room responses.
+  [#1099](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1099)
+- Expose real bandwidth usage through metrics.
+  [#1102](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1102)
+- Add type to store bandwidths.
+  [#1108](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1108)
+- Add more WebRTC-related metrics
+  [#1109](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1109)
+- Add metrics about client bytes/messages sent/received.
+  [#1134](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1134)
+- Introduce transient session data.
+  [#1120](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1120)
+- Include "version.txt" in tarball.
+  [#1142](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1142)
+- CI: Also upload images to quay.io/strukturag/nextcloud-spreed-signaling
+  [#1159](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1159)
+- Add more metrics about sessions in calls.
+  [#1183](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1183)
+
+### Changed
+- dockerfile: create system user instead of normal user, avoid home directory
+  [#1058](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1058)
+- Use "testing/synctest" to simplify timing-dependent tests.
+  [#1067](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1067)
+- Add dedicated types for different session ids.
+  [#1066](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1066)
+- Move "StringMap" class to api module.
+  [#1077](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1077)
+- CI: Disable "stdversion" check of govet.
+  [#1079](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1079)
+- CI: Use codecov components.
+  [#1080](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1080)
+- Add interface for method "GetInCall".
+  [#1083](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1083)
+- Make LruCache typed through generics.
+  [#1085](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1085)
+- Protect access to the debug pprof handlers.
+  [#1094](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1094)
+- Don't use environment to keep per-test properties.
+  [#1106](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1106)
+- Add formatting to bandwidth values.
+  [#1114](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1114)
+- Don't format zero bandwidth as "unlimited".
+  [#1115](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1115)
+- CI: Split test jobs to speed up total actions time.
+  [#1118](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1118)
+- Stop using global logger
+  [#1117](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1117)
+- CI: Split tarball jobs to speed up total actions time.
+  [#1129](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1129)
+- Update client code
+  [#1130](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1130)
+- Don't use fmt.Sprintf where not necessary.
+  [#1131](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1131)
+- Use test-related logger for embedded etcd.
+  [#1132](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1132)
+- No need to use list of pointers, use objects directly.
+  [#1133](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1133)
+- Generate shorter session ids.
+  [#1140](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1140)
+- client: Include version, optimize JSON processing.
+  [#1143](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1143)
+- Enable more linters
+  [#1145](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1145)
+- Parallelize more tests.
+  [#1149](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1149)
+- Move logging code to separate package.
+  [#1150](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1150)
+- Close subscriber synchronously on errors.
+  [#1152](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1152)
+- CI: Run "modernize" with Go 1.25
+  [#1160](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1160)
+- CI: Always use latest patch release for govuln checks.
+  [#1161](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1161)
+- Process all NATS messages for same target from single goroutine.
+  [#1165](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1165)
+- CI: Process files in all folders with licensecheck.
+  [#1169](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1169)
+- CI: Run checklocks with Go 1.25
+  [#1170](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1170)
+- Refactor code into packages
+  [#1151](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1151)
+- Remove unused testing code.
+  [#1174](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1174)
+- checklocks: Remove ignore since generics are supported now.
+  [#1184](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1184)
+- Support receiving and forwarding multiple chat messages from Talk.
+  [#1185](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1185)
+- Move tests closer to code being checked
+  [#1186](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1186)
+
+### Fixed
+- A proxy connection is only connected after a hello has been processed.
+  [#1071](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1071)
+- Fix URL to send federated ping requests.
+  [#1081](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1081)
+- Reconnect proxy connection even if shutdown was scheduled before.
+  [#1100](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1100)
+- Federation cleanup fixes.
+  [#1105](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1105)
+- Also rewrite token in comment for federated chat relay.
+  [#1112](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1112)
+- Fix transient data for clustered setups.
+  [#1121](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1121)
+- Fix initial transient data in clustered setups
+  [#1127](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1127)
+- fix(docs): already_joined error response
+  [#1126](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1126)
+- Fix storing initial data when clustered.
+  [#1128](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1128)
+- Fix flaky tests that fail under load.
+  [#1153](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1153)
+
+### Dependencies
+- Bump google.golang.org/grpc from 1.74.2 to 1.75.0
+  [#1054](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1054)
+- Bump github.com/nats-io/nats.go from 1.44.0 to 1.45.0
+  [#1057](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1057)
+- Bump google.golang.org/protobuf from 1.36.7 to 1.36.8
+  [#1056](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1056)
+- Bump github.com/stretchr/testify from 1.10.0 to 1.11.0
+  [#1059](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1059)
+- Bump github.com/stretchr/testify from 1.11.0 to 1.11.1
+  [#1060](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1060)
+- Bump markdown from 3.8.2 to 3.9 in /docs
+  [#1065](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1065)
+- Bump github.com/pion/sdp/v3 from 3.0.15 to 3.0.16
+  [#1061](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1061)
+- Bump github.com/prometheus/client_golang from 1.23.0 to 1.23.2
+  [#1064](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1064)
+- Bump actions/setup-go from 5 to 6
+  [#1062](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1062)
+- Bump google.golang.org/grpc from 1.75.0 to 1.75.1
+  [#1070](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1070)
+- Bump google.golang.org/protobuf from 1.36.8 to 1.36.9
+  [#1069](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1069)
+- Bump github.com/nats-io/nats-server/v2 from 2.11.8 to 2.11.9
+  [#1068](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1068)
+- Bump github.com/mailru/easyjson from 0.9.0 to 0.9.1
+  [#1072](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1072)
+- Bump the etcd group with 4 updates
+  [#1073](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1073)
+- Bump github.com/nats-io/nats.go from 1.45.0 to 1.46.0
+  [#1076](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1076)
+- Bump github.com/nats-io/nats-server/v2 from 2.11.9 to 2.12.0
+  [#1075](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1075)
+- Bump github.com/nats-io/nats.go from 1.46.0 to 1.46.1
+  [#1087](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1087)
+- Bump google.golang.org/grpc from 1.75.1 to 1.76.0
+  [#1092](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1092)
+- Bump github/codeql-action from 3 to 4
+  [#1093](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1093)
+- Bump peter-evans/create-or-update-comment from 4 to 5
+  [#1090](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1090)
+- Bump google.golang.org/protobuf from 1.36.9 to 1.36.10
+  [#1089](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1089)
+- Bump github.com/nats-io/nats.go from 1.46.1 to 1.47.0
+  [#1096](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1096)
+- Bump github.com/nats-io/nats-server/v2 from 2.12.0 to 2.12.1
+  [#1095](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1095)
+- Bump the artifacts group with 2 updates
+  [#1101](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1101)
+- Bump markdown from 3.9 to 3.10 in /docs
+  [#1104](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1104)
+- Bump golangci/golangci-lint-action from 8.0.0 to 9.0.0
+  [#1110](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1110)
+- Bump the etcd group with 4 updates
+  [#1111](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1111)
+- Bump github.com/nats-io/nats-server/v2 from 2.12.1 to 2.12.2
+  [#1113](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1113)
+- Bump google.golang.org/grpc from 1.76.0 to 1.77.0
+  [#1116](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1116)
+- Bump golang.org/x/crypto from 0.43.0 to 0.45.0
+  [#1119](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1119)
+- Bump go.uber.org/zap from 1.27.0 to 1.27.1
+  [#1123](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1123)
+- Bump actions/checkout from 5 to 6
+  [#1124](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1124)
+- Bump golangci/golangci-lint-action from 9.0.0 to 9.1.0
+  [#1125](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1125)
+- Bump github.com/pion/ice/v4 from 4.0.10 to 4.0.11
+  [#1135](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1135)
+- Bump google.golang.org/grpc/cmd/protoc-gen-go-grpc from 1.5.1 to 1.6.0
+  [#1136](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1136)
+- Bump github.com/pion/ice/v4 from 4.0.11 to 4.0.12
+  [#1138](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1138)
+- Bump golangci/golangci-lint-action from 9.1.0 to 9.2.0
+  [#1144](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1144)
+- Bump github.com/pion/ice/v4 from 4.0.12 to 4.0.13
+  [#1146](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1146)
+- Bump actions/cache from 4 to 5
+  [#1157](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1157)
+- Bump google.golang.org/protobuf from 1.36.10 to 1.36.11
+  [#1156](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1156)
+- Bump github.com/pion/ice/v4 from 4.0.13 to 4.1.0
+  [#1155](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1155)
+- Bump the artifacts group with 2 updates
+  [#1154](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1154)
+- Bump github.com/nats-io/nats.go from 1.47.0 to 1.48.0
+  [#1163](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1163)
+- Bump the etcd group with 4 updates
+  [#1162](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1162)
+- Bump github.com/nats-io/nats-server/v2 from 2.12.2 to 2.12.3
+  [#1164](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1164)
+- Bump github.com/pion/sdp/v3 from 3.0.16 to 3.0.17
+  [#1166](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1166)
+- Bump google.golang.org/grpc from 1.77.0 to 1.78.0
+  [#1167](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1167)
+- Bump github.com/pion/ice/v4 from 4.1.0 to 4.2.0
+  [#1171](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1171)
+- Bump sphinx-rtd-theme from 3.0.2 to 3.1.0 in /docs
+  [#1172](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1172)
+- Bump sphinx from 8.2.3 to 9.1.0 in /docs
+  [#1168](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1168)
+- Bump markdown from 3.10 to 3.10.1 in /docs
+  [#1177](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1177)
+- Bump github.com/nats-io/nats-server/v2 from 2.12.3 to 2.12.4
+  [#1179](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1179)
+- Bump github.com/golang-jwt/jwt/v5 from 5.3.0 to 5.3.1
+  [#1182](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1182)
+
+
 ## 2.0.4 - 2025-08-18
 
 ### Added
