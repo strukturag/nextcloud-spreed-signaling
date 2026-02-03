@@ -117,7 +117,7 @@ func (s *ProxySession) LastUsed() time.Time {
 
 func (s *ProxySession) IsExpired() bool {
 	expiresAt := s.LastUsed().Add(sessionExpirationTime)
-	return expiresAt.Before(time.Now())
+	return !expiresAt.After(time.Now())
 }
 
 func (s *ProxySession) MarkUsed() {
