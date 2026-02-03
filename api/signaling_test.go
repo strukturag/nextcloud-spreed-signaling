@@ -36,6 +36,20 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 )
 
+func TestRoomSessionIds(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+
+	var s1 RoomSessionId = "foo"
+	assert.False(s1.IsFederated())
+	assert.EqualValues("foo", s1.WithoutFederation())
+
+	var s2 RoomSessionId = "federated|bar"
+	assert.True(s2.IsFederated())
+	assert.EqualValues("bar", s2.WithoutFederation())
+}
+
 type testCheckValid interface {
 	CheckValid() error
 }
@@ -53,6 +67,12 @@ func wrapMessage(messageType string, msg testCheckValid) *ClientMessage {
 		wrapped.Bye = msg.(*ByeClientMessage)
 	case "room":
 		wrapped.Room = msg.(*RoomClientMessage)
+	case "control":
+		wrapped.Control = msg.(*ControlClientMessage)
+	case "internal":
+		wrapped.Internal = msg.(*InternalClientMessage)
+	case "transient":
+		wrapped.TransientData = msg.(*TransientDataClientMessage)
 	default:
 		return nil
 	}
@@ -65,19 +85,23 @@ func testMessages(t *testing.T, messageType string, valid_messages []testCheckVa
 	for _, msg := range valid_messages {
 		assert.NoError(msg.CheckValid(), "Message %+v should be valid", msg)
 
-		// If the inner message is valid, it should also be valid in a wrapped
-		// ClientMessage.
-		if wrapped := wrapMessage(messageType, msg); assert.NotNil(wrapped, "Unknown message type: %s", messageType) {
-			assert.NoError(wrapped.CheckValid(), "Message %+v should be valid", wrapped)
+		if messageType != "" {
+			// If the inner message is valid, it should also be valid in a wrapped
+			// ClientMessage.
+			if wrapped := wrapMessage(messageType, msg); assert.NotNil(wrapped, "Unknown message type: %s", messageType) {
+				assert.NoError(wrapped.CheckValid(), "Message %+v should be valid", wrapped)
+			}
 		}
 	}
 	for _, msg := range invalid_messages {
 		assert.Error(msg.CheckValid(), "Message %+v should not be valid", msg)
 
-		// If the inner message is invalid, it should also be invalid in a
-		// wrapped ClientMessage.
-		if wrapped := wrapMessage(messageType, msg); assert.NotNil(wrapped, "Unknown message type: %s", messageType) {
-			assert.Error(wrapped.CheckValid(), "Message %+v should not be valid", wrapped)
+		if messageType != "" {
+			// If the inner message is invalid, it should also be invalid in a
+			// wrapped ClientMessage.
+			if wrapped := wrapMessage(messageType, msg); assert.NotNil(wrapped, "Unknown message type: %s", messageType) {
+				assert.Error(wrapped.CheckValid(), "Message %+v should not be valid", wrapped)
+			}
 		}
 	}
 }
@@ -141,6 +165,14 @@ func TestHelloClientMessage(t *testing.T) {
 		&HelloClientMessage{
 			Version:  HelloVersionV2,
 			ResumeId: "the-resume-id",
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: &HelloClientMessageAuth{
+				Type:   "federation",
+				Params: tokenAuthParams,
+				Url:    "https://domain.invalid",
+			},
 		},
 	}
 	invalid_messages := []testCheckValid{
@@ -220,6 +252,28 @@ func TestHelloClientMessage(t *testing.T) {
 			Auth: &HelloClientMessageAuth{
 				Params: json.RawMessage("xyz"), // Invalid JSON.
 				Url:    "https://domain.invalid",
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: &HelloClientMessageAuth{
+				Type:   HelloClientTypeFederation,
+				Params: json.RawMessage("xyz"), // Invalid JSON.
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: &HelloClientMessageAuth{
+				Type:   HelloClientTypeFederation,
+				Params: json.RawMessage("{}"),
+				Url:    "https://domain.invalid",
+			},
+		},
+		&HelloClientMessage{
+			Version: HelloVersionV2,
+			Auth: &HelloClientMessageAuth{
+				Type:   HelloClientTypeFederation,
+				Params: tokenAuthParams,
 			},
 		},
 	}
@@ -315,6 +369,224 @@ func TestMessageClientMessage(t *testing.T) {
 	assert.Error(msg.CheckValid())
 }
 
+func TestControlClientMessage(t *testing.T) {
+	t.Parallel()
+	valid_messages := []testCheckValid{
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type:      "session",
+					SessionId: "the-session-id",
+				},
+				Data: json.RawMessage("{}"),
+			},
+		},
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type:   "user",
+					UserId: "the-user-id",
+				},
+				Data: json.RawMessage("{}"),
+			},
+		},
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type: "room",
+				},
+				Data: json.RawMessage("{}"),
+			},
+		},
+	}
+	invalid_messages := []testCheckValid{
+		&ControlClientMessage{
+			MessageClientMessage{},
+		},
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type:      "session",
+					SessionId: "the-session-id",
+				},
+			},
+		},
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type: "session",
+				},
+				Data: json.RawMessage("{}"),
+			},
+		},
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type:   "session",
+					UserId: "the-user-id",
+				},
+				Data: json.RawMessage("{}"),
+			},
+		},
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type: "user",
+				},
+				Data: json.RawMessage("{}"),
+			},
+		},
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type:   "user",
+					UserId: "the-user-id",
+				},
+			},
+		},
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type:      "user",
+					SessionId: "the-user-id",
+				},
+				Data: json.RawMessage("{}"),
+			},
+		},
+		&ControlClientMessage{
+			MessageClientMessage{
+				Recipient: MessageClientMessageRecipient{
+					Type: "unknown-type",
+				},
+				Data: json.RawMessage("{}"),
+			},
+		},
+	}
+	testMessages(t, "control", valid_messages, invalid_messages)
+
+	// But a "control" message must be present
+	msg := ClientMessage{
+		Type: "control",
+	}
+	assert := assert.New(t)
+	assert.Error(msg.CheckValid())
+}
+
+func TestMessageClientMessageData(t *testing.T) {
+	t.Parallel()
+	valid_messages := []testCheckValid{
+		&MessageClientMessageData{
+			Type:     "invalid",
+			RoomType: "video",
+		},
+		&MessageClientMessageData{
+			Type:     "offer",
+			RoomType: "video",
+			Payload: StringMap{
+				"sdp": mock.MockSdpOfferAudioAndVideo,
+			},
+		},
+		&MessageClientMessageData{
+			Type:     "answer",
+			RoomType: "video",
+			Payload: StringMap{
+				"sdp": mock.MockSdpAnswerAudioAndVideo,
+			},
+		},
+		&MessageClientMessageData{
+			Type:     "candidate",
+			RoomType: "video",
+			Payload: StringMap{
+				"candidate": StringMap{
+					"candidate": "",
+				},
+			},
+		},
+		&MessageClientMessageData{
+			Type:     "candidate",
+			RoomType: "video",
+			Payload: StringMap{
+				"candidate": StringMap{
+					"candidate": "candidate:0 1 UDP 2122194687 192.0.2.4 61665 typ host",
+				},
+			},
+		},
+	}
+	invalid_messages := []testCheckValid{
+		&MessageClientMessageData{},
+		&MessageClientMessageData{
+			RoomType: "invalid",
+		},
+		&MessageClientMessageData{
+			Type:     "offer",
+			RoomType: "video",
+		},
+		&MessageClientMessageData{
+			Type:     "offer",
+			RoomType: "video",
+			Payload: StringMap{
+				"sdp": 1234,
+			},
+		},
+		&MessageClientMessageData{
+			Type:     "offer",
+			RoomType: "video",
+			Payload: StringMap{
+				"sdp": "invalid-sdp",
+			},
+		},
+		&MessageClientMessageData{
+			Type:     "answer",
+			RoomType: "video",
+		},
+		&MessageClientMessageData{
+			Type:     "answer",
+			RoomType: "video",
+			Payload: StringMap{
+				"sdp": 1234,
+			},
+		},
+		&MessageClientMessageData{
+			Type:     "answer",
+			RoomType: "video",
+			Payload: StringMap{
+				"sdp": "invalid-sdp",
+			},
+		},
+		&MessageClientMessageData{
+			Type:     "candidate",
+			RoomType: "video",
+		},
+		&MessageClientMessageData{
+			Type:     "candidate",
+			RoomType: "video",
+			Payload: StringMap{
+				"candidate": "invalid-candidate",
+			},
+		},
+		&MessageClientMessageData{
+			Type:     "candidate",
+			RoomType: "video",
+			Payload: StringMap{
+				"candidate": StringMap{
+					"candidate": 12345,
+				},
+			},
+		},
+		&MessageClientMessageData{
+			Type:     "candidate",
+			RoomType: "video",
+			Payload: StringMap{
+				"candidate": StringMap{
+					"candidate": ":",
+				},
+			},
+		},
+	}
+
+	testMessages(t, "", valid_messages, invalid_messages)
+}
+
 func TestByeClientMessage(t *testing.T) {
 	t.Parallel()
 	// Any "bye" message is valid.
@@ -335,17 +607,221 @@ func TestByeClientMessage(t *testing.T) {
 
 func TestRoomClientMessage(t *testing.T) {
 	t.Parallel()
-	// Any "room" message is valid.
+	// Any regular "room" message is valid.
 	valid_messages := []testCheckValid{
 		&RoomClientMessage{},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: "http://signaling.domain.invalid/",
+				NextcloudUrl: "http://nextcloud.domain.invalid",
+				Token:        "the token",
+			},
+		},
 	}
-	invalid_messages := []testCheckValid{}
+	invalid_messages := []testCheckValid{
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{},
+		},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: ":",
+			},
+		},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: "http://signaling.domain.invalid",
+			},
+		},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: "http://signaling.domain.invalid/",
+				NextcloudUrl: ":",
+			},
+		},
+		&RoomClientMessage{
+			Federation: &RoomFederationMessage{
+				SignalingUrl: "http://signaling.domain.invalid/",
+				NextcloudUrl: "http://nextcloud.domain.invalid",
+			},
+		},
+	}
 
 	testMessages(t, "room", valid_messages, invalid_messages)
 
 	// But a "room" message must be present
 	msg := ClientMessage{
 		Type: "room",
+	}
+	assert := assert.New(t)
+	assert.Error(msg.CheckValid())
+}
+
+func TestInternalClientMessage(t *testing.T) {
+	t.Parallel()
+	valid_messages := []testCheckValid{
+		&InternalClientMessage{
+			Type: "invalid",
+		},
+		&InternalClientMessage{
+			Type: "addsession",
+			AddSession: &AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+					SessionId: "session id",
+					RoomId:    "room id",
+				},
+			},
+		},
+		&InternalClientMessage{
+			Type: "updatesession",
+			UpdateSession: &UpdateSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+					SessionId: "session id",
+					RoomId:    "room id",
+				},
+			},
+		},
+		&InternalClientMessage{
+			Type: "removesession",
+			RemoveSession: &RemoveSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+					SessionId: "session id",
+					RoomId:    "room id",
+				},
+			},
+		},
+		&InternalClientMessage{
+			Type:   "incall",
+			InCall: &InCallInternalClientMessage{},
+		},
+		&InternalClientMessage{
+			Type: "dialout",
+			Dialout: &DialoutInternalClientMessage{
+				Type: "invalid",
+			},
+		},
+		&InternalClientMessage{
+			Type: "dialout",
+			Dialout: &DialoutInternalClientMessage{
+				Type:  "error",
+				Error: &Error{},
+			},
+		},
+		&InternalClientMessage{
+			Type: "dialout",
+			Dialout: &DialoutInternalClientMessage{
+				Type:   "status",
+				Status: &DialoutStatusInternalClientMessage{},
+			},
+		},
+	}
+	invalid_messages := []testCheckValid{
+		&InternalClientMessage{},
+		&InternalClientMessage{
+			Type: "addsession",
+		},
+		&InternalClientMessage{
+			Type:       "addsession",
+			AddSession: &AddSessionInternalClientMessage{},
+		},
+		&InternalClientMessage{
+			Type: "addsession",
+			AddSession: &AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+					SessionId: "session id",
+				},
+			},
+		},
+		&InternalClientMessage{
+			Type: "updatesession",
+		},
+		&InternalClientMessage{
+			Type:          "updatesession",
+			UpdateSession: &UpdateSessionInternalClientMessage{},
+		},
+		&InternalClientMessage{
+			Type: "updatesession",
+			UpdateSession: &UpdateSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+					SessionId: "session id",
+				},
+			},
+		},
+		&InternalClientMessage{
+			Type: "removesession",
+		},
+		&InternalClientMessage{
+			Type:          "removesession",
+			RemoveSession: &RemoveSessionInternalClientMessage{},
+		},
+		&InternalClientMessage{
+			Type: "removesession",
+			RemoveSession: &RemoveSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: CommonSessionInternalClientMessage{
+					SessionId: "session id",
+				},
+			},
+		},
+		&InternalClientMessage{
+			Type: "incall",
+		},
+		&InternalClientMessage{
+			Type: "dialout",
+		},
+		&InternalClientMessage{
+			Type:    "dialout",
+			Dialout: &DialoutInternalClientMessage{},
+		},
+		&InternalClientMessage{
+			Type: "dialout",
+			Dialout: &DialoutInternalClientMessage{
+				Type: "error",
+			},
+		},
+		&InternalClientMessage{
+			Type: "dialout",
+			Dialout: &DialoutInternalClientMessage{
+				Type: "status",
+			},
+		},
+	}
+
+	testMessages(t, "internal", valid_messages, invalid_messages)
+
+	// But a "internal" message must be present
+	msg := ClientMessage{
+		Type: "internal",
+	}
+	assert := assert.New(t)
+	assert.Error(msg.CheckValid())
+}
+
+func TestTransientDataClientMessage(t *testing.T) {
+	t.Parallel()
+	valid_messages := []testCheckValid{
+		&TransientDataClientMessage{
+			Type: "set",
+			Key:  "foo",
+		},
+		&TransientDataClientMessage{
+			Type: "remove",
+			Key:  "foo",
+		},
+	}
+	invalid_messages := []testCheckValid{
+		&TransientDataClientMessage{},
+		&TransientDataClientMessage{
+			Type: "set",
+		},
+		&TransientDataClientMessage{
+			Type: "remove",
+		},
+	}
+
+	testMessages(t, "transient", valid_messages, invalid_messages)
+
+	// But a "transient" message must be present
+	msg := ClientMessage{
+		Type: "transient",
 	}
 	assert := assert.New(t)
 	assert.Error(msg.CheckValid())

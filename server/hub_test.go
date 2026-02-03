@@ -65,6 +65,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/mock"
 	natstest "github.com/strukturag/nextcloud-spreed-signaling/nats/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/session"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	sfutest "github.com/strukturag/nextcloud-spreed-signaling/sfu/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
@@ -5258,4 +5259,54 @@ func TestGracefulShutdownOnExpiration(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		assert.Fail("should have shutdown")
 	}
+}
+
+func TestHubGetPublisherIdForSessionId(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	mcu := sfutest.NewSFU(t)
+	hub.SetMcu(mcu)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		if reply, err := hub.GetPublisherIdForSessionId(ctx, hello.Hello.SessionId, sfu.StreamTypeVideo); assert.NoError(err) && assert.NotNil(reply) {
+			assert.Equal("https://proxy.domain.invalid", reply.ProxyUrl)
+			assert.Equal("10.20.30.40", reply.Ip)
+			// The test-SFU doesn't support token creation.
+			assert.Empty(reply.ConnectToken)
+			assert.Empty(reply.PublisherToken)
+
+			if session := hub.GetSessionByPublicId(hello.Hello.SessionId); assert.NotNil(session) {
+				if cs, ok := session.(*ClientSession); assert.True(ok) {
+					if pub := cs.GetPublisher(sfu.StreamTypeVideo); assert.NotNil(pub) {
+						assert.EqualValues(pub.PublisherId(), reply.PublisherId)
+					}
+				}
+			}
+		}
+	}()
+
+	require.NoError(client.SendMessage(api.MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: hello.Hello.SessionId,
+	}, api.MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}))
+
+	<-done
 }

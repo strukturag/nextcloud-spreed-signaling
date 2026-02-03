@@ -22,35 +22,35 @@
 package janus
 
 import (
-	"database/sql"
 	"fmt"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 type streamSelection struct {
-	substream sql.NullInt16
-	temporal  sql.NullInt16
-	audio     sql.NullBool
-	video     sql.NullBool
+	substream *int
+	temporal  *int
+	audio     *bool
+	video     *bool
 }
 
 func (s *streamSelection) HasValues() bool {
-	return s.substream.Valid || s.temporal.Valid || s.audio.Valid || s.video.Valid
+	return s.substream != nil || s.temporal != nil || s.audio != nil || s.video != nil
 }
 
 func (s *streamSelection) AddToMessage(message api.StringMap) {
-	if s.substream.Valid {
-		message["substream"] = s.substream.Int16
+	if s.substream != nil {
+		message["substream"] = *s.substream
 	}
-	if s.temporal.Valid {
-		message["temporal"] = s.temporal.Int16
+	if s.temporal != nil {
+		message["temporal"] = *s.temporal
 	}
-	if s.audio.Valid {
-		message["audio"] = s.audio.Bool
+	if s.audio != nil {
+		message["audio"] = *s.audio
 	}
-	if s.video.Valid {
-		message["video"] = s.video.Bool
+	if s.video != nil {
+		message["video"] = *s.video
 	}
 }
 
@@ -59,14 +59,11 @@ func parseStreamSelection(payload api.StringMap) (*streamSelection, error) {
 	if value, found := payload["substream"]; found {
 		switch value := value.(type) {
 		case int:
-			stream.substream.Valid = true
-			stream.substream.Int16 = int16(value)
+			stream.substream = &value
 		case float32:
-			stream.substream.Valid = true
-			stream.substream.Int16 = int16(value)
+			stream.substream = internal.MakePtr(int(value))
 		case float64:
-			stream.substream.Valid = true
-			stream.substream.Int16 = int16(value)
+			stream.substream = internal.MakePtr(int(value))
 		default:
 			return nil, fmt.Errorf("unsupported substream value: %v", value)
 		}
@@ -75,14 +72,11 @@ func parseStreamSelection(payload api.StringMap) (*streamSelection, error) {
 	if value, found := payload["temporal"]; found {
 		switch value := value.(type) {
 		case int:
-			stream.temporal.Valid = true
-			stream.temporal.Int16 = int16(value)
+			stream.temporal = &value
 		case float32:
-			stream.temporal.Valid = true
-			stream.temporal.Int16 = int16(value)
+			stream.temporal = internal.MakePtr(int(value))
 		case float64:
-			stream.temporal.Valid = true
-			stream.temporal.Int16 = int16(value)
+			stream.temporal = internal.MakePtr(int(value))
 		default:
 			return nil, fmt.Errorf("unsupported temporal value: %v", value)
 		}
@@ -91,8 +85,7 @@ func parseStreamSelection(payload api.StringMap) (*streamSelection, error) {
 	if value, found := payload["audio"]; found {
 		switch value := value.(type) {
 		case bool:
-			stream.audio.Valid = true
-			stream.audio.Bool = value
+			stream.audio = &value
 		default:
 			return nil, fmt.Errorf("unsupported audio value: %v", value)
 		}
@@ -101,8 +94,7 @@ func parseStreamSelection(payload api.StringMap) (*streamSelection, error) {
 	if value, found := payload["video"]; found {
 		switch value := value.(type) {
 		case bool:
-			stream.video.Valid = true
-			stream.video.Bool = value
+			stream.video = &value
 		default:
 			return nil, fmt.Errorf("unsupported video value: %v", value)
 		}

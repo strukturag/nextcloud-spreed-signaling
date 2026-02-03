@@ -265,32 +265,6 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		return nil, err
 	}
 
-	statsAllowed, _ := config.GetString("stats", "allowed_ips")
-	statsAllowedIps, err := container.ParseIPList(statsAllowed)
-	if err != nil {
-		return nil, err
-	}
-
-	if !statsAllowedIps.Empty() {
-		logger.Printf("Only allowing access to the stats endpoint from %s", statsAllowed)
-	} else {
-		statsAllowedIps = container.DefaultAllowedIPs()
-		logger.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
-	}
-
-	trustedProxies, _ := config.GetString("app", "trustedproxies")
-	trustedProxiesIps, err := container.ParseIPList(trustedProxies)
-	if err != nil {
-		return nil, err
-	}
-
-	if !trustedProxiesIps.Empty() {
-		logger.Printf("Trusted proxies: %s", trustedProxiesIps)
-	} else {
-		trustedProxiesIps = client.DefaultTrustedProxies
-		logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
-	}
-
 	countryString, _ := config.GetString("app", "country")
 	country := geoip.Country(strings.ToUpper(countryString))
 	if geoip.IsValidCountry(country) {
@@ -350,8 +324,6 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		logger.Printf("No token id configured, remote streams will be disabled")
 	}
 
-	maxIncoming, maxOutgoing := getTargetBandwidths(logger, config)
-
 	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
 	if mcuTimeoutSeconds <= 0 {
 		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
@@ -397,10 +369,10 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		remotePublishers:  make(map[string]map[*proxyRemotePublisher]bool),
 	}
 
-	result.maxIncoming.Store(maxIncoming)
-	result.maxOutgoing.Store(maxOutgoing)
-	result.statsAllowedIps.Store(statsAllowedIps)
-	result.trustedProxies.Store(trustedProxiesIps)
+	if err := result.loadConfig(config, false); err != nil {
+		return nil, err
+	}
+
 	result.upgrader.CheckOrigin = result.checkOrigin
 
 	statsLoadCurrent.Set(0)
@@ -629,7 +601,7 @@ func (s *ProxyServer) ScheduleShutdown() {
 	}
 }
 
-func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
+func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) error {
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
 	if statsAllowedIps, err := container.ParseIPList(statsAllowed); err == nil {
 		if !statsAllowedIps.Empty() {
@@ -639,8 +611,10 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 			s.logger.Printf("No IPs configured for the stats endpoint, only allowing access from %s", statsAllowedIps)
 		}
 		s.statsAllowedIps.Store(statsAllowedIps)
-	} else {
+	} else if fromReload {
 		s.logger.Printf("Error parsing allowed stats ips from \"%s\": %s", statsAllowedIps, err)
+	} else {
+		return fmt.Errorf("error parsing allowed stats ips from \"%s\": %w", statsAllowedIps, err)
 	}
 
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
@@ -652,16 +626,26 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 			s.logger.Printf("No trusted proxies configured, only allowing for %s", trustedProxiesIps)
 		}
 		s.trustedProxies.Store(trustedProxiesIps)
-	} else {
+	} else if fromReload {
 		s.logger.Printf("Error parsing trusted proxies from \"%s\": %s", trustedProxies, err)
+	} else {
+		return fmt.Errorf("error parsing trusted proxies ips from \"%s\": %w", trustedProxies, err)
 	}
 
 	maxIncoming, maxOutgoing := getTargetBandwidths(s.logger, config)
 	oldIncoming := s.maxIncoming.Swap(maxIncoming)
 	oldOutgoing := s.maxOutgoing.Swap(maxOutgoing)
-	if oldIncoming != maxIncoming || oldOutgoing != maxOutgoing {
+	if fromReload && (oldIncoming != maxIncoming || oldOutgoing != maxOutgoing) {
 		// Notify sessions about updated load / bandwidth usage.
 		go s.sendLoadToAll(s.load.Load(), s.currentIncoming.Load(), s.currentOutgoing.Load())
+	}
+
+	return nil
+}
+
+func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
+	if err := s.loadConfig(config, true); err != nil {
+		s.logger.Printf("Error reloading configuration: %s", err)
 	}
 
 	s.tokens.Reload(config)

@@ -22,7 +22,10 @@
 package test
 
 import (
+	"context"
+	"errors"
 	"net"
+	"net/url"
 	"strconv"
 	"testing"
 
@@ -30,9 +33,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/talk"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
@@ -71,3 +77,46 @@ func NewServerForTest(t *testing.T) (server *grpc.Server, addr string) {
 	config := goconf.NewConfigFile()
 	return NewServerForTestWithConfig(t, config)
 }
+
+type MockHub struct {
+}
+
+func (h *MockHub) GetSessionIdByResumeId(resumeId api.PrivateSessionId) api.PublicSessionId {
+	return ""
+}
+
+func (h *MockHub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
+	return "", errors.New("not implemented")
+}
+
+func (h *MockHub) IsSessionIdInCall(sessionId api.PublicSessionId, roomId string, backendUrl string) (bool, bool) {
+	return false, false
+}
+
+func (h *MockHub) DisconnectSessionByRoomSessionId(sessionId api.PublicSessionId, roomSessionId api.RoomSessionId, reason string) {
+}
+
+func (h *MockHub) GetBackend(u *url.URL) *talk.Backend {
+	return nil
+}
+
+func (h *MockHub) GetInternalSessions(roomId string, backend *talk.Backend) ([]*grpc.InternalSessionData, []*grpc.VirtualSessionData, bool) {
+	return nil, nil, false
+}
+
+func (h *MockHub) GetTransientEntries(roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {
+	return nil, false
+}
+
+func (h *MockHub) GetPublisherIdForSessionId(ctx context.Context, sessionId api.PublicSessionId, streamType sfu.StreamType) (*grpc.GetPublisherIdReply, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (h *MockHub) ProxySession(request grpc.RpcSessions_ProxySessionServer) error {
+	return errors.New("not implemented")
+}
+
+var (
+	// Compile-time check that MockHub implements the interface.
+	_ grpc.ServerHub = &MockHub{}
+)

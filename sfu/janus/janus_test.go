@@ -23,6 +23,7 @@ package janus
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -77,7 +78,16 @@ func newMcuJanusForTesting(t *testing.T) (*janusSFU, *janustest.JanusGateway) {
 }
 
 type TestMcuListener struct {
-	id api.PublicSessionId
+	id           api.PublicSessionId
+	closed       atomic.Bool
+	updatedOffer chan api.StringMap
+}
+
+func NewTestMcuListener(id api.PublicSessionId) *TestMcuListener {
+	return &TestMcuListener{
+		id:           id,
+		updatedOffer: make(chan api.StringMap),
+	}
 }
 
 func (t *TestMcuListener) PublicId() api.PublicSessionId {
@@ -85,7 +95,7 @@ func (t *TestMcuListener) PublicId() api.PublicSessionId {
 }
 
 func (t *TestMcuListener) OnUpdateOffer(client sfu.Client, offer api.StringMap) {
-
+	t.updatedOffer <- offer
 }
 
 func (t *TestMcuListener) OnIceCandidate(client sfu.Client, candidate any) {
@@ -105,7 +115,7 @@ func (t *TestMcuListener) PublisherClosed(publisher sfu.Publisher) {
 }
 
 func (t *TestMcuListener) SubscriberClosed(subscriber sfu.Subscriber) {
-
+	t.closed.Store(true)
 }
 
 type TestMcuController struct {
@@ -879,4 +889,845 @@ func Test_JanusRemotePublisher(t *testing.T) {
 
 	assert.EqualValues(1, added.Load())
 	assert.EqualValues(1, removed.Load())
+}
+
+type mockJanusStats struct {
+	called atomic.Bool
+
+	mu sync.Mutex
+	// +checklocks:mu
+	value map[sfu.StreamType]int
+}
+
+func (s *mockJanusStats) Value(streamType sfu.StreamType) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.value[streamType]
+}
+
+func (s *mockJanusStats) IncSubscriber(streamType sfu.StreamType) {
+	s.called.Store(true)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.value == nil {
+		s.value = make(map[sfu.StreamType]int)
+	}
+	s.value[streamType]++
+}
+
+func (s *mockJanusStats) DecSubscriber(streamType sfu.StreamType) {
+	s.called.Store(true)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.value == nil {
+		s.value = make(map[sfu.StreamType]int)
+	}
+	s.value[streamType]--
+}
+
+func Test_SubscriberNoSuchRoom(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.SetStats(stats)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			return &janus.EventMsg{
+				Jsep: api.StringMap{
+					"type": "answer",
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := sfu.NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", sfu.StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+
+	defer pub.Close(context.Background())
+
+	msgData := &api.MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err := json.Marshal(msgData)
+	require.NoError(err)
+	msg := &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	ch := make(chan struct{})
+	pub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpAnswerAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+
+	defer sub.Close(context.Background())
+
+	msgData = &api.MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err = json.Marshal(msgData)
+	require.NoError(err)
+	msg = &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.ErrorContains(err, "not created yet for")
+		assert.Empty(sm)
+	})
+	<-ch
+
+	assert.True(listener2.closed.Load())
+
+	listener3 := &TestMcuListener{
+		id: pubId,
+	}
+
+	sub, err = mcu.NewSubscriber(ctx, listener3, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+
+	defer sub.Close(context.Background())
+
+	sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpOfferAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	assert.False(listener3.closed.Load())
+}
+
+func test_JanusSubscriberAlreadyJoined(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.SetStats(stats)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			return &janus.EventMsg{
+				Jsep: api.StringMap{
+					"type": "answer",
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := sfu.NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", sfu.StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+
+	defer pub.Close(context.Background())
+
+	msgData := &api.MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err := json.Marshal(msgData)
+	require.NoError(err)
+	msg := &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	ch := make(chan struct{})
+	pub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpAnswerAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+
+	defer sub.Close(context.Background())
+
+	msgData = &api.MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err = json.Marshal(msgData)
+	require.NoError(err)
+	msg = &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		if strings.Contains(t.Name(), "AttachError") {
+			assert.ErrorContains(err, "already connected as subscriber for")
+			assert.Empty(sm)
+		} else {
+			assert.NoError(err)
+			assert.Equal(mock.MockSdpOfferAudioAndVideo, sm["sdp"])
+		}
+	})
+	<-ch
+
+	if strings.Contains(t.Name(), "AttachError") {
+		assert.True(listener2.closed.Load())
+
+		listener3 := &TestMcuListener{
+			id: pubId,
+		}
+
+		sub, err := mcu.NewSubscriber(ctx, listener3, pubId, sfu.StreamTypeVideo, initiator2)
+		require.NoError(err)
+
+		defer sub.Close(context.Background())
+
+		sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+			defer func() {
+				ch <- struct{}{}
+			}()
+
+			assert.NoError(err)
+			assert.Equal(mock.MockSdpOfferAudioAndVideo, sm["sdp"])
+		})
+		<-ch
+	}
+}
+
+func Test_SubscriberAlreadyJoined(t *testing.T) {
+	t.Parallel()
+	test_JanusSubscriberAlreadyJoined(t)
+}
+
+func Test_SubscriberAlreadyJoinedAttachError(t *testing.T) {
+	t.Parallel()
+	test_JanusSubscriberAlreadyJoined(t)
+}
+
+func Test_SubscriberTimeout(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.SetStats(stats)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			return &janus.EventMsg{
+				Jsep: api.StringMap{
+					"type": "answer",
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := sfu.NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", sfu.StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+
+	defer pub.Close(context.Background())
+
+	msgData := &api.MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err := json.Marshal(msgData)
+	require.NoError(err)
+	msg := &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	ch := make(chan struct{})
+	pub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpAnswerAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	oldTimeout := mcu.Settings().Timeout()
+	mcu.Settings().SetTimeout(100 * time.Millisecond)
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+
+	defer sub.Close(context.Background())
+
+	msgData = &api.MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err = json.Marshal(msgData)
+	require.NoError(err)
+	msg = &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.ErrorIs(err, context.DeadlineExceeded)
+		assert.Empty(sm)
+	})
+	<-ch
+
+	assert.True(listener2.closed.Load())
+
+	mcu.Settings().SetTimeout(oldTimeout)
+
+	listener3 := &TestMcuListener{
+		id: pubId,
+	}
+
+	sub, err = mcu.NewSubscriber(ctx, listener3, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+
+	defer sub.Close(context.Background())
+
+	sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpOfferAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+}
+
+func Test_SubscriberCloseEmptyStreams(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.SetStats(stats)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			return &janus.EventMsg{
+				Jsep: api.StringMap{
+					"type": "answer",
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := sfu.NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", sfu.StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+
+	defer pub.Close(context.Background())
+
+	msgData := &api.MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err := json.Marshal(msgData)
+	require.NoError(err)
+	msg := &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	ch := make(chan struct{})
+	pub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpAnswerAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+
+	defer sub.Close(context.Background())
+
+	msgData = &api.MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err = json.Marshal(msgData)
+	require.NoError(err)
+	msg = &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpOfferAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	subscriber, ok := sub.(*janusSubscriber)
+	require.True(ok)
+	handle := subscriber.JanusHandle()
+	require.NotNil(handle)
+
+	for ctx.Err() == nil {
+		if handle = subscriber.JanusHandle(); handle == nil && listener2.closed.Load() {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	assert.Nil(handle, "subscriber should have been closed")
+	assert.True(listener2.closed.Load())
+}
+
+func Test_SubscriberRoomDestroyed(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.SetStats(stats)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			return &janus.EventMsg{
+				Jsep: api.StringMap{
+					"type": "answer",
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := sfu.NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", sfu.StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+
+	defer pub.Close(context.Background())
+
+	msgData := &api.MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err := json.Marshal(msgData)
+	require.NoError(err)
+	msg := &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	ch := make(chan struct{})
+	pub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpAnswerAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+
+	defer sub.Close(context.Background())
+
+	msgData = &api.MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err = json.Marshal(msgData)
+	require.NoError(err)
+	msg = &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpOfferAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	subscriber, ok := sub.(*janusSubscriber)
+	require.True(ok)
+	handle := subscriber.JanusHandle()
+	require.NotNil(handle)
+
+	for ctx.Err() == nil {
+		if handle = subscriber.JanusHandle(); handle == nil && listener2.closed.Load() {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	assert.Nil(handle, "subscriber should have been closed")
+	assert.True(listener2.closed.Load())
+}
+
+func Test_SubscriberUpdateOffer(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.SetStats(stats)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			return &janus.EventMsg{
+				Jsep: api.StringMap{
+					"type": "answer",
+					"sdp":  mock.MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := sfu.NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", sfu.StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+
+	defer pub.Close(context.Background())
+
+	msgData := &api.MessageClientMessageData{
+		Type:     "offer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err := json.Marshal(msgData)
+	require.NoError(err)
+	msg := &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	ch := make(chan struct{})
+	pub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpAnswerAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	listener2 := NewTestMcuListener(pubId)
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+
+	defer sub.Close(context.Background())
+
+	msgData = &api.MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err = json.Marshal(msgData)
+	require.NoError(err)
+	msg = &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: pubId,
+		},
+		Data: payload,
+	}
+
+	sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer func() {
+			ch <- struct{}{}
+		}()
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpOfferAudioAndVideo, sm["sdp"])
+	})
+	<-ch
+
+	// Test MCU will trigger an updated offer.
+	select {
+	case offer := <-listener2.updatedOffer:
+		assert.Equal(mock.MockSdpOfferAudioOnly, offer["sdp"])
+	case <-ctx.Done():
+		assert.NoError(ctx.Err())
+	}
 }
