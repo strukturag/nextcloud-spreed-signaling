@@ -153,3 +153,34 @@ func TestProxyTokensEtcd(t *testing.T) {
 		assert.True(key2.PublicKey.Equal(token.key))
 	}
 }
+
+func TestProxyTokensEtcdReload(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	tokens, etcd := newTokensEtcdForTesting(t)
+
+	key1 := generateAndSaveKey(t, etcd, "/foo")
+
+	if token, err := tokens.Get("foo"); assert.NoError(err) && assert.NotNil(token) {
+		assert.True(key1.PublicKey.Equal(token.key))
+	}
+
+	if token, err := tokens.Get("bar"); assert.NoError(err) {
+		assert.Nil(token)
+	}
+
+	cfg := goconf.NewConfigFile()
+	cfg.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
+	cfg.AddOption("tokens", "keyformat", "/reload/%s/key")
+
+	tokens.Reload(cfg)
+	key2 := generateAndSaveKey(t, etcd, "/reload/bar/key")
+
+	if token, err := tokens.Get("foo"); assert.NoError(err) {
+		assert.Nil(token)
+	}
+
+	if token, err := tokens.Get("bar"); assert.NoError(err) && assert.NotNil(token) {
+		assert.True(key2.PublicKey.Equal(token.key))
+	}
+}
