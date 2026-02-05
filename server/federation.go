@@ -469,8 +469,8 @@ func (c *FederationClient) writePump() {
 
 func (c *FederationClient) closeWithError(err error) {
 	c.Close()
-	var e *api.Error
-	if !errors.As(err, &e) {
+	e, ok := internal.AsErrorType[*api.Error](err)
+	if !ok {
 		e = api.NewError("federation_error", err.Error())
 	}
 

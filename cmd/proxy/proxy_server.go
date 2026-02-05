@@ -54,6 +54,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
 	"github.com/strukturag/nextcloud-spreed-signaling/session"
@@ -1224,8 +1225,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		defer cancel()
 
 		if err := publisher.PublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
-			var je *janusapi.ErrorMsg
-			if !errors.As(err, &je) || je.Err.Code != janusapi.JANUS_VIDEOROOM_ERROR_ID_EXISTS {
+			if je, ok := internal.AsErrorType[*janusapi.ErrorMsg](err); !ok || je.Err.Code != janusapi.JANUS_VIDEOROOM_ERROR_ID_EXISTS {
 				s.logger.Printf("Error publishing %s %s to remote %s (port=%d, rtcpPort=%d): %s", publisher.StreamType(), cmd.ClientId, cmd.Hostname, cmd.Port, cmd.RtcpPort, err)
 				session.sendMessage(message.NewWrappedErrorServerMessage(err))
 				return

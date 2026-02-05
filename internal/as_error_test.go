@@ -1,6 +1,6 @@
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
- * Copyright (C) 2025 struktur AG
+ * Copyright (C) 2026 struktur AG
  *
  * @author Joachim Bauch <bauch@struktur.de>
  *
@@ -19,31 +19,43 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package test
+package internal
 
 import (
-	"os"
-	"runtime"
-	"syscall"
+	"errors"
+	"fmt"
+	"testing"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/stretchr/testify/assert"
 )
 
-func IsErrorAddressAlreadyInUse(err error) bool {
-	eOsSyscall, ok := internal.AsErrorType[*os.SyscallError](err)
-	if !ok {
-		return false
+type testError struct{}
+
+func (e testError) Error() string {
+	return "test error"
+}
+
+func TestAsErrorType(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+
+	if e, ok := AsErrorType[*testError](nil); assert.False(ok) {
+		assert.Nil(e)
 	}
-	errErrno, ok := internal.AsErrorType[syscall.Errno](eOsSyscall)
-	if !ok {
-		return false
+
+	err1 := &testError{}
+	if e, ok := AsErrorType[*testError](err1); assert.True(ok) {
+		assert.Same(err1, e)
 	}
-	if errErrno == syscall.EADDRINUSE {
-		return true
+
+	err2 := errors.New("other error")
+	if e, ok := AsErrorType[*testError](err2); assert.False(ok) {
+		assert.Nil(e)
 	}
-	const WSAEADDRINUSE = 10048
-	if runtime.GOOS == "windows" && errErrno == WSAEADDRINUSE {
-		return true
+
+	err3 := fmt.Errorf("wrapped error: %w", err1)
+	if e, ok := AsErrorType[*testError](err3); assert.True(ok) {
+		assert.Same(err1, e)
 	}
-	return false
 }
