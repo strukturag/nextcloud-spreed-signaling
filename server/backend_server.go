@@ -831,9 +831,10 @@ func (b *BackendServer) startDialout(ctx context.Context, roomid string, backend
 		response, err := b.startDialoutInSession(ctx, session, roomid, backend, backendUrl, request)
 		if err != nil {
 			b.logger.Printf("Error starting dialout request %+v in session %s: %+v", request.Dialout, session.PublicId(), err)
-			var e *api.Error
-			if sessionError == nil && errors.As(err, &e) {
-				sessionError = e
+			if sessionError == nil {
+				if e, ok := internal.AsErrorType[*api.Error](err); ok {
+					sessionError = e
+				}
 			}
 			continue
 		}

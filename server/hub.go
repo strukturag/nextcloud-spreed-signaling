@@ -1844,39 +1844,31 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 			if session.UserId() == "" && client == nil {
 				h.startWaitAnonymousSessionRoom(session)
 			}
-			var ae *api.Error
-			if errors.As(err, &ae) {
+			if ae, ok := internal.AsErrorType[*api.Error](err); ok {
 				session.SendMessage(message.NewErrorServerMessage(ae))
 				return
 			}
 
 			var details any
-			var ce *tls.CertificateVerificationError
-			if errors.As(err, &ce) {
+			if ce, ok := internal.AsErrorType[*tls.CertificateVerificationError](err); ok {
 				details = map[string]string{
 					"code":    "certificate_verification_error",
 					"message": ce.Error(),
 				}
-			}
-			var ne net.Error
-			if details == nil && errors.As(err, &ne) {
+			} else if ne, ok := internal.AsErrorType[net.Error](err); ok {
 				details = map[string]string{
 					"code":    "network_error",
 					"message": ne.Error(),
 				}
-			}
-			if details == nil {
-				var we websocket.HandshakeError
-				if errors.Is(err, websocket.ErrBadHandshake) {
-					details = map[string]string{
-						"code":    "network_error",
-						"message": err.Error(),
-					}
-				} else if errors.As(err, &we) {
-					details = map[string]string{
-						"code":    "network_error",
-						"message": we.Error(),
-					}
+			} else if errors.Is(err, websocket.ErrBadHandshake) {
+				details = map[string]string{
+					"code":    "network_error",
+					"message": err.Error(),
+				}
+			} else if we, ok := internal.AsErrorType[websocket.HandshakeError](err); ok {
+				details = map[string]string{
+					"code":    "network_error",
+					"message": we.Error(),
 				}
 			}
 

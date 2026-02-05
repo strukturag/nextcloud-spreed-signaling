@@ -22,11 +22,12 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"regexp"
 
 	"github.com/dlintw/goconf"
+
+	"github.com/strukturag/nextcloud-spreed-signaling/internal"
 )
 
 var (
@@ -71,8 +72,7 @@ func GetStringOptions(config *goconf.ConfigFile, section string, ignoreErrors bo
 				continue
 			}
 
-			var ge goconf.GetError
-			if errors.As(err, &ge) && ge.Reason == goconf.OptionNotFound {
+			if ge, ok := internal.AsErrorType[goconf.GetError](err); ok && ge.Reason == goconf.OptionNotFound {
 				// Skip options from "default" section.
 				continue
 			}
