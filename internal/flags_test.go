@@ -56,14 +56,12 @@ func runConcurrentFlags(t *testing.T, count int, f func()) {
 	var ready sync.WaitGroup
 	var done sync.WaitGroup
 	for range count {
-		done.Add(1)
 		ready.Add(1)
-		go func() {
-			defer done.Done()
+		done.Go(func() {
 			ready.Done()
 			start.Wait()
 			f()
-		}()
+		})
 	}
 	ready.Wait()
 	start.Done()

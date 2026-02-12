@@ -122,9 +122,7 @@ func (s *backendStorageEtcd) EtcdClientCreated(client etcd.Client) {
 		return
 	}
 
-	s.runningDone.Add(1)
-	go func() {
-		defer s.runningDone.Done()
+	s.runningDone.Go(func() {
 		defer s.initializedFunc()
 		if err := client.WaitForConnection(s.closeCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -179,7 +177,7 @@ func (s *backendStorageEtcd) EtcdClientCreated(client etcd.Client) {
 			}
 			return
 		}
-	}()
+	})
 }
 
 func (s *backendStorageEtcd) EtcdWatchCreated(client etcd.Client, key string) {

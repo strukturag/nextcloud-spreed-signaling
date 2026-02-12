@@ -1,5 +1,3 @@
-//go:build go1.25
-
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
  * Copyright (C) 2021 struktur AG
@@ -31,13 +29,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func Test_TransientData(t *testing.T) {
 	t.Parallel()
-	test.SynctestTest(t, func(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 		assert := assert.New(t)
 		data := NewTransientData()
 		assert.False(data.Set("foo", nil))
@@ -192,7 +188,7 @@ func Test_TransientDataNotifyInitial(t *testing.T) {
 
 func Test_TransientDataSetInitial(t *testing.T) {
 	t.Parallel()
-	test.SynctestTest(t, func(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 		assert := assert.New(t)
 
 		now := time.Now()

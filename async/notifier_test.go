@@ -1,5 +1,3 @@
-//go:build go1.25
-
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
  * Copyright (C) 2021 struktur AG
@@ -31,8 +29,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func TestNotifierNoWaiter(t *testing.T) {
@@ -45,20 +41,17 @@ func TestNotifierNoWaiter(t *testing.T) {
 
 func TestNotifierSimple(t *testing.T) {
 	t.Parallel()
+
 	var notifier Notifier
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
 	waiter := notifier.NewWaiter("foo")
 	defer notifier.Release(waiter)
 
-	go func() {
-		defer wg.Done()
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		assert.NoError(t, waiter.Wait(ctx))
-	}()
+	})
 
 	notifier.Notify("foo")
 	wg.Wait()
@@ -101,20 +94,17 @@ func TestNotifierWaitClosedMulti(t *testing.T) {
 
 func TestNotifierResetWillNotify(t *testing.T) {
 	t.Parallel()
+
 	var notifier Notifier
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
 	waiter := notifier.NewWaiter("foo")
 	defer notifier.Release(waiter)
 
-	go func() {
-		defer wg.Done()
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		assert.NoError(t, waiter.Wait(ctx))
-	}()
+	})
 
 	notifier.Reset()
 	wg.Wait()
@@ -122,22 +112,19 @@ func TestNotifierResetWillNotify(t *testing.T) {
 
 func TestNotifierDuplicate(t *testing.T) {
 	t.Parallel()
-	test.SynctestTest(t, func(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 		var notifier Notifier
 		var done sync.WaitGroup
 
 		for range 2 {
-			done.Add(1)
-
-			go func() {
-				defer done.Done()
+			done.Go(func() {
 				waiter := notifier.NewWaiter("foo")
 				defer notifier.Release(waiter)
 
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 				assert.NoError(t, waiter.Wait(ctx))
-			}()
+			})
 		}
 
 		synctest.Wait()

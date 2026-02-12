@@ -122,10 +122,7 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 	var result atomic.Value
 	logger := log.LoggerFromContext(ctx)
 	for _, client := range clients {
-		wg.Add(1)
-		go func(client *grpc.Client) {
-			defer wg.Done()
-
+		wg.Go(func() {
 			sid, err := client.LookupSessionId(lookupctx, roomSessionId, disconnectReason)
 			if errors.Is(err, context.Canceled) {
 				return
@@ -139,7 +136,7 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 
 			cancel() // Cancel pending RPC calls.
 			result.Store(sid)
-		}(client)
+		})
 	}
 	wg.Wait()
 

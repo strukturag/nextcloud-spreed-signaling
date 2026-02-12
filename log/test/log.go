@@ -22,29 +22,12 @@
 package test
 
 import (
-	"bytes"
 	stdlog "log"
-	"sync"
 	"testing"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
-
-type testLogWriter struct {
-	mu sync.Mutex
-	t  testing.TB
-}
-
-func (w *testLogWriter) Write(b []byte) (int, error) {
-	w.t.Helper()
-	if !bytes.HasSuffix(b, []byte("\n")) {
-		b = append(b, '\n')
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return writeTestOutput(w.t, b)
-}
 
 var (
 	testLoggers test.Storage[log.Logger]
@@ -55,9 +38,7 @@ func NewLoggerForTest(t testing.TB) log.Logger {
 
 	logger, found := testLoggers.Get(t)
 	if !found {
-		logger = stdlog.New(&testLogWriter{
-			t: t,
-		}, t.Name()+": ", stdlog.LstdFlags|stdlog.Lmicroseconds|stdlog.Lshortfile)
+		logger = stdlog.New(t.Output(), t.Name()+": ", stdlog.LstdFlags|stdlog.Lmicroseconds|stdlog.Lshortfile)
 
 		testLoggers.Set(t, logger)
 	}

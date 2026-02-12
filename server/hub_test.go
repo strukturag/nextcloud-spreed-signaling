@@ -1365,10 +1365,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 	var publicSessionIds []api.PublicSessionId
 	var wg sync.WaitGroup
 	for range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 
@@ -1391,7 +1388,7 @@ func TestSessionIdsUnordered(t *testing.T) {
 			mu.Lock()
 			publicSessionIds = append(publicSessionIds, session.PublicId())
 			mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()

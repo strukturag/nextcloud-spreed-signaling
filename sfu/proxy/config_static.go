@@ -48,7 +48,7 @@ type configStatic struct {
 	mu     sync.Mutex
 	proxy  McuProxy
 
-	dnsMonitor *dns.Monitor
+	dnsMonitor *dns.Monitor // +checklocksignore: Only written to from constructor.
 	// +checklocks:mu
 	dnsDiscovery bool
 

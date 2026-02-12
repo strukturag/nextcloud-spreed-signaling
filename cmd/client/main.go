@@ -161,15 +161,8 @@ func NewSignalingClient(url string, stats *Stats, readyWg *sync.WaitGroup, doneW
 
 		stopChan: make(chan struct{}),
 	}
-	doneWg.Add(2)
-	go func() {
-		defer doneWg.Done()
-		client.readPump()
-	}()
-	go func() {
-		defer doneWg.Done()
-		client.writePump()
-	}()
+	doneWg.Go(client.readPump)
+	doneWg.Go(client.writePump)
 	return client, nil
 }
 
@@ -621,11 +614,9 @@ func main() {
 	log.Println("All connections established")
 
 	for _, c := range clients {
-		doneWg.Add(1)
-		go func(c *SignalingClient) {
-			defer doneWg.Done()
+		doneWg.Go(func() {
 			c.SendMessages(clients)
-		}(c)
+		})
 	}
 
 	stats.start = time.Now()

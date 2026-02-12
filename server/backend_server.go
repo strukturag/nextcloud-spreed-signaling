@@ -385,9 +385,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, 
 			continue
 		}
 
-		wg.Add(1)
-		go func(sessionid api.RoomSessionId) {
-			defer wg.Done()
+		wg.Go(func() {
 			if sid, err := b.lookupByRoomSessionId(ctx, sessionid, nil); err != nil {
 				b.logger.Printf("Could not lookup by room session %s: %s", sessionid, err)
 			} else if sid != "" {
@@ -395,7 +393,7 @@ func (b *BackendServer) sendRoomDisinvite(roomid string, backend *talk.Backend, 
 					b.logger.Printf("Could not publish room disinvite for session %s: %s", sid, err)
 				}
 			}
-		}(sessionid)
+		})
 	}
 	wg.Wait()
 }
@@ -476,19 +474,17 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, cache *container.
 			continue
 		}
 
-		wg.Add(1)
-		go func(roomSessionId api.RoomSessionId, u api.StringMap) {
-			defer wg.Done()
+		wg.Go(func() {
 			if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, cache); err != nil {
 				b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
-				delete(u, "sessionId")
+				delete(user, "sessionId")
 			} else if sessionId != "" {
-				u["sessionId"] = sessionId
+				user["sessionId"] = sessionId
 			} else {
 				// sessionId == ""
-				delete(u, "sessionId")
+				delete(user, "sessionId")
 			}
-		}(roomSessionId, user)
+		})
 	}
 	wg.Wait()
 
@@ -568,10 +564,8 @@ loop:
 			}
 			permissions = append(permissions, api.Permission(permission))
 		}
-		wg.Add(1)
 
-		go func(sessionId api.PublicSessionId, permissions []api.Permission) {
-			defer wg.Done()
+		wg.Go(func() {
 			message := &events.AsyncMessage{
 				Type:        "permissions",
 				Permissions: permissions,
@@ -579,7 +573,7 @@ loop:
 			if err := b.events.PublishSessionMessage(sessionId, backend, message); err != nil {
 				b.logger.Printf("Could not send permissions update (%+v) to session %s: %s", permissions, sessionId, err)
 			}
-		}(sessionId, permissions)
+		})
 	}
 	wg.Wait()
 
@@ -625,9 +619,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 					continue
 				}
 
-				wg.Add(1)
-				go func(roomSessionId api.RoomSessionId) {
-					defer wg.Done()
+				wg.Go(func() {
 					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
 						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
 					} else if sessionId != "" {
@@ -635,7 +627,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 						defer mu.Unlock()
 						internalSessionsList = append(internalSessionsList, sessionId)
 					}
-				}(roomSessionId)
+				})
 			}
 			wg.Wait()
 
@@ -663,9 +655,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 					continue
 				}
 
-				wg.Add(1)
-				go func(roomSessionId api.RoomSessionId, details json.RawMessage) {
-					defer wg.Done()
+				wg.Go(func() {
 					if sessionId, err := b.lookupByRoomSessionId(ctx, roomSessionId, nil); err != nil {
 						b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
 					} else if sessionId != "" {
@@ -673,7 +663,7 @@ func (b *BackendServer) sendRoomSwitchTo(ctx context.Context, roomid string, bac
 						defer mu.Unlock()
 						internalSessionsMap[sessionId] = details
 					}
-				}(roomSessionId, details)
+				})
 			}
 			wg.Wait()
 

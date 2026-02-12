@@ -972,9 +972,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		msg := &talk.BackendServerRoomRequest{
 			Type: "incall",
 			InCall: &talk.BackendRoomInCallRequest{
@@ -1014,14 +1012,12 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 		body, err := io.ReadAll(res.Body)
 		assert.NoError(err)
 		assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
-	}()
+	})
 
 	// Ensure the first request is being processed.
 	time.Sleep(100 * time.Millisecond)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		msg := &talk.BackendServerRoomRequest{
 			Type: "incall",
 			InCall: &talk.BackendRoomInCallRequest{
@@ -1061,7 +1057,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 		body, err := io.ReadAll(res.Body)
 		assert.NoError(err)
 		assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
-	}()
+	})
 
 	wg.Wait()
 	if t.Failed() {
@@ -1159,9 +1155,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			assert.False(room2.IsSessionInCall(session2), "Session %s should not be in room %s", session2.PublicId(), room2.Id())
 
 			var wg sync.WaitGroup
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				msg := &talk.BackendServerRoomRequest{
 					Type: "incall",
 					InCall: &talk.BackendRoomInCallRequest{
@@ -1182,7 +1176,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				body, err := io.ReadAll(res.Body)
 				assert.NoError(err)
 				assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
-			}()
+			})
 
 			wg.Wait()
 			if t.Failed() {
@@ -1216,9 +1210,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 
 			client2.RunUntilErrorIs(ctx3, ErrNoMessageReceived, context.DeadlineExceeded)
 
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				msg := &talk.BackendServerRoomRequest{
 					Type: "incall",
 					InCall: &talk.BackendRoomInCallRequest{
@@ -1239,7 +1231,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 				body, err := io.ReadAll(res.Body)
 				assert.NoError(err)
 				assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
-			}()
+			})
 
 			wg.Wait()
 			if t.Failed() {
@@ -1778,8 +1770,6 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 
 	var wg sync.WaitGroup
 	runClient := func(client *TestClient) {
-		defer wg.Done()
-
 		msg, ok := client.RunUntilMessage(ctx)
 		if !ok {
 			return
@@ -1827,10 +1817,12 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 		assert.NoError(client.WriteJSON(response))
 	}
 
-	wg.Add(1)
-	go runClient(client1)
-	wg.Add(1)
-	go runClient(client2)
+	wg.Go(func() {
+		runClient(client1)
+	})
+	wg.Go(func() {
+		runClient(client2)
+	})
 
 	defer func() {
 		wg.Wait()

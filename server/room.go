@@ -725,13 +725,10 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSes
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, client := range r.hub.rpcClients.GetClients() {
-		wg.Add(1)
-		go func(c *grpc.Client) {
-			defer wg.Done()
-
-			clientInternal, clientVirtual, err := c.GetInternalSessions(ctx, r.Id(), r.Backend().Urls())
+		wg.Go(func() {
+			clientInternal, clientVirtual, err := client.GetInternalSessions(ctx, r.Id(), r.Backend().Urls())
 			if err != nil {
-				r.logger.Printf("Received error while getting internal sessions for %s@%s from %s: %s", r.Id(), r.Backend().Id(), c.Target(), err)
+				r.logger.Printf("Received error while getting internal sessions for %s@%s from %s: %s", r.Id(), r.Backend().Id(), client.Target(), err)
 				return
 			}
 
@@ -745,7 +742,7 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSes
 				virtual = make(map[api.PublicSessionId]*grpc.VirtualSessionData, len(clientVirtual))
 			}
 			maps.Copy(virtual, clientVirtual)
-		}(client)
+		})
 	}
 	wg.Wait()
 
@@ -1245,26 +1242,20 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 		}
 
 		for _, sessionId := range message.SessionsList {
-			wg.Add(1)
-			go func(sessionId api.PublicSessionId) {
-				defer wg.Done()
-
+			wg.Go(func() {
 				if err := r.events.PublishSessionMessage(sessionId, r.backend, &events.AsyncMessage{
 					Type:    "message",
 					Message: msg,
 				}); err != nil {
 					r.logger.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
 				}
-			}(sessionId)
+			})
 		}
 	}
 
 	if len(message.SessionsMap) > 0 {
 		for sessionId, details := range message.SessionsMap {
-			wg.Add(1)
-			go func(sessionId api.PublicSessionId, details json.RawMessage) {
-				defer wg.Done()
-
+			wg.Go(func() {
 				msg := &api.ServerMessage{
 					Type: "event",
 					Event: &api.EventServerMessage{
@@ -1283,7 +1274,7 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 				}); err != nil {
 					r.logger.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
 				}
-			}(sessionId, details)
+			})
 		}
 	}
 	wg.Wait()
@@ -1383,26 +1374,23 @@ func (r *Room) fetchInitialTransientData() {
 	// +checklocks:mu
 	var initial api.TransientDataEntries
 	for _, client := range r.hub.rpcClients.GetClients() {
-		wg.Add(1)
-		go func(c *grpc.Client) {
-			defer wg.Done()
-
-			data, err := c.GetTransientData(ctx, r.Id(), r.Backend())
+		wg.Go(func() {
+			data, err := client.GetTransientData(ctx, r.Id(), r.Backend())
 			if err != nil {
-				r.logger.Printf("Received error while getting transient data for %s@%s from %s: %s", r.Id(), r.Backend().Id(), c.Target(), err)
+				r.logger.Printf("Received error while getting transient data for %s@%s from %s: %s", r.Id(), r.Backend().Id(), client.Target(), err)
 				return
 			} else if len(data) == 0 {
 				return
 			}
 
-			r.logger.Printf("Received initial transient data %+v from %s", data, c.Target())
+			r.logger.Printf("Received initial transient data %+v from %s", data, client.Target())
 			mu.Lock()
 			defer mu.Unlock()
 			if initial == nil {
 				initial = make(api.TransientDataEntries)
 			}
 			maps.Copy(initial, data)
-		}(client)
+		})
 	}
 	wg.Wait()
 

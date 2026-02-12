@@ -77,11 +77,7 @@ else
 GOPATHBIN := $(GOPATH)/bin/$(GOOS)_$(GOARCH)
 endif
 
-ifeq ($(GOVERSION), 1.24)
-GOEXPERIMENT := synctest
-else
 GOEXPERIMENT :=
-endif
 
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
@@ -125,7 +121,7 @@ benchmark:
 	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test -bench=$(BENCHMARK) -benchmem -run=^$$ -timeout $(TIMEOUT) $(TESTARGS) ./...
 
 checklocks: $(GOPATHBIN)/checklocks
-	GOEXPERIMENT=$(GOEXPERIMENT) go vet -vettool=$(GOPATHBIN)/checklocks ./...
+	GOEXPERIMENT=$(GOEXPERIMENT) $(GOPATHBIN)/checklocks ./...
 
 cover: vet
 	rm -f cover.out && \

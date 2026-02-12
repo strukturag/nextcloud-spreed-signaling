@@ -575,9 +575,7 @@ func TestConcurrentExpired(t *testing.T) {
 	var numFetched atomic.Uint32
 	var finished sync.WaitGroup
 	for range count {
-		finished.Add(1)
-		go func() {
-			defer finished.Done()
+		finished.Go(func() {
 			<-start
 			if value, cached, found := capabilities.GetStringConfig(ctx, url, "signaling", "foo"); assert.True(found) {
 				assert.Equal(expectedString, value)
@@ -587,7 +585,7 @@ func TestConcurrentExpired(t *testing.T) {
 					numFetched.Add(1)
 				}
 			}
-		}()
+		})
 	}
 
 	SetCapabilitiesGetNow(t, capabilities, func() time.Time {

@@ -110,13 +110,13 @@ var (
 	defaultFederationTimeoutSeconds = 10
 
 	// New connections have to send a "Hello" request after 2 seconds.
-	initialHelloTimeout = 2 * time.Second
+	initialHelloTimeout = 2 * time.Second // +checklocksignore: Global readonly variable.
 
 	// Anonymous clients have to join a room after 10 seconds.
-	anonmyousJoinRoomTimeout = 10 * time.Second
+	anonmyousJoinRoomTimeout = 10 * time.Second // +checklocksignore: Global readonly variable.
 
 	// Sessions expire 30 seconds after the connection closed.
-	sessionExpireDuration = 30 * time.Second
+	sessionExpireDuration = 30 * time.Second // +checklocksignore: Global readonly variable.
 
 	// Run housekeeping jobs once per second
 	housekeepingInterval = time.Second
@@ -1087,22 +1087,19 @@ func (h *Hub) processRegister(client ClientWithSession, message *api.ClientMessa
 		var wg sync.WaitGroup
 		ctx, cancel := context.WithTimeout(client.Context(), time.Second)
 		defer cancel()
-		for _, client := range h.rpcClients.GetClients() {
-			wg.Add(1)
-			go func(c *grpc.Client) {
-				defer wg.Done()
-
-				count, err := c.GetSessionCount(ctx, session.BackendUrl())
+		for _, grpcClient := range h.rpcClients.GetClients() {
+			wg.Go(func() {
+				count, err := grpcClient.GetSessionCount(ctx, session.BackendUrl())
 				if err != nil {
-					h.logger.Printf("Received error while getting session count for %s from %s: %s", session.BackendUrl(), c.Target(), err)
+					h.logger.Printf("Received error while getting session count for %s from %s: %s", session.BackendUrl(), grpcClient.Target(), err)
 					return
 				}
 
 				if count > 0 {
-					h.logger.Printf("%d sessions connected for %s on %s", count, session.BackendUrl(), c.Target())
+					h.logger.Printf("%d sessions connected for %s on %s", count, session.BackendUrl(), grpcClient.Target())
 					totalCount.Add(count)
 				}
-			}(client)
+			})
 		}
 		wg.Wait()
 		if totalCount.Load() > limit {
@@ -1288,27 +1285,24 @@ func (h *Hub) tryProxyResume(c ClientWithSession, resumeId api.PrivateSessionId,
 	defer cancel()
 
 	var remoteClient atomic.Pointer[remoteClientInfo]
-	for _, c := range clients {
-		wg.Add(1)
-		go func(client *grpc.Client) {
-			defer wg.Done()
-
-			if client.IsSelf() {
+	for _, grpcClient := range clients {
+		wg.Go(func() {
+			if grpcClient.IsSelf() {
 				return
 			}
 
-			response, err := client.LookupResumeId(ctx, resumeId)
+			response, err := grpcClient.LookupResumeId(ctx, resumeId)
 			if err != nil {
-				h.logger.Printf("Could not lookup resume id %s on %s: %s", resumeId, client.Target(), err)
+				h.logger.Printf("Could not lookup resume id %s on %s: %s", resumeId, grpcClient.Target(), err)
 				return
 			}
 
 			cancel()
 			remoteClient.CompareAndSwap(nil, &remoteClientInfo{
-				client:   client,
+				client:   grpcClient,
 				response: response,
 			})
-		}(c)
+		})
 	}
 	wg.Wait()
 
@@ -2869,10 +2863,7 @@ func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSessi
 	rpcCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	for _, client := range clients {
-		wg.Add(1)
-		go func(client *grpc.Client) {
-			defer wg.Done()
-
+		wg.Go(func() {
 			inCall, err := client.IsSessionInCall(rpcCtx, recipientSessionId, senderRoom.Id(), senderSession.BackendUrl())
 			if errors.Is(err, context.Canceled) {
 				return
@@ -2885,7 +2876,7 @@ func (h *Hub) isInSameCallRemote(ctx context.Context, senderSession *ClientSessi
 
 			cancel()
 			result.Store(true)
-		}(client)
+		})
 	}
 	wg.Wait()
 
