@@ -36,6 +36,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -53,7 +54,6 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
 	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/talk"
-	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 const (
@@ -1705,7 +1705,7 @@ func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
 func TestExpireSessions(t *testing.T) {
 	t.Parallel()
 
-	test.SynctestTest(t, func(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 		assert := assert.New(t)
 		require := require.New(t)
 		proxyServer, key, server := newProxyServerForTest(t)

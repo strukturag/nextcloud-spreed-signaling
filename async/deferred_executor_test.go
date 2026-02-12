@@ -23,12 +23,12 @@ package async
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/test"
 )
 
 func TestDeferredExecutor_MultiClose(t *testing.T) {
@@ -43,7 +43,7 @@ func TestDeferredExecutor_MultiClose(t *testing.T) {
 
 func TestDeferredExecutor_QueueSize(t *testing.T) {
 	t.Parallel()
-	test.SynctestTest(t, func(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 		logger := logtest.NewLoggerForTest(t)
 		e := NewDeferredExecutor(logger, 0)
 		defer e.waitForStop()
