@@ -1,3 +1,5 @@
+//go:build go1.25
+
 /**
  * Standalone signaling server for the Nextcloud Spreed app.
  * Copyright (C) 2021 struktur AG
