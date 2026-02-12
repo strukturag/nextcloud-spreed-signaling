@@ -293,7 +293,7 @@ type deadlockMonitorReceiver struct {
 	monitor *Monitor // +checklocksignore: Only written to from constructor.
 
 	mu sync.RWMutex
-	wg sync.WaitGroup
+	wg sync.WaitGroup // +checklocksignore: Only written to from constructor.
 
 	// +checklocks:mu
 	entry   *MonitorEntry

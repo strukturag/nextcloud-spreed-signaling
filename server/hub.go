@@ -110,13 +110,13 @@ var (
 	defaultFederationTimeoutSeconds = 10
 
 	// New connections have to send a "Hello" request after 2 seconds.
-	initialHelloTimeout = 2 * time.Second
+	initialHelloTimeout = 2 * time.Second // +checklocksignore: Global readonly variable.
 
 	// Anonymous clients have to join a room after 10 seconds.
-	anonmyousJoinRoomTimeout = 10 * time.Second
+	anonmyousJoinRoomTimeout = 10 * time.Second // +checklocksignore: Global readonly variable.
 
 	// Sessions expire 30 seconds after the connection closed.
-	sessionExpireDuration = 30 * time.Second
+	sessionExpireDuration = 30 * time.Second // +checklocksignore: Global readonly variable.
 
 	// Run housekeeping jobs once per second
 	housekeepingInterval = time.Second
