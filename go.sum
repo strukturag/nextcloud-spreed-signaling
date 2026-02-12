@@ -86,8 +86,8 @@ github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0 h1:EFU9iv8BMPyBo8
 github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0/go.mod h1:BN/Txse3qz8tZOmCm2OfajB2wHVujWmX3o9nVdsI6gE=
 github.com/oschwald/maxminddb-golang v1.13.1 h1:G3wwjdN9JmIK2o/ermkHM+98oX5fS+k5MbwsmL4MRQE=
 github.com/oschwald/maxminddb-golang v1.13.1/go.mod h1:K4pgV9N/GcK694KSTmVSDTODk4IsCNThNdTmnaBZ/F8=
-github.com/pion/dtls/v3 v3.0.10 h1:k9ekkq1kaZoxnNEbyLKI8DI37j/Nbk1HWmMuywpQJgg=
-github.com/pion/dtls/v3 v3.0.10/go.mod h1:YEmmBYIoBsY3jmG56dsziTv/Lca9y4Om83370CXfqJ8=
+github.com/pion/dtls/v3 v3.1.0 h1:bz3alDjKL1DDGe8GETGcq5rDKjXFQX9mniuUo36Up0E=
+github.com/pion/dtls/v3 v3.1.0/go.mod h1:YEmmBYIoBsY3jmG56dsziTv/Lca9y4Om83370CXfqJ8=
 github.com/pion/ice/v4 v4.2.0 h1:jJC8S+CvXCCvIQUgx+oNZnoUpt6zwc34FhjWwCU4nlw=
 github.com/pion/ice/v4 v4.2.0/go.mod h1:EgjBGxDgmd8xB0OkYEVFlzQuEI7kWSCFu+mULqaisy4=
 github.com/pion/logging v0.2.4 h1:tTew+7cmQ+Mc1pTBLKH2puKsOvhm32dROumOZ655zB8=
