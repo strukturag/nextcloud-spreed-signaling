@@ -24,8 +24,8 @@ jobs:
     strategy:
       matrix:
         go-version:
-          - "1.24"
           - "1.25"
+          - "1.26"
     steps:
     - uses: actions/checkout@v6
     - uses: actions/setup-go@v6
@@ -39,4 +39,4 @@ jobs:
       run: |
         set -euo pipefail
         go install golang.org/x/vuln/cmd/govulncheck@latest
-        GOEXPERIMENT=synctest govulncheck ./...
+        govulncheck ./...

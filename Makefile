@@ -77,11 +77,7 @@ else
 GOPATHBIN := $(GOPATH)/bin/$(GOOS)_$(GOARCH)
 endif
 
-ifeq ($(GOVERSION), 1.24)
-GOEXPERIMENT := synctest
-else
 GOEXPERIMENT :=
-endif
 
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
