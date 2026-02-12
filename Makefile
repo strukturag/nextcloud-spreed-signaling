@@ -6,7 +6,7 @@ GODIR := $(shell dirname "$(GO)")
 GOFMT := "$(GODIR)/gofmt"
 GOOS ?= linux
 GOARCH ?= amd64
-GOVERSION := $(shell "$(GO)" env GOVERSION | sed "s|go||" )
+GOVERSION := $(shell "$(GO)" env GOVERSION | sed -E 's|go([0-9]+\.[0-9]+)\..*|\1|')
 TMPDIR := $(CURDIR)/tmp
 BINDIR := $(CURDIR)/bin
 VENDORDIR := "$(CURDIR)/vendor"
@@ -77,6 +77,12 @@ else
 GOPATHBIN := $(GOPATH)/bin/$(GOOS)_$(GOARCH)
 endif
 
+ifeq ($(GOVERSION), 1.24)
+GOEXPERIMENT := synctest
+else
+GOEXPERIMENT :=
+endif
+
 hook:
 	[ ! -d "$(CURDIR)/.git/hooks" ] || ln -sf "$(CURDIR)/scripts/pre-commit.hook" "$(CURDIR)/.git/hooks/pre-commit"
 
@@ -110,24 +116,24 @@ fmt: hook | $(PROTO_GO_FILES)
 	$(GOFMT) -s -w *.go cmd/client cmd/proxy cmd/server
 
 vet:
-	GOEXPERIMENT=synctest $(GO) vet ./...
+	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) vet ./...
 
 test: vet
-	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) $(TESTARGS) ./...
+	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test -timeout $(TIMEOUT) $(TESTARGS) ./...
 
 benchmark:
-	GOEXPERIMENT=synctest $(GO) test -bench=$(BENCHMARK) -benchmem -run=^$$ -timeout $(TIMEOUT) $(TESTARGS) ./...
+	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test -bench=$(BENCHMARK) -benchmem -run=^$$ -timeout $(TIMEOUT) $(TESTARGS) ./...
 
 checklocks: $(GOPATHBIN)/checklocks
-	GOEXPERIMENT=synctest go vet -vettool=$(GOPATHBIN)/checklocks ./...
+	GOEXPERIMENT=$(GOEXPERIMENT) go vet -vettool=$(GOPATHBIN)/checklocks ./...
 
 cover: vet
 	rm -f cover.out && \
-	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out ./...
+	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out ./...
 
 coverhtml: vet
 	rm -f cover.out && \
-	GOEXPERIMENT=synctest $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out ./... && \
+	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out ./... && \
 	sed -i "/_easyjson/d" cover.out && \
 	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -html=cover.out -o coverage.html
