@@ -28,6 +28,7 @@ jobs:
         go-version:
           - "1.24"
           - "1.25"
+          - "1.26"
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -51,6 +52,7 @@ jobs:
         go-version:
           - "1.24"
           - "1.25"
+          - "1.26"
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -71,6 +73,7 @@ jobs:
         go-version:
           - "1.24"
           - "1.25"
+          - "1.26"
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -91,6 +94,7 @@ jobs:
         go-version:
           - "1.24"
           - "1.25"
+          - "1.26"
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
