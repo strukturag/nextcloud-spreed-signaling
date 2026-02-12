@@ -132,9 +132,7 @@ func (p *configEtcd) EtcdClientCreated(client etcd.Client) {
 		return
 	}
 
-	p.runningDone.Add(1)
-	go func() {
-		defer p.runningDone.Done()
+	p.runningDone.Go(func() {
 		defer p.initializedFunc()
 		if err := client.WaitForConnection(p.closeCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -191,7 +189,7 @@ func (p *configEtcd) EtcdClientCreated(client etcd.Client) {
 				backoff.Wait(p.closeCtx)
 			}
 		}
-	}()
+	})
 }
 
 func (p *configEtcd) EtcdWatchCreated(client etcd.Client, key string) {

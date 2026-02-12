@@ -324,16 +324,13 @@ func (r *deadlockMonitorReceiver) OnLookup(entry *MonitorEntry, all []net.IP, ad
 	}
 
 	r.triggered = true
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-
+	r.wg.Go(func() {
 		r.mu.RLock()
 		defer r.mu.RUnlock()
 
 		close(r.started)
 		time.Sleep(50 * time.Millisecond)
-	}()
+	})
 }
 
 func (r *deadlockMonitorReceiver) Start() {

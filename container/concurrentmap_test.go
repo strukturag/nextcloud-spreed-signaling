@@ -79,10 +79,7 @@ func TestConcurrentStringStringMap(t *testing.T) {
 	concurrency := 100
 	count := 1000
 	for x := range concurrency {
-		wg.Add(1)
-		go func(x int) {
-			defer wg.Done()
-
+		wg.Go(func() {
 			key := "key-" + strconv.Itoa(x)
 			rnd := rand.Text()
 			for y := range count {
@@ -96,7 +93,7 @@ func TestConcurrentStringStringMap(t *testing.T) {
 					return
 				}
 			}
-		}(x)
+		})
 	}
 	wg.Wait()
 	assert.Equal(concurrency, m.Len())

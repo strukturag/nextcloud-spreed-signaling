@@ -153,12 +153,10 @@ func (p *RoomPing) publishActiveSessions(ctx context.Context) {
 	}
 	entries := p.getAndClearEntries()
 	var wg sync.WaitGroup
-	wg.Add(len(entries))
 	for _, e := range entries {
-		go func(e *pingEntries) {
-			defer wg.Done()
+		wg.Go(func() {
 			p.publishEntries(ctx, e, timeout)
-		}(e)
+		})
 	}
 	wg.Wait()
 }

@@ -2280,9 +2280,7 @@ func (m *proxySFU) NewSubscriber(ctx context.Context, listener sfu.Listener, pub
 		var wg sync.WaitGroup
 
 		// Wait for publisher to be created locally.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if conn := m.waitForPublisherConnection(getctx, publisher, streamType); conn != nil {
 				cancel() // Cancel pending RPC calls.
 
@@ -2301,14 +2299,12 @@ func (m *proxySFU) NewSubscriber(ctx context.Context, listener sfu.Listener, pub
 					conn: conn,
 				}
 			}
-		}()
+		})
 
 		// Wait for publisher to be created on one of the other servers in the cluster.
 		if clients := m.rpcClients.GetClients(); len(clients) > 0 {
 			for _, client := range clients {
-				wg.Add(1)
-				go func(client *grpc.Client) {
-					defer wg.Done()
+				wg.Go(func() {
 					id, url, ip, connectToken, publisherToken, err := client.GetPublisherId(getctx, publisher, streamType)
 					if errors.Is(err, context.Canceled) {
 						return
@@ -2369,7 +2365,7 @@ func (m *proxySFU) NewSubscriber(ctx context.Context, listener sfu.Listener, pub
 						conn:  publisherConn,
 						token: publisherToken,
 					}
-				}(client)
+				})
 			}
 		}
 

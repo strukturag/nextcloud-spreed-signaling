@@ -41,20 +41,17 @@ func TestNotifierNoWaiter(t *testing.T) {
 
 func TestNotifierSimple(t *testing.T) {
 	t.Parallel()
+
 	var notifier Notifier
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
 	waiter := notifier.NewWaiter("foo")
 	defer notifier.Release(waiter)
 
-	go func() {
-		defer wg.Done()
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		assert.NoError(t, waiter.Wait(ctx))
-	}()
+	})
 
 	notifier.Notify("foo")
 	wg.Wait()
@@ -97,20 +94,17 @@ func TestNotifierWaitClosedMulti(t *testing.T) {
 
 func TestNotifierResetWillNotify(t *testing.T) {
 	t.Parallel()
+
 	var notifier Notifier
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
 	waiter := notifier.NewWaiter("foo")
 	defer notifier.Release(waiter)
 
-	go func() {
-		defer wg.Done()
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		assert.NoError(t, waiter.Wait(ctx))
-	}()
+	})
 
 	notifier.Reset()
 	wg.Wait()
@@ -123,17 +117,14 @@ func TestNotifierDuplicate(t *testing.T) {
 		var done sync.WaitGroup
 
 		for range 2 {
-			done.Add(1)
-
-			go func() {
-				defer done.Done()
+			done.Go(func() {
 				waiter := notifier.NewWaiter("foo")
 				defer notifier.Release(waiter)
 
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 				assert.NoError(t, waiter.Wait(ctx))
-			}()
+			})
 		}
 
 		synctest.Wait()
