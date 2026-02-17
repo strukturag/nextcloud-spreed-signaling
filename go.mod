@@ -15,7 +15,7 @@ require (
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/pion/ice/v4 v4.2.0
-	github.com/pion/sdp/v3 v3.0.17
+	github.com/pion/sdp/v3 v3.0.18
 	github.com/pquerna/cachecontrol v0.2.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
