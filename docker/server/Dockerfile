@@ -12,7 +12,8 @@ RUN touch /.dockerenv && \
 FROM alpine:3
 
 ENV CONFIG=/config/server.conf
-RUN adduser -D -S -H spreedbackend && \
+RUN addgroup -g 850 spreedbackend && \
+    adduser -D --uid 850 -S -H -G spreedbackend spreedbackend && \
     apk add --no-cache bash tzdata ca-certificates su-exec
 
 COPY --from=builder /workdir/bin/signaling /usr/bin/nextcloud-spreed-signaling
