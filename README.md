@@ -156,6 +156,13 @@ websocket url of the signaling server (`ws://127.0.0.1:port/spreed`) or -proxy
 (`ws://127.0.0.1:port/proxy`) and `subprotocol` must be set to `janus-events`.
 At least events of type `handles`, `media` and `webrtc` must be subscribed.
 
+Warning: If the configuration between Janus and the signaling endpoint is
+interrupted or can't be established, unsent events will be queued by Janus
+and will use potentially lots of memory there. This can be limited by setting
+`events_cap_on_reconnect` in `janus.eventhandler.wsevh.jcfg`. By default, all
+events will be queued as the connection between Janus and the signaling endpoint
+is assumed to be stable (most likely will be on the same machine).
+
 Edit the `server.conf` and enter the URL to the websocket endpoint of Janus in
 the section `[mcu]` and key `url`. During startup, the signaling server will
 connect to Janus and log information of the gateway.
