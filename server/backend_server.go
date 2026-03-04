@@ -48,15 +48,15 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/async"
-	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
-	"github.com/strukturag/nextcloud-spreed-signaling/config"
-	"github.com/strukturag/nextcloud-spreed-signaling/container"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/pool"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/pool"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 const (

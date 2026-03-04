@@ -25,8 +25,8 @@ import (
 	stdlog "log"
 	"testing"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/test"
 )
 
 var (

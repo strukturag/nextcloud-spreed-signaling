@@ -46,14 +46,14 @@ import (
 	"google.golang.org/grpc/metadata"
 	status "google.golang.org/grpc/status"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
-	"github.com/strukturag/nextcloud-spreed-signaling/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/test"
 )
 
 type CertificateReloadWaiter interface {

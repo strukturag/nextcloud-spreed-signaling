@@ -28,7 +28,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 type NativeClient struct {

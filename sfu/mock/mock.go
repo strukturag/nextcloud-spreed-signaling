@@ -22,9 +22,9 @@
 package mock
 
 import (
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
 )
 
 type Listener struct {

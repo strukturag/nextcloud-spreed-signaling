@@ -29,13 +29,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/nats"
-	"github.com/strukturag/nextcloud-spreed-signaling/session"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/session"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 const (

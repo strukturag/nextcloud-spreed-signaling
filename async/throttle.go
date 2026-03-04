@@ -29,8 +29,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 const (

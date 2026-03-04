@@ -26,10 +26,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/mock"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
 )
 
 func TestValidate(t *testing.T) {

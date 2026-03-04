@@ -28,8 +28,8 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 

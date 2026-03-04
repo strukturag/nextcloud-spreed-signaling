@@ -27,9 +27,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/dns"
-	"github.com/strukturag/nextcloud-spreed-signaling/dns/internal"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns/internal"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
 )
 
 type MockLookup = internal.MockLookup

@@ -28,7 +28,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
 )
 
 func TestDeferredExecutor_MultiClose(t *testing.T) {

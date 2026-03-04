@@ -35,11 +35,11 @@ import (
 	"google.golang.org/grpc/credentials"
 	status "google.golang.org/grpc/status"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/config"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 func init() {

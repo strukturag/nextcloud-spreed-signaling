@@ -43,15 +43,15 @@ import (
 	"google.golang.org/grpc/resolver"
 	status "google.golang.org/grpc/status"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/async"
-	"github.com/strukturag/nextcloud-spreed-signaling/dns"
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 const (

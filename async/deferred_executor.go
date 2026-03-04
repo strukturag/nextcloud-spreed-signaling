@@ -27,7 +27,7 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 // DeferredExecutor will asynchronously execute functions while maintaining

@@ -30,11 +30,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/async/events"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/nats"
-	natstest "github.com/strukturag/nextcloud-spreed-signaling/nats/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/nats"
+	natstest "github.com/strukturag/nextcloud-spreed-signaling/v2/nats/test"
 )
 
 var (

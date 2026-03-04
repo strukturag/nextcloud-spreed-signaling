@@ -36,9 +36,9 @@ import (
 	"github.com/pion/ice/v4"
 	"github.com/pion/sdp/v3"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/container"
-	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 )
 
 const (

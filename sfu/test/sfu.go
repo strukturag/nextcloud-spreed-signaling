@@ -34,12 +34,12 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/mock"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 var (

@@ -33,8 +33,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/strukturag/nextcloud-spreed-signaling/dns/internal"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns/internal"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
 )
 
 func NewMonitorForTest(t *testing.T, interval time.Duration, lookup *internal.MockLookup) *Monitor {

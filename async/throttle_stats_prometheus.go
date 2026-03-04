@@ -24,7 +24,7 @@ package async
 import (
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/metrics"
 )
 
 var (

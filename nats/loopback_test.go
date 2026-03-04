@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
 )
 
 func CreateLoopbackClientForTest(t *testing.T) Client {

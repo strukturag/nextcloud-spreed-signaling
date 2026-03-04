@@ -32,10 +32,10 @@ import (
 	"github.com/dlintw/goconf"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/async"
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/proxy"
 )
 
 const (

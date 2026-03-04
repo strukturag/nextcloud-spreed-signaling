@@ -7,9 +7,9 @@ import (
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
-	api "github.com/strukturag/nextcloud-spreed-signaling/api"
-	etcd "github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	geoip "github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	api "github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	etcd "github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
+	geoip "github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
 	time "time"
 )
 

@@ -24,7 +24,7 @@ package internal
 import (
 	"testing"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/metrics/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/metrics/test"
 )
 
 func TestCommonMcuStats(t *testing.T) {

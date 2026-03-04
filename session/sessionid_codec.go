@@ -38,7 +38,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 )
 
 const (

@@ -41,8 +41,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/test"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/test"
 )
 
 var (

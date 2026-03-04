@@ -38,9 +38,9 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/connectivity"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/async"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 var (

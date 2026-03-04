@@ -30,8 +30,8 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/require"
 
-	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/v2/etcd/test"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
 )
 
 type TestProxyInformationEtcd struct {

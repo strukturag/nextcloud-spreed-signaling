@@ -26,7 +26,7 @@ import (
 	"math"
 	"sync/atomic"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 )
 
 var (

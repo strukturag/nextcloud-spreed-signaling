@@ -29,8 +29,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
 )
 
 type ClientMessage struct {

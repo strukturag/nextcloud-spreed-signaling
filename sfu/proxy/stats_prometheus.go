@@ -25,8 +25,8 @@ package proxy
 import (
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/metrics"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/metrics"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/internal"
 )
 
 var (

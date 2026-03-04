@@ -33,15 +33,15 @@ import (
 
 	"github.com/dlintw/goconf"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/async"
-	"github.com/strukturag/nextcloud-spreed-signaling/container"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
-	sfuinternal "github.com/strukturag/nextcloud-spreed-signaling/sfu/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu/janus/janus"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
+	sfuinternal "github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/janus/janus"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 const (

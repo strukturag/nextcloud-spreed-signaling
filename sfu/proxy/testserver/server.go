@@ -41,11 +41,11 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/geoip"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/v2/etcd/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/proxy"
 )
 
 const (

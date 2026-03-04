@@ -46,14 +46,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/mock"
-	"github.com/strukturag/nextcloud-spreed-signaling/proxy"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/proxy"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 const (

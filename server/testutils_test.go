@@ -28,7 +28,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 )
 
 func WaitForUsersJoined(ctx context.Context, t *testing.T, client1 *TestClient, hello1 *api.ServerMessage, client2 *TestClient, hello2 *api.ServerMessage) {

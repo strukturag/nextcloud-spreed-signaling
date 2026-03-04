@@ -26,7 +26,7 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu/janus/janus"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/janus/janus"
 )
 
 type janusRemoteSubscriber struct {

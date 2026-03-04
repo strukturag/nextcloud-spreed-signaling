@@ -34,9 +34,9 @@ import (
 	natsservertest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/test"
 )
 
 func StartLocalServer(t *testing.T) (*server.Server, int) {
