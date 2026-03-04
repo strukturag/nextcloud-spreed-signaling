@@ -8,8 +8,8 @@ import (
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
-	api "github.com/strukturag/nextcloud-spreed-signaling/api"
-	sfu "github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	api "github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	sfu "github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
 )
 
 // suppress unused package warning

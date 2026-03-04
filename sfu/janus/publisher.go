@@ -31,11 +31,11 @@ import (
 
 	"github.com/pion/sdp/v3"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
-	sfuinternal "github.com/strukturag/nextcloud-spreed-signaling/sfu/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu/janus/janus"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
+	sfuinternal "github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/janus/janus"
 )
 
 const (

@@ -32,8 +32,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/strukturag/nextcloud-spreed-signaling/async"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 const (

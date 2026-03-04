@@ -28,8 +28,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/client"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 )
 
 type ProxyClient struct {

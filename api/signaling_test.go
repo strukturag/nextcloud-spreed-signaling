@@ -32,8 +32,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/container"
-	"github.com/strukturag/nextcloud-spreed-signaling/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/mock"
 )
 
 func TestRoomSessionIds(t *testing.T) {

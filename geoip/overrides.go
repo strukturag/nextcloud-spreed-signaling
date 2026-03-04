@@ -30,8 +30,8 @@ import (
 	"sync/atomic"
 
 	"github.com/dlintw/goconf"
-	"github.com/strukturag/nextcloud-spreed-signaling/config"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 type Overrides map[*net.IPNet]Country

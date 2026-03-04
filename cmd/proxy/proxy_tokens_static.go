@@ -30,8 +30,8 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/config"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 type tokensStatic struct {

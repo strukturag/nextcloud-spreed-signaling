@@ -37,7 +37,7 @@ import (
 
 	"github.com/oschwald/maxminddb-golang"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 var (

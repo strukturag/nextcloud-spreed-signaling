@@ -36,16 +36,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
-	grpctest "github.com/strukturag/nextcloud-spreed-signaling/grpc/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu/proxy"
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu/proxy/testserver"
+	dnstest "github.com/strukturag/nextcloud-spreed-signaling/v2/dns/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/v2/etcd/test"
+	grpctest "github.com/strukturag/nextcloud-spreed-signaling/v2/grpc/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/proxy"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/proxy/testserver"
 )
 
 const (

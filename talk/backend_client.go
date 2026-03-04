@@ -33,9 +33,9 @@ import (
 
 	"github.com/dlintw/goconf"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/pool"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/pool"
 )
 
 var (

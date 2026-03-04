@@ -27,10 +27,10 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/v2/etcd/test"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/test"
 )
 
 func (s *backendStorageEtcd) getWakeupChannelForTesting() <-chan struct{} {

@@ -28,9 +28,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/session"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/session"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 type Session interface {

@@ -27,10 +27,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/nats"
-	"github.com/strukturag/nextcloud-spreed-signaling/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 func GetSubjectForBackendRoomId(roomId string, backend *talk.Backend) string {

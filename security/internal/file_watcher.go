@@ -33,7 +33,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 const (

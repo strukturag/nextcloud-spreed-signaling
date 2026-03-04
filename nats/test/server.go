@@ -30,7 +30,7 @@ import (
 	"github.com/nats-io/nats-server/v2/test"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/nats"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/nats"
 )
 
 func StartLocalServer(t *testing.T) (*server.Server, int) {

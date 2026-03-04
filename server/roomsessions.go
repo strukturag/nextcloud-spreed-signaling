@@ -25,7 +25,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 )
 
 var (

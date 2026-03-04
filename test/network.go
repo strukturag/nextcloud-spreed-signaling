@@ -26,7 +26,7 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 )
 
 func IsErrorAddressAlreadyInUse(err error) bool {

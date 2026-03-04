@@ -29,13 +29,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/dns"
-	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/etcd"
-	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/etcd/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/grpc"
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns"
+	dnstest "github.com/strukturag/nextcloud-spreed-signaling/v2/dns/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
+	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/v2/etcd/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/grpc"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
 )
 
 func NewClientsForTestWithConfig(t *testing.T, config *goconf.ConfigFile, etcdClient etcd.Client, lookup *dnstest.MockLookup) (*grpc.Clients, *dns.Monitor) {

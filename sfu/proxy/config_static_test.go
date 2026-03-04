@@ -30,9 +30,9 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/require"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/dns"
-	dnstest "github.com/strukturag/nextcloud-spreed-signaling/dns/test"
-	logtest "github.com/strukturag/nextcloud-spreed-signaling/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns"
+	dnstest "github.com/strukturag/nextcloud-spreed-signaling/v2/dns/test"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
 )
 
 func newProxyConfigStatic(t *testing.T, proxy McuProxy, dnsDiscovery bool, lookup *dnstest.MockLookup, urls ...string) (Config, *dns.Monitor) {

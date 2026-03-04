@@ -8,7 +8,7 @@ import (
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
-	geoip "github.com/strukturag/nextcloud-spreed-signaling/geoip"
+	geoip "github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
 	time "time"
 )
 

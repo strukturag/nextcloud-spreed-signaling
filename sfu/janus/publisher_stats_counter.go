@@ -24,7 +24,7 @@ package janus
 import (
 	"sync"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/sfu"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
 )
 
 type publisherStatsCounterStats interface {

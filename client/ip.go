@@ -27,7 +27,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/container"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/container"
 )
 
 var (

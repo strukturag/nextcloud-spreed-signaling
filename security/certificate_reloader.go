@@ -29,8 +29,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/strukturag/nextcloud-spreed-signaling/log"
-	"github.com/strukturag/nextcloud-spreed-signaling/security/internal"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/security/internal"
 )
 
 type CertificateReloader struct {
