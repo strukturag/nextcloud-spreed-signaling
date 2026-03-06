@@ -18,7 +18,7 @@ var (
 	_ easyjson.Marshaler
 )
 
-func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingEtcd(in *jlexer.Lexer, out *BackendServerInfoEtcd) {
+func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd(in *jlexer.Lexer, out *BackendServerInfoEtcd) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -89,7 +89,7 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingEtcd(in *j
 		in.Consumed()
 	}
 }
-func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingEtcd(out *jwriter.Writer, in BackendServerInfoEtcd) {
+func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd(out *jwriter.Writer, in BackendServerInfoEtcd) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -125,27 +125,27 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingEtcd(out *
 // MarshalJSON supports json.Marshaler interface
 func (v BackendServerInfoEtcd) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingEtcd(&w, v)
+	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v BackendServerInfoEtcd) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingEtcd(w, v)
+	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *BackendServerInfoEtcd) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingEtcd(&r, v)
+	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *BackendServerInfoEtcd) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingEtcd(l, v)
+	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd(l, v)
 }
-func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingEtcd1(in *jlexer.Lexer, out *BackendInformationEtcd) {
+func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd1(in *jlexer.Lexer, out *BackendInformationEtcd) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -226,7 +226,7 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingEtcd1(in *
 		in.Consumed()
 	}
 }
-func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingEtcd1(out *jwriter.Writer, in BackendInformationEtcd) {
+func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd1(out *jwriter.Writer, in BackendInformationEtcd) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -286,23 +286,23 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingEtcd1(out 
 // MarshalJSON supports json.Marshaler interface
 func (v BackendInformationEtcd) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingEtcd1(&w, v)
+	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd1(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v BackendInformationEtcd) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingEtcd1(w, v)
+	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd1(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *BackendInformationEtcd) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingEtcd1(&r, v)
+	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd1(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *BackendInformationEtcd) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingEtcd1(l, v)
+	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2Etcd1(l, v)
 }
