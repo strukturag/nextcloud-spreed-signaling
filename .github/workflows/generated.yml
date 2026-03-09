@@ -5,20 +5,24 @@ on:
     branches: [ master ]
     paths:
       - '.github/workflows/generated.yml'
-      - 'api*.go'
-      - '*_easyjson.go'
-      - '*.pb.go'
-      - '*.proto'
+      - '**/api*.go'
+      - '**/*_easyjson.go'
+      - '**/*.pb.go'
+      - '**/*.proto'
       - 'go.*'
+      - 'api/signaling.go'
+      - 'talk/ocs.go'
   pull_request:
     branches: [ master ]
     paths:
       - '.github/workflows/generated.yml'
-      - 'api*.go'
-      - '*_easyjson.go'
-      - '*.pb.go'
-      - '*.proto'
+      - '**/api*.go'
+      - '**/*_easyjson.go'
+      - '**/*.pb.go'
+      - '**/*.proto'
       - 'go.*'
+      - 'api/signaling.go'
+      - 'talk/ocs.go'
 
 env:
   CODE_GENERATOR_NAME: struktur AG service user
@@ -78,16 +82,15 @@ jobs:
           if [ "$CHECKOUT_SHA" != "${{github.event.pull_request.head.sha}}" ]; then
             echo "More changes since this commit ${{github.event.pull_request.head.sha}}, skipping"
           else
-            git add *_easyjson.go *.pb.go
+            git add --all
             CHANGES=$(git status --porcelain)
             if [ -z "$CHANGES" ]; then
               echo "No files have changed, no need to commit / push."
             else
               go mod tidy
-              git add go.*
               git config user.name "$CODE_GENERATOR_NAME"
               git config user.email "$CODE_GENERATOR_EMAIL"
-              git commit --author="$(git log -n 1 --pretty=format:%an) <$(git log -n 1 --pretty=format:%ae)>" -m "Update generated files from ${{github.event.pull_request.head.sha}}"
+              git commit --all --author="$(git log -n 1 --pretty=format:%an) <$(git log -n 1 --pretty=format:%ae)>" -m "Update generated files from ${{github.event.pull_request.head.sha}}"
               git push
             fi
           fi
@@ -113,5 +116,5 @@ jobs:
 
       - name: Check generated files
         run: |
-          git add *.go
-          git diff --cached --exit-code *.go
+          git add --all
+          git diff --cached --exit-code

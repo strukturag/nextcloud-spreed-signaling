@@ -17,7 +17,7 @@ var (
 	_ easyjson.Marshaler
 )
 
-func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingGrpc(in *jlexer.Lexer, out *TargetInformationEtcd) {
+func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2Grpc(in *jlexer.Lexer, out *TargetInformationEtcd) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -47,7 +47,7 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingGrpc(in *j
 		in.Consumed()
 	}
 }
-func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingGrpc(out *jwriter.Writer, in TargetInformationEtcd) {
+func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2Grpc(out *jwriter.Writer, in TargetInformationEtcd) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -62,23 +62,23 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingGrpc(out *
 // MarshalJSON supports json.Marshaler interface
 func (v TargetInformationEtcd) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingGrpc(&w, v)
+	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2Grpc(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v TargetInformationEtcd) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingGrpc(w, v)
+	easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2Grpc(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *TargetInformationEtcd) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingGrpc(&r, v)
+	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2Grpc(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *TargetInformationEtcd) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingGrpc(l, v)
+	easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2Grpc(l, v)
 }
