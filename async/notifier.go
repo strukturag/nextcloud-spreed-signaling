@@ -26,21 +26,34 @@ import (
 	"sync"
 )
 
+type rootWaiter struct {
+	key string
+	ch  chan struct{}
+}
+
+func (w *rootWaiter) notify() {
+	close(w.ch)
+}
+
 type Waiter struct {
 	key string
-
-	sw *SingleWaiter
+	ch  <-chan struct{}
 }
 
 func (w *Waiter) Wait(ctx context.Context) error {
-	return w.sw.Wait(ctx)
+	select {
+	case <-w.ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 type Notifier struct {
 	sync.Mutex
 
 	// +checklocks:Mutex
-	waiters map[string]*Waiter
+	waiters map[string]*rootWaiter
 	// +checklocks:Mutex
 	waiterMap map[string]map[*Waiter]bool
 }
@@ -50,31 +63,30 @@ func (n *Notifier) NewWaiter(key string) *Waiter {
 	defer n.Unlock()
 
 	waiter, found := n.waiters[key]
-	if found {
-		w := &Waiter{
+	if !found {
+		waiter = &rootWaiter{
 			key: key,
-			sw:  waiter.sw,
+			ch:  make(chan struct{}),
 		}
-		n.waiterMap[key][w] = true
-		return w
+
+		if n.waiters == nil {
+			n.waiters = make(map[string]*rootWaiter)
+		}
+		if n.waiterMap == nil {
+			n.waiterMap = make(map[string]map[*Waiter]bool)
+		}
+		n.waiters[key] = waiter
+		if _, found := n.waiterMap[key]; !found {
+			n.waiterMap[key] = make(map[*Waiter]bool)
+		}
 	}
 
-	waiter = &Waiter{
+	w := &Waiter{
 		key: key,
-		sw:  newSingleWaiter(),
+		ch:  waiter.ch,
 	}
-	if n.waiters == nil {
-		n.waiters = make(map[string]*Waiter)
-	}
-	if n.waiterMap == nil {
-		n.waiterMap = make(map[string]map[*Waiter]bool)
-	}
-	n.waiters[key] = waiter
-	if _, found := n.waiterMap[key]; !found {
-		n.waiterMap[key] = make(map[*Waiter]bool)
-	}
-	n.waiterMap[key][waiter] = true
-	return waiter
+	n.waiterMap[key][w] = true
+	return w
 }
 
 func (n *Notifier) Reset() {
@@ -82,7 +94,7 @@ func (n *Notifier) Reset() {
 	defer n.Unlock()
 
 	for _, w := range n.waiters {
-		w.sw.cancel()
+		w.notify()
 	}
 	n.waiters = nil
 	n.waiterMap = nil
@@ -96,8 +108,10 @@ func (n *Notifier) Release(w *Waiter) {
 		if _, found := waiters[w]; found {
 			delete(waiters, w)
 			if len(waiters) == 0 {
-				delete(n.waiters, w.key)
-				w.sw.cancel()
+				if root, found := n.waiters[w.key]; found {
+					delete(n.waiters, w.key)
+					root.notify()
+				}
 			}
 		}
 	}
@@ -108,7 +122,7 @@ func (n *Notifier) Notify(key string) {
 	defer n.Unlock()
 
 	if w, found := n.waiters[key]; found {
-		w.sw.cancel()
+		w.notify()
 		delete(n.waiters, w.key)
 		delete(n.waiterMap, w.key)
 	}

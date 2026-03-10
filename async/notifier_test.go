@@ -39,6 +39,32 @@ func TestNotifierNoWaiter(t *testing.T) {
 	notifier.Notify("foo")
 }
 
+func TestNotifierWaitTimeout(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		var notifier Notifier
+
+		notified := make(chan struct{})
+		go func() {
+			defer close(notified)
+			time.Sleep(time.Second)
+			notifier.Notify("foo")
+		}()
+
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+
+		waiter := notifier.NewWaiter("foo")
+		defer notifier.Release(waiter)
+
+		err := waiter.Wait(ctx)
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+		<-notified
+
+		assert.NoError(t, waiter.Wait(t.Context()))
+	})
+}
+
 func TestNotifierSimple(t *testing.T) {
 	t.Parallel()
 
