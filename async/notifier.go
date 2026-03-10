@@ -58,7 +58,9 @@ type Notifier struct {
 	waiterMap map[string]map[*Waiter]bool
 }
 
-func (n *Notifier) NewWaiter(key string) *Waiter {
+type ReleaseFunc func()
+
+func (n *Notifier) NewWaiter(key string) (*Waiter, ReleaseFunc) {
 	n.Lock()
 	defer n.Unlock()
 
@@ -86,7 +88,10 @@ func (n *Notifier) NewWaiter(key string) *Waiter {
 		ch:  waiter.ch,
 	}
 	n.waiterMap[key][w] = true
-	return w
+	releaseFunc := func() {
+		n.release(w)
+	}
+	return w, releaseFunc
 }
 
 func (n *Notifier) Reset() {
@@ -100,7 +105,7 @@ func (n *Notifier) Reset() {
 	n.waiterMap = nil
 }
 
-func (n *Notifier) Release(w *Waiter) {
+func (n *Notifier) release(w *Waiter) {
 	n.Lock()
 	defer n.Unlock()
 

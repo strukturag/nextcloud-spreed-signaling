@@ -888,15 +888,10 @@ func (m *janusSFU) notifyPublisherConnected(id api.PublicSessionId, streamType s
 	m.publisherConnected.Notify(string(key))
 }
 
-func (m *janusSFU) newPublisherConnectedWaiter(id api.PublicSessionId, streamType sfu.StreamType) (*async.Waiter, func()) {
+func (m *janusSFU) newPublisherConnectedWaiter(id api.PublicSessionId, streamType sfu.StreamType) (*async.Waiter, async.ReleaseFunc) {
 	key := sfu.GetStreamId(id, streamType)
 
-	waiter := m.publisherConnected.NewWaiter(string(key))
-	stopFunc := func() {
-		m.publisherConnected.Release(waiter)
-	}
-
-	return waiter, stopFunc
+	return m.publisherConnected.NewWaiter(string(key))
 }
 
 func (m *janusSFU) getPublisher(ctx context.Context, publisher api.PublicSessionId, streamType sfu.StreamType) (*janusPublisher, error) {
