@@ -46,7 +46,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
@@ -1540,9 +1539,8 @@ type proxySFU struct {
 
 	mu sync.RWMutex
 	// +checklocks:mu
-	publishers map[sfu.StreamId]*proxyConnection
-
-	publisherWaiters async.ChannelWaiters
+	publishers     map[sfu.StreamId]*proxyConnection
+	publishersCond sync.Cond
 
 	continentsMap atomic.Value
 
@@ -1595,6 +1593,7 @@ func NewProxySFU(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd
 
 		rpcClients: rpcClients,
 	}
+	mcu.publishersCond.L = &mcu.mu
 
 	if err := mcu.loadContinentsMap(config); err != nil {
 		return nil, err
@@ -2132,9 +2131,9 @@ func (m *proxySFU) createPublisher(ctx context.Context, listener sfu.Listener, i
 		}
 
 		m.mu.Lock()
+		defer m.mu.Unlock()
 		m.publishers[sfu.GetStreamId(id, streamType)] = conn
-		m.mu.Unlock()
-		m.publisherWaiters.Wakeup()
+		m.publishersCond.Broadcast()
 		return publisher
 	}
 
@@ -2211,25 +2210,21 @@ func (m *proxySFU) waitForPublisherConnection(ctx context.Context, publisher api
 		return conn
 	}
 
-	ch := make(chan struct{}, 1)
-	id := m.publisherWaiters.Add(ch)
-	defer m.publisherWaiters.Remove(id)
+	stop := context.AfterFunc(ctx, func() {
+		m.publishersCond.Broadcast()
+	})
+	defer stop()
 
 	sfuinternal.StatsWaitingForPublisherTotal.WithLabelValues(string(streamType)).Inc()
-	for {
-		m.mu.Unlock()
-		select {
-		case <-ch:
-			m.mu.Lock()
-			conn = m.publishers[sfu.GetStreamId(publisher, streamType)]
-			if conn != nil {
-				return conn
-			}
-		case <-ctx.Done():
-			m.mu.Lock()
+	for conn == nil {
+		if err := ctx.Err(); err != nil {
 			return nil
 		}
+
+		m.publishersCond.Wait()
+		conn = m.publishers[sfu.GetStreamId(publisher, streamType)]
 	}
+	return conn
 }
 
 type proxyPublisherInfo struct {
