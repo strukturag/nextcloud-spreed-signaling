@@ -169,8 +169,8 @@ func (p *janusSubscriber) joinRoom(ctx context.Context, stream *streamSelection,
 		return
 	}
 
-	waiter := p.mcu.publisherConnected.NewWaiter(string(sfu.GetStreamId(p.publisher, p.streamType)))
-	defer p.mcu.publisherConnected.Release(waiter)
+	waiter, stop := p.mcu.newPublisherConnectedWaiter(p.publisher, p.streamType)
+	defer stop()
 
 	loggedNotPublishingYet := false
 retry:
