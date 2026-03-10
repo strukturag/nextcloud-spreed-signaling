@@ -42,7 +42,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
 	dnstest "github.com/strukturag/nextcloud-spreed-signaling/v2/dns/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
 	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/v2/etcd/test"
@@ -1248,14 +1247,16 @@ type publisherHub struct {
 
 	mu sync.Mutex
 	// +checklocks:mu
-	publishers map[api.PublicSessionId]*proxyPublisher
-	waiter     async.ChannelWaiters // +checklocksignore: Has its own locking.
+	publishers     map[api.PublicSessionId]*proxyPublisher
+	publishersCond sync.Cond
 }
 
 func newPublisherHub() *publisherHub {
-	return &publisherHub{
+	hub := &publisherHub{
 		publishers: make(map[api.PublicSessionId]*proxyPublisher),
 	}
+	hub.publishersCond.L = &hub.mu
+	return hub
 }
 
 func (h *publisherHub) addPublisher(publisher *proxyPublisher) {
@@ -1263,30 +1264,26 @@ func (h *publisherHub) addPublisher(publisher *proxyPublisher) {
 	defer h.mu.Unlock()
 
 	h.publishers[publisher.PublisherId()] = publisher
-	h.waiter.Wakeup()
+	h.publishersCond.Broadcast()
 }
 
 func (h *publisherHub) GetPublisherIdForSessionId(ctx context.Context, sessionId api.PublicSessionId, streamType sfu.StreamType) (*grpc.GetPublisherIdReply, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	pub, found := h.publishers[sessionId]
-	if !found {
-		ch := make(chan struct{}, 1)
-		id := h.waiter.Add(ch)
-		defer h.waiter.Remove(id)
+	stop := context.AfterFunc(ctx, func() {
+		h.publishersCond.Broadcast()
+	})
+	defer stop()
 
-		for !found {
-			h.mu.Unlock()
-			select {
-			case <-ch:
-				h.mu.Lock()
-				pub, found = h.publishers[sessionId]
-			case <-ctx.Done():
-				h.mu.Lock()
-				return nil, ctx.Err()
-			}
+	pub, found := h.publishers[sessionId]
+	for !found {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
+
+		h.publishersCond.Wait()
+		pub, found = h.publishers[sessionId]
 	}
 
 	connToken, err := pub.conn.proxy.CreateToken("")

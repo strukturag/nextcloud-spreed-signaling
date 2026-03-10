@@ -46,7 +46,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
@@ -390,7 +389,8 @@ type proxyConnection struct {
 	// +checklocks:mu
 	conn *websocket.Conn
 
-	helloProcessed    atomic.Bool
+	// +checklocks:mu
+	helloProcessed    bool
 	connectedSince    atomic.Int64
 	reconnectTimer    *time.Timer
 	reconnectInterval atomic.Int64
@@ -399,7 +399,7 @@ type proxyConnection struct {
 	trackClose        atomic.Bool
 	temporary         atomic.Bool
 
-	connectedNotifier async.SingleNotifier
+	connectedCond sync.Cond
 
 	msgId      atomic.Int64
 	helloMsgId string
@@ -444,6 +444,7 @@ func newProxyConnection(proxy *proxySFU, baseUrl string, ip net.IP, token string
 		publisherIds: make(map[sfu.StreamId]api.PublicSessionId),
 		subscribers:  make(map[string]*proxySubscriber),
 	}
+	conn.connectedCond.L = &conn.mu
 	conn.reconnectInterval.Store(int64(initialReconnectInterval))
 	conn.load.Store(loadNotConnected)
 	conn.bandwidth.Store(nil)
@@ -588,7 +589,7 @@ func (c *proxyConnection) SessionId() api.PublicSessionId {
 func (c *proxyConnection) IsConnected() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.conn != nil && c.helloProcessed.Load() && c.SessionId() != ""
+	return c.conn != nil && c.helloProcessed && c.SessionId() != ""
 }
 
 func (c *proxyConnection) IsTemporary() bool {
@@ -746,12 +747,10 @@ func (c *proxyConnection) stop(ctx context.Context) {
 }
 
 func (c *proxyConnection) close() {
-	c.helloProcessed.Store(false)
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.connectedNotifier.Reset()
+	c.helloProcessed = false
 
 	if c.conn != nil {
 		c.conn.Close()
@@ -857,10 +856,10 @@ func (c *proxyConnection) reconnect() {
 
 	c.logger.Printf("Connected to %s", c)
 	c.closed.Store(false)
-	c.helloProcessed.Store(false)
 	c.connectedSince.Store(time.Now().UnixMicro())
 
 	c.mu.Lock()
+	c.helloProcessed = false
 	c.conn = conn
 	c.mu.Unlock()
 
@@ -887,12 +886,20 @@ func (c *proxyConnection) waitUntilConnected(ctx context.Context) error {
 		return nil
 	}
 
-	waiter := c.connectedNotifier.NewWaiter()
-	defer c.connectedNotifier.Release(waiter)
+	stop := context.AfterFunc(ctx, func() {
+		c.connectedCond.Broadcast()
+	})
+	defer stop()
 
-	c.mu.Unlock()
-	defer c.mu.Lock()
-	return waiter.Wait(ctx)
+	for !c.helloProcessed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		c.connectedCond.Wait()
+	}
+
+	return nil
 }
 
 func (c *proxyConnection) removePublisher(publisher *proxyPublisher) {
@@ -1057,8 +1064,10 @@ func (c *proxyConnection) processMessage(msg *proxy.ServerMessage) {
 				statsConnectedProxyBackendsCurrent.WithLabelValues(string(c.Country())).Inc()
 			}
 
-			c.helloProcessed.Store(true)
-			c.connectedNotifier.Notify()
+			c.mu.Lock()
+			c.helloProcessed = true
+			c.connectedCond.Broadcast()
+			c.mu.Unlock()
 		default:
 			c.logger.Printf("Received unsupported hello response %+v from %s, reconnecting", msg, c)
 			c.scheduleReconnect()
@@ -1530,9 +1539,8 @@ type proxySFU struct {
 
 	mu sync.RWMutex
 	// +checklocks:mu
-	publishers map[sfu.StreamId]*proxyConnection
-
-	publisherWaiters async.ChannelWaiters
+	publishers     map[sfu.StreamId]*proxyConnection
+	publishersCond sync.Cond
 
 	continentsMap atomic.Value
 
@@ -1585,6 +1593,7 @@ func NewProxySFU(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd
 
 		rpcClients: rpcClients,
 	}
+	mcu.publishersCond.L = &mcu.mu
 
 	if err := mcu.loadContinentsMap(config); err != nil {
 		return nil, err
@@ -2122,9 +2131,9 @@ func (m *proxySFU) createPublisher(ctx context.Context, listener sfu.Listener, i
 		}
 
 		m.mu.Lock()
+		defer m.mu.Unlock()
 		m.publishers[sfu.GetStreamId(id, streamType)] = conn
-		m.mu.Unlock()
-		m.publisherWaiters.Wakeup()
+		m.publishersCond.Broadcast()
 		return publisher
 	}
 
@@ -2201,25 +2210,21 @@ func (m *proxySFU) waitForPublisherConnection(ctx context.Context, publisher api
 		return conn
 	}
 
-	ch := make(chan struct{}, 1)
-	id := m.publisherWaiters.Add(ch)
-	defer m.publisherWaiters.Remove(id)
+	stop := context.AfterFunc(ctx, func() {
+		m.publishersCond.Broadcast()
+	})
+	defer stop()
 
 	sfuinternal.StatsWaitingForPublisherTotal.WithLabelValues(string(streamType)).Inc()
-	for {
-		m.mu.Unlock()
-		select {
-		case <-ch:
-			m.mu.Lock()
-			conn = m.publishers[sfu.GetStreamId(publisher, streamType)]
-			if conn != nil {
-				return conn
-			}
-		case <-ctx.Done():
-			m.mu.Lock()
+	for conn == nil {
+		if err := ctx.Err(); err != nil {
 			return nil
 		}
+
+		m.publishersCond.Wait()
+		conn = m.publishers[sfu.GetStreamId(publisher, streamType)]
 	}
+	return conn
 }
 
 type proxyPublisherInfo struct {

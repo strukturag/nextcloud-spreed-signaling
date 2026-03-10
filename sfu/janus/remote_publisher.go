@@ -86,7 +86,7 @@ func (p *janusRemotePublisher) handleDetached(event *janus.DetachedMsg) {
 
 func (p *janusRemotePublisher) handleConnected(event *janus.WebRTCUpMsg) {
 	p.logger.Printf("Remote publisher %d received connected", p.handleId.Load())
-	p.mcu.publisherConnected.Notify(string(sfu.GetStreamId(p.id, p.streamType)))
+	p.mcu.notifyPublisherConnected(p.id, p.streamType)
 }
 
 func (p *janusRemotePublisher) handleSlowLink(event *janus.SlowLinkMsg) {
