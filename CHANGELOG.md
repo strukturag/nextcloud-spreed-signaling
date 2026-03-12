@@ -2,6 +2,77 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.1.1 - 2026-03-12
+
+### Changed
+- Drop support for Golang 1.24
+  [#1197](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1197)
+- Simplify error type checks.
+  [#1190](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1190)
+- readme: Add example websocket urls for Janus events.
+  [#1191](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1191)
+- CI: Test with Golang 1.26
+  [#1196](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1196)
+- CI: Use "docker compose" instead of downloading docker-compose binary.
+  [#1203](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1203)
+- docker: pin spreedbackend uid and add user group
+  [#1202](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1202)
+- Bump module version to "v2" so versions 2.x can be imported by others.
+  [#1211](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1211)
+- Update generated files for v2 module.
+  [#1218](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1218)
+- Simplify async notifier code
+  [#1220](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1220)
+
+### Fixed
+- Update "go.opentelemetry.io/otel/sdk" to fix "GO-2026-4394".
+  [#1207](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1207)
+- Don't limit size of received Janus events.
+  [#1208](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1208)
+
+### Dependencies
+- Bump google.golang.org/grpc/cmd/protoc-gen-go-grpc from 1.6.0 to 1.6.1
+  [#1189](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1189)
+- Bump markdown from 3.10.1 to 3.10.2 in /docs
+  [#1192](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1192)
+- Bump github.com/pion/dtls/v3 from 3.0.10 to 3.1.0
+  [#1193](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1193)
+- Bump golang from 1.25-alpine to 1.26-alpine in /docker/proxy
+  [#1194](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1194)
+- Bump golang from 1.25-alpine to 1.26-alpine in /docker/server
+  [#1195](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1195)
+- Bump google.golang.org/grpc from 1.78.0 to 1.79.1
+  [#1201](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1201)
+- Bump github.com/pion/dtls/v3 from 3.1.0 to 3.1.1
+  [#1199](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1199)
+- Bump the etcd group with 4 updates
+  [#1200](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1200)
+- Bump github.com/pion/sdp/v3 from 3.0.17 to 3.0.18
+  [#1204](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1204)
+- Bump github.com/pion/ice/v4 from 4.2.0 to 4.2.1
+  [#1205](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1205)
+- Bump github.com/nats-io/nats.go from 1.48.0 to 1.49.0
+  [#1206](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1206)
+- Bump the artifacts group with 2 updates
+  [#1209](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1209)
+- Bump module version to "v2" so versions 2.x can be imported by others.
+  [#1211](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1211)
+- Bump docker/login-action from 3 to 4
+  [#1212](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1212)
+- Bump docker/setup-qemu-action from 3 to 4
+  [#1213](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1213)
+- Bump docker/metadata-action from 5 to 6
+  [#1214](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1214)
+- Bump docker/setup-buildx-action from 3 to 4
+  [#1215](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1215)
+- Bump docker/build-push-action from 6 to 7
+  [#1217](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1217)
+- Bump google.golang.org/grpc from 1.79.1 to 1.79.2
+  [#1216](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1216)
+- Bump github.com/nats-io/nats-server/v2 from 2.12.4 to 2.12.5
+  [#1219](https://github.com/strukturag/nextcloud-spreed-signaling/pull/1219)
+
+
 ## 2.1.0 - 2026-02-03
 
 ### Added
