@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/mailru/easyjson v0.9.1
+	github.com/mailru/easyjson v0.9.2
 	github.com/nats-io/nats-server/v2 v2.12.5
 	github.com/nats-io/nats.go v1.49.0
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
