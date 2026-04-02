@@ -25,8 +25,6 @@ import (
 	"fmt"
 	"math"
 	"sync/atomic"
-
-	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 )
 
 var (
@@ -90,22 +88,20 @@ func BandwidthFromBytes(b uint64) Bandwidth {
 // AtomicBandwidth is an atomic Bandwidth. The zero value is zero.
 // AtomicBandwidth must not be copied after first use.
 type AtomicBandwidth struct {
-	// 64-bit members that are accessed atomically must be 64-bit aligned.
-	v uint64
-	_ internal.NoCopy
+	v atomic.Uint64
 }
 
 // Load atomically loads and returns the value stored in b.
 func (b *AtomicBandwidth) Load() Bandwidth {
-	return Bandwidth(atomic.LoadUint64(&b.v)) // +checklocksignore
+	return Bandwidth(b.v.Load())
 }
 
 // Store atomically stores v into b.
 func (b *AtomicBandwidth) Store(v Bandwidth) {
-	atomic.StoreUint64(&b.v, uint64(v)) // +checklocksignore
+	b.v.Store(uint64(v))
 }
 
 // Swap atomically stores v into b and returns the previous value.
 func (b *AtomicBandwidth) Swap(v Bandwidth) Bandwidth {
-	return Bandwidth(atomic.SwapUint64(&b.v, uint64(v))) // +checklocksignore
+	return Bandwidth(b.v.Swap(uint64(v)))
 }
