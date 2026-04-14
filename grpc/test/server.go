@@ -116,6 +116,10 @@ func (h *MockHub) ProxySession(request grpc.RpcSessions_ProxySessionServer) erro
 	return errors.New("not implemented")
 }
 
+func (h *MockHub) GetRoomBandwidth(roomId string, backend *talk.Backend) (uint32, uint32, *sfu.ClientBandwidthInfo, bool) {
+	return 0, 0, nil, false
+}
+
 var (
 	// Compile-time check that MockHub implements the interface.
 	_ grpc.ServerHub = &MockHub{}
