@@ -11,7 +11,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/mailru/easyjson v0.9.2
 	github.com/nats-io/nats-server/v2 v2.12.6
-	github.com/nats-io/nats.go v1.50.0
+	github.com/nats-io/nats.go v1.51.0
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/pion/ice/v4 v4.2.3
