@@ -4262,9 +4262,9 @@ func TestClientUnshareScreen(t *testing.T) {
 		RoomType: "screen",
 	}))
 
-	time.Sleep(10 * time.Millisecond)
-
-	require.True(publisher.IsClosed(), "Publisher %s should be closed", hello.Hello.SessionId)
+	require.Eventually(func() bool {
+		return publisher.IsClosed()
+	}, testTimeout, time.Millisecond, "Publisher %s should be closed", hello.Hello.SessionId)
 }
 
 func TestVirtualClientSessions(t *testing.T) {
