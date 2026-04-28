@@ -2302,10 +2302,6 @@ func TestClientMessageToRoom(t *testing.T) {
 			roomId := "test-room"
 			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
-
-			// Give message processing some time.
-			time.Sleep(10 * time.Millisecond)
-
 			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -2365,10 +2361,6 @@ func TestClientControlToRoom(t *testing.T) {
 			roomId := "test-room"
 			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
-
-			// Give message processing some time.
-			time.Sleep(10 * time.Millisecond)
-
 			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -2428,10 +2420,6 @@ func TestClientMessageToCall(t *testing.T) {
 			roomId := "test-room"
 			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
-
-			// Give message processing some time.
-			time.Sleep(10 * time.Millisecond)
-
 			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -2533,10 +2521,6 @@ func TestClientControlToCall(t *testing.T) {
 			roomId := "test-room"
 			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
-
-			// Give message processing some time.
-			time.Sleep(10 * time.Millisecond)
-
 			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -3220,10 +3204,6 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	roomId := "test-room"
 	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
-
-	// Give message processing some time.
-	time.Sleep(10 * time.Millisecond)
-
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -3403,10 +3383,6 @@ func TestClientSendOfferPermissions(t *testing.T) {
 	roomId := "test-room"
 	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
-
-	// Give message processing some time.
-	time.Sleep(10 * time.Millisecond)
-
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -4160,10 +4136,6 @@ func TestClientSendOffer(t *testing.T) {
 			roomId := "test-room"
 			roomMsg := MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId, "roomsession1")
 			require.Equal(roomId, roomMsg.Room.RoomId)
-
-			// Give message processing some time.
-			time.Sleep(10 * time.Millisecond)
-
 			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 
