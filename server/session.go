@@ -53,6 +53,9 @@ type Session interface {
 	LeaveRoom(notify bool) *Room
 	IsInRoom(id string) bool
 
+	SetPendingCloseRoom(id string)
+	IsPendingCloseRoom(id string) bool
+
 	Close()
 
 	HasPermission(permission api.Permission) bool

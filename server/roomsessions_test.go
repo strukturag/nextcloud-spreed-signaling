@@ -99,6 +99,13 @@ func (s *DummySession) LeaveRoom(notify bool) *Room {
 	return nil
 }
 
+func (s *DummySession) SetPendingCloseRoom(id string) {
+}
+
+func (s *DummySession) IsPendingCloseRoom(id string) bool {
+	return false
+}
+
 func (s *DummySession) Close() {
 }
 
