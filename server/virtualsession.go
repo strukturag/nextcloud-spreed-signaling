@@ -336,12 +336,16 @@ func (s *VirtualSession) processAsyncMessage(message *events.AsyncMessage) {
 				s.session.processAsyncMessage(message)
 			}
 		case "event":
-			if room := s.GetRoom(); room != nil &&
-				message.Message.Event.Target == "roomlist" &&
-				message.Message.Event.Type == "disinvite" &&
-				message.Message.Event.Disinvite != nil &&
-				message.Message.Event.Disinvite.RoomId == room.Id() {
-				s.logger.Printf("Virtual session %s was disinvited from room %s, hanging up", s.PublicId(), room.Id())
+			evt := message.Message.Event
+			if evt.Target == "roomlist" &&
+				evt.Type == "disinvite" &&
+				evt.Disinvite != nil {
+				disinviteRoomId := evt.Disinvite.RoomId
+				if !s.IsInRoom(disinviteRoomId) && !s.IsPendingCloseRoom(disinviteRoomId) {
+					break
+				}
+
+				s.logger.Printf("Virtual session %s was disinvited from room %s, hanging up", s.PublicId(), disinviteRoomId)
 				payload := api.StringMap{
 					"type": "hangup",
 					"hangup": map[string]string{
