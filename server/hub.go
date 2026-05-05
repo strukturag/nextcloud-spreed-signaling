@@ -1874,6 +1874,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		}
 
 		session.SetFederationClient(client)
+		client.signalReady()
 
 		roomSessionId := message.Room.SessionId
 		if roomSessionId == "" {

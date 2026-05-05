@@ -126,6 +126,9 @@ type FederationClient struct {
 	pendingMessages []*api.ClientMessage
 
 	closeOnLeave atomic.Bool
+
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, message *api.ClientMessage) (*FederationClient, error) {
@@ -167,6 +170,7 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 		dialer: dialer,
 		url:    url,
 		closer: internal.NewCloser(),
+		ready:  make(chan struct{}),
 	}
 	result.roomId.Store(room.RoomId)
 	result.remoteRoomId.Store(remoteRoomId)
@@ -186,6 +190,10 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 	}()
 
 	return result, nil
+}
+
+func (c *FederationClient) signalReady() {
+	c.readyOnce.Do(func() { close(c.ready) })
 }
 
 func (c *FederationClient) LocalAddr() net.Addr {
@@ -389,6 +397,12 @@ func (c *FederationClient) reconnect() {
 }
 
 func (c *FederationClient) readPump(conn *websocket.Conn) {
+	select {
+	case <-c.ready:
+	case <-c.closer.C:
+		return
+	}
+
 	conn.SetReadLimit(maxMessageSize)
 	conn.SetPongHandler(func(msg string) error {
 		now := time.Now()
