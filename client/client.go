@@ -103,6 +103,7 @@ type GeoIpHandler interface {
 
 type InRoomHandler interface {
 	IsInRoom(string) bool
+	IsPendingCloseRoom(id string) bool
 }
 
 type SessionCloserHandler interface {
@@ -220,6 +221,14 @@ func (c *Client) Country() geoip.Country {
 func (c *Client) IsInRoom(id string) bool {
 	if handler, ok := c.getHandler().(InRoomHandler); ok {
 		return handler.IsInRoom(id)
+	}
+
+	return false
+}
+
+func (c *Client) IsPendingCloseRoom(id string) bool {
+	if handler, ok := c.getHandler().(InRoomHandler); ok {
+		return handler.IsPendingCloseRoom(id)
 	}
 
 	return false

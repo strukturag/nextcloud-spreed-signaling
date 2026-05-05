@@ -58,6 +58,8 @@ var (
 type ResponseHandlerFunc func(message *api.ClientMessage) bool
 
 type ClientSession struct {
+	sessionWithRoom
+
 	logger    log.Logger
 	hub       *Hub
 	events    events.AsyncEvents
@@ -89,7 +91,6 @@ type ClientSession struct {
 
 	// +checklocks:mu
 	client       ClientWithSession
-	room         atomic.Pointer[Room]
 	roomJoinTime atomic.Int64
 	federation   atomic.Pointer[FederationClient]
 
@@ -332,7 +333,7 @@ func (s *ClientSession) ParsedUserData() (api.StringMap, error) {
 }
 
 func (s *ClientSession) SetRoom(room *Room, joinTime time.Time) {
-	s.room.Store(room)
+	s.sessionWithRoom.SetRoom(room, joinTime)
 	s.onRoomSet(room != nil, joinTime)
 }
 
@@ -349,11 +350,6 @@ func (s *ClientSession) onRoomSet(hasRoom bool, joinTime time.Time) {
 	s.seenFlags = nil
 }
 
-func (s *ClientSession) IsInRoom(id string) bool {
-	room := s.GetRoom()
-	return room != nil && room.Id() == id
-}
-
 func (s *ClientSession) GetFederationClient() *FederationClient {
 	return s.federation.Load()
 }
@@ -368,10 +364,6 @@ func (s *ClientSession) SetFederationClient(federation *FederationClient) {
 	if prev := s.federation.Swap(federation); prev != nil && prev != federation {
 		prev.Close()
 	}
-}
-
-func (s *ClientSession) GetRoom() *Room {
-	return s.room.Load()
 }
 
 func (s *ClientSession) getRoomJoinTime() time.Time {

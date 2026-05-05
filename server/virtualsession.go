@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
-	"sync/atomic"
 	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
@@ -45,6 +44,8 @@ const (
 )
 
 type VirtualSession struct {
+	sessionWithRoom
+
 	logger    log.Logger
 	hub       *Hub
 	session   *ClientSession
@@ -53,7 +54,6 @@ type VirtualSession struct {
 	data      *session.SessionIdData
 	ctx       context.Context
 	closeFunc context.CancelFunc
-	room      atomic.Pointer[Room]
 
 	sessionId api.PublicSessionId
 	userId    string
@@ -172,7 +172,7 @@ func (s *VirtualSession) ParsedUserData() (api.StringMap, error) {
 }
 
 func (s *VirtualSession) SetRoom(room *Room, joinTime time.Time) {
-	s.room.Store(room)
+	s.sessionWithRoom.SetRoom(room, joinTime)
 	if room != nil {
 		if err := s.hub.roomSessions.SetRoomSession(s, api.RoomSessionId(s.PublicId())); err != nil {
 			s.logger.Printf("Error adding virtual room session %s: %s", s.PublicId(), err)
@@ -180,15 +180,6 @@ func (s *VirtualSession) SetRoom(room *Room, joinTime time.Time) {
 	} else {
 		s.hub.roomSessions.DeleteRoomSession(s)
 	}
-}
-
-func (s *VirtualSession) GetRoom() *Room {
-	return s.room.Load()
-}
-
-func (s *VirtualSession) IsInRoom(id string) bool {
-	room := s.GetRoom()
-	return room != nil && room.Id() == id
 }
 
 func (s *VirtualSession) LeaveRoom(notify bool) *Room {
