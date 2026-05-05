@@ -167,3 +167,7 @@ func (s *RemoteSession) OnRTTReceived(rtt time.Duration) {
 func (s *RemoteSession) IsInRoom(id string) bool {
 	return s.client.IsInRoom(id)
 }
+
+func (s *RemoteSession) IsPendingCloseRoom(id string) bool {
+	return s.client.IsPendingCloseRoom(id)
+}

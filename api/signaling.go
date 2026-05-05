@@ -233,6 +233,7 @@ type ServerMessage struct {
 
 type RoomAware interface {
 	IsInRoom(id string) bool
+	IsPendingCloseRoom(id string) bool
 }
 
 func (r *ServerMessage) CloseAfterSend(session RoomAware) bool {
@@ -244,7 +245,8 @@ func (r *ServerMessage) CloseAfterSend(session RoomAware) bool {
 		if evt := r.Event; evt != nil && evt.Target == "roomlist" && evt.Type == "disinvite" {
 			// Only close session / connection if the disinvite was for the room
 			// the session is currently in.
-			if session != nil && evt.Disinvite != nil && session.IsInRoom(evt.Disinvite.RoomId) {
+			if session != nil && evt.Disinvite != nil &&
+				(session.IsInRoom(evt.Disinvite.RoomId) || session.IsPendingCloseRoom(evt.Disinvite.RoomId)) {
 				return true
 			}
 		}

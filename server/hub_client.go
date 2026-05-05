@@ -126,3 +126,12 @@ func (c *HubClient) IsInRoom(id string) bool {
 
 	return session.IsInRoom(id)
 }
+
+func (c *HubClient) IsPendingCloseRoom(id string) bool {
+	session := c.GetSession()
+	if session == nil {
+		return false
+	}
+
+	return session.IsPendingCloseRoom(id)
+}
