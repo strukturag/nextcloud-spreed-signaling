@@ -14,9 +14,11 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 env:
   TEST_TAG: strukturag/nextcloud-spreed-signaling:janus-test
+  IMAGE_TAG: ghcr.io/strukturag/nextcloud-spreed-signaling:janus
 
 jobs:
   build:
@@ -25,6 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -32,5 +42,6 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: docker/janus
-          load: true
-          tags: ${{ env.TEST_TAG }}
+          load: ${{ github.event_name == 'pull_request' }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ github.event_name == 'pull_request' && env.TEST_TAG || env.IMAGE_TAG }}
