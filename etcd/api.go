@@ -69,6 +69,10 @@ type BackendInformationEtcd struct {
 	MaxStreamBitrate api.Bandwidth `json:"maxstreambitrate,omitempty"`
 	MaxScreenBitrate api.Bandwidth `json:"maxscreenbitrate,omitempty"`
 
+	BandwidthPerRoom      api.Bandwidth `json:"bitrateperroom,omitempty"`
+	MinPublisherBandwidth api.Bandwidth `json:"minpublisherbitrate,omitempty"`
+	MaxPublisherBandwidth api.Bandwidth `json:"maxpublisherbitrate,omitempty"`
+
 	SessionLimit uint64 `json:"sessionlimit,omitempty"`
 }
 
