@@ -503,6 +503,17 @@ func (h *testServerHub) ProxySession(request RpcSessions_ProxySessionServer) err
 	return nil
 }
 
+func (h *testServerHub) GetRoomBandwidth(roomId string, backend *talk.Backend) (uint32, uint32, *sfu.ClientBandwidthInfo, bool) {
+	if roomId == testRoomId && backend == h.backend {
+		return 1, 2, &sfu.ClientBandwidthInfo{
+			Sent:     1000,
+			Received: 2000,
+		}, true
+	}
+
+	return 0, 0, nil, false
+}
+
 func TestServer_GetSessionIdByResumeId(t *testing.T) {
 	t.Parallel()
 
@@ -849,6 +860,46 @@ func TestServer_GetSessionCount(t *testing.T) {
 		hub.backend.RemoveSession(&testSession{})
 		if count, err := client.GetSessionCount(ctx, testBackendUrl); assert.NoError(err) {
 			assert.EqualValues(0, count)
+		}
+	}
+}
+
+func TestServer_GetRoomBandwidth(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+	assert := assert.New(t)
+
+	hub := newTestServerHub(t)
+
+	server, addr := NewServerForTest(t)
+	server.SetHub(hub)
+	clients, _ := NewClientsForTest(t, addr, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	require.NoError(clients.WaitForInitialized(ctx))
+
+	for _, client := range clients.GetClients() {
+		if publishers, subscribers, bandwidth, err := client.GetRoomBandwidth(ctx, testRoomId+"1", []string{testBackendUrl}); assert.NoError(err) {
+			assert.EqualValues(0, publishers)
+			assert.EqualValues(0, subscribers)
+			assert.Nil(bandwidth)
+		}
+		if publishers, subscribers, bandwidth, err := client.GetRoomBandwidth(ctx, testRoomId, []string{testBackendUrl + "1"}); assert.NoError(err) {
+			assert.EqualValues(0, publishers)
+			assert.EqualValues(0, subscribers)
+			assert.Nil(bandwidth)
+		}
+
+		if publishers, subscribers, bandwidth, err := client.GetRoomBandwidth(ctx, testRoomId, []string{testBackendUrl}); assert.NoError(err) {
+			assert.EqualValues(1, publishers)
+			assert.EqualValues(2, subscribers)
+			if assert.NotNil(bandwidth) {
+				assert.EqualValues(1000, bandwidth.Sent)
+				assert.EqualValues(2000, bandwidth.Received)
+			}
 		}
 	}
 }
