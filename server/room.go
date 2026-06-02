@@ -102,6 +102,7 @@ type Room struct {
 	statsCallRoomsTotal prometheus.Counter
 
 	// Users currently in the room
+	// +checklocks:mu
 	users []api.StringMap
 
 	// Timestamps of last backend requests for the different types.
@@ -750,9 +751,15 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSes
 }
 
 func (r *Room) addInternalSessions(users []api.StringMap) []api.StringMap {
-	now := time.Now().Unix()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	return r.addInternalSessionsLocked(users)
+}
+
+// +checklocksread:r.mu
+func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap {
+	now := time.Now().Unix()
 	if len(users) == 0 && len(r.internalSessions) == 0 && len(r.virtualSessions) == 0 {
 		return users
 	}
@@ -869,8 +876,16 @@ func IsInCall(value any) (bool, bool) {
 	}
 }
 
-func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.StringMap) {
+func (r *Room) setUsers(users []api.StringMap) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.users = users
+}
+
+func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.StringMap) {
+	r.setUsers(users)
+
 	for _, user := range changed {
 		inCallInterface, found := user["inCall"]
 		if !found {
@@ -930,6 +945,10 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	for _, user := range r.users {
+		user["inCall"] = inCall
+	}
+
 	var notify []*ClientSession
 	if inCall&FlagInCall != 0 {
 		// All connected sessions join the call.
@@ -957,19 +976,6 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 
 		r.logger.Printf("Sessions %v joined call %s", joined, r.id)
 	} else if len(r.inCallSessions) > 0 {
-		// Perform actual leaving asynchronously.
-		ch := make(chan *ClientSession, 1)
-		go func() {
-			for {
-				session := <-ch
-				if session == nil {
-					break
-				}
-
-				session.LeaveCall()
-			}
-		}()
-
 		for _, session := range r.sessions {
 			clientSession, ok := session.(*ClientSession)
 			if !ok {
@@ -979,13 +985,16 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 			notify = append(notify, clientSession)
 		}
 
-		for session := range r.inCallSessions {
-			if clientSession, ok := session.(*ClientSession); ok {
-				ch <- clientSession
+		// Perform actual leaving asynchronously.
+		go func(sessions map[Session]bool) {
+			for session := range sessions {
+				if clientSession, ok := session.(*ClientSession); ok {
+					clientSession.LeaveCall()
+				}
 			}
-		}
-		close(ch)
-		clear(r.inCallSessions)
+		}(r.inCallSessions)
+		r.inCallSessions = make(map[Session]bool)
+
 		r.clearInCallStats()
 	} else {
 		// All sessions already left the call, no need to notify.
@@ -1035,8 +1044,11 @@ func (r *Room) PublishUsersChanged(changed []api.StringMap, users []api.StringMa
 	}
 }
 
-func (r *Room) getParticipantsUpdateMessage(users []api.StringMap) *api.ServerMessage {
-	users = r.filterPermissions(users)
+func (r *Room) getParticipantsUpdateMessage() *api.ServerMessage {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	users := r.filterPermissions(r.users)
 
 	message := &api.ServerMessage{
 		Type: "event",
@@ -1045,7 +1057,7 @@ func (r *Room) getParticipantsUpdateMessage(users []api.StringMap) *api.ServerMe
 			Type:   "update",
 			Update: &api.RoomEventServerMessage{
 				RoomId: r.id,
-				Users:  r.addInternalSessions(users),
+				Users:  r.addInternalSessionsLocked(users),
 			},
 		},
 	}
@@ -1053,7 +1065,7 @@ func (r *Room) getParticipantsUpdateMessage(users []api.StringMap) *api.ServerMe
 }
 
 func (r *Room) NotifySessionResumed(session *ClientSession) {
-	message := r.getParticipantsUpdateMessage(r.users)
+	message := r.getParticipantsUpdateMessage()
 	if len(message.Event.Update.Users) == 0 {
 		return
 	}
@@ -1099,7 +1111,7 @@ func (r *Room) NotifySessionChanged(session Session, flags SessionChangeFlag) {
 }
 
 func (r *Room) publishUsersChangedWithInternal() {
-	message := r.getParticipantsUpdateMessage(r.users)
+	message := r.getParticipantsUpdateMessage()
 	if len(message.Event.Update.Users) == 0 {
 		return
 	}
