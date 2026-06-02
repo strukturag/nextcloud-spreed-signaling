@@ -945,6 +945,10 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	for _, user := range r.users {
+		user["inCall"] = inCall
+	}
+
 	var notify []*ClientSession
 	if inCall&FlagInCall != 0 {
 		// All connected sessions join the call.
