@@ -23,13 +23,13 @@ package server
 
 import (
 	"context"
-	"errors"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/grpc"
 )
 
 var (
-	ErrNoSuchRoomSession = errors.New("unknown room session id")
+	ErrNoSuchRoomSession = grpc.ErrNoSuchRoomSession
 )
 
 type RoomSessions interface {

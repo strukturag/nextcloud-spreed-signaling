@@ -1681,7 +1681,7 @@ func (h *Hub) processHelloInternal(client ClientWithSession, message *api.Client
 
 func (h *Hub) disconnectByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, backend *talk.Backend) {
 	sessionId, err := h.roomSessions.LookupSessionId(ctx, roomSessionId, "room_session_reconnected")
-	if err == ErrNoSuchRoomSession {
+	if errors.Is(err, ErrNoSuchRoomSession) {
 		return
 	} else if err != nil {
 		h.logger.Printf("Could not get session id for room session %s: %s", roomSessionId, err)
