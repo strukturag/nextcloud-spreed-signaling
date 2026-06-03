@@ -58,6 +58,7 @@ import (
 	eventstest "github.com/strukturag/nextcloud-spreed-signaling/v2/async/events/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/grpc"
 	grpctest "github.com/strukturag/nextcloud-spreed-signaling/v2/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
@@ -5306,4 +5307,26 @@ func TestHubGetPublisherIdForSessionId(t *testing.T) {
 	}))
 
 	<-done
+}
+
+func TestClusteredUnknownRoomSessionIdNotFound(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	hub1, hub2, _, _ := CreateClusteredHubsForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	for _, grpcClient := range hub1.rpcClients.GetClients() {
+		id, err := grpcClient.LookupSessionId(ctx, "unknown-room-sessionid", "")
+		assert.Empty(id)
+		assert.ErrorIs(err, grpc.ErrNoSuchRoomSession)
+	}
+
+	for _, grpcClient := range hub2.rpcClients.GetClients() {
+		id, err := grpcClient.LookupSessionId(ctx, "unknown-room-sessionid", "")
+		assert.Empty(id)
+		assert.ErrorIs(err, grpc.ErrNoSuchRoomSession)
+	}
 }
