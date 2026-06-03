@@ -704,6 +704,115 @@ func Test_JanusSubscriberPublisher(t *testing.T) {
 	<-done
 }
 
+func Test_JanusPublisherSubscriberRace(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	var originalOffer atomic.Value
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			if assert.NotNil(jsep) {
+				if sdp, found := jsep["sdp"]; assert.True(found) {
+					originalOffer.Store(strings.ReplaceAll(sdp.(string), "\r\n", "\n"))
+				}
+			}
+
+			return &janus.EventMsg{
+				Jsep: api.StringMap{
+					"sdp": mock.MockSdpAnswerAudioAndVideo,
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := sfu.NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", sfu.StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+	defer sub.Close(context.Background())
+
+	data := &api.MessageClientMessageData{
+		Type: "offer",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}
+	if !assert.NoError(data.CheckValid()) {
+		return
+	}
+
+	waiter, release := mcu.newPublisherConnectedWaiter(pubId, sfu.StreamTypeVideo)
+
+	done := make(chan struct{})
+	pub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
+		defer func() {
+			done <- struct{}{}
+		}()
+
+		if assert.NoError(err) {
+			if sdpValue, found := m["sdp"]; assert.True(found) {
+				sdpText, ok := sdpValue.(string)
+				if assert.True(ok) {
+					assert.Equal(mock.MockSdpAnswerAudioAndVideo, strings.ReplaceAll(sdpText, "\r\n", "\n"))
+				}
+			}
+		}
+	})
+	<-done
+
+	assert.NoError(waiter.Wait(ctx))
+	release()
+
+	data = &api.MessageClientMessageData{
+		Type: "requestoffer",
+	}
+	require.NoError(data.CheckValid())
+
+	sub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
+		defer func() {
+			done <- struct{}{}
+		}()
+
+		if assert.NoError(err) {
+			if sdpValue, found := m["sdp"]; assert.True(found) {
+				sdpText, ok := sdpValue.(string)
+				if assert.True(ok) {
+					if sdp := originalOffer.Load(); assert.NotNil(sdp) {
+						assert.Equal(sdp.(string), strings.ReplaceAll(sdpText, "\r\n", "\n"))
+					}
+				}
+			}
+		}
+	})
+	<-done
+}
+
 func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)

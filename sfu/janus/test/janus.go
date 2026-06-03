@@ -198,17 +198,23 @@ func (g *JanusGateway) processMessage(session *janus.Session, handle *JanusHandl
 		room := g.rooms[uint64(rid)]
 		error_code := janus.JANUS_OK
 		if body["ptype"] == "subscriber" {
-			if strings.Contains(g.t.Name(), "NoSuchRoom") {
+			switch {
+			case strings.Contains(g.t.Name(), "NoSuchRoom"):
 				g.joinCount++
 				if g.joinCount == 1 {
 					error_code = janus.JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM
 				}
-			} else if strings.Contains(g.t.Name(), "AlreadyJoined") {
+			case strings.Contains(g.t.Name(), "AlreadyJoined"):
 				g.joinCount++
 				if g.joinCount == 1 {
 					error_code = janus.JANUS_VIDEOROOM_ERROR_ALREADY_JOINED
 				}
-			} else if strings.Contains(g.t.Name(), "SubscriberTimeout") {
+			case strings.Contains(g.t.Name(), "SubscriberTimeout"):
+				g.joinCount++
+				if g.joinCount == 1 {
+					error_code = janus.JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED
+				}
+			case strings.Contains(g.t.Name(), "PublisherSubscriberRace"):
 				g.joinCount++
 				if g.joinCount == 1 {
 					error_code = janus.JANUS_VIDEOROOM_ERROR_NO_SUCH_FEED
