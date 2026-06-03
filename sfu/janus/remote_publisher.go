@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/janus/janus"
 )
@@ -39,6 +40,9 @@ type janusRemotePublisher struct {
 
 	port     int
 	rtcpPort int
+
+	signaler        *async.Signaler
+	releaseSignaler async.ReleaseFunc
 }
 
 func (p *janusRemotePublisher) addRef() int64 {
@@ -86,7 +90,7 @@ func (p *janusRemotePublisher) handleDetached(event *janus.DetachedMsg) {
 
 func (p *janusRemotePublisher) handleConnected(event *janus.WebRTCUpMsg) {
 	p.logger.Printf("Remote publisher %d received connected", p.handleId.Load())
-	p.mcu.notifyPublisherConnected(p.id, p.streamType)
+	p.signaler.Signal()
 }
 
 func (p *janusRemotePublisher) handleSlowLink(event *janus.SlowLinkMsg) {
@@ -159,4 +163,5 @@ func (p *janusRemotePublisher) Close(ctx context.Context) {
 	}
 
 	p.closeClient(ctx)
+	p.releaseSignaler()
 }

@@ -23,29 +23,99 @@ package async
 
 import (
 	"context"
+	"errors"
 	"sync"
+	"sync/atomic"
 )
 
-type rootWaiter struct {
+var (
+	ErrDuplicateSignaler = errors.New("duplicate signaler") // +checklocksignore: Global readonly variable.
+	ErrAlreadyReleased   = errors.New("already released")
+)
+
+type notifierEntry struct {
+	sync.Mutex
+
+	ref atomic.Int32
 	key string
 	ch  chan struct{}
+
+	// +checklocks:Mutex
+	signaler *Signaler
+	// +checklocks:Mutex
+	waiter map[*Waiter]bool
 }
 
-func (w *rootWaiter) notify() {
-	close(w.ch)
+func (w *notifierEntry) setSignaler(signaler *Signaler) {
+	w.Lock()
+	defer w.Unlock()
+
+	if w.signaler != nil {
+		panic(ErrDuplicateSignaler)
+	}
+
+	w.signaler = signaler
+}
+
+func (w *notifierEntry) clearSignaler(signaler *Signaler) {
+	w.Lock()
+	defer w.Unlock()
+
+	if w.signaler != signaler {
+		panic("unknown signaler")
+	}
+
+	w.signaler = nil
+}
+
+func (w *notifierEntry) addWaiter(waiter *Waiter) {
+	w.Lock()
+	defer w.Unlock()
+
+	w.waiter[waiter] = true
+}
+
+func (w *notifierEntry) removeWaiter(waiter *Waiter) {
+	w.Lock()
+	defer w.Unlock()
+
+	delete(w.waiter, waiter)
+}
+
+func (w *notifierEntry) notify() {
+	select {
+	case <-w.ch:
+		// Already closed
+	default:
+		close(w.ch)
+	}
 }
 
 type Waiter struct {
-	key string
-	ch  <-chan struct{}
+	entry atomic.Pointer[notifierEntry]
 }
 
 func (w *Waiter) Wait(ctx context.Context) error {
+	entry := w.entry.Load()
+	if entry == nil {
+		return nil
+	}
+
 	select {
-	case <-w.ch:
+	case <-entry.ch:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+type Signaler struct {
+	entry atomic.Pointer[notifierEntry]
+}
+
+func (s *Signaler) Signal() {
+	if entry := s.entry.Load(); entry != nil {
+		entry.notify()
 	}
 }
 
@@ -53,43 +123,53 @@ type Notifier struct {
 	sync.Mutex
 
 	// +checklocks:Mutex
-	waiters map[string]*rootWaiter
-	// +checklocks:Mutex
-	waiterMap map[string]map[*Waiter]bool
+	waiters map[string]*notifierEntry
 }
 
 type ReleaseFunc func()
 
-func (n *Notifier) NewWaiter(key string) (*Waiter, ReleaseFunc) {
+func (n *Notifier) createEntry(key string) *notifierEntry {
 	n.Lock()
 	defer n.Unlock()
 
 	waiter, found := n.waiters[key]
 	if !found {
-		waiter = &rootWaiter{
-			key: key,
-			ch:  make(chan struct{}),
+		waiter = &notifierEntry{
+			key:    key,
+			ch:     make(chan struct{}),
+			waiter: make(map[*Waiter]bool),
 		}
 
 		if n.waiters == nil {
-			n.waiters = make(map[string]*rootWaiter)
-		}
-		if n.waiterMap == nil {
-			n.waiterMap = make(map[string]map[*Waiter]bool)
+			n.waiters = make(map[string]*notifierEntry)
 		}
 		n.waiters[key] = waiter
-		if _, found := n.waiterMap[key]; !found {
-			n.waiterMap[key] = make(map[*Waiter]bool)
-		}
 	}
 
-	w := &Waiter{
-		key: key,
-		ch:  waiter.ch,
-	}
-	n.waiterMap[key][w] = true
+	waiter.ref.Add(1)
+	return waiter
+}
+
+func (n *Notifier) NewSignaler(key string) (*Signaler, ReleaseFunc) {
+	entry := n.createEntry(key)
+
+	s := &Signaler{}
+	s.entry.Store(entry)
+	entry.setSignaler(s)
 	releaseFunc := func() {
-		n.release(w)
+		n.releaseSignaler(s)
+	}
+	return s, releaseFunc
+}
+
+func (n *Notifier) NewWaiter(key string) (*Waiter, ReleaseFunc) {
+	entry := n.createEntry(key)
+
+	w := &Waiter{}
+	w.entry.Store(entry)
+	entry.addWaiter(w)
+	releaseFunc := func() {
+		n.releaseWaiter(w)
 	}
 	return w, releaseFunc
 }
@@ -102,33 +182,39 @@ func (n *Notifier) Reset() {
 		w.notify()
 	}
 	n.waiters = nil
-	n.waiterMap = nil
 }
 
-func (n *Notifier) release(w *Waiter) {
-	n.Lock()
-	defer n.Unlock()
+func (n *Notifier) releaseSignaler(s *Signaler) {
+	entry := s.entry.Swap(nil)
+	if entry == nil {
+		return
+	}
 
-	if waiters, found := n.waiterMap[w.key]; found {
-		if _, found := waiters[w]; found {
-			delete(waiters, w)
-			if len(waiters) == 0 {
-				if root, found := n.waiters[w.key]; found {
-					delete(n.waiters, w.key)
-					root.notify()
-				}
-			}
+	entry.clearSignaler(s)
+	if entry.ref.Add(-1) == 0 {
+		n.Lock()
+		defer n.Unlock()
+
+		if e, found := n.waiters[entry.key]; found {
+			e.notify()
+			delete(n.waiters, e.key)
 		}
 	}
 }
+func (n *Notifier) releaseWaiter(w *Waiter) {
+	entry := w.entry.Swap(nil)
+	if entry == nil {
+		return
+	}
 
-func (n *Notifier) Notify(key string) {
-	n.Lock()
-	defer n.Unlock()
+	entry.removeWaiter(w)
+	if entry.ref.Add(-1) == 0 {
+		n.Lock()
+		defer n.Unlock()
 
-	if w, found := n.waiters[key]; found {
-		w.notify()
-		delete(n.waiters, w.key)
-		delete(n.waiterMap, w.key)
+		if e, found := n.waiters[entry.key]; found {
+			e.notify()
+			delete(n.waiters, e.key)
+		}
 	}
 }

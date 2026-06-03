@@ -36,7 +36,9 @@ func TestNotifierNoWaiter(t *testing.T) {
 	var notifier Notifier
 
 	// Notifications can be sent even if no waiter exists.
-	notifier.Notify("foo")
+	signaler, release := notifier.NewSignaler("foo")
+	defer release()
+	signaler.Signal()
 }
 
 func TestNotifierWaitTimeout(t *testing.T) {
@@ -48,7 +50,10 @@ func TestNotifierWaitTimeout(t *testing.T) {
 		go func() {
 			defer close(notified)
 			time.Sleep(time.Second)
-			notifier.Notify("foo")
+
+			signaler, release := notifier.NewSignaler("foo")
+			defer release()
+			signaler.Signal()
 		}()
 
 		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
@@ -79,7 +84,10 @@ func TestNotifierSimple(t *testing.T) {
 		assert.NoError(t, waiter.Wait(ctx))
 	})
 
-	notifier.Notify("foo")
+	signaler, release := notifier.NewSignaler("foo")
+	defer release()
+	signaler.Signal()
+
 	wg.Wait()
 }
 
@@ -90,9 +98,12 @@ func TestNotifierMultiNotify(t *testing.T) {
 	_, release := notifier.NewWaiter("foo")
 	defer release()
 
-	notifier.Notify("foo")
+	signaler, release := notifier.NewSignaler("foo")
+	defer release()
+	signaler.Signal()
+
 	// The second notification will be ignored while the first is still pending.
-	notifier.Notify("foo")
+	signaler.Signal()
 }
 
 func TestNotifierWaitClosed(t *testing.T) {
@@ -155,7 +166,67 @@ func TestNotifierDuplicate(t *testing.T) {
 
 		synctest.Wait()
 
-		notifier.Notify("foo")
+		signaler, release := notifier.NewSignaler("foo")
+		defer release()
+		signaler.Signal()
+
 		done.Wait()
 	})
+}
+
+func TestNotifierSignalBeforeWait(t *testing.T) {
+	t.Parallel()
+
+	var notifier Notifier
+
+	signaler, release := notifier.NewSignaler("foo")
+	defer release()
+	signaler.Signal()
+
+	waiter, release := notifier.NewWaiter("foo")
+	defer release()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	assert.NoError(t, waiter.Wait(ctx))
+}
+
+func TestNotifierDuplicateSignaler(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+	var notifier Notifier
+
+	_, release := notifier.NewSignaler("foo")
+	defer release()
+
+	defer func() {
+		err := recover()
+		if e, ok := err.(error); assert.True(ok, "expected error, got %+v", err) {
+			assert.ErrorIs(e, ErrDuplicateSignaler)
+		}
+	}()
+
+	_, release2 := notifier.NewSignaler("foo")
+	defer release2()
+
+	assert.Fail("should have triggered panic")
+}
+
+func TestNotifierSignalerReleaseTwice(t *testing.T) {
+	t.Parallel()
+
+	var notifier Notifier
+	_, release := notifier.NewSignaler("foo")
+	release()
+	release()
+}
+
+func TestNotifierWaiterReleaseTwice(t *testing.T) {
+	t.Parallel()
+
+	var notifier Notifier
+	_, release := notifier.NewWaiter("foo")
+	release()
+	release()
 }

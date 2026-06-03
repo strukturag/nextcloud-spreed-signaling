@@ -32,6 +32,7 @@ import (
 	"github.com/pion/sdp/v3"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
 	sfuinternal "github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/internal"
@@ -58,6 +59,9 @@ type janusPublisher struct {
 	sdpReady  *internal.Closer
 	offerSdp  atomic.Pointer[sdp.SessionDescription]
 	answerSdp atomic.Pointer[sdp.SessionDescription]
+
+	signaler        *async.Signaler
+	releaseSignaler async.ReleaseFunc
 }
 
 func (p *janusPublisher) PublisherId() api.PublicSessionId {
@@ -93,7 +97,7 @@ func (p *janusPublisher) handleDetached(event *janus.DetachedMsg) {
 
 func (p *janusPublisher) handleConnected(event *janus.WebRTCUpMsg) {
 	p.logger.Printf("Publisher %d received connected", p.handleId.Load())
-	p.mcu.notifyPublisherConnected(p.id, p.streamType)
+	p.signaler.Signal()
 }
 
 func (p *janusPublisher) handleSlowLink(event *janus.SlowLinkMsg) {
@@ -165,6 +169,7 @@ func (p *janusPublisher) Close(ctx context.Context) {
 	p.closeClient(ctx)
 	p.mu.Unlock()
 
+	p.releaseSignaler()
 	p.stats.Reset()
 
 	if notify {
