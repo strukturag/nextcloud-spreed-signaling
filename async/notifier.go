@@ -24,7 +24,10 @@ package async
 import (
 	"context"
 	"sync"
+	"time"
 )
+
+const notifiedKeyTTL = 30 * time.Second
 
 type rootWaiter struct {
 	key string
@@ -56,6 +59,9 @@ type Notifier struct {
 	waiters map[string]*rootWaiter
 	// +checklocks:Mutex
 	waiterMap map[string]map[*Waiter]bool
+	// +checklocks:Mutex
+	// Sticky: remembers recent notifications so late waiters don't miss them.
+	notifiedAt map[string]time.Time
 }
 
 type ReleaseFunc func()
@@ -63,6 +69,15 @@ type ReleaseFunc func()
 func (n *Notifier) NewWaiter(key string) (*Waiter, ReleaseFunc) {
 	n.Lock()
 	defer n.Unlock()
+
+	// If this key was notified recently, return an already-closed channel
+	// so the caller retries immediately without waiting.
+	if t, ok := n.notifiedAt[key]; ok && time.Since(t) < notifiedKeyTTL {
+		ch := make(chan struct{})
+		close(ch)
+		w := &Waiter{key: key, ch: ch}
+		return w, func() {}
+	}
 
 	waiter, found := n.waiters[key]
 	if !found {
@@ -103,6 +118,7 @@ func (n *Notifier) Reset() {
 	}
 	n.waiters = nil
 	n.waiterMap = nil
+	n.notifiedAt = nil
 }
 
 func (n *Notifier) release(w *Waiter) {
@@ -125,6 +141,11 @@ func (n *Notifier) release(w *Waiter) {
 func (n *Notifier) Notify(key string) {
 	n.Lock()
 	defer n.Unlock()
+
+	if n.notifiedAt == nil {
+		n.notifiedAt = make(map[string]time.Time)
+	}
+	n.notifiedAt[key] = time.Now()
 
 	if w, found := n.waiters[key]; found {
 		w.notify()

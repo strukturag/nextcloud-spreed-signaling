@@ -169,8 +169,6 @@ func (p *janusSubscriber) joinRoom(ctx context.Context, stream *streamSelection,
 		return
 	}
 
-	waiter, stop := p.mcu.newPublisherConnectedWaiter(p.publisher, p.streamType)
-	defer stop()
 
 	loggedNotPublishingYet := false
 retry:
@@ -253,11 +251,14 @@ retry:
 				sfuinternal.StatsWaitingForPublisherTotal.WithLabelValues(string(p.streamType)).Inc()
 			}
 
+			waiter, stop := p.mcu.newPublisherConnectedWaiter(p.publisher, p.streamType)
 			if err := waiter.Wait(ctx); err != nil {
+				stop()
 				p.Close(context.Background())
 				callback(err, nil)
 				return
 			}
+			stop()
 			p.logger.Printf("Retry subscribing %s from %s", p.streamType, p.publisher)
 			goto retry
 		default:
