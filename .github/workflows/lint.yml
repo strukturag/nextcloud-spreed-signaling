@@ -33,7 +33,7 @@ jobs:
           go-version: "1.25"
 
       - name: lint
-        uses: golangci/golangci-lint-action@v9.2.1
+        uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: latest
           args: --timeout=2m0s
