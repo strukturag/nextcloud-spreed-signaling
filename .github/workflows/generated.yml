@@ -57,7 +57,7 @@ jobs:
       contents: write
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.CODE_GENERATOR_PAT }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version: "stable"
