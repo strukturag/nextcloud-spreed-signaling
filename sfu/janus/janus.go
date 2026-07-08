@@ -956,6 +956,25 @@ func (m *janusSFU) getOrCreateSubscriberHandle(ctx context.Context, publisher ap
 	return handle, pub, nil
 }
 
+// getOrCreateRemoteSubscriberHandle attaches a fresh subscriber handle for a
+// remote publisher. Unlike getOrCreateSubscriberHandle it must not go through
+// getPublisher: remote publishers are tracked only in m.remotePublishers, so a
+// lookup in m.publishers would block until the context deadline.
+func (m *janusSFU) getOrCreateRemoteSubscriberHandle(ctx context.Context, pub *janusRemotePublisher) (*janus.Handle, error) {
+	session := m.session
+	if session == nil {
+		return nil, sfu.ErrNotConnected
+	}
+
+	handle, err := session.Attach(ctx, pluginVideoRoom)
+	if err != nil {
+		return nil, err
+	}
+
+	m.logger.Printf("Attached remote subscriber to room %d of publisher %s on handle %d", pub.roomId, pub.id, handle.Id)
+	return handle, nil
+}
+
 func (m *janusSFU) NewSubscriber(ctx context.Context, listener sfu.Listener, publisher api.PublicSessionId, streamType sfu.StreamType, initiator sfu.Initiator) (sfu.Subscriber, error) {
 	if _, found := streamTypeUserIds[streamType]; !found {
 		return nil, fmt.Errorf("unsupported stream type %s", streamType)
@@ -1161,6 +1180,7 @@ func (m *janusSFU) NewRemoteSubscriber(ctx context.Context, listener sfu.Listene
 	client.janusClient.handleConnected = client.handleConnected
 	client.janusClient.handleSlowLink = client.handleSlowLink
 	client.janusClient.handleMedia = client.handleMedia
+	client.attachHandle = client.attachRemoteHandle
 	m.registerClient(client)
 	go client.run(handle, client.closeChan)
 	m.stats.IncSubscriber(publisher.StreamType())
