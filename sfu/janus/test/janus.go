@@ -410,6 +410,12 @@ func (g *JanusGateway) processMessage(session *janus.Session, handle *JanusHandl
 							})
 						}
 					}
+				case "add_remote_publisher":
+					// The remote publisher feeds the room, so subscribers can
+					// join it like a room with a locally publishing handle.
+					if room.publisher.CompareAndSwap(nil, handle) {
+						handle.sdp.Store(mock.MockSdpOfferAudioOnly)
+					}
 				}
 			}
 			return result
