@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"net/url"
 	"slices"
@@ -574,6 +575,7 @@ const (
 	ServerFeatureServerInfo            = "serverinfo"
 	ServerFeatureChatRelay             = "chat-relay"
 	ServerFeatureTransientSessionData  = "transient-sessiondata"
+	ServerFeatureChangedUsers          = "changed-users"
 
 	// Features to send to internal clients only.
 	ServerFeatureInternalVirtualSessions = "virtual-sessions"
@@ -600,6 +602,7 @@ var (
 		ServerFeatureServerInfo,
 		ServerFeatureChatRelay,
 		ServerFeatureTransientSessionData,
+		ServerFeatureChangedUsers,
 	}
 	DefaultFeaturesInternal = []string{
 		ServerFeatureInternalVirtualSessions,
@@ -616,6 +619,7 @@ var (
 		ServerFeatureServerInfo,
 		ServerFeatureChatRelay,
 		ServerFeatureTransientSessionData,
+		ServerFeatureChangedUsers,
 	}
 	DefaultWelcomeFeatures = []string{
 		ServerFeatureAudioVideoPermissions,
@@ -633,6 +637,7 @@ var (
 		ServerFeatureServerInfo,
 		ServerFeatureChatRelay,
 		ServerFeatureTransientSessionData,
+		ServerFeatureChangedUsers,
 	}
 )
 
@@ -1179,13 +1184,62 @@ type InternalServerMessage struct {
 
 // Type "event"
 
+type UserData = StringMap
+
+func (d UserData) Clone() UserData {
+	return maps.Clone(d)
+}
+
+func (d UserData) SessionId() (PublicSessionId, bool) {
+	return GetStringMapString[PublicSessionId](StringMap(d), "sessionId")
+}
+
+type UserDataMap map[PublicSessionId]UserData
+
+func (m UserDataMap) Users() UserDataList {
+	if len(m) == 0 {
+		return nil
+	}
+
+	return slices.Collect(maps.Values(m))
+}
+
+type UserDataList []UserData
+
+func (l UserDataList) Clone() UserDataList {
+	if len(l) == 0 {
+		return nil
+	}
+
+	clone := make(UserDataList, len(l))
+	for idx, u := range l {
+		clone[idx] = u.Clone()
+	}
+	return clone
+}
+
+func (l UserDataList) Map() UserDataMap {
+	if len(l) == 0 {
+		return nil
+	}
+
+	result := make(UserDataMap, len(l))
+	for _, d := range l {
+		sid, found := d.SessionId()
+		if found {
+			result[sid] = d
+		}
+	}
+	return result
+}
+
 type RoomEventServerMessage struct {
 	RoomId     string          `json:"roomid"`
 	Properties json.RawMessage `json:"properties,omitempty"`
 	// TODO(jojo): Change "InCall" to "int" when #914 has landed in NC Talk.
 	InCall  json.RawMessage `json:"incall,omitempty"`
-	Changed []StringMap     `json:"changed,omitempty"`
-	Users   []StringMap     `json:"users,omitempty"`
+	Changed UserDataList    `json:"changed,omitempty"`
+	Users   UserDataList    `json:"users,omitempty"`
 
 	All bool `json:"all,omitempty"`
 }
