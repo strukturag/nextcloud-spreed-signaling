@@ -65,3 +65,29 @@ func TestHttpClientPool(t *testing.T) {
 	_, _, err = pool.Get(ctx3, u2)
 	assert.ErrorIs(err, context.DeadlineExceeded)
 }
+
+func TestHttpClientPoolIdleConnTimeout(t *testing.T) {
+	// A pooled idle connection must be closed by the CLIENT before the backend
+	// webserver closes it. Otherwise the pool eventually hands out a connection
+	// the server is tearing down, the request written into it fails with EOF,
+	// and Go will not retry a POST (not replayable without an Idempotency-Key),
+	// so the backend request is silently lost.
+	//
+	// This is easy to reintroduce: http.Transport's zero value for
+	// IdleConnTimeout means "no limit" (unlike http.DefaultTransport, which sets
+	// 90s), so simply dropping the field restores the bug while the code still
+	// looks correct.
+	assert := assert.New(t)
+	pool, err := NewHttpClientPool(1, false)
+	require.NoError(t, err)
+
+	assert.NotZero(pool.transport.IdleConnTimeout,
+		"IdleConnTimeout must be set: the zero value means idle connections are "+
+			"pooled forever, so the backend webserver will close them first and "+
+			"requests will intermittently fail with EOF")
+
+	// Apache's default KeepAliveTimeout is 5s and nginx's keepalive_timeout is
+	// 75s; staying well below those keeps the client closing first.
+	assert.Less(pool.transport.IdleConnTimeout, 75*time.Second,
+		"IdleConnTimeout must stay below a realistic backend keep-alive timeout")
+}
