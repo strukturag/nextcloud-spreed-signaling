@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"sync/atomic"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/janus/janus"
 )
 
@@ -86,10 +87,30 @@ func (p *janusRemoteSubscriber) handleMedia(event *janus.MediaMsg) {
 	// Only triggered for publishers
 }
 
+// attachRemoteHandle attaches a fresh subscriber handle for the remote
+// publisher of this subscriber. It is installed as janusSubscriber.attachHandle
+// (used by the inherited joinRoom re-join path) and is also called directly
+// from NotifyReconnected, so neither goes through getOrCreateSubscriberHandle,
+// whose getPublisher only knows local publishers and would block until the
+// context deadline.
+func (p *janusRemoteSubscriber) attachRemoteHandle(ctx context.Context) (*janus.Handle, uint64, error) {
+	pub := p.remote.Load()
+	if pub == nil {
+		return nil, 0, sfu.ErrNotConnected
+	}
+
+	handle, err := p.mcu.getOrCreateRemoteSubscriberHandle(ctx, pub)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return handle, pub.roomId, nil
+}
+
 func (p *janusRemoteSubscriber) NotifyReconnected() {
 	ctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 	defer cancel()
-	handle, pub, err := p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
+	handle, roomId, err := p.attachRemoteHandle(ctx)
 	if err != nil {
 		// TODO(jojo): Retry?
 		p.logger.Printf("Could not reconnect remote subscriber for publisher %s: %s", p.publisher, err)
@@ -103,7 +124,7 @@ func (p *janusRemoteSubscriber) NotifyReconnected() {
 		}
 	}
 	p.handleId.Store(handle.Id)
-	p.roomId = pub.roomId
+	p.roomId = roomId
 	p.sid = strconv.FormatUint(handle.Id, 10)
 	p.listener.SubscriberSidUpdated(p)
 	p.logger.Printf("Subscriber %d for publisher %s reconnected on handle %d", p.id, p.publisher, p.handleId.Load())

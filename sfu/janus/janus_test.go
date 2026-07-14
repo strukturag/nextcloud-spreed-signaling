@@ -1840,3 +1840,160 @@ func Test_SubscriberUpdateOffer(t *testing.T) {
 		assert.NoError(ctx.Err())
 	}
 }
+
+func newRemotePublisherHandlers(assert *assert.Assertions) map[string]janustest.JanusHandler {
+	return map[string]janustest.JanusHandler{
+		"add_remote_publisher": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			return &janus.SuccessMsg{
+				PluginData: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: api.StringMap{
+						"id":        12345,
+						"port":      10000,
+						"rtcp_port": 10001,
+					},
+				},
+			}, nil
+		},
+		"remove_remote_publisher": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			assert.EqualValues(1, room.Id())
+			return &janus.SuccessMsg{
+				PluginData: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data:   api.StringMap{},
+				},
+			}, nil
+		},
+	}
+}
+
+// A remote subscriber that receives JANUS_VIDEOROOM_ERROR_ALREADY_JOINED on
+// joining must attach its new handle from the remote publisher instead of
+// blocking in "getPublisher" (remote publishers only exist in
+// "remotePublishers") until the timeout closes the subscriber.
+func Test_JanusRemoteSubscriberAlreadyJoined(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	stats := &mockJanusStats{}
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			assert.True(stats.called.Load(), "stats were not called")
+			assert.Equal(0, stats.Value("video"))
+		}
+	})
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.SetStats(stats)
+	gateway.RegisterHandlers(newRemotePublisherHandlers(assert))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	listener1 := &TestMcuListener{
+		id: "publisher-id",
+	}
+
+	controller := &TestMcuController{
+		id: listener1.id,
+	}
+
+	pub, err := mcu.NewRemotePublisher(ctx, listener1, controller, sfu.StreamTypeVideo)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	listener2 := &TestMcuListener{
+		id: "subscriber-id",
+	}
+
+	sub, err := mcu.NewRemoteSubscriber(ctx, listener2, pub)
+	require.NoError(err)
+	defer sub.Close(context.Background())
+
+	// Without the fix, the re-join after ALREADY_JOINED blocks in
+	// "getPublisher" until this timeout and the subscriber is closed.
+	oldTimeout := mcu.Settings().Timeout()
+	defer mcu.Settings().SetTimeout(oldTimeout)
+	mcu.Settings().SetTimeout(500 * time.Millisecond)
+
+	msgData := &api.MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	}
+	require.NoError(msgData.CheckValid())
+	payload, err := json.Marshal(msgData)
+	require.NoError(err)
+	msg := &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: listener1.id,
+		},
+		Data: payload,
+	}
+
+	// The mock gateway returns ALREADY_JOINED for the first subscriber
+	// "join" (test name contains "AlreadyJoined"), exercising the
+	// re-attach path of the remote subscriber.
+	ch := make(chan struct{})
+	sub.SendMessage(ctx, msg, msgData, func(err error, sm api.StringMap) {
+		defer close(ch)
+
+		assert.NoError(err)
+		assert.Equal(mock.MockSdpOfferAudioOnly, sm["sdp"])
+	})
+	<-ch
+
+	assert.False(listener2.closed.Load())
+}
+
+// A reconnect of a remote subscriber must attach its new handle from the
+// remote publisher instead of blocking in "getPublisher" until the timeout.
+func Test_JanusRemoteSubscriberReconnect(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.RegisterHandlers(newRemotePublisherHandlers(assert))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	listener1 := &TestMcuListener{
+		id: "publisher-id",
+	}
+
+	controller := &TestMcuController{
+		id: listener1.id,
+	}
+
+	pub, err := mcu.NewRemotePublisher(ctx, listener1, controller, sfu.StreamTypeVideo)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	listener2 := &TestMcuListener{
+		id: "subscriber-id",
+	}
+
+	sub, err := mcu.NewRemoteSubscriber(ctx, listener2, pub)
+	require.NoError(err)
+	defer sub.Close(context.Background())
+
+	subscriber, ok := sub.(*janusRemoteSubscriber)
+	require.True(ok)
+
+	// Without the fix, reconnecting blocks in "getPublisher" until this
+	// timeout and then closes the subscriber.
+	oldTimeout := mcu.Settings().Timeout()
+	defer mcu.Settings().SetTimeout(oldTimeout)
+	mcu.Settings().SetTimeout(500 * time.Millisecond)
+
+	oldHandle := subscriber.Handle()
+	subscriber.NotifyReconnected()
+
+	assert.NotEqual(oldHandle, subscriber.Handle())
+	assert.False(listener2.closed.Load())
+}

@@ -36,6 +36,15 @@ type janusSubscriber struct {
 	janusClient
 
 	publisher api.PublicSessionId
+
+	// attachHandle, when non-nil, replaces the default local-publisher lookup
+	// (getOrCreateSubscriberHandle) when a fresh subscriber handle has to be
+	// attached during a re-join (JANUS_VIDEOROOM_ERROR_ALREADY_JOINED).
+	// Remote subscribers set it: their publisher exists only in
+	// janusSFU.remotePublishers, never in janusSFU.publishers, so getPublisher
+	// would block until the context deadline and tear down the call.
+	// Returns the new handle and the room id to (re-)join.
+	attachHandle func(ctx context.Context) (*janus.Handle, uint64, error)
 }
 
 func (p *janusSubscriber) JanusHandle() *janus.Handle {
@@ -210,8 +219,18 @@ retry:
 			p.closeClient(ctx)
 			p.mu.Unlock()
 
-			var pub *janusPublisher
-			handle, pub, err = p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
+			var roomId uint64
+			if p.attachHandle != nil {
+				// Remote subscriber: attach a fresh handle directly, the
+				// publisher will never appear in m.publishers.
+				handle, roomId, err = p.attachHandle(ctx)
+			} else {
+				var pub *janusPublisher
+				handle, pub, err = p.mcu.getOrCreateSubscriberHandle(ctx, p.publisher, p.streamType)
+				if err == nil {
+					roomId = pub.roomId
+				}
+			}
 			if err != nil {
 				// Reconnection didn't work, need to unregister/remove subscriber
 				// so a new object will be created if the request is retried.
@@ -227,7 +246,7 @@ retry:
 				}
 			}
 			p.handleId.Store(handle.Id)
-			p.roomId = pub.roomId
+			p.roomId = roomId
 			p.sid = strconv.FormatUint(handle.Id, 10)
 			p.listener.SubscriberSidUpdated(p)
 			p.closeChan = make(chan struct{}, 1)
