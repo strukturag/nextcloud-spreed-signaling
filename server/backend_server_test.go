@@ -961,10 +961,6 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	roomId := "test-room"
 	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
-
-	// Give message processing some time.
-	time.Sleep(10 * time.Millisecond)
-
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
@@ -1137,10 +1133,6 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			roomId := "test-room"
 			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
-
-			// Give message processing some time.
-			time.Sleep(10 * time.Millisecond)
-
 			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 			require.Equal(roomId, roomMsg.Room.RoomId)
 

@@ -1290,9 +1290,13 @@ type UnpublishRemoteTestPublisher struct {
 	remoteId api.PublicSessionId
 	// +checklocks:mu
 	remoteData *remotePublisherData
+
+	unpublished   context.Context    // +checklocksignore: Only written to from constructor.
+	unpublishFunc context.CancelFunc // +checklocksignore: Only written to from constructor.
 }
 
 func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener sfu.Listener, id api.PublicSessionId, sid string, streamType sfu.StreamType, settings sfu.NewPublisherSettings, initiator sfu.Initiator) (sfu.Publisher, error) {
+	unpublished, unpublishFunc := context.WithCancel(context.Background())
 	publisher := &UnpublishRemoteTestPublisher{
 		TestMCUPublisher: TestMCUPublisher{
 			id:         id,
@@ -1300,7 +1304,9 @@ func (m *UnpublishRemoteTestMCU) NewPublisher(ctx context.Context, listener sfu.
 			streamType: streamType,
 		},
 
-		t: m.t,
+		t:             m.t,
+		unpublished:   unpublished,
+		unpublishFunc: unpublishFunc,
 	}
 	m.publisher.Store(publisher)
 	return publisher, nil
@@ -1350,6 +1356,7 @@ func (p *UnpublishRemoteTestPublisher) UnpublishRemote(ctx context.Context, remo
 		p.remoteId = ""
 		p.remoteData = nil
 	}
+	p.unpublishFunc()
 	return nil
 }
 
@@ -1587,6 +1594,14 @@ func TestProxyUnpublishRemotePublisherClosed(t *testing.T) {
 		}
 	}
 
+	// Wait for the publisher deletion to be handled completely.
+	if message, err := client2.RunUntilMessage(ctx); assert.NoError(err) {
+		if err := checkMessageType(message, "event"); assert.NoError(err) {
+			assert.Equal("publisher-closed", message.Event.Type)
+			assert.Equal(clientId, message.Event.ClientId)
+		}
+	}
+
 	// ...but the session no longer contains information on the remote publisher.
 	if data, err := proxyServer.cookie.DecodePublic(hello2.Hello.SessionId); assert.NoError(err) {
 		session := proxyServer.GetSession(data.Sid)
@@ -1697,6 +1712,11 @@ func TestProxyUnpublishRemoteOnSessionClose(t *testing.T) {
 	client2.CloseWithBye()
 
 	if publisher := mcu.publisher.Load(); assert.NotNil(publisher) {
+		select {
+		case <-publisher.unpublished.Done():
+		case <-ctx.Done():
+			assert.Fail("remote publisher was not unpublished")
+		}
 		assert.Empty(publisher.getRemoteId())
 		assert.Nil(publisher.getRemoteData())
 	}
