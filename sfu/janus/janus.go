@@ -832,6 +832,7 @@ func (m *janusSFU) NewPublisher(ctx context.Context, listener sfu.Listener, id a
 		return nil, err
 	}
 
+	signaler, releaseSignaler := m.publisherConnected.NewSignaler(string(sfu.GetStreamId(id, streamType)))
 	client := &janusPublisher{
 		janusClient: janusClient{
 			logger:   m.logger,
@@ -851,6 +852,9 @@ func (m *janusSFU) NewPublisher(ctx context.Context, listener sfu.Listener, id a
 		sdpReady: internal.NewCloser(),
 		id:       id,
 		settings: settings,
+
+		signaler:        signaler,
+		releaseSignaler: releaseSignaler,
 	}
 	client.handle.Store(handle)
 	client.handleId.Store(handle.Id)
@@ -881,11 +885,6 @@ func (m *janusSFU) notifyPublisherCreated(id api.PublicSessionId, streamType sfu
 		c.cond.Broadcast()
 		delete(m.publisherCreated, key)
 	}
-}
-
-func (m *janusSFU) notifyPublisherConnected(id api.PublicSessionId, streamType sfu.StreamType) {
-	key := sfu.GetStreamId(id, streamType)
-	m.publisherConnected.Notify(string(key))
 }
 
 func (m *janusSFU) newPublisherConnectedWaiter(id api.PublicSessionId, streamType sfu.StreamType) (*async.Waiter, async.ReleaseFunc) {
@@ -1050,6 +1049,8 @@ func (m *janusSFU) getOrCreateRemotePublisher(ctx context.Context, controller sf
 	port := getPluginIntValue(m.logger, response.PluginData, pluginVideoRoom, "port")
 	rtcp_port := getPluginIntValue(m.logger, response.PluginData, pluginVideoRoom, "rtcp_port")
 
+	signaler, releaseSignaler := m.publisherConnected.NewSignaler(string(sfu.GetStreamId(controller.PublisherId(), streamType)))
+
 	pub = &janusRemotePublisher{
 		janusPublisher: janusPublisher{
 			janusClient: janusClient{
@@ -1076,6 +1077,9 @@ func (m *janusSFU) getOrCreateRemotePublisher(ctx context.Context, controller sf
 
 		port:     int(port),
 		rtcpPort: int(rtcp_port),
+
+		signaler:        signaler,
+		releaseSignaler: releaseSignaler,
 	}
 	pub.handle.Store(handle)
 	pub.handleId.Store(handle.Id)
