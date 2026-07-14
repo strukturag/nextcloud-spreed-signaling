@@ -39,6 +39,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -1851,5 +1852,212 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 			assert.Nil(response.Dialout.Error, "expected dialout success, got %s", string(body))
 			assert.Equal(callId, response.Dialout.CallId)
 		}
+	}
+}
+
+// missingRoomSessionsLookup is a RoomSessions test double whose LookupSessionId
+// returns ErrNoSuchRoomSession the first "misses" times it is called, then
+// the configured result. It simulates a room session id that only becomes
+// resolvable a short time after it is first looked up.
+type missingRoomSessionsLookup struct {
+	mu sync.Mutex
+	// +checklocks:mu
+	misses int
+	// +checklocks:mu
+	calls int
+
+	sid api.PublicSessionId // +checklocksignore: Only written to from constructor
+	err error               // +checklocksignore: Only written to from constructor
+}
+
+func (f *missingRoomSessionsLookup) SetRoomSession(session Session, roomSessionId api.RoomSessionId) error {
+	return nil
+}
+
+func (f *missingRoomSessionsLookup) DeleteRoomSession(session Session) {
+}
+
+func (f *missingRoomSessionsLookup) GetSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
+	return "", ErrNoSuchRoomSession
+}
+
+func (f *missingRoomSessionsLookup) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls++
+	if f.misses > 0 {
+		f.misses--
+		return "", ErrNoSuchRoomSession
+	}
+
+	return f.sid, f.err
+}
+
+func TestBackendServer_LookupByRoomSessionIdRetriesOnMiss(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		assert := assert.New(t)
+
+		fake := &missingRoomSessionsLookup{
+			misses: roomSessionLookupMaxRetries,
+			sid:    "session1",
+		}
+		b := &BackendServer{roomSessions: fake}
+
+		if sid, err := b.lookupByRoomSessionId(t.Context(), "room1", nil); assert.NoError(err) {
+			assert.EqualValues("session1", sid)
+		}
+	})
+}
+
+func TestBackendServer_LookupByRoomSessionIdGivesUpAfterMaxRetries(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		assert := assert.New(t)
+
+		fake := &missingRoomSessionsLookup{
+			misses: roomSessionLookupMaxRetries + 10,
+		}
+		b := &BackendServer{roomSessions: fake}
+
+		if sid, err := b.lookupByRoomSessionId(t.Context(), "room1", nil); assert.NoError(err) {
+			assert.Empty(sid)
+			assert.Equal(roomSessionLookupMaxRetries+1, fake.calls)
+		}
+	})
+}
+
+func TestBackendServer_LookupByRoomSessionIdStopsOnContextCancel(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		assert := assert.New(t)
+
+		fake := &missingRoomSessionsLookup{
+			misses: roomSessionLookupMaxRetries + 1000,
+		}
+		b := &BackendServer{roomSessions: fake}
+
+		ctx, cancel := context.WithCancel(t.Context())
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			cancel()
+		}()
+
+		start := time.Now()
+		_, err := b.lookupByRoomSessionId(ctx, "room1", nil)
+		elapsed := time.Since(start)
+
+		assert.ErrorIs(err, context.Canceled)
+		assert.Less(elapsed, roomSessionLookupMaxRetries*roomSessionLookupRetryDelay)
+	})
+}
+
+func TestBackendServer_ParticipantsUpdateRaceAcrossCluster(t *testing.T) {
+	t.Parallel()
+
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+
+			require := require.New(t)
+			assert := assert.New(t)
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+
+			if isLocalTest(t) {
+				_, _, _, hub1, _, server1 = CreateBackendServerForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
+			}
+
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			roomId := "test-room-slow"
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"B")
+			defer client2.CloseWithBye()
+			roomMsg := MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			require.Equal(roomId, roomMsg.Room.RoomId)
+			client2.RunUntilJoined(ctx, hello2.Hello)
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"A")
+			defer client1.CloseWithBye()
+
+			roomSessionId1 := api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId))
+			joinMsg := &api.ClientMessage{
+				Id:   "join-a",
+				Type: "room",
+				Room: &api.RoomClientMessage{
+					RoomId:    roomId,
+					SessionId: roomSessionId1,
+				},
+			}
+			require.NoError(client1.WriteJSON(joinMsg))
+
+			// The join from client 1 is still pending (from room "test-room-slow"), make
+			// sure any participants update received on other servers in the mean time is
+			// handled correctly.
+			msg := &talk.BackendServerRoomRequest{
+				Type: "participants",
+				Participants: &talk.BackendRoomParticipantsRequest{
+					Changed: []api.StringMap{
+						{
+							"sessionId":   string(roomSessionId1),
+							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
+						},
+					},
+					Users: []api.StringMap{
+						{
+							"sessionId":   string(roomSessionId1),
+							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
+						},
+					},
+				},
+			}
+
+			data, err := json.Marshal(msg)
+			require.NoError(err)
+			res, err := performBackendRequest(server2.URL+"/api/v1/room/"+roomId, data)
+			require.NoError(err)
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			require.NoError(err)
+			assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+			// Check that client 2 receives the correct event (i.e. the backend waits for
+			// the join to be processed).
+			found := false
+			for !found {
+				message, ok := client2.RunUntilMessage(ctx)
+				if !assert.True(ok, "did not receive expected message") {
+					break
+				}
+
+				if message.Type != "event" || message.Event == nil ||
+					message.Event.Target != "participants" || message.Event.Type != "update" ||
+					message.Event.Update == nil {
+					continue
+				}
+
+				for _, entry := range message.Event.Update.Users {
+					if sid, ok := api.GetStringMapString[api.PublicSessionId](entry, "sessionId"); ok && sid == hello1.Hello.SessionId {
+						found = true
+						break
+					}
+				}
+			}
+			assert.True(found, "did not receive participants update for client 1")
+		})
 	}
 }
