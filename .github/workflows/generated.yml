@@ -62,7 +62,7 @@ jobs:
           token: ${{ secrets.CODE_GENERATOR_PAT }}
           ref: ${{ github.event.pull_request.head.ref }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "stable"
 
@@ -101,7 +101,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "stable"
 
