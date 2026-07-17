@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -88,6 +89,12 @@ type HttpClientPool struct {
 	maxConcurrentRequestsPerHost int // +checklocksignore: Only written to from constructor.
 }
 
+// idleConnTimeout limits how long an idle backend connection stays in the pool.
+// It must stay below any realistic backend keep-alive timeout (Apache defaults to
+// 300s, nginx to 75s) so that the client always closes an idle connection before the
+// server does. See the comment in NewHttpClientPool.
+const idleConnTimeout = 30 * time.Second
+
 func NewHttpClientPool(maxConcurrentRequestsPerHost int, skipVerify bool) (*HttpClientPool, error) {
 	if maxConcurrentRequestsPerHost <= 0 {
 		return nil, errors.New("can't create empty pool")
@@ -100,6 +107,27 @@ func NewHttpClientPool(maxConcurrentRequestsPerHost int, skipVerify bool) (*Http
 		MaxIdleConnsPerHost: maxConcurrentRequestsPerHost,
 		TLSClientConfig:     tlsconfig,
 		Proxy:               http.ProxyFromEnvironment,
+		// Limit how long an idle connection may stay pooled.
+		//
+		// This is NOT the default transport, so IdleConnTimeout defaults to its
+		// zero value, which means "no limit" - idle connections are kept forever.
+		// Backend webservers, however, close idle keep-alive connections after
+		// their own timeout (Apache's KeepAliveTimeout, nginx's
+		// keepalive_timeout, and every load balancer in between). The pool
+		// therefore hands out connections the server is closing, and a request
+		// written into one fails with EOF. Go does not retry a POST once bytes
+		// have been written - it is not replayable without an Idempotency-Key -
+		// so the failure surfaces to the caller.
+		//
+		// In practice this shows up as backend requests intermittently failing
+		// with EOF under otherwise normal conditions; on a room-join validation
+		// it means the participant never actually joins the room while the
+		// caller keeps ringing.
+		//
+		// Keeping this below any realistic backend keep-alive timeout makes the
+		// CLIENT close idle connections first, so it can never pick up one that
+		// the server is concurrently tearing down.
+		IdleConnTimeout: idleConnTimeout,
 	}
 
 	result := &HttpClientPool{
