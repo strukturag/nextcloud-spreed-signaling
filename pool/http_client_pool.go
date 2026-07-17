@@ -27,8 +27,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"time"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -91,7 +91,7 @@ type HttpClientPool struct {
 
 // idleConnTimeout limits how long an idle backend connection stays in the pool.
 // It must stay below any realistic backend keep-alive timeout (Apache defaults to
-// 5s, nginx to 75s) so that the client always closes an idle connection before the
+// 300s, nginx to 75s) so that the client always closes an idle connection before the
 // server does. See the comment in NewHttpClientPool.
 const idleConnTimeout = 30 * time.Second
 

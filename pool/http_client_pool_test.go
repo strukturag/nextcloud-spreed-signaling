@@ -67,6 +67,8 @@ func TestHttpClientPool(t *testing.T) {
 }
 
 func TestHttpClientPoolIdleConnTimeout(t *testing.T) {
+	t.Parallel()
+
 	// A pooled idle connection must be closed by the CLIENT before the backend
 	// webserver closes it. Otherwise the pool eventually hands out a connection
 	// the server is tearing down, the request written into it fails with EOF,
@@ -86,7 +88,7 @@ func TestHttpClientPoolIdleConnTimeout(t *testing.T) {
 			"pooled forever, so the backend webserver will close them first and "+
 			"requests will intermittently fail with EOF")
 
-	// Apache's default KeepAliveTimeout is 5s and nginx's keepalive_timeout is
+	// Apache's default KeepAliveTimeout is 300s and nginx's keepalive_timeout is
 	// 75s; staying well below those keeps the client closing first.
 	assert.Less(pool.transport.IdleConnTimeout, 75*time.Second,
 		"IdleConnTimeout must stay below a realistic backend keep-alive timeout")
