@@ -1009,6 +1009,199 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	assertSessionHasNotPermission(t, session, api.PERMISSION_MAY_PUBLISH_SCREEN)
 }
 
+func TestBackendServer_ParticipantsUpdateWithPermissions(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
+
+	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId)
+	assert.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
+
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_AUDIO)
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_VIDEO)
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_SCREEN)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	// Ignore "join" events.
+	client1.RunUntilJoined(ctx, hello1.Hello)
+
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
+
+	MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+
+	// Ignore "join" events.
+	client1.RunUntilJoined(ctx, hello2.Hello)
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	msg := &talk.BackendServerRoomRequest{
+		Type: "participants",
+		Participants: &talk.BackendRoomParticipantsRequest{
+			Changed: api.UserDataList{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
+					"permissions": []api.Permission{
+						api.PERMISSION_MAY_PUBLISH_AUDIO,
+						api.PERMISSION_MAY_PUBLISH_VIDEO,
+					},
+					"displayName": "Test user 1",
+				},
+			},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	require.NoError(err)
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 1) {
+			assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+			assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
+		}
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 1) {
+			assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+			assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
+		}
+	}
+
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_AUDIO)
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_VIDEO)
+	assertSessionHasNotPermission(t, session1, api.PERMISSION_MAY_PUBLISH_SCREEN)
+
+	msg2 := &talk.BackendServerRoomRequest{
+		Type: "participants",
+		Participants: &talk.BackendRoomParticipantsRequest{
+			Changed: api.UserDataList{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
+					"permissions": []api.Permission{
+						api.PERMISSION_MAY_PUBLISH_SCREEN,
+					},
+					"displayName": "Test user 2",
+				},
+			},
+		},
+	}
+
+	data, err = json.Marshal(msg2)
+	require.NoError(err)
+	res, err = performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err = io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 2) {
+			if string(hello1.Hello.SessionId) == msg.Event.Update.Users[0]["sessionId"] {
+				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+				assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
+				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
+				assert.Equal("Test user 2", msg.Event.Update.Users[1]["displayName"])
+			} else {
+				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
+				assert.Equal("Test user 1", msg.Event.Update.Users[1]["displayName"])
+				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+				assert.Equal("Test user 2", msg.Event.Update.Users[0]["displayName"])
+			}
+		}
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 2) {
+			if string(hello1.Hello.SessionId) == msg.Event.Update.Users[0]["sessionId"] {
+				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+				assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
+				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
+				assert.Equal("Test user 2", msg.Event.Update.Users[1]["displayName"])
+			} else {
+				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
+				assert.Equal("Test user 1", msg.Event.Update.Users[1]["displayName"])
+				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+				assert.Equal("Test user 2", msg.Event.Update.Users[0]["displayName"])
+			}
+		}
+	}
+
+	// Disconnected users are not returned in future updates.
+	client1.CloseWithBye()
+	client2.RunUntilLeft(ctx, hello1.Hello)
+
+	msg3 := &talk.BackendServerRoomRequest{
+		Type: "participants",
+		Participants: &talk.BackendRoomParticipantsRequest{
+			Changed: api.UserDataList{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
+					"permissions": []api.Permission{
+						api.PERMISSION_MAY_PUBLISH_AUDIO,
+						api.PERMISSION_MAY_PUBLISH_VIDEO,
+						api.PERMISSION_MAY_PUBLISH_SCREEN,
+					},
+					"displayName": "Test user 2b",
+				},
+			},
+		},
+	}
+
+	data, err = json.Marshal(msg3)
+	require.NoError(err)
+	res, err = performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err = io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 1) {
+			assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+			assert.Equal("Test user 2b", msg.Event.Update.Users[0]["displayName"])
+		}
+	}
+}
+
 func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	t.Parallel()
 	logger := logtest.NewLoggerForTest(t)
