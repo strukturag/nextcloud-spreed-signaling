@@ -1863,10 +1863,10 @@ func TestScheduleShutdown(t *testing.T) {
 	go func() {
 		for {
 			select {
-			case <-proxyServer.ShutdownChannel():
-				return
 			case <-readyChan:
 				readyReceived.Store(true)
+			case <-proxyServer.ShutdownChannel():
+				return
 			case <-ctx.Done():
 				assert.NoError(ctx.Err())
 				return
