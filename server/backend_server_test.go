@@ -1344,6 +1344,69 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 	assert.Equal(turnServers, cred.URIs)
 }
 
+func TestBackendServer_TurnCredentialsInvalid(t *testing.T) {
+	t.Parallel()
+
+	_, server, _, _, _, _ := CreateBackendServerForTestWithTurn(t)
+
+	synctest.Test(t, func(t *testing.T) {
+		require := require.New(t)
+		assert := assert.New(t)
+
+		delay := 100 * time.Millisecond
+		for range 10 {
+			q := make(url.Values)
+			q.Set("service", "turn")
+			q.Set("api", "invalid-"+turnApiKey)
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/turn/credentials?"+q.Encode(), nil)
+			w := httptest.NewRecorder()
+			start := time.Now()
+			server.getTurnCredentials(w, r)
+			synctest.Wait()
+			end := time.Now()
+			assert.Equal(http.StatusForbidden, w.Result().StatusCode, "Expected successful request, got %s", w.Body.String())
+			assert.Equal(delay, end.Sub(start))
+			delay = min(delay*2, 25*time.Second)
+		}
+
+		q := make(url.Values)
+		q.Set("service", "turn")
+		q.Set("api", turnApiKey)
+		r1 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/turn/credentials?"+q.Encode(), nil)
+		w1 := httptest.NewRecorder()
+		start := time.Now()
+		server.getTurnCredentials(w1, r1)
+		synctest.Wait()
+		end := time.Now()
+
+		assert.Equal(http.StatusTooManyRequests, w1.Result().StatusCode, "Expected successful request, got %s", w1.Body.String())
+		assert.EqualValues(0, end.Sub(start))
+
+		time.Sleep(12 * time.Hour)
+		synctest.Wait()
+
+		r2 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/turn/credentials?"+q.Encode(), nil)
+		w2 := httptest.NewRecorder()
+		start = time.Now()
+		server.getTurnCredentials(w2, r2)
+		synctest.Wait()
+		end = time.Now()
+
+		assert.Equal(http.StatusOK, w2.Result().StatusCode, "Expected successful request, got %s", w2.Body.String())
+		assert.EqualValues(0, end.Sub(start))
+
+		var cred talk.TurnCredentials
+		require.NoError(json.Unmarshal(w2.Body.Bytes(), &cred))
+
+		m := hmac.New(sha1.New, []byte(turnSecret))
+		m.Write([]byte(cred.Username)) // nolint
+		password := base64.StdEncoding.EncodeToString(m.Sum(nil))
+		assert.Equal(password, cred.Password)
+		assert.InEpsilon((24 * time.Hour).Seconds(), cred.TTL, 0.0001)
+		assert.Equal(turnServers, cred.URIs)
+	})
+}
+
 func TestBackendServer_StatsAllowedIps(t *testing.T) {
 	t.Parallel()
 	config := goconf.NewConfigFile()

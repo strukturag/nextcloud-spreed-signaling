@@ -26,6 +26,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -244,6 +245,17 @@ func calculateTurnSecret(username string, secret []byte, valid time.Duration) (s
 }
 
 func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Request) {
+	ctx := log.NewLoggerContext(r.Context(), b.logger)
+	throttle, err := b.hub.throttler.CheckBruteforce(ctx, b.hub.getRealUserIP(r), "TurnCredentials")
+	if err == async.ErrBruteforceDetected {
+		http.Error(w, "Too many requests", http.StatusTooManyRequests)
+		return
+	} else if err != nil {
+		b.logger.Printf("Error checking for bruteforce: %s", err)
+		http.Error(w, "Could not check for bruteforce", http.StatusInternalServerError)
+		return
+	}
+
 	q := r.URL.Query()
 	service := q.Get("service")
 	username := q.Get("username")
@@ -258,7 +270,8 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if key != b.turnapikey {
+	if subtle.ConstantTimeCompare([]byte(key), []byte(b.turnapikey)) != 1 {
+		throttle(ctx)
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, "Not allowed to access this service.\n") // nolint
 		return
