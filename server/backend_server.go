@@ -67,6 +67,13 @@ const (
 	sessionIdNotInMeeting = api.RoomSessionId("0")
 
 	startDialoutTimeout = 45 * time.Second
+
+	// roomSessionLookupMaxRetries bounds how many additional times
+	// lookupByRoomSessionId retries a miss before giving up.
+	roomSessionLookupMaxRetries = 20
+
+	// roomSessionLookupRetryDelay is the delay between retries.
+	roomSessionLookupRetryDelay = 25 * time.Millisecond
 )
 
 type BackendServer struct {
@@ -441,7 +448,25 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 		}
 	}
 
-	sid, err := b.roomSessions.LookupSessionId(ctx, roomSessionId, "")
+	var sid api.PublicSessionId
+	var err error
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for attempt := 0; ; attempt++ {
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+
+		sid, err = b.roomSessions.LookupSessionId(ctx, roomSessionId, "")
+		if err != ErrNoSuchRoomSession || attempt >= roomSessionLookupMaxRetries {
+			break
+		}
+
+		timer.Reset(roomSessionLookupRetryDelay)
+	}
+
 	if err == ErrNoSuchRoomSession {
 		return "", nil
 	} else if err != nil {
