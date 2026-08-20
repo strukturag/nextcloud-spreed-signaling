@@ -112,7 +112,7 @@ func (c *reloadableCredentials) ServerHandshake(rawConn net.Conn) (net.Conn, cre
 func (c *reloadableCredentials) Info() credentials.ProtocolInfo {
 	return credentials.ProtocolInfo{
 		SecurityProtocol: "tls",
-		SecurityVersion:  "1.2",
+		SecurityVersion:  "1.2", // nolint
 	}
 }
 
