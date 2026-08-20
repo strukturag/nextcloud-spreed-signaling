@@ -585,7 +585,7 @@ func (c *FederationClient) processHello(msg *api.ServerMessage) {
 				Event: &api.EventServerMessage{
 					Target:  "room",
 					Type:    "federation_resumed",
-					Resumed: internal.MakePtr(false),
+					Resumed: new(false),
 				},
 			})
 			// Setting the federation client will reset any information on previously
@@ -602,7 +602,7 @@ func (c *FederationClient) processHello(msg *api.ServerMessage) {
 			Event: &api.EventServerMessage{
 				Target:  "room",
 				Type:    "federation_resumed",
-				Resumed: internal.MakePtr(true),
+				Resumed: new(true),
 			},
 		})
 

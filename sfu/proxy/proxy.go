@@ -1960,7 +1960,7 @@ func (m *proxySFU) GetServerInfoSfu() *talk.BackendServerInfoSfu {
 		}
 		if c.IsConnected() {
 			proxy.Connected = true
-			proxy.Shutdown = internal.MakePtr(c.IsShutdownScheduled())
+			proxy.Shutdown = new(c.IsShutdownScheduled())
 			if since := c.connectedSince.Load(); since != 0 {
 				t := time.UnixMicro(since)
 				proxy.Uptime = &t
@@ -1968,7 +1968,7 @@ func (m *proxySFU) GetServerInfoSfu() *talk.BackendServerInfoSfu {
 			proxy.Version = c.Version()
 			proxy.Features = c.Features()
 			proxy.Country = c.Country()
-			proxy.Load = internal.MakePtr(c.Load())
+			proxy.Load = new(c.Load())
 			if bw := c.Bandwidth(); bw != nil {
 				proxy.Bandwidth = &talk.BackendServerInfoSfuProxyBandwidth{
 					Incoming: bw.Incoming,

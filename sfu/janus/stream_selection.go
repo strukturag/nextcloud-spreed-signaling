@@ -25,7 +25,6 @@ import (
 	"fmt"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 )
 
 type streamSelection struct {
@@ -61,9 +60,9 @@ func parseStreamSelection(payload api.StringMap) (*streamSelection, error) {
 		case int:
 			stream.substream = &value
 		case float32:
-			stream.substream = internal.MakePtr(int(value))
+			stream.substream = new(int(value))
 		case float64:
-			stream.substream = internal.MakePtr(int(value))
+			stream.substream = new(int(value))
 		default:
 			return nil, fmt.Errorf("unsupported substream value: %v", value)
 		}
@@ -74,9 +73,9 @@ func parseStreamSelection(payload api.StringMap) (*streamSelection, error) {
 		case int:
 			stream.temporal = &value
 		case float32:
-			stream.temporal = internal.MakePtr(int(value))
+			stream.temporal = new(int(value))
 		case float64:
-			stream.temporal = internal.MakePtr(int(value))
+			stream.temporal = new(int(value))
 		default:
 			return nil, fmt.Errorf("unsupported temporal value: %v", value)
 		}

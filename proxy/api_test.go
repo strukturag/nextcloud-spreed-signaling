@@ -27,7 +27,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/mock"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
 )
@@ -524,7 +523,7 @@ func TestAllowIncoming(t *testing.T) {
 	assert.True(bw.AllowIncoming())
 	for idx, tc := range testcases {
 		bw := EventServerBandwidth{
-			Incoming: internal.MakePtr(tc.bw),
+			Incoming: new(tc.bw),
 		}
 		assert.Equal(tc.allow, bw.AllowIncoming(), "failed for testcase %d: %+v", idx, tc)
 	}
@@ -561,7 +560,7 @@ func TestAllowOutgoing(t *testing.T) {
 	assert.True(bw.AllowOutgoing())
 	for idx, tc := range testcases {
 		bw := EventServerBandwidth{
-			Outgoing: internal.MakePtr(tc.bw),
+			Outgoing: new(tc.bw),
 		}
 		assert.Equal(tc.allow, bw.AllowOutgoing(), "failed for testcase %d: %+v", idx, tc)
 	}
