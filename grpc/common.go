@@ -113,7 +113,6 @@ func (c *reloadableCredentials) Info() credentials.ProtocolInfo {
 	return credentials.ProtocolInfo{
 		SecurityProtocol: "tls",
 		SecurityVersion:  "1.2",
-		ServerName:       c.config.ServerName,
 	}
 }
 
@@ -124,9 +123,9 @@ func (c *reloadableCredentials) Clone() credentials.TransportCredentials {
 	}
 }
 
+// Deprecated: use grpc.WithAuthority as client grpc.DialOption instead.
 func (c *reloadableCredentials) OverrideServerName(serverName string) error {
-	c.config.ServerName = serverName
-	return nil
+	return errors.New("OverrideServerName is deprecated and should not be used")
 }
 
 func (c *reloadableCredentials) Close() {
