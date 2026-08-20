@@ -434,12 +434,14 @@ func (h *testServerHub) GetInternalSessions(roomId string, backend *talk.Backend
 					InCall:    testInternalInCallFlags,
 					Features:  testFeatures,
 				},
-			}, []*VirtualSessionData{
+			},
+			[]*VirtualSessionData{
 				{
 					SessionId: testVirtualSessionId,
 					InCall:    testVirtualInCallFlags,
 				},
-			}, true
+			},
+			true
 	}
 
 	return nil, nil, false
