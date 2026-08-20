@@ -1329,8 +1329,8 @@ func (c *proxyConnection) newPublisher(ctx context.Context, listener sfu.Listene
 			StreamType:        streamType,
 			PublisherSettings: &settings,
 			// Include for older version of the signaling proxy.
-			Bitrate:    settings.Bitrate,
-			MediaTypes: settings.MediaTypes,
+			Bitrate:    settings.Bitrate,    // nolint
+			MediaTypes: settings.MediaTypes, // nolint
 		},
 	}
 

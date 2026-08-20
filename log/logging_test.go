@@ -52,6 +52,7 @@ type testLogWriter struct {
 func (w *testLogWriter) Write(b []byte) (int, error) {
 	w.t.Helper()
 	if !bytes.HasSuffix(b, []byte("\n")) {
+		b = append(make([]byte, 0, len(b)+1), b...)
 		b = append(b, '\n')
 	}
 	w.mu.Lock()
