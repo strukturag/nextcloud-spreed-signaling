@@ -386,7 +386,7 @@ func (c *RemoteConnection) readPump(conn *websocket.Conn) {
 		}
 
 		if msgType != websocket.TextMessage {
-			c.logger.Printf("unexpected message type %q (%s)", msgType, string(msg))
+			c.logger.Printf("unexpected message type %d (%s)", msgType, string(msg))
 			continue
 		}
 

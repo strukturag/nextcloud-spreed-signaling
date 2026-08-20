@@ -622,10 +622,10 @@ func (m *janusSFU) GetServerInfoSfu() *talk.BackendServerInfoSfu {
 			janus.Name = info.Name
 			janus.Version = info.VersionString
 			janus.Author = info.Author
-			janus.DataChannels = internal.MakePtr(info.DataChannels)
-			janus.FullTrickle = internal.MakePtr(info.FullTrickle)
+			janus.DataChannels = new(info.DataChannels)
+			janus.FullTrickle = new(info.FullTrickle)
 			janus.LocalIP = info.LocalIP
-			janus.IPv6 = internal.MakePtr(info.IPv6)
+			janus.IPv6 = new(info.IPv6)
 
 			if plugin, found := info.Plugins[pluginVideoRoom]; found {
 				janus.VideoRoom = &talk.BackendServerInfoVideoRoom{

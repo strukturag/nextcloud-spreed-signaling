@@ -83,7 +83,7 @@ func (c *etcdClient) GetServerInfoEtcd() *BackendServerInfoEtcd {
 	conn := client.ActiveConnection()
 	if conn != nil {
 		result.Active = conn.Target()
-		result.Connected = internal.MakePtr(conn.GetState() == connectivity.Ready)
+		result.Connected = new(conn.GetState() == connectivity.Ready)
 	}
 
 	return result
