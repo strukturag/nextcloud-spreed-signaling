@@ -93,18 +93,14 @@ func (c *LoopbackClient) processMessage(msg *Msg) {
 		return
 	}
 
-	channels := make([]chan *Msg, 0, len(subs))
+	callbacks := make([]MsgHandler, 0, len(subs))
 	for sub := range subs {
-		channels = append(channels, sub.ch)
+		callbacks = append(callbacks, sub.cb)
 	}
 	c.mu.Unlock()
 	defer c.mu.Lock()
-	for _, ch := range channels {
-		select {
-		case ch <- msg:
-		default:
-			c.logger.Printf("Slow consumer %s, dropping message", msg.Subject)
-		}
+	for _, cb := range callbacks {
+		cb(msg)
 	}
 }
 
@@ -131,7 +127,7 @@ type loopbackSubscription struct {
 	subject string
 	client  *LoopbackClient
 
-	ch chan *Msg
+	cb MsgHandler
 }
 
 func (s *loopbackSubscription) Unsubscribe() error {
@@ -139,7 +135,7 @@ func (s *loopbackSubscription) Unsubscribe() error {
 	return nil
 }
 
-func (c *LoopbackClient) Subscribe(subject string, ch chan *Msg) (Subscription, error) {
+func (c *LoopbackClient) Subscribe(subject string, cb MsgHandler) (Subscription, error) {
 	if strings.HasSuffix(subject, ".") || strings.Contains(subject, " ") {
 		return nil, nats.ErrBadSubject
 	}
@@ -153,7 +149,7 @@ func (c *LoopbackClient) Subscribe(subject string, ch chan *Msg) (Subscription, 
 	s := &loopbackSubscription{
 		subject: subject,
 		client:  c,
-		ch:      ch,
+		cb:      cb,
 	}
 	subs, found := c.subscriptions[subject]
 	if !found {

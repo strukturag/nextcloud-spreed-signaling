@@ -61,7 +61,83 @@ func GetSubjectForSessionId(sessionId api.PublicSessionId, backend *talk.Backend
 	return string("session." + sessionId)
 }
 
-type asyncEventsNatsSubscriptions map[string]map[AsyncEventListener]nats.Subscription
+type natsSubscription struct {
+	mu sync.RWMutex
+
+	logger log.Logger        // +checklocksignore
+	sub    nats.Subscription // +checklocksignore
+
+	// +checklocks:mu
+	listeners map[AsyncEventListener]bool
+}
+
+func (s *natsSubscription) sendMessage(msg *nats.Msg) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for listener := range s.listeners {
+		select {
+		case listener.AsyncChannel() <- msg:
+		default:
+			s.logger.Printf("Slow consumer %s, dropping message", msg.Subject)
+		}
+	}
+}
+
+func (s *natsSubscription) empty() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.listeners) == 0
+}
+
+func (s *natsSubscription) close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.doClose()
+}
+
+// +checklocks:s.mu
+func (s *natsSubscription) doClose() error {
+	if s.sub == nil {
+		return nil
+	}
+
+	err := s.sub.Unsubscribe()
+
+	clear(s.listeners)
+	s.sub = nil
+
+	return err
+}
+
+func (s *natsSubscription) subscribe(listener AsyncEventListener) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, found := s.listeners[listener]; found {
+		return ErrAlreadyRegistered
+	}
+
+	s.listeners[listener] = true
+	return nil
+}
+
+func (s *natsSubscription) unsubscribe(listener AsyncEventListener) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.listeners, listener)
+	if len(s.listeners) > 0 {
+		// Still used
+		return nil
+	}
+
+	return s.doClose()
+}
+
+type asyncEventsNatsSubscriptions map[string]*natsSubscription
 
 type asyncEventsNats struct {
 	mu     sync.Mutex
@@ -124,11 +200,9 @@ func (e *asyncEventsNats) GetServerInfoNats() *talk.BackendServerInfoNats {
 func closeSubscriptions(logger log.Logger, wg *sync.WaitGroup, subscriptions asyncEventsNatsSubscriptions) {
 	defer wg.Done()
 
-	for subject, subs := range subscriptions {
-		for _, sub := range subs {
-			if err := sub.Unsubscribe(); err != nil && !errors.Is(err, nats.ErrConnectionClosed) {
-				logger.Printf("Error unsubscribing %s: %s", subject, err)
-			}
+	for subject, sub := range subscriptions {
+		if err := sub.close(); err != nil && !errors.Is(err, nats.ErrConnectionClosed) {
+			logger.Printf("Error unsubscribing %s: %s", subject, err)
 		}
 	}
 }
@@ -158,19 +232,24 @@ func (e *asyncEventsNats) Close(ctx context.Context) error {
 // +checklocks:e.mu
 func (e *asyncEventsNats) registerListener(key string, subscriptions asyncEventsNatsSubscriptions, listener AsyncEventListener) error {
 	subs, found := subscriptions[key]
-	if !found {
-		subs = make(map[AsyncEventListener]nats.Subscription)
-		subscriptions[key] = subs
-	} else if _, found := subs[listener]; found {
-		return ErrAlreadyRegistered
+	if found {
+		return subs.subscribe(listener)
 	}
 
-	sub, err := e.client.Subscribe(key, listener.AsyncChannel())
+	subs = &natsSubscription{
+		logger: e.logger,
+		listeners: map[AsyncEventListener]bool{
+			listener: true,
+		},
+	}
+
+	sub, err := e.client.Subscribe(key, subs.sendMessage)
 	if err != nil {
 		return err
 	}
 
-	subs[listener] = sub
+	subs.sub = sub
+	subscriptions[key] = subs
 	return nil
 }
 
@@ -181,17 +260,11 @@ func (e *asyncEventsNats) unregisterListener(key string, subscriptions asyncEven
 		return nil
 	}
 
-	sub, found := subs[listener]
-	if !found {
-		return nil
-	}
-
-	delete(subs, listener)
-	if len(subs) == 0 {
+	err := subs.unsubscribe(listener)
+	if subs.empty() {
 		delete(subscriptions, key)
 	}
-
-	return sub.Unsubscribe()
+	return err
 }
 
 func (e *asyncEventsNats) RegisterBackendRoomListener(roomId string, backend *talk.Backend, listener AsyncEventListener) error {

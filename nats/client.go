@@ -51,6 +51,8 @@ var (
 
 type Msg = nats.Msg
 
+type MsgHandler func(msg *Msg)
+
 type Subscription interface {
 	Unsubscribe() error
 }
@@ -58,7 +60,7 @@ type Subscription interface {
 type Client interface {
 	Close(ctx context.Context) error
 
-	Subscribe(subject string, ch chan *Msg) (Subscription, error)
+	Subscribe(subject string, cb MsgHandler) (Subscription, error)
 	Publish(subject string, message any) error
 }
 
