@@ -250,32 +250,42 @@ func performBackendRequest(requestUrl string, body []byte) (*http.Response, erro
 	return client.Do(request)
 }
 
-func expectRoomlistEvent(t *testing.T, ch events.AsyncChannel, msgType string) (*api.EventServerMessage, bool) {
+func expectAsyncMessage(t *testing.T, ch events.AsyncChannel) (*events.AsyncMessage, bool) {
 	assert := assert.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	select {
 	case natsMsg := <-ch:
 		var message events.AsyncMessage
-		if !assert.NoError(nats.Decode(natsMsg, &message)) ||
-			!assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
-			!assert.NotNil(message.Message, "message missing, got %+v", message) {
+		if !assert.NoError(nats.Decode(natsMsg, &message)) {
 			return nil, false
 		}
 
-		msg := message.Message
-		if !assert.Equal("event", msg.Type, "invalid message type, got %+v", msg) ||
-			!assert.NotNil(msg.Event, "event missing, got %+v", msg) ||
-			!assert.Equal("roomlist", msg.Event.Target, "invalid event target, got %+v", msg.Event) ||
-			!assert.Equal(msgType, msg.Event.Type, "invalid event type, got %+v", msg.Event) {
-			return nil, false
-		}
-
-		return msg.Event, true
+		return &message, true
 	case <-ctx.Done():
 		assert.NoError(ctx.Err())
 		return nil, false
 	}
+}
+
+func expectRoomlistEvent(t *testing.T, ch events.AsyncChannel, msgType string) (*api.EventServerMessage, bool) {
+	assert := assert.New(t)
+	message, ok := expectAsyncMessage(t, ch)
+	if !ok ||
+		!assert.Equal("message", message.Type, "invalid message type, got %+v", message) ||
+		!assert.NotNil(message.Message, "message missing, got %+v", message) {
+		return nil, false
+	}
+
+	msg := message.Message
+	if !assert.Equal("event", msg.Type, "invalid message type, got %+v", msg) ||
+		!assert.NotNil(msg.Event, "event missing, got %+v", msg) ||
+		!assert.Equal("roomlist", msg.Event.Target, "invalid event target, got %+v", msg.Event) ||
+		!assert.Equal(msgType, msg.Event.Type, "invalid event type, got %+v", msg.Event) {
+		return nil, false
+	}
+
+	return msg.Event, true
 }
 
 func TestBackendServer_NoAuth(t *testing.T) {
@@ -335,9 +345,6 @@ func TestBackendServer_OldCompatAuth(t *testing.T) {
 		Type: "invite",
 		Invite: &talk.BackendRoomInviteRequest{
 			UserIds: []string{
-				userid,
-			},
-			AllUserIds: []string{
 				userid,
 			},
 			Properties: roomProperties,
@@ -448,9 +455,6 @@ func RunTestBackendServer_RoomInvite(ctx context.Context, t *testing.T) {
 			UserIds: []string{
 				userid,
 			},
-			AllUserIds: []string{
-				userid,
-			},
 			Properties: roomProperties,
 		},
 	}
@@ -526,9 +530,8 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 				testDefaultUserId,
 			},
 			SessionIds: []api.RoomSessionId{
-				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId, hello.Hello.SessionId)),
+				api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
 			},
-			AllUserIds: []string{},
 			Properties: roomProperties,
 		},
 	}
@@ -548,11 +551,36 @@ func RunTestBackendServer_RoomDisinvite(ctx context.Context, t *testing.T) {
 		assert.Empty(string(event.Disinvite.Properties))
 	}
 
-	if message, ok := client.RunUntilRoomlistDisinvite(ctx); ok {
-		assert.Equal(roomId, message.RoomId)
+	// Ordering of "update" and "disinvite" is not defined due to asynchronous
+	// NATS processing. Mostly an issue in tests.
+	var messages []*api.ServerMessage
+	if msg, ok := client.RunUntilMessage(ctx); ok {
+		messages = append(messages, msg)
+	}
+	if msg, ok := client.RunUntilMessageOrClosed(ctx); msg != nil && ok {
+		messages = append(messages, msg)
+
+		// The client might receive a second disinvite message as both the userid and the session id were disinvited.
+		if msg, ok := client.RunUntilMessageOrClosed(ctx); msg != nil && ok {
+			messages = append(messages, msg)
+			client.RunUntilClosed(ctx)
+		}
 	}
 
-	client.RunUntilClosed(ctx)
+	seen := 0
+	for _, m := range messages {
+		if m.Type == "event" && m.Event.Target == "roomlist" && m.Event.Type == "update" {
+			if message, ok := checkMessageRoomlistUpdate(t, m); ok {
+				assert.Equal(roomId, message.RoomId)
+				seen |= 1
+			}
+		} else if message, ok := checkMessageRoomlistDisinvite(t, m); ok {
+			assert.Equal(roomId, message.RoomId)
+			assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
+			seen |= 2
+		}
+	}
+	assert.True(seen == 2 || seen == 3, "expected a disinvite and optional update, got %+v", messages)
 }
 
 func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
@@ -586,9 +614,8 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 				testDefaultUserId,
 			},
 			SessionIds: []api.RoomSessionId{
-				api.RoomSessionId(fmt.Sprintf("%s-%s"+roomId1, hello1.Hello.SessionId)),
+				api.RoomSessionId(fmt.Sprintf("%s-%s", roomId1, hello1.Hello.SessionId)),
 			},
-			AllUserIds: []string{},
 		},
 	}
 
@@ -601,22 +628,30 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
-	if message, ok := client1.RunUntilRoomlistDisinvite(ctx); ok {
+	if message, ok := client1.RunUntilRoomlistUpdate(ctx); ok {
 		assert.Equal(roomId1, message.RoomId)
 	}
-
-	client1.RunUntilClosed(ctx)
+	if message, ok := client1.RunUntilRoomlistDisinvite(ctx); ok {
+		assert.Equal(roomId1, message.RoomId)
+		assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
+	}
+	if message, ok := client1.RunUntilMessageOrClosed(ctx); ok && message != nil {
+		// The client might receive a second disinvite message as both the userid and the session id were disinvited.
+		if message, ok := checkMessageRoomlistDisinvite(t, message); ok {
+			assert.Equal(roomId1, message.RoomId)
+			assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
+		}
+		client1.RunUntilClosed(ctx)
+	}
 
 	if message, ok := client2.RunUntilRoomlistDisinvite(ctx); ok {
 		assert.Equal(roomId1, message.RoomId)
+		assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
 	}
 
 	msg = &talk.BackendServerRoomRequest{
 		Type: "update",
 		Update: &talk.BackendRoomUpdateRequest{
-			UserIds: []string{
-				testDefaultUserId,
-			},
 			Properties: testRoomProperties,
 		},
 	}
@@ -633,6 +668,62 @@ func TestBackendServer_RoomDisinviteDifferentRooms(t *testing.T) {
 	if message, ok := client2.RunUntilRoomlistUpdate(ctx); ok {
 		assert.Equal(roomId2, message.RoomId)
 	}
+}
+
+func TestBackendServer_RoomDisinviteClustered(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	_, _, hub1, hub2, server1, server2 := CreateBackendServerWithClusteringForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
+	client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
+
+	// Join room by id.
+	roomId := "test-room1"
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
+
+	msg := &talk.BackendServerRoomRequest{
+		Type: "disinvite",
+		Disinvite: &talk.BackendRoomDisinviteRequest{
+			SessionIds: []api.RoomSessionId{
+				api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId)),
+			},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	require.NoError(err)
+	res, err := performBackendRequest(server1.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if message, ok := client1.RunUntilRoomlistUpdate(ctx); ok {
+		assert.Equal(roomId, message.RoomId)
+	}
+
+	if message, ok := client2.RunUntilRoomlistUpdate(ctx); ok {
+		assert.Equal(roomId, message.RoomId)
+	}
+	if message, ok := client2.RunUntilRoomlistDisinvite(ctx); ok {
+		assert.Equal(roomId, message.RoomId)
+		assert.Equal(api.DisinviteReasonDisinvited, message.Reason)
+	}
+	client2.RunUntilClosed(ctx)
+
+	client1.RunUntilLeft(ctx, hello2.Hello)
 }
 
 func TestBackendServer_RoomUpdate(t *testing.T) {
@@ -663,24 +754,20 @@ func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 	require.NoError(err, "Could not create room")
 	defer room.Close()
 
-	userid := "test-userid"
 	roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
 
 	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterRoomListener(roomId, backend, listener))
 	defer func() {
-		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterRoomListener(roomId, backend, listener))
 	}()
 
 	msg := &talk.BackendServerRoomRequest{
 		Type: "update",
 		Update: &talk.BackendRoomUpdateRequest{
-			UserIds: []string{
-				userid,
-			},
 			Properties: roomProperties,
 		},
 	}
@@ -734,23 +821,18 @@ func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	_, err = hub.CreateRoom(roomId, emptyProperties, backend)
 	require.NoError(err)
 
-	userid := "test-userid"
 	eventsChan := make(events.AsyncChannel, 1)
 	listener := &channelEventListener{
 		ch: eventsChan,
 	}
-	require.NoError(asyncEvents.RegisterUserListener(userid, backend, listener))
+	require.NoError(asyncEvents.RegisterBackendRoomListener(roomId, backend, listener))
 	defer func() {
-		assert.NoError(asyncEvents.UnregisterUserListener(userid, backend, listener))
+		assert.NoError(asyncEvents.UnregisterBackendRoomListener(roomId, backend, listener))
 	}()
 
 	msg := &talk.BackendServerRoomRequest{
-		Type: "delete",
-		Delete: &talk.BackendRoomDeleteRequest{
-			UserIds: []string{
-				userid,
-			},
-		},
+		Type:   "delete",
+		Delete: &talk.BackendRoomDeleteRequest{},
 	}
 
 	data, err := json.Marshal(msg)
@@ -762,11 +844,12 @@ func RunTestBackendServer_RoomDelete(ctx context.Context, t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
-	// A deleted room is signalled as a "disinvite" event.
-	if event, ok := expectRoomlistEvent(t, eventsChan, "disinvite"); ok && assert.NotNil(event.Disinvite) {
-		assert.Equal(roomId, event.Disinvite.RoomId)
-		assert.Empty(event.Disinvite.Properties)
-		assert.Equal("deleted", event.Disinvite.Reason)
+	// A deleted room is signalled as a backend room event.
+	if message, ok := expectAsyncMessage(t, eventsChan); ok {
+		assert.Equal("room", message.Type)
+		if assert.NotNil(message.Room) {
+			assert.Equal("delete", message.Room.Type)
+		}
 	}
 
 	// TODO: Use event to wait for asynchronous messages.
@@ -833,17 +916,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 			msg := &talk.BackendServerRoomRequest{
 				Type: "participants",
 				Participants: &talk.BackendRoomParticipantsRequest{
-					Changed: []api.StringMap{
-						{
-							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
-						},
-						{
-							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
-							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_SCREEN},
-						},
-					},
-					Users: []api.StringMap{
+					Changed: api.UserDataList{
 						{
 							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
@@ -911,13 +984,7 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 	msg := &talk.BackendServerRoomRequest{
 		Type: "participants",
 		Participants: &talk.BackendRoomParticipantsRequest{
-			Changed: []api.StringMap{
-				{
-					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []api.Permission{},
-				},
-			},
-			Users: []api.StringMap{
+			Changed: api.UserDataList{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []api.Permission{},
@@ -940,6 +1007,199 @@ func TestBackendServer_ParticipantsUpdateEmptyPermissions(t *testing.T) {
 
 	assertSessionHasNotPermission(t, session, api.PERMISSION_MAY_PUBLISH_MEDIA)
 	assertSessionHasNotPermission(t, session, api.PERMISSION_MAY_PUBLISH_SCREEN)
+}
+
+func TestBackendServer_ParticipantsUpdateWithPermissions(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
+
+	session1 := hub.GetSessionByPublicId(hello1.Hello.SessionId)
+	assert.NotNil(session1, "Session %s does not exist", hello1.Hello.SessionId)
+
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_AUDIO)
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_VIDEO)
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_SCREEN)
+
+	// Join room by id.
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	// Ignore "join" events.
+	client1.RunUntilJoined(ctx, hello1.Hello)
+
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
+
+	MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+
+	// Ignore "join" events.
+	client1.RunUntilJoined(ctx, hello2.Hello)
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	msg := &talk.BackendServerRoomRequest{
+		Type: "participants",
+		Participants: &talk.BackendRoomParticipantsRequest{
+			Changed: api.UserDataList{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
+					"permissions": []api.Permission{
+						api.PERMISSION_MAY_PUBLISH_AUDIO,
+						api.PERMISSION_MAY_PUBLISH_VIDEO,
+					},
+					"displayName": "Test user 1",
+				},
+			},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	require.NoError(err)
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 1) {
+			assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+			assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
+		}
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 1) {
+			assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+			assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
+		}
+	}
+
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_AUDIO)
+	assertSessionHasPermission(t, session1, api.PERMISSION_MAY_PUBLISH_VIDEO)
+	assertSessionHasNotPermission(t, session1, api.PERMISSION_MAY_PUBLISH_SCREEN)
+
+	msg2 := &talk.BackendServerRoomRequest{
+		Type: "participants",
+		Participants: &talk.BackendRoomParticipantsRequest{
+			Changed: api.UserDataList{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
+					"permissions": []api.Permission{
+						api.PERMISSION_MAY_PUBLISH_SCREEN,
+					},
+					"displayName": "Test user 2",
+				},
+			},
+		},
+	}
+
+	data, err = json.Marshal(msg2)
+	require.NoError(err)
+	res, err = performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err = io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if msg, ok := client1.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 2) {
+			if string(hello1.Hello.SessionId) == msg.Event.Update.Users[0]["sessionId"] {
+				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+				assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
+				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
+				assert.Equal("Test user 2", msg.Event.Update.Users[1]["displayName"])
+			} else {
+				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
+				assert.Equal("Test user 1", msg.Event.Update.Users[1]["displayName"])
+				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+				assert.Equal("Test user 2", msg.Event.Update.Users[0]["displayName"])
+			}
+		}
+	}
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 2) {
+			if string(hello1.Hello.SessionId) == msg.Event.Update.Users[0]["sessionId"] {
+				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+				assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
+				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
+				assert.Equal("Test user 2", msg.Event.Update.Users[1]["displayName"])
+			} else {
+				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
+				assert.Equal("Test user 1", msg.Event.Update.Users[1]["displayName"])
+				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+				assert.Equal("Test user 2", msg.Event.Update.Users[0]["displayName"])
+			}
+		}
+	}
+
+	// Disconnected users are not returned in future updates.
+	client1.CloseWithBye()
+	client2.RunUntilLeft(ctx, hello1.Hello)
+
+	msg3 := &talk.BackendServerRoomRequest{
+		Type: "participants",
+		Participants: &talk.BackendRoomParticipantsRequest{
+			Changed: api.UserDataList{
+				{
+					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
+					"permissions": []api.Permission{
+						api.PERMISSION_MAY_PUBLISH_AUDIO,
+						api.PERMISSION_MAY_PUBLISH_VIDEO,
+						api.PERMISSION_MAY_PUBLISH_SCREEN,
+					},
+					"displayName": "Test user 2b",
+				},
+			},
+		},
+	}
+
+	data, err = json.Marshal(msg3)
+	require.NoError(err)
+	res, err = performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err = io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if msg, ok := client2.RunUntilMessage(ctx); ok {
+		if checkMessageType(t, msg, "event") &&
+			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
+			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
+			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
+			assert.Len(msg.Event.Update.Users, 1) {
+			assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+			assert.Equal("Test user 2b", msg.Event.Update.Users[0]["displayName"])
+		}
+	}
 }
 
 func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
@@ -974,17 +1234,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			Type: "incall",
 			InCall: &talk.BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
-				Changed: []api.StringMap{
-					{
-						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-						"inCall":    7,
-					},
-					{
-						"sessionId": "unknown-room-session-id",
-						"inCall":    3,
-					},
-				},
-				Users: []api.StringMap{
+				Changed: api.UserDataList{
 					{
 						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 						"inCall":    7,
@@ -1019,17 +1269,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 			Type: "incall",
 			InCall: &talk.BackendRoomInCallRequest{
 				InCall: json.RawMessage("7"),
-				Changed: []api.StringMap{
-					{
-						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-						"inCall":    7,
-					},
-					{
-						"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
-						"inCall":    3,
-					},
-				},
-				Users: []api.StringMap{
+				Changed: api.UserDataList{
 					{
 						"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 						"inCall":    7,
@@ -1961,7 +2201,7 @@ func TestBackendServer_LookupByRoomSessionIdRetriesOnMiss(t *testing.T) {
 		}
 		b := &BackendServer{roomSessions: fake}
 
-		if sid, err := b.lookupByRoomSessionId(t.Context(), "room1", nil); assert.NoError(err) {
+		if sid, err := b.lookupByRoomSessionId(t.Context(), "room1"); assert.NoError(err) {
 			assert.EqualValues("session1", sid)
 		}
 	})
@@ -1978,7 +2218,7 @@ func TestBackendServer_LookupByRoomSessionIdGivesUpAfterMaxRetries(t *testing.T)
 		}
 		b := &BackendServer{roomSessions: fake}
 
-		if sid, err := b.lookupByRoomSessionId(t.Context(), "room1", nil); assert.NoError(err) {
+		if sid, err := b.lookupByRoomSessionId(t.Context(), "room1"); assert.NoError(err) {
 			assert.Empty(sid)
 			assert.Equal(roomSessionLookupMaxRetries+1, fake.calls)
 		}
@@ -2003,7 +2243,7 @@ func TestBackendServer_LookupByRoomSessionIdStopsOnContextCancel(t *testing.T) {
 		}()
 
 		start := time.Now()
-		_, err := b.lookupByRoomSessionId(ctx, "room1", nil)
+		_, err := b.lookupByRoomSessionId(ctx, "room1")
 		elapsed := time.Since(start)
 
 		assert.ErrorIs(err, context.Canceled)
@@ -2067,12 +2307,6 @@ func TestBackendServer_ParticipantsUpdateRaceAcrossCluster(t *testing.T) {
 				Type: "participants",
 				Participants: &talk.BackendRoomParticipantsRequest{
 					Changed: []api.StringMap{
-						{
-							"sessionId":   string(roomSessionId1),
-							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
-						},
-					},
-					Users: []api.StringMap{
 						{
 							"sessionId":   string(roomSessionId1),
 							"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA},
