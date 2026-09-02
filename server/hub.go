@@ -1874,6 +1874,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		}
 
 		session.SetFederationClient(client)
+		client.signalReady()
 
 		roomSessionId := message.Room.SessionId
 		if roomSessionId == "" {
@@ -3084,7 +3085,9 @@ func (h *Hub) processRoomDeleted(message *talk.BackendServerRoomRequest) {
 	}
 
 	sessions := room.Close()
+	roomId := room.Id()
 	for _, session := range sessions {
+		session.SetPendingCloseRoom(roomId)
 		// The session is no longer in the room
 		session.LeaveRoom(true)
 		switch sess := session.(type) {

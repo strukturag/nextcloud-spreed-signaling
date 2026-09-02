@@ -230,6 +230,7 @@ func TestRoom_Delete(t *testing.T) {
 		if message2, ok := client.RunUntilMessage(ctx); ok {
 			checkMessageRoomlistDisinvite(t, message2)
 		}
+		client.RunUntilClosed(ctx)
 	} else {
 		// Ordering should be "disinvited", "leave room".
 		checkMessageRoomlistDisinvite(t, message1)

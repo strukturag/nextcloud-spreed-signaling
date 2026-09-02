@@ -158,6 +158,10 @@ func (c *serverClient) IsInRoom(roomId string) bool {
 	return false
 }
 
+func (c *serverClient) IsPendingCloseRoom(roomId string) bool {
+	return false
+}
+
 func (c *serverClient) CloseSession() {
 	if c.sessionClosed.Swap(true) {
 		assert.Fail(c.t, "session closed more than once")

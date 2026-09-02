@@ -1310,6 +1310,7 @@ func (h *publisherHub) GetPublisherIdForSessionId(ctx context.Context, sessionId
 func Test_ProxyRemotePublisher(t *testing.T) {
 	t.Parallel()
 
+	require := require.New(t)
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)
 
@@ -1345,6 +1346,11 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
+	require.NoError(mcu1.rpcClients.WaitForInitialized(ctx))
+	require.NoError(mcu2.rpcClients.WaitForInitialized(ctx))
+	mcu1.rpcClients.WaitForSelfCheck()
+	mcu2.rpcClients.WaitForSelfCheck()
+
 	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := mock.NewListener(pubId + "-public")
@@ -1353,7 +1359,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
 		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
 	}, pubInitiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer pub.Close(context.Background())
 
@@ -1364,7 +1370,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 	subListener := mock.NewListener("subscriber-public")
 	subInitiator := mock.NewInitiator("DE")
 	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, sfu.StreamTypeVideo, subInitiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer sub.Close(context.Background())
 }
@@ -1372,6 +1378,7 @@ func Test_ProxyRemotePublisher(t *testing.T) {
 func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	t.Parallel()
 
+	require := require.New(t)
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)
 
@@ -1422,6 +1429,13 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
+	require.NoError(mcu1.rpcClients.WaitForInitialized(ctx))
+	require.NoError(mcu2.rpcClients.WaitForInitialized(ctx))
+	require.NoError(mcu3.rpcClients.WaitForInitialized(ctx))
+	mcu1.rpcClients.WaitForSelfCheck()
+	mcu2.rpcClients.WaitForSelfCheck()
+	mcu3.rpcClients.WaitForSelfCheck()
+
 	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := mock.NewListener(pubId + "-public")
@@ -1430,7 +1444,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
 		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
 	}, pubInitiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer pub.Close(context.Background())
 
@@ -1441,14 +1455,14 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 	sub1Listener := mock.NewListener("subscriber-public-1")
 	sub1Initiator := mock.NewInitiator("US")
 	sub1, err := mcu2.NewSubscriber(ctx, sub1Listener, pubId, sfu.StreamTypeVideo, sub1Initiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer sub1.Close(context.Background())
 
 	sub2Listener := mock.NewListener("subscriber-public-2")
 	sub2Initiator := mock.NewInitiator("US")
 	sub2, err := mcu3.NewSubscriber(ctx, sub2Listener, pubId, sfu.StreamTypeVideo, sub2Initiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer sub2.Close(context.Background())
 }
@@ -1456,6 +1470,7 @@ func Test_ProxyMultipleRemotePublisher(t *testing.T) {
 func Test_ProxyRemotePublisherWait(t *testing.T) {
 	t.Parallel()
 
+	require := require.New(t)
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)
 
@@ -1491,6 +1506,11 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
+	require.NoError(mcu1.rpcClients.WaitForInitialized(ctx))
+	require.NoError(mcu2.rpcClients.WaitForInitialized(ctx))
+	mcu1.rpcClients.WaitForSelfCheck()
+	mcu2.rpcClients.WaitForSelfCheck()
+
 	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := mock.NewListener(pubId + "-public")
@@ -1516,7 +1536,7 @@ func Test_ProxyRemotePublisherWait(t *testing.T) {
 	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
 		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
 	}, pubInitiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer pub.Close(context.Background())
 
@@ -1568,6 +1588,11 @@ func Test_ProxyRemotePublisherTemporary(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
+	require.NoError(mcu1.rpcClients.WaitForInitialized(ctx))
+	require.NoError(mcu2.rpcClients.WaitForInitialized(ctx))
+	mcu1.rpcClients.WaitForSelfCheck()
+	mcu2.rpcClients.WaitForSelfCheck()
+
 	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := mock.NewListener(pubId + "-public")
@@ -1618,6 +1643,7 @@ loop:
 func Test_ProxyConnectToken(t *testing.T) {
 	t.Parallel()
 
+	require := require.New(t)
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)
 
@@ -1654,6 +1680,11 @@ func Test_ProxyConnectToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
+	require.NoError(mcu1.rpcClients.WaitForInitialized(ctx))
+	require.NoError(mcu2.rpcClients.WaitForInitialized(ctx))
+	mcu1.rpcClients.WaitForSelfCheck()
+	mcu2.rpcClients.WaitForSelfCheck()
+
 	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := mock.NewListener(pubId + "-public")
@@ -1662,7 +1693,7 @@ func Test_ProxyConnectToken(t *testing.T) {
 	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
 		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
 	}, pubInitiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer pub.Close(context.Background())
 
@@ -1673,7 +1704,7 @@ func Test_ProxyConnectToken(t *testing.T) {
 	subListener := mock.NewListener("subscriber-public")
 	subInitiator := mock.NewInitiator("DE")
 	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, sfu.StreamTypeVideo, subInitiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer sub.Close(context.Background())
 }
@@ -1681,6 +1712,7 @@ func Test_ProxyConnectToken(t *testing.T) {
 func Test_ProxyPublisherToken(t *testing.T) {
 	t.Parallel()
 
+	require := require.New(t)
 	assert := assert.New(t)
 	embedEtcd := etcdtest.NewServerForTest(t)
 
@@ -1722,6 +1754,11 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 
+	require.NoError(mcu1.rpcClients.WaitForInitialized(ctx))
+	require.NoError(mcu2.rpcClients.WaitForInitialized(ctx))
+	mcu1.rpcClients.WaitForSelfCheck()
+	mcu2.rpcClients.WaitForSelfCheck()
+
 	pubId := api.PublicSessionId("the-publisher")
 	pubSid := "1234567890"
 	pubListener := mock.NewListener(pubId + "-public")
@@ -1730,7 +1767,7 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	pub, err := mcu1.NewPublisher(ctx, pubListener, pubId, pubSid, sfu.StreamTypeVideo, sfu.NewPublisherSettings{
 		MediaTypes: sfu.MediaTypeVideo | sfu.MediaTypeAudio,
 	}, pubInitiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer pub.Close(context.Background())
 
@@ -1741,7 +1778,7 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	subListener := mock.NewListener("subscriber-public")
 	subInitiator := mock.NewInitiator("US")
 	sub, err := mcu2.NewSubscriber(ctx, subListener, pubId, sfu.StreamTypeVideo, subInitiator)
-	require.NoError(t, err)
+	require.NoError(err)
 
 	defer sub.Close(context.Background())
 }
