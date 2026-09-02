@@ -65,8 +65,7 @@ func TestWaitForSubscriptionsEmpty(t *testing.T) {
 		assert.NoError(client.Close(context.Background()))
 	}()
 
-	ch := make(chan *nats.Msg)
-	sub, err := client.Subscribe("foo", ch)
+	sub, err := client.Subscribe("foo", func(msg *nats.Msg) {})
 	require.NoError(err)
 
 	ready := make(chan struct{})

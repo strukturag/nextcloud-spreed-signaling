@@ -52,11 +52,35 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 
-		assert.NoError(events.Close(ctx))
+		if ne, ok := events.(*asyncEventsNats); ok {
+			ne.mu.Lock()
+			assert.NotEmpty(ne.backendRoomSubscriptions)
+			assert.NotEmpty(ne.roomSubscriptions)
+			assert.NotEmpty(ne.userSubscriptions)
+			assert.NotEmpty(ne.sessionSubscriptions)
+			ne.mu.Unlock()
+		}
+
+		if assert.NoError(events.Close(ctx)) {
+			if ne, ok := events.(*asyncEventsNats); ok {
+				ne.mu.Lock()
+				assert.Empty(ne.backendRoomSubscriptions)
+				assert.Empty(ne.roomSubscriptions)
+				assert.Empty(ne.userSubscriptions)
+				assert.Empty(ne.sessionSubscriptions)
+				ne.mu.Unlock()
+			}
+		}
 	})
 
 	listener := &TestBackendRoomListener{
 		events: make(AsyncChannel, 1),
+	}
+	listener2 := &TestBackendRoomListener{
+		events: make(AsyncChannel, 1),
+	}
+	slowListener := &TestBackendRoomListener{
+		events: make(AsyncChannel),
 	}
 
 	roomId := "1234"
@@ -64,6 +88,15 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 	require.NoError(events.RegisterBackendRoomListener(roomId, backend, listener))
 	defer func() {
 		assert.NoError(events.UnregisterBackendRoomListener(roomId, backend, listener))
+	}()
+	assert.ErrorIs(events.RegisterBackendRoomListener(roomId, backend, listener), ErrAlreadyRegistered)
+	require.NoError(events.RegisterBackendRoomListener(roomId, backend, listener2))
+	defer func() {
+		assert.NoError(events.UnregisterBackendRoomListener(roomId, backend, listener2))
+	}()
+	require.NoError(events.RegisterBackendRoomListener(roomId, backend, slowListener))
+	defer func() {
+		assert.NoError(events.UnregisterBackendRoomListener(roomId, backend, slowListener))
 	}()
 
 	msg := &AsyncMessage{
@@ -80,11 +113,30 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 			receivedMsg.SendTime = msg.SendTime
 			assert.Equal(msg, &receivedMsg)
 		}
+
+		received2 := <-listener2.events
+		var received2Msg AsyncMessage
+		if assert.NoError(nats.Decode(received2, &received2Msg)) {
+			assert.True(msg.SendTime.Equal(received2Msg.SendTime), "send times don't match, expected %s, got %s", msg.SendTime, received2Msg.SendTime)
+			received2Msg.SendTime = msg.SendTime
+			assert.Equal(msg, &received2Msg)
+		}
+		select {
+		case msg := <-slowListener.events:
+			assert.Fail("should not have received message", "got %+v", msg)
+		default:
+			// Expected, the slow listener was skipped.
+		}
 	}
 
 	require.NoError(events.RegisterRoomListener(roomId, backend, listener))
 	defer func() {
 		assert.NoError(events.UnregisterRoomListener(roomId, backend, listener))
+	}()
+	assert.ErrorIs(events.RegisterRoomListener(roomId, backend, listener), ErrAlreadyRegistered)
+	require.NoError(events.RegisterRoomListener(roomId, backend, listener2))
+	defer func() {
+		assert.NoError(events.UnregisterRoomListener(roomId, backend, listener2))
 	}()
 
 	roomMessage := &AsyncMessage{
@@ -101,6 +153,14 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 			receivedMsg.SendTime = roomMessage.SendTime
 			assert.Equal(roomMessage, &receivedMsg)
 		}
+
+		received2 := <-listener2.events
+		var received2Msg AsyncMessage
+		if assert.NoError(nats.Decode(received2, &received2Msg)) {
+			assert.True(roomMessage.SendTime.Equal(received2Msg.SendTime), "send times don't match, expected %s, got %s", roomMessage.SendTime, received2Msg.SendTime)
+			received2Msg.SendTime = roomMessage.SendTime
+			assert.Equal(roomMessage, &received2Msg)
+		}
 	}
 
 	userId := "the-user"
@@ -108,6 +168,7 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 	defer func() {
 		assert.NoError(events.UnregisterUserListener(userId, backend, listener))
 	}()
+	assert.ErrorIs(events.RegisterUserListener(userId, backend, listener), ErrAlreadyRegistered)
 
 	userMessage := &AsyncMessage{
 		Type: "room",
@@ -130,6 +191,7 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 	defer func() {
 		assert.NoError(events.UnregisterSessionListener(sessionId, backend, listener))
 	}()
+	assert.ErrorIs(events.RegisterSessionListener(sessionId, backend, listener), ErrAlreadyRegistered)
 
 	sessionMessage := &AsyncMessage{
 		Type: "room",
@@ -146,6 +208,15 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 			assert.Equal(sessionMessage, &receivedMsg)
 		}
 	}
+
+	// Will get cleaned up on close.
+	listener3 := &TestBackendRoomListener{
+		events: make(AsyncChannel, 1),
+	}
+	assert.NoError(events.RegisterBackendRoomListener(roomId+"-other", backend, listener3))
+	assert.NoError(events.RegisterRoomListener(roomId+"-other", backend, listener3))
+	assert.NoError(events.RegisterUserListener(userId+"-other", backend, listener3))
+	assert.NoError(events.RegisterSessionListener(sessionId+"-other", backend, listener3))
 }
 
 func TestAsyncEvents_Loopback(t *testing.T) {

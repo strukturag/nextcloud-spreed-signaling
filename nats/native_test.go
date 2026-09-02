@@ -76,7 +76,9 @@ func testClient_Subscribe(t *testing.T, client Client) {
 	require := require.New(t)
 	assert := assert.New(t)
 	dest := make(chan *Msg)
-	sub, err := client.Subscribe("foo", dest)
+	sub, err := client.Subscribe("foo", func(msg *Msg) {
+		dest <- msg
+	})
 	require.NoError(err)
 	ch := make(chan struct{})
 
@@ -139,8 +141,7 @@ func TestClient_PublishAfterClose(t *testing.T) { // nolint:paralleltest
 func testClient_SubscribeAfterClose(t *testing.T, client Client) {
 	assert.NoError(t, client.Close(t.Context()))
 
-	ch := make(chan *Msg)
-	_, err := client.Subscribe("foo", ch)
+	_, err := client.Subscribe("foo", func(msg *Msg) {})
 	assert.ErrorIs(t, err, nats.ErrConnectionClosed)
 }
 
@@ -159,9 +160,8 @@ func testClient_BadSubjects(t *testing.T, client Client) {
 		"foo.",
 	}
 
-	ch := make(chan *Msg)
 	for _, s := range subjects {
-		_, err := client.Subscribe(s, ch)
+		_, err := client.Subscribe(s, func(msg *Msg) {})
 		assert.ErrorIs(err, nats.ErrBadSubject, "Expected error for subject %s", s)
 	}
 }

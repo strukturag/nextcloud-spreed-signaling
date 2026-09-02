@@ -92,8 +92,8 @@ func (c *NativeClient) onReconnected(conn *nats.Conn) {
 	c.logger.Printf("NATS client reconnected to %s (%s)", conn.ConnectedUrl(), conn.ConnectedServerId())
 }
 
-func (c *NativeClient) Subscribe(subject string, ch chan *Msg) (Subscription, error) {
-	return c.conn.ChanSubscribe(subject, ch)
+func (c *NativeClient) Subscribe(subject string, cb MsgHandler) (Subscription, error) {
+	return c.conn.Subscribe(subject, nats.MsgHandler(cb))
 }
 
 func (c *NativeClient) Publish(subject string, message any) error {
