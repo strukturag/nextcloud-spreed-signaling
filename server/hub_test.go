@@ -446,6 +446,10 @@ func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	switch request.Room.RoomId {
 	case "test-room-slow":
 		time.Sleep(100 * time.Millisecond)
+	case "test-room-very-slow":
+		// Long enough for a test to resume the session on a new client and
+		// complete another join before this request is answered.
+		time.Sleep(500 * time.Millisecond)
 	case "test-room-takeover-room-session":
 		// Additional checks for testcase "TestClientTakeoverRoomSession"
 		if request.Room.Action == "leave" && request.Room.UserId == "test-userid1" {
@@ -3067,6 +3071,58 @@ func TestJoinRoomSwitchClient(t *testing.T) {
 	// Leave room.
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, "")
 	require.Empty(roomMsg.Room.RoomId)
+}
+
+func TestJoinRoomStaleResponseAfterClientSwitch(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+
+	// Start a join whose backend request takes a long time to be answered.
+	slowRoomId := "test-room-very-slow"
+	msg := &api.ClientMessage{
+		Id:   "ABCD",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId:    slowRoomId,
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", slowRoomId, hello.Hello.SessionId)),
+		},
+	}
+	require.NoError(client.WriteJSON(msg))
+	// Wait a bit to make sure the request reached the backend before the client
+	// goes away, so the response is still pending while the session continues.
+	time.Sleep(10 * time.Millisecond)
+	client.Close()
+	require.NoError(client.WaitForClientRemoved(ctx))
+
+	// Resume the session on a new client and join a different room. This
+	// finishes while the first join is still waiting for its backend response.
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloResume(hello.Hello.ResumeId))
+	_, ok := client2.RunUntilHello(ctx)
+	require.True(ok)
+
+	roomId := "test-room"
+	roomMsg := MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	client2.RunUntilJoined(ctx, hello.Hello)
+
+	// Give the pending response to the first join time to arrive and be
+	// processed. It is stale by now and must not be applied.
+	time.Sleep(700 * time.Millisecond)
+
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok, "session should still exist")
+	room := session.GetRoom()
+	require.NotNil(room, "session should still be in a room")
+	assert.Equal(roomId, room.Id(), "the superseded join must not replace the current room")
 }
 
 func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {

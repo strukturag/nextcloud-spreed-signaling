@@ -1919,6 +1919,12 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		return
 	}
 
+	// Remember which "join room" request this is. The backend request below can
+	// block for up to the backend timeout, during which the session may be taken
+	// over by a resumed client (or fed by a remote client) that starts a newer
+	// join. See ClientSession.NextJoinRoomSeq.
+	joinSeq := session.NextJoinRoomSeq()
+
 	var room talk.BackendClientResponse
 	var joinRoomTime time.Time
 	if session.ClientType() == api.HelloClientTypeInternal {
@@ -1961,7 +1967,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		}
 	}
 
-	h.processJoinRoom(session, message, &room, joinRoomTime)
+	h.processJoinRoom(session, message, &room, joinRoomTime, joinSeq)
 }
 
 func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
@@ -2119,12 +2125,24 @@ func (h *Hub) createRoomLocked(id string, properties json.RawMessage, backend *t
 	return room, nil
 }
 
-func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage, room *talk.BackendClientResponse, joinTime time.Time) {
+func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage, room *talk.BackendClientResponse, joinTime time.Time, joinSeq uint64) {
 	if room.Type == "error" {
 		session.SendMessage(message.NewErrorServerMessage(room.Error))
 		return
 	} else if room.Type != "room" {
 		session.SendMessage(message.NewErrorServerMessage(RoomJoinFailed))
+		return
+	}
+
+	if current := session.CurrentJoinRoomSeq(); current != joinSeq {
+		// A newer "join room" request was started for this session while the
+		// backend was answering this one, so this response is no longer
+		// current. Continuing would leave the room the session actually joined
+		// and replace it with this stale one, purely because the two backend
+		// round-trips completed out of order. The newer request applies its own
+		// result, so drop this one.
+		h.logger.Printf("Ignoring stale response to join room %s for session %s (request %d, current %d)",
+			room.Room.RoomId, session.PublicId(), joinSeq, current)
 		return
 	}
 

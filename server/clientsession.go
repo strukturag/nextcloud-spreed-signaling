@@ -92,6 +92,7 @@ type ClientSession struct {
 	// +checklocks:mu
 	client       ClientWithSession
 	roomJoinTime atomic.Int64
+	joinRoomSeq  atomic.Uint64
 	federation   atomic.Pointer[FederationClient]
 
 	roomSessionIdLock sync.RWMutex
@@ -335,6 +336,28 @@ func (s *ClientSession) ParsedUserData() (api.StringMap, error) {
 func (s *ClientSession) SetRoom(room *Room, joinTime time.Time) {
 	s.sessionWithRoom.SetRoom(room, joinTime)
 	s.onRoomSet(room != nil, joinTime)
+}
+
+// NextJoinRoomSeq allocates a new sequence number for a "join room" request
+// and returns it.
+//
+// A session is not necessarily driven by a single goroutine: a client can be
+// replaced through SetClient while a previous "join room" request for the same
+// session is still blocked in its backend round-trip, and remote clients feed
+// messages for a session from their own goroutine. The room request therefore
+// has to be able to tell whether its own result is still the current one by the
+// time the backend answers.
+//
+// Callers capture the value before starting the backend request and compare it
+// against CurrentJoinRoomSeq once it returns; see Hub.processJoinRoom.
+func (s *ClientSession) NextJoinRoomSeq() uint64 {
+	return s.joinRoomSeq.Add(1)
+}
+
+// CurrentJoinRoomSeq returns the sequence number of the most recently started
+// "join room" request for this session.
+func (s *ClientSession) CurrentJoinRoomSeq() uint64 {
+	return s.joinRoomSeq.Load()
 }
 
 func (s *ClientSession) onRoomSet(hasRoom bool, joinTime time.Time) {
