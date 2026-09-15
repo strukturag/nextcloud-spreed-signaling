@@ -1131,13 +1131,13 @@ func (h *Hub) processRegister(client ClientWithSession, message *api.ClientMessa
 		// between connecting and joining a room.
 		h.dialoutSessions[session] = true
 	}
+	statsHubSessionsCurrent.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
+	statsHubSessionsTotal.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
 	h.mu.Unlock()
 
 	if country := client.Country(); geoip.IsValidCountry(country) {
 		statsClientCountries.WithLabelValues(string(country)).Inc()
 	}
-	statsHubSessionsCurrent.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
-	statsHubSessionsTotal.WithLabelValues(backend.Id(), string(session.ClientType())).Inc()
 
 	h.setDecodedPrivateSessionId(privateSessionId, sessionIdData)
 	h.setDecodedPublicSessionId(publicSessionId, sessionIdData)
@@ -2649,9 +2649,9 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 		h.mu.Lock()
 		h.sessions[sessionIdData.Sid] = sess
 		h.virtualSessions[virtualSessionId] = sessionIdData.Sid
-		h.mu.Unlock()
 		statsHubSessionsCurrent.WithLabelValues(session.Backend().Id(), string(sess.ClientType())).Inc()
 		statsHubSessionsTotal.WithLabelValues(session.Backend().Id(), string(sess.ClientType())).Inc()
+		h.mu.Unlock()
 		h.logger.Printf("Session %s added virtual session %s with initial flags %d", session.PublicId(), sess.PublicId(), sess.Flags())
 		session.AddVirtualSession(sess)
 		sess.SetRoom(room, time.Now())

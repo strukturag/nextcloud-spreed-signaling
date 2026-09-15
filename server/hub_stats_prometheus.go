@@ -34,13 +34,13 @@ var (
 		Name:      "rooms",
 		Help:      "The current number of rooms per backend",
 	}, []string{"backend"})
-	statsHubSessionsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	statsHubSessionsCurrent = prometheus.NewGaugeVec(prometheus.GaugeOpts{ // +checklocksignore: Global readonly variable.
 		Namespace: "signaling",
 		Subsystem: "hub",
 		Name:      "sessions",
 		Help:      "The current number of sessions per backend",
 	}, []string{"backend", "clienttype"})
-	statsHubSessionsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+	statsHubSessionsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{ // +checklocksignore: Global readonly variable.
 		Namespace: "signaling",
 		Subsystem: "hub",
 		Name:      "sessions_total",
