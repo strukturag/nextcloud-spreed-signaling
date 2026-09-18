@@ -23,6 +23,9 @@ updates:
       etcd:
         patterns:
         - "go.etcd.io*"
+      opentelemetry:
+        patterns:
+        - "go.opentelemetry.io*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
