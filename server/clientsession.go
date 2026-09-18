@@ -534,6 +534,17 @@ func (s *ClientSession) LeaveRoom(notify bool) *Room {
 func (s *ClientSession) LeaveRoomWithMessage(notify bool, message *api.ClientMessage) *Room {
 	if prev := s.federation.Swap(nil); prev != nil {
 		// Session was connected to a federation room.
+		if message == nil {
+			// The session itself is being torn down, so no reply from the
+			// remote server will ever reach it. Close the federation client
+			// immediately instead of relying on the remote to acknowledge
+			// leaving the room, as that acknowledgement could be lost (e.g.
+			// due to a connection hiccup) and leave the connection to the
+			// remote server open indefinitely.
+			prev.Close()
+			return nil
+		}
+
 		if err := prev.Leave(message); err != nil {
 			s.logger.Printf("Error leaving room for session %s on federation client %s: %s", s.PublicId(), prev.URL(), err)
 			prev.Close()
