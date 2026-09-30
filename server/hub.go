@@ -1795,8 +1795,15 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		return
 	}
 
+	// A new room request supersedes any pending one of the session.
+	requestCtx, finishRequest := session.StartRoomRequest()
+	defer finishRequest()
+
 	roomId := message.Room.RoomId
 	if roomId == "" {
+		session.roomJoinLock.Lock()
+		defer session.roomJoinLock.Unlock()
+
 		// We can handle leaving a room directly.
 		if session.LeaveRoomWithMessage(true, message) != nil {
 			if session.UserId() == "" && session.ClientType() != api.HelloClientTypeInternal {
@@ -1815,11 +1822,12 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		delete(h.anonymousSessions, session)
 		h.mu.Unlock()
 
-		ctx, cancel := context.WithTimeout(session.Context(), h.federationTimeout)
+		ctx, cancel := context.WithTimeout(requestCtx, h.federationTimeout)
 		defer cancel()
 
 		client := session.GetFederationClient()
 		var err error
+		created := false
 		if client != nil {
 			if client.CanReuse(federation) {
 				err = client.ChangeRoom(message)
@@ -1832,6 +1840,17 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		}
 		if client == nil {
 			client, err = NewFederationClient(ctx, h, session, message)
+			created = err == nil
+		}
+
+		session.roomJoinLock.Lock()
+		defer session.roomJoinLock.Unlock()
+		if isRoomRequestSuperseded(requestCtx) {
+			h.logger.Printf("Join of federated room %s by session %s superseded by newer request", roomId, session.PublicId())
+			if created {
+				client.Close()
+			}
+			return
 		}
 
 		if err != nil {
@@ -1922,6 +1941,9 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 	var room talk.BackendClientResponse
 	var joinRoomTime time.Time
 	if session.ClientType() == api.HelloClientTypeInternal {
+		session.roomJoinLock.Lock()
+		defer session.roomJoinLock.Unlock()
+
 		// Internal clients can join any room.
 		joinRoomTime = time.Now()
 		room = talk.BackendClientResponse{
@@ -1932,7 +1954,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		}
 	} else {
 		// Run in timeout context to prevent blocking too long.
-		ctx, cancel := context.WithTimeout(session.Context(), h.backendTimeout)
+		ctx, cancel := context.WithTimeout(requestCtx, h.backendTimeout)
 		defer cancel()
 
 		sessionId := message.Room.SessionId
@@ -1944,11 +1966,27 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		request := talk.NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
 		request.Room.UpdateFromSession(session)
 		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &room); err != nil {
+			if isRoomRequestSuperseded(requestCtx) {
+				h.logger.Printf("Join of room %s by session %s superseded by newer request", roomId, session.PublicId())
+				return
+			}
+
 			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			return
 		}
 
 		// TODO(jojo): Validate response
+
+		session.roomJoinLock.Lock()
+		defer session.roomJoinLock.Unlock()
+		if isRoomRequestSuperseded(requestCtx) {
+			h.logger.Printf("Join of room %s by session %s superseded by newer request, ignoring response", roomId, session.PublicId())
+			if room.Type == "room" {
+				// The backend already registered the room session, remove it again.
+				session.notifyBackendRoomLeft(roomId, sessionId)
+			}
+			return
+		}
 
 		joinRoomTime = time.Now()
 		if message.Room.SessionId != "" {

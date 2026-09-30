@@ -3069,6 +3069,72 @@ func TestJoinRoomSwitchClient(t *testing.T) {
 	require.Empty(roomMsg.Room.RoomId)
 }
 
+func TestJoinRoomSwitchClientSupersede(t *testing.T) {
+	t.Parallel()
+	for _, newRoomId := range []string{"test-room", ""} {
+		t.Run(fmt.Sprintf("room=%q", newRoomId), func(t *testing.T) {
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			hub, _, _, server := CreateHubForTest(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+
+			roomId := "test-room-slow"
+			msg := &api.ClientMessage{
+				Id:   "ABCD",
+				Type: "room",
+				Room: &api.RoomClientMessage{
+					RoomId:    roomId,
+					SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
+				},
+			}
+			require.NoError(client.WriteJSON(msg))
+			// Wait a bit to make sure request is sent before closing client.
+			time.Sleep(1 * time.Millisecond)
+
+			// Resume while the room request is still pending.
+			defer client.Close()
+			client2 := NewTestClient(t, server, hub)
+			defer client2.CloseWithBye()
+			require.NoError(client2.SendHelloResume(hello.Hello.ResumeId))
+			if hello2, ok := client2.RunUntilHello(ctx); ok {
+				assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+			}
+
+			// The new request supersedes the pending join of the slow room.
+			if newRoomId != "" {
+				roomMsg := MustSucceed2(t, client2.JoinRoom, ctx, newRoomId)
+				require.Equal(newRoomId, roomMsg.Room.RoomId)
+				client2.RunUntilJoined(ctx, hello.Hello)
+			} else {
+				require.NoError(client2.WriteJSON(&api.ClientMessage{
+					Id:   "EFGH",
+					Type: "room",
+					Room: &api.RoomClientMessage{},
+				}))
+			}
+
+			// The response of the slow room must be ignored.
+			ctx2, cancel2 := context.WithTimeout(ctx, 200*time.Millisecond)
+			defer cancel2()
+			client2.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
+
+			session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+			require.True(ok)
+			assert.Nil(hub.GetRoomForBackend(roomId, session.Backend()))
+			if room := session.GetRoom(); newRoomId != "" && assert.NotNil(room) {
+				assert.Equal(newRoomId, room.Id())
+			} else if newRoomId == "" {
+				assert.Nil(room)
+			}
+		})
+	}
+}
+
 func TestClientMessageToSessionIdWhileDisconnected(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
