@@ -696,13 +696,9 @@ func TestRoom_InCallAllLeave(t *testing.T) {
 		client1.checkMessageRoomLeave(msg, hello2.Hello)
 	}
 
-	if msg, ok := client1.RunUntilMessage(ctx); ok {
-		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
-			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 1) {
-				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
-				assert.EqualValues(0, message.Users[0]["inCall"])
-			}
-		}
-	}
+	// No other messages will be sent after the "leave".
+	ctx2, cancel2 := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel2()
+
+	client1.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 }

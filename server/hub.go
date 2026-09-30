@@ -2054,27 +2054,7 @@ func (h *Hub) GetInternalSessions(roomId string, backend *talk.Backend) ([]*grpc
 		return nil, nil, false
 	}
 
-	room.mu.RLock()
-	defer room.mu.RUnlock()
-
-	var internalSessions []*grpc.InternalSessionData
-	var virtualSessions []*grpc.VirtualSessionData
-	for session := range room.internalSessions {
-		internalSessions = append(internalSessions, &grpc.InternalSessionData{
-			SessionId: string(session.PublicId()),
-			InCall:    uint32(session.GetInCall()),
-			Features:  session.GetFeatures(),
-		})
-	}
-
-	for session := range room.virtualSessions {
-		virtualSessions = append(virtualSessions, &grpc.VirtualSessionData{
-			SessionId: string(session.PublicId()),
-			InCall:    uint32(session.GetInCall()),
-		})
-	}
-
-	return internalSessions, virtualSessions, true
+	return room.GetInternalSessions()
 }
 
 func (h *Hub) GetTransientEntries(roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {

@@ -1334,19 +1334,36 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) (*api.ServerMe
 			switch message.Event.Type {
 			case "update":
 				m := message.Event.Update
-				users := make(map[any]bool)
-				for _, entry := range m.Users {
-					users[entry["sessionId"]] = true
+				if len(m.Changed) == 0 {
+					break
 				}
+
+				// Session ids could be stored as "string" or "api.PublicSessionId".
+				users := make(map[api.PublicSessionId]bool)
+				for _, entry := range m.Users {
+					if sid, found := entry.SessionId(); found {
+						users[sid] = true
+					}
+				}
+				// The same message might be sent to multiple sessions concurrently,
+				// so create unique copy of message for only this client.
+				merged := slices.Clone(m.Users)
 				for _, entry := range m.Changed {
-					if users[entry["sessionId"]] {
+					if sid, found := entry.SessionId(); found && users[sid] {
 						continue
 					}
-					m.Users = append(m.Users, entry)
+					merged = append(merged, entry)
 				}
+				update := *m
 				// TODO(jojo): Only send all users if current session id has
 				// changed its "inCall" flag to true.
-				m.Changed = nil
+				update.Changed = nil
+				update.Users = merged
+				event := *message.Event
+				event.Update = &update
+				copied := *message
+				copied.Event = &event
+				message = &copied
 			case "flags":
 				if s.filterDuplicateFlags(message.Event.Flags) {
 					return nil, nil

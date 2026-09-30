@@ -76,6 +76,7 @@ message InternalSessionData {
 message VirtualSessionData {
   string sessionId = 1;
   uint32 inCall = 2;
+  map<string, bytes> talkUserData = 3;
 }
 
 message GetInternalSessionsReply {
