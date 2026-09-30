@@ -595,7 +595,14 @@ func TestRoom_InCallAllLeave(t *testing.T) {
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+	// The participants update of the internal session could be received
+	// before the "join" event of the other session.
+	_, unexpected, _ := client2.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello)
+	if len(unexpected) == 0 {
+		if msg, ok := client2.RunUntilMessage(ctx); ok {
+			unexpected = append(unexpected, msg)
+		}
+	}
 
 	client1.RunUntilJoined(ctx, hello2.Hello)
 
@@ -609,8 +616,8 @@ func TestRoom_InCallAllLeave(t *testing.T) {
 		}
 	}
 
-	if msg, ok := client2.RunUntilMessage(ctx); ok {
-		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
+	if assert.Len(unexpected, 1) {
+		if message, ok := checkMessageParticipantsInCall(t, unexpected[0]); ok {
 			assert.Equal(roomId, message.RoomId)
 			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello2.Hello.SessionId, message.Users[0]["sessionId"])

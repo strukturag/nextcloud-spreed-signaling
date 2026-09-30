@@ -330,9 +330,6 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *events.AsyncRoomMessa
 	switch message.Type {
 	case "sessionjoined":
 		r.notifySessionJoined(message.SessionId)
-		if message.ClientType == api.HelloClientTypeInternal {
-			r.publishUsersChangedWithInternal()
-		}
 	default:
 		r.logger.Printf("Unsupported async room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
@@ -366,6 +363,7 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 			panic(fmt.Sprintf("Expected a client session, got %v (%T)", session, session))
 		}
 		r.internalSessions[clientSession] = true
+		publishUsersChanged = true
 	case api.HelloClientTypeVirtual:
 		virtualSession, ok := session.(*VirtualSession)
 		if !ok {
@@ -646,24 +644,32 @@ func (r *Room) publishLocal(message *api.ServerMessage) (err error) {
 	return nil
 }
 
-func (r *Room) UpdateProperties(properties json.RawMessage) {
+func (r *Room) doUpdateProperties(properties json.RawMessage) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if (len(r.properties) == 0 && len(properties) == 0) ||
 		(len(r.properties) > 0 && len(properties) > 0 && bytes.Equal(r.properties, properties)) {
 		// Don't notify if properties didn't change.
-		return
+		return false
 	}
 
 	r.properties = properties
+	return true
+}
+
+func (r *Room) UpdateProperties(properties json.RawMessage) {
+	if !r.doUpdateProperties(properties) {
+		return
+	}
+
 	message := &api.ServerMessage{
 		Type: "room",
 		Room: &api.RoomServerMessage{
 			RoomId:     r.id,
-			Properties: r.properties,
+			Properties: properties,
 		},
 	}
-	if err := r.publish(message); err != nil {
+	if err := r.publishLocal(message); err != nil {
 		r.logger.Printf("Could not publish update properties message in room %s: %s", r.Id(), err)
 	}
 }
@@ -1255,7 +1261,7 @@ func (r *Room) PublishUsersChanged(changed api.UserDataList) {
 			},
 		},
 	}
-	if err := r.publish(message); err != nil {
+	if err := r.publishLocal(message); err != nil {
 		r.logger.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
 	}
 }
@@ -1456,9 +1462,17 @@ func (r *Room) publishRoomMessage(message *talk.BackendRoomMessageRequest) {
 			},
 		},
 	}
-	if err := r.publish(msg); err != nil {
+	if err := r.publishLocal(msg); err != nil {
 		r.logger.Printf("Could not publish room message in room %s: %s", r.Id(), err)
 	}
+}
+
+func (r *Room) getClientSession(sessionId api.PublicSessionId) *ClientSession {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	session, _ := r.sessions[sessionId].(*ClientSession)
+	return session
 }
 
 func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) {
@@ -1476,12 +1490,14 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 		}
 
 		for _, sessionId := range message.SessionsList {
+			session := r.getClientSession(sessionId)
+			if session == nil {
+				continue
+			}
+
 			wg.Go(func() {
-				if err := r.events.PublishSessionMessage(sessionId, r.backend, &events.AsyncMessage{
-					Type:    "message",
-					Message: msg,
-				}); err != nil {
-					r.logger.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
+				if !session.SendMessage(msg) {
+					r.logger.Printf("Error sending switchto event to session %s", sessionId)
 				}
 			})
 		}
@@ -1489,6 +1505,11 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 
 	if len(message.SessionsMap) > 0 {
 		for sessionId, details := range message.SessionsMap {
+			session := r.getClientSession(sessionId)
+			if session == nil {
+				continue
+			}
+
 			wg.Go(func() {
 				msg := &api.ServerMessage{
 					Type: "event",
@@ -1502,11 +1523,8 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 					},
 				}
 
-				if err := r.events.PublishSessionMessage(sessionId, r.backend, &events.AsyncMessage{
-					Type:    "message",
-					Message: msg,
-				}); err != nil {
-					r.logger.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
+				if !session.SendMessage(msg) {
+					r.logger.Printf("Error sending switchto event to session %s", sessionId)
 				}
 			})
 		}

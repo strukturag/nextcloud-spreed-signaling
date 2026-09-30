@@ -4516,6 +4516,90 @@ func TestVirtualClientSessions(t *testing.T) {
 	}
 }
 
+func TestInternalSessionJoinedParticipantsUpdate(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId)
+			defer client1.CloseWithBye()
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+
+			// Internal session on the same server as the regular client.
+			internal1 := NewTestClient(t, server1, hub1)
+			defer internal1.CloseWithBye()
+			require.NoError(internal1.SendHelloInternal())
+			helloInternal1 := MustSucceed1(t, internal1.RunUntilHello, ctx)
+			MustSucceed2(t, internal1.JoinRoom, ctx, roomId)
+
+			client1.RunUntilJoined(ctx, helloInternal1.Hello)
+			if msg, ok := client1.RunUntilMessage(ctx); ok {
+				if update, ok := checkMessageParticipantsInCall(t, msg); ok && assert.Len(update.Users, 1, "%+v", update) {
+					assert.EqualValues(helloInternal1.Hello.SessionId, update.Users[0]["sessionId"])
+				}
+			}
+			_, unexpected, _ := internal1.RunUntilJoinedAndReturn(ctx, hello1.Hello, helloInternal1.Hello)
+			if len(unexpected) == 0 {
+				if msg, ok := internal1.RunUntilMessage(ctx); ok {
+					unexpected = append(unexpected, msg)
+				}
+			}
+			if assert.Len(unexpected, 1) {
+				checkMessageParticipantsInCall(t, unexpected[0])
+			}
+			assertNoMoreMessages(t, client1, internal1)
+
+			// Internal session on the other server (in the clustered case).
+			internal2 := NewTestClient(t, server2, hub2)
+			defer internal2.CloseWithBye()
+			require.NoError(internal2.SendHelloInternal())
+			helloInternal2 := MustSucceed1(t, internal2.RunUntilHello, ctx)
+			MustSucceed2(t, internal2.JoinRoom, ctx, roomId)
+
+			// The participants update is only sent by the server the internal
+			// session is connected to, other servers don't send their (partial)
+			// list of internal sessions.
+			for _, client := range []*TestClient{client1, internal1} {
+				client.RunUntilJoined(ctx, helloInternal2.Hello)
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					if update, ok := checkMessageParticipantsInCall(t, msg); ok {
+						assert.Equal(roomId, update.RoomId)
+						found := false
+						for _, user := range update.Users {
+							if sid, _ := user.SessionId(); sid == helloInternal2.Hello.SessionId {
+								found = true
+								assert.Equal(true, user["internal"], "%+v", user)
+							}
+						}
+						assert.True(found, "internal session %s not found in %+v", helloInternal2.Hello.SessionId, update)
+					}
+				}
+			}
+			assertNoMoreMessages(t, client1, internal1)
+		})
+	}
+}
+
 func TestDuplicateVirtualSessions(t *testing.T) {
 	t.Parallel()
 	for _, subtest := range clusteredTests {
@@ -4907,11 +4991,9 @@ func DoTestSwitchToOne(t *testing.T, details api.StringMap) {
 			}
 			client1.RunUntilSwitchTo(ctx, roomId2, detailsData)
 
-			// The other client will not receive a message.
-			ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
-			defer cancel2()
-
-			client2.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
+			// The other client will not receive a message and the switchto
+			// event is only sent once (not once per server in the cluster).
+			assertNoMoreMessages(t, client1, client2)
 		})
 	}
 }
@@ -5020,6 +5102,10 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 				require.NoError(err)
 			}
 			client2.RunUntilSwitchTo(ctx, roomId2, detailsData2)
+
+			// The switchto events are only sent once (not once per server in
+			// the cluster).
+			assertNoMoreMessages(t, client1, client2)
 		})
 	}
 }

@@ -794,6 +794,107 @@ func RunTestBackendServer_RoomUpdate(ctx context.Context, t *testing.T) {
 	assert.Equal(string(roomProperties), string(room.Properties()))
 }
 
+func createBackendServersForClusteredTest(t *testing.T) (*Hub, *Hub, *httptest.Server, *httptest.Server) {
+	t.Helper()
+	if isLocalTest(t) {
+		_, _, _, hub, _, server := CreateBackendServerForTest(t)
+		return hub, hub, server, server
+	}
+
+	_, _, hub1, hub2, server1, server2 := CreateBackendServerWithClusteringForTest(t)
+	return hub1, hub2, server1, server2
+}
+
+func assertNoMoreMessages(t *testing.T, clients ...*TestClient) {
+	t.Helper()
+	for _, client := range clients {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		client.RunUntilErrorIs(ctx, ErrNoMessageReceived, context.DeadlineExceeded)
+		cancel()
+	}
+}
+
+func TestBackendServer_RoomUpdateClients(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			assert := assert.New(t)
+			hub1, hub2, server1, server2 := createBackendServersForClusteredTest(t)
+
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
+
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			roomProperties := json.RawMessage("{\"foo\":\"bar\"}")
+			msg := &talk.BackendServerRoomRequest{
+				Type: "update",
+				Update: &talk.BackendRoomUpdateRequest{
+					Properties: roomProperties,
+				},
+			}
+
+			data, err := json.Marshal(msg)
+			require.NoError(err)
+			res, err := performBackendRequest(server1.URL+"/api/v1/room/"+roomId, data)
+			require.NoError(err)
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			assert.NoError(err)
+			assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+			for _, client := range []*TestClient{client1, client2} {
+				// The "roomlist" and "room" events are sent through different
+				// channels, so their order is not defined.
+				var gotRoomlist, gotRoom bool
+				for range 2 {
+					message, ok := client.RunUntilMessage(ctx)
+					if !ok {
+						break
+					}
+
+					switch message.Type {
+					case "room":
+						assert.False(gotRoom, "received duplicate room event %+v", message)
+						gotRoom = true
+						if assert.NotNil(message.Room) {
+							assert.Equal(roomId, message.Room.RoomId)
+							assert.Equal(string(roomProperties), string(message.Room.Properties))
+						}
+					default:
+						if update, ok := checkMessageRoomlistUpdate(t, message); ok {
+							assert.False(gotRoomlist, "received duplicate roomlist event %+v", message)
+							gotRoomlist = true
+							assert.Equal(roomId, update.RoomId)
+							assert.Equal(string(roomProperties), string(update.Properties))
+						}
+					}
+				}
+				assert.True(gotRoomlist, "should have received roomlist event")
+				assert.True(gotRoom, "should have received room event")
+			}
+
+			// Each server only notifies its local sessions, so no duplicate
+			// events are sent.
+			assertNoMoreMessages(t, client1, client2)
+		})
+	}
+}
+
 func TestBackendServer_RoomDelete(t *testing.T) {
 	t.Parallel()
 	for _, backend := range eventstest.EventBackendsForTest {
@@ -868,19 +969,7 @@ func TestBackendServer_ParticipantsUpdatePermissions(t *testing.T) {
 			ctx := log.NewLoggerContext(t.Context(), logger)
 			require := require.New(t)
 			assert := assert.New(t)
-			var hub1 *Hub
-			var hub2 *Hub
-			var server1 *httptest.Server
-			var server2 *httptest.Server
-
-			if isLocalTest(t) {
-				_, _, _, hub1, _, server1 = CreateBackendServerForTest(t)
-
-				hub2 = hub1
-				server2 = server1
-			} else {
-				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
-			}
+			hub1, hub2, server1, server2 := createBackendServersForClusteredTest(t)
 
 			ctx, cancel := context.WithTimeout(ctx, testTimeout)
 			defer cancel()
@@ -1327,19 +1416,7 @@ func TestBackendServer_InCallAll(t *testing.T) {
 			ctx := log.NewLoggerContext(t.Context(), logger)
 			require := require.New(t)
 			assert := assert.New(t)
-			var hub1 *Hub
-			var hub2 *Hub
-			var server1 *httptest.Server
-			var server2 *httptest.Server
-
-			if isLocalTest(t) {
-				_, _, _, hub1, _, server1 = CreateBackendServerForTest(t)
-
-				hub2 = hub1
-				server2 = server1
-			} else {
-				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
-			}
+			hub1, hub2, server1, server2 := createBackendServersForClusteredTest(t)
 
 			ctx, cancel := context.WithTimeout(ctx, testTimeout)
 			defer cancel()
@@ -1487,46 +1564,129 @@ func TestBackendServer_InCallAll(t *testing.T) {
 
 func TestBackendServer_RoomMessage(t *testing.T) {
 	t.Parallel()
-	logger := logtest.NewLoggerForTest(t)
-	ctx := log.NewLoggerContext(t.Context(), logger)
-	require := require.New(t)
-	assert := assert.New(t)
-	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			assert := assert.New(t)
+			hub1, hub2, server1, server2 := createBackendServersForClusteredTest(t)
 
-	ctx, cancel := context.WithTimeout(ctx, testTimeout)
-	defer cancel()
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
 
-	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
-	defer client.CloseWithBye()
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
 
-	// Join room by id.
-	roomId := "test-room"
-	roomMsg := MustSucceed2(t, client.JoinRoom, ctx, roomId)
-	require.Equal(roomId, roomMsg.Room.RoomId)
+			// Join room by id.
+			roomId := "test-room"
+			roomMsg := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			require.Equal(roomId, roomMsg.Room.RoomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			require.Equal(roomId, roomMsg.Room.RoomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
 
-	// Ignore "join" events.
-	client.RunUntilJoined(ctx, hello.Hello)
+			messageData := json.RawMessage("{\"foo\":\"bar\"}")
+			msg := &talk.BackendServerRoomRequest{
+				Type: "message",
+				Message: &talk.BackendRoomMessageRequest{
+					Data: messageData,
+				},
+			}
 
-	messageData := json.RawMessage("{\"foo\":\"bar\"}")
-	msg := &talk.BackendServerRoomRequest{
-		Type: "message",
-		Message: &talk.BackendRoomMessageRequest{
-			Data: messageData,
-		},
+			data, err := json.Marshal(msg)
+			require.NoError(err)
+			res, err := performBackendRequest(server1.URL+"/api/v1/room/"+roomId, data)
+			require.NoError(err)
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			assert.NoError(err)
+			assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+			if message, ok := client1.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(roomId, message.RoomId)
+				assert.Equal(string(messageData), string(message.Data))
+			}
+			if message, ok := client2.RunUntilRoomMessage(ctx); ok {
+				assert.Equal(roomId, message.RoomId)
+				assert.Equal(string(messageData), string(message.Data))
+			}
+
+			// Each server only notifies its local sessions, so no duplicate
+			// events are sent.
+			assertNoMoreMessages(t, client1, client2)
+		})
 	}
+}
 
-	data, err := json.Marshal(msg)
-	require.NoError(err)
-	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
-	require.NoError(err)
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	assert.NoError(err)
-	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+func TestBackendServer_ParticipantsUpdateClients(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			assert := assert.New(t)
+			hub1, hub2, server1, server2 := createBackendServersForClusteredTest(t)
 
-	if message, ok := client.RunUntilRoomMessage(ctx); ok {
-		assert.Equal(roomId, message.RoomId)
-		assert.Equal(string(messageData), string(message.Data))
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
+
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			msg := &talk.BackendServerRoomRequest{
+				Type: "participants",
+				Participants: &talk.BackendRoomParticipantsRequest{
+					Changed: api.UserDataList{
+						{
+							"sessionId":   fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
+							"displayName": "Test user 1",
+						},
+					},
+				},
+			}
+
+			data, err := json.Marshal(msg)
+			require.NoError(err)
+			res, err := performBackendRequest(server2.URL+"/api/v1/room/"+roomId, data)
+			require.NoError(err)
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			assert.NoError(err)
+			assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+			for _, client := range []*TestClient{client1, client2} {
+				if message, ok := client.RunUntilMessage(ctx); ok {
+					if update, ok := checkMessageParticipantsInCall(t, message); ok {
+						assert.Equal(roomId, update.RoomId)
+						if assert.Len(update.Users, 1, "%+v", update) {
+							assert.EqualValues(hello1.Hello.SessionId, update.Users[0]["sessionId"])
+							assert.Equal("Test user 1", update.Users[0]["displayName"])
+						}
+					}
+				}
+			}
+
+			// Each server only notifies its local sessions, so no duplicate
+			// events are sent.
+			assertNoMoreMessages(t, client1, client2)
+		})
 	}
 }
 
@@ -2243,22 +2403,9 @@ func TestBackendServer_ParticipantsUpdateRaceAcrossCluster(t *testing.T) {
 			t.Parallel()
 			logger := logtest.NewLoggerForTest(t)
 			ctx := log.NewLoggerContext(t.Context(), logger)
-
 			require := require.New(t)
 			assert := assert.New(t)
-			var hub1 *Hub
-			var hub2 *Hub
-			var server1 *httptest.Server
-			var server2 *httptest.Server
-
-			if isLocalTest(t) {
-				_, _, _, hub1, _, server1 = CreateBackendServerForTest(t)
-
-				hub2 = hub1
-				server2 = server1
-			} else {
-				_, _, hub1, hub2, server1, server2 = CreateBackendServerWithClusteringForTest(t)
-			}
+			hub1, hub2, server1, server2 := createBackendServersForClusteredTest(t)
 
 			ctx, cancel := context.WithTimeout(ctx, testTimeout)
 			defer cancel()
