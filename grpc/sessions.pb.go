@@ -454,6 +454,7 @@ type VirtualSessionData struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SessionId     string                 `protobuf:"bytes,1,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
 	InCall        uint32                 `protobuf:"varint,2,opt,name=inCall,proto3" json:"inCall,omitempty"`
+	TalkUserData  map[string][]byte      `protobuf:"bytes,3,rep,name=talkUserData,proto3" json:"talkUserData,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -500,6 +501,13 @@ func (x *VirtualSessionData) GetInCall() uint32 {
 		return x.InCall
 	}
 	return 0
+}
+
+func (x *VirtualSessionData) GetTalkUserData() map[string][]byte {
+	if x != nil {
+		return x.TalkUserData
+	}
+	return nil
 }
 
 type GetInternalSessionsReply struct {
@@ -673,10 +681,14 @@ const file_grpc_sessions_proto_rawDesc = "" +
 	"\x13InternalSessionData\x12\x1c\n" +
 	"\tsessionId\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
 	"\x06inCall\x18\x02 \x01(\rR\x06inCall\x12\x1a\n" +
-	"\bfeatures\x18\x03 \x03(\tR\bfeatures\"J\n" +
+	"\bfeatures\x18\x03 \x03(\tR\bfeatures\"\xdb\x01\n" +
 	"\x12VirtualSessionData\x12\x1c\n" +
 	"\tsessionId\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
-	"\x06inCall\x18\x02 \x01(\rR\x06inCall\"\xa5\x01\n" +
+	"\x06inCall\x18\x02 \x01(\rR\x06inCall\x12N\n" +
+	"\ftalkUserData\x18\x03 \x03(\v2*.grpc.VirtualSessionData.TalkUserDataEntryR\ftalkUserData\x1a?\n" +
+	"\x11TalkUserDataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\xa5\x01\n" +
 	"\x18GetInternalSessionsReply\x12E\n" +
 	"\x10internalSessions\x18\x01 \x03(\v2\x19.grpc.InternalSessionDataR\x10internalSessions\x12B\n" +
 	"\x0fvirtualSessions\x18\x02 \x03(\v2\x18.grpc.VirtualSessionDataR\x0fvirtualSessions\"0\n" +
@@ -703,7 +715,7 @@ func file_grpc_sessions_proto_rawDescGZIP() []byte {
 	return file_grpc_sessions_proto_rawDescData
 }
 
-var file_grpc_sessions_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_grpc_sessions_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_grpc_sessions_proto_goTypes = []any{
 	(*LookupResumeIdRequest)(nil),      // 0: grpc.LookupResumeIdRequest
 	(*LookupResumeIdReply)(nil),        // 1: grpc.LookupResumeIdReply
@@ -717,25 +729,27 @@ var file_grpc_sessions_proto_goTypes = []any{
 	(*GetInternalSessionsReply)(nil),   // 9: grpc.GetInternalSessionsReply
 	(*ClientSessionMessage)(nil),       // 10: grpc.ClientSessionMessage
 	(*ServerSessionMessage)(nil),       // 11: grpc.ServerSessionMessage
+	nil,                                // 12: grpc.VirtualSessionData.TalkUserDataEntry
 }
 var file_grpc_sessions_proto_depIdxs = []int32{
-	7,  // 0: grpc.GetInternalSessionsReply.internalSessions:type_name -> grpc.InternalSessionData
-	8,  // 1: grpc.GetInternalSessionsReply.virtualSessions:type_name -> grpc.VirtualSessionData
-	0,  // 2: grpc.RpcSessions.LookupResumeId:input_type -> grpc.LookupResumeIdRequest
-	2,  // 3: grpc.RpcSessions.LookupSessionId:input_type -> grpc.LookupSessionIdRequest
-	4,  // 4: grpc.RpcSessions.IsSessionInCall:input_type -> grpc.IsSessionInCallRequest
-	6,  // 5: grpc.RpcSessions.GetInternalSessions:input_type -> grpc.GetInternalSessionsRequest
-	10, // 6: grpc.RpcSessions.ProxySession:input_type -> grpc.ClientSessionMessage
-	1,  // 7: grpc.RpcSessions.LookupResumeId:output_type -> grpc.LookupResumeIdReply
-	3,  // 8: grpc.RpcSessions.LookupSessionId:output_type -> grpc.LookupSessionIdReply
-	5,  // 9: grpc.RpcSessions.IsSessionInCall:output_type -> grpc.IsSessionInCallReply
-	9,  // 10: grpc.RpcSessions.GetInternalSessions:output_type -> grpc.GetInternalSessionsReply
-	11, // 11: grpc.RpcSessions.ProxySession:output_type -> grpc.ServerSessionMessage
-	7,  // [7:12] is the sub-list for method output_type
-	2,  // [2:7] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	12, // 0: grpc.VirtualSessionData.talkUserData:type_name -> grpc.VirtualSessionData.TalkUserDataEntry
+	7,  // 1: grpc.GetInternalSessionsReply.internalSessions:type_name -> grpc.InternalSessionData
+	8,  // 2: grpc.GetInternalSessionsReply.virtualSessions:type_name -> grpc.VirtualSessionData
+	0,  // 3: grpc.RpcSessions.LookupResumeId:input_type -> grpc.LookupResumeIdRequest
+	2,  // 4: grpc.RpcSessions.LookupSessionId:input_type -> grpc.LookupSessionIdRequest
+	4,  // 5: grpc.RpcSessions.IsSessionInCall:input_type -> grpc.IsSessionInCallRequest
+	6,  // 6: grpc.RpcSessions.GetInternalSessions:input_type -> grpc.GetInternalSessionsRequest
+	10, // 7: grpc.RpcSessions.ProxySession:input_type -> grpc.ClientSessionMessage
+	1,  // 8: grpc.RpcSessions.LookupResumeId:output_type -> grpc.LookupResumeIdReply
+	3,  // 9: grpc.RpcSessions.LookupSessionId:output_type -> grpc.LookupSessionIdReply
+	5,  // 10: grpc.RpcSessions.IsSessionInCall:output_type -> grpc.IsSessionInCallReply
+	9,  // 11: grpc.RpcSessions.GetInternalSessions:output_type -> grpc.GetInternalSessionsReply
+	11, // 12: grpc.RpcSessions.ProxySession:output_type -> grpc.ServerSessionMessage
+	8,  // [8:13] is the sub-list for method output_type
+	3,  // [3:8] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_grpc_sessions_proto_init() }
@@ -749,7 +763,7 @@ func file_grpc_sessions_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_grpc_sessions_proto_rawDesc), len(file_grpc_sessions_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
