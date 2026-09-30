@@ -14,7 +14,7 @@ require (
 	github.com/nats-io/nats.go v1.53.1
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
 	github.com/oschwald/maxminddb-golang v1.13.1
-	github.com/pion/ice/v4 v4.4.3
+	github.com/pion/ice/v4 v4.4.4
 	github.com/pion/sdp/v3 v3.0.20
 	github.com/pquerna/cachecontrol v0.2.0
 	github.com/prometheus/client_golang v1.24.1
@@ -59,7 +59,7 @@ require (
 	github.com/pion/mdns/v2 v2.2.1 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/stun/v4 v4.0.1 // indirect
-	github.com/pion/transport/v5 v5.0.0 // indirect
+	github.com/pion/transport/v5 v5.0.1 // indirect
 	github.com/pion/turn/v5 v5.1.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.1 // indirect
