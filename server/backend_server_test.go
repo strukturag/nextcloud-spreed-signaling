@@ -1121,23 +1121,16 @@ func TestBackendServer_ParticipantsUpdateWithPermissions(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
 
+	// Updates will only be sent out for changed sessions (and sessions in a call),
+	// so the first session is not sent again.
 	if msg, ok := client1.RunUntilMessage(ctx); ok {
 		if checkMessageType(t, msg, "event") &&
 			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
 			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
 			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
-			assert.Len(msg.Event.Update.Users, 2) {
-			if string(hello1.Hello.SessionId) == msg.Event.Update.Users[0]["sessionId"] {
-				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
-				assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
-				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
-				assert.Equal("Test user 2", msg.Event.Update.Users[1]["displayName"])
-			} else {
-				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
-				assert.Equal("Test user 1", msg.Event.Update.Users[1]["displayName"])
-				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
-				assert.Equal("Test user 2", msg.Event.Update.Users[0]["displayName"])
-			}
+			assert.Len(msg.Event.Update.Users, 1) {
+			assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+			assert.Equal("Test user 2", msg.Event.Update.Users[0]["displayName"])
 		}
 	}
 	if msg, ok := client2.RunUntilMessage(ctx); ok {
@@ -1145,18 +1138,9 @@ func TestBackendServer_ParticipantsUpdateWithPermissions(t *testing.T) {
 			assert.Equal("participants", msg.Event.Target, "invalid event target in %+v", msg) &&
 			assert.Equal("update", msg.Event.Type, "invalid event type in %+v", msg) &&
 			assert.Equal(roomId, msg.Event.Update.RoomId, "invalid room id in %+v", msg) &&
-			assert.Len(msg.Event.Update.Users, 2) {
-			if string(hello1.Hello.SessionId) == msg.Event.Update.Users[0]["sessionId"] {
-				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
-				assert.Equal("Test user 1", msg.Event.Update.Users[0]["displayName"])
-				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
-				assert.Equal("Test user 2", msg.Event.Update.Users[1]["displayName"])
-			} else {
-				assert.EqualValues(hello1.Hello.SessionId, msg.Event.Update.Users[1]["sessionId"])
-				assert.Equal("Test user 1", msg.Event.Update.Users[1]["displayName"])
-				assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
-				assert.Equal("Test user 2", msg.Event.Update.Users[0]["displayName"])
-			}
+			assert.Len(msg.Event.Update.Users, 1) {
+			assert.EqualValues(hello2.Hello.SessionId, msg.Event.Update.Users[0]["sessionId"])
+			assert.Equal("Test user 2", msg.Event.Update.Users[0]["displayName"])
 		}
 	}
 
