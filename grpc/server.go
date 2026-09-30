@@ -191,8 +191,6 @@ func (s *Server) IsSessionInCall(ctx context.Context, request *IsSessionInCallRe
 
 func (s *Server) GetInternalSessions(ctx context.Context, request *GetInternalSessionsRequest) (*GetInternalSessionsReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetInternalSessions").Inc()
-	// TODO: Remove debug logging
-	s.logger.Printf("Get internal sessions from %s on %v (fallback %s)", request.RoomId, request.BackendUrls, request.BackendUrl) // nolint
 
 	var backendUrls []string
 	if len(request.BackendUrls) > 0 {
@@ -203,6 +201,9 @@ func (s *Server) GetInternalSessions(ctx context.Context, request *GetInternalSe
 		// Only compat backend.
 		backendUrls = []string{""}
 	}
+
+	// TODO: Remove debug logging
+	s.logger.Printf("Get internal sessions from %s on %v (fallback %s)", request.RoomId, backendUrls, request.BackendUrl) // nolint
 
 	result := &GetInternalSessionsReply{}
 	processed := make(map[string]bool)
