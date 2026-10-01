@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -88,6 +89,8 @@ type Room struct {
 	// +checklocks:mu
 	virtualSessions map[*VirtualSession]bool
 	// +checklocks:mu
+	virtualSessionData map[api.PublicSessionId]api.UserData
+	// +checklocks:mu
 	inCallSessions map[Session]bool
 	// +checklocks:mu
 	roomSessionData map[api.PublicSessionId]*talk.RoomSessionData
@@ -103,7 +106,7 @@ type Room struct {
 
 	// Users currently in the room
 	// +checklocks:mu
-	users []api.StringMap
+	users api.UserDataMap
 
 	// Timestamps of last backend requests for the different types.
 	lastRoomRequests map[string]int64
@@ -134,10 +137,11 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		asyncCh:  make(events.AsyncChannel, events.DefaultAsyncChannelSize),
 		sessions: make(map[api.PublicSessionId]Session),
 
-		internalSessions: make(map[*ClientSession]bool),
-		virtualSessions:  make(map[*VirtualSession]bool),
-		inCallSessions:   make(map[Session]bool),
-		roomSessionData:  make(map[api.PublicSessionId]*talk.RoomSessionData),
+		internalSessions:   make(map[*ClientSession]bool),
+		virtualSessions:    make(map[*VirtualSession]bool),
+		virtualSessionData: make(map[api.PublicSessionId]api.UserData),
+		inCallSessions:     make(map[Session]bool),
+		roomSessionData:    make(map[api.PublicSessionId]*talk.RoomSessionData),
 
 		statsRoomSessionsCurrent: statsRoomSessionsCurrent.MustCurryWith(prometheus.Labels{
 			"backend": backend.Id(),
@@ -151,6 +155,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 			"backend": backend.Id(),
 		}),
 		statsCallRoomsTotal: statsCallRoomsTotal.WithLabelValues(backend.Id()),
+		users:               make(api.UserDataMap),
 
 		lastRoomRequests: make(map[string]int64),
 
@@ -245,6 +250,7 @@ func (r *Room) Close() []Session {
 		result = append(result, s)
 	}
 	r.sessions = nil
+	r.users = nil
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeClient)})
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeFederation)})
 	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeInternal)})
@@ -324,9 +330,6 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *events.AsyncRoomMessa
 	switch message.Type {
 	case "sessionjoined":
 		r.notifySessionJoined(message.SessionId)
-		if message.ClientType == api.HelloClientTypeInternal {
-			r.publishUsersChangedWithInternal()
-		}
 	default:
 		r.logger.Printf("Unsupported async room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
@@ -360,6 +363,7 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 			panic(fmt.Sprintf("Expected a client session, got %v (%T)", session, session))
 		}
 		r.internalSessions[clientSession] = true
+		publishUsersChanged = true
 	case api.HelloClientTypeVirtual:
 		virtualSession, ok := session.(*VirtualSession)
 		if !ok {
@@ -573,18 +577,9 @@ func (r *Room) RemoveSession(session Session) bool {
 	sid := session.PublicId()
 	r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": string(session.ClientType())}).Dec()
 	delete(r.sessions, sid)
+	r.removeUserLocked(sid)
 	if virtualSession, ok := session.(*VirtualSession); ok {
 		delete(r.virtualSessions, virtualSession)
-		// Handle case where virtual session was also sent by Nextcloud.
-		users := make([]api.StringMap, 0, len(r.users))
-		for _, u := range r.users {
-			if value, found := api.GetStringMapString[api.PublicSessionId](u, "sessionId"); !found || value != sid {
-				users = append(users, u)
-			}
-		}
-		if len(users) != len(r.users) {
-			r.users = users
-		}
 	}
 	if clientSession, ok := session.(*ClientSession); ok {
 		delete(r.internalSessions, clientSession)
@@ -624,24 +619,58 @@ func (r *Room) publish(message *api.ServerMessage) error {
 	})
 }
 
-func (r *Room) UpdateProperties(properties json.RawMessage) {
+func (r *Room) getSessions() []Session {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return slices.Collect(maps.Values(r.sessions))
+}
+
+func (r *Room) publishLocal(message *api.ServerMessage) (err error) {
+	sessions := r.getSessions()
+	if len(sessions) == 0 {
+		return nil
+	}
+
+	var wg sync.WaitGroup
+	for _, session := range sessions {
+		wg.Go(func() {
+			if !session.SendMessage(message) {
+				r.logger.Printf("error sending %+v to session %s in room %s", message, session.PublicId(), r.Id())
+			}
+		})
+	}
+	wg.Wait()
+
+	return nil
+}
+
+func (r *Room) doUpdateProperties(properties json.RawMessage) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if (len(r.properties) == 0 && len(properties) == 0) ||
 		(len(r.properties) > 0 && len(properties) > 0 && bytes.Equal(r.properties, properties)) {
 		// Don't notify if properties didn't change.
-		return
+		return false
 	}
 
 	r.properties = properties
+	return true
+}
+
+func (r *Room) UpdateProperties(properties json.RawMessage) {
+	if !r.doUpdateProperties(properties) {
+		return
+	}
+
 	message := &api.ServerMessage{
 		Type: "room",
 		Room: &api.RoomServerMessage{
 			RoomId:     r.id,
-			Properties: r.properties,
+			Properties: properties,
 		},
 	}
-	if err := r.publish(message); err != nil {
+	if err := r.publishLocal(message); err != nil {
 		r.logger.Printf("Could not publish update properties message in room %s: %s", r.Id(), err)
 	}
 }
@@ -751,30 +780,72 @@ func (r *Room) getClusteredInternalSessionsRLocked() (internal map[api.PublicSes
 	return
 }
 
-func (r *Room) addInternalSessions(users []api.StringMap) []api.StringMap {
+func (r *Room) GetInternalSessions() ([]*grpc.InternalSessionData, []*grpc.VirtualSessionData, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return r.addInternalSessionsLocked(users)
+	var internalSessions []*grpc.InternalSessionData
+	if l := len(r.internalSessions); l > 0 {
+		internalSessions = make([]*grpc.InternalSessionData, 0, l)
+		for session := range r.internalSessions {
+			internalSessions = append(internalSessions, &grpc.InternalSessionData{
+				SessionId: string(session.PublicId()),
+				InCall:    uint32(session.GetInCall()),
+				Features:  session.GetFeatures(),
+			})
+		}
+	}
+
+	var virtualSessions []*grpc.VirtualSessionData
+	if l := len(r.virtualSessions); l > 0 {
+		virtualSessions = make([]*grpc.VirtualSessionData, 0, l)
+		for session := range r.virtualSessions {
+			sd := &grpc.VirtualSessionData{
+				SessionId: string(session.PublicId()),
+				InCall:    uint32(session.GetInCall()),
+			}
+			if vdata, found := r.virtualSessionData[session.PublicId()]; found {
+				sd.TalkUserData = make(map[string][]byte, len(vdata))
+				for k, v := range vdata {
+					data, err := json.Marshal(v)
+					if err != nil {
+						r.logger.Printf("Could not serialize %s of virtual session %s: %s", k, session.PublicId(), err)
+						continue
+					}
+					sd.TalkUserData[k] = data
+				}
+			}
+			virtualSessions = append(virtualSessions, sd)
+		}
+	}
+
+	return internalSessions, virtualSessions, true
+}
+
+func (r *Room) addInternalSessions(users api.UserDataList, includeClustered bool) api.UserDataList {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.addInternalSessionsLocked(users, includeClustered)
 }
 
 // +checklocksread:r.mu
-func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap {
+func (r *Room) addInternalSessionsLocked(users []api.StringMap, includeClustered bool) []api.StringMap {
 	now := time.Now().Unix()
-	if len(users) == 0 && len(r.internalSessions) == 0 && len(r.virtualSessions) == 0 {
+	if !includeClustered && len(users) == 0 && len(r.internalSessions) == 0 && len(r.virtualSessions) == 0 {
 		return users
 	}
 
 	clusteredInternalSessions, clusteredVirtualSessions := r.getClusteredInternalSessionsRLocked()
 
 	// Local sessions might have changed while waiting for clustered information.
-	if len(users) == 0 && len(r.internalSessions) == 0 && len(r.virtualSessions) == 0 {
+	if !includeClustered && len(users) == 0 && len(r.internalSessions) == 0 && len(r.virtualSessions) == 0 {
 		return users
 	}
 
 	skipSession := make(map[api.PublicSessionId]bool)
 	for _, user := range users {
-		sessionid, found := api.GetStringMapString[api.PublicSessionId](user, "sessionId")
+		sessionid, found := user.SessionId()
 		if !found || sessionid == "" {
 			continue
 		}
@@ -799,7 +870,7 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap 
 		}
 	}
 	for session := range r.internalSessions {
-		u := api.StringMap{
+		u := api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.PublicId(),
 			"lastPing":  now,
@@ -811,7 +882,7 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap 
 		users = append(users, u)
 	}
 	for _, session := range clusteredInternalSessions {
-		u := api.StringMap{
+		u := api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.GetSessionId(),
 			"lastPing":  now,
@@ -828,29 +899,42 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap) []api.StringMap 
 			continue
 		}
 		skipSession[sid] = true
-		users = append(users, api.StringMap{
+		userdata := api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
 			"virtual":   true,
-		})
+		}
+		if ud, found := r.virtualSessionData[sid]; found {
+			maps.Copy(userdata, ud)
+		}
+		users = append(users, userdata)
 	}
 	for sid, session := range clusteredVirtualSessions {
 		if skipSession[sid] {
 			continue
 		}
 
-		users = append(users, api.StringMap{
+		userdata := api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": sid,
 			"lastPing":  now,
 			"virtual":   true,
-		})
+		}
+		for k, v := range session.GetTalkUserData() {
+			var value any
+			if err := json.Unmarshal(v, &value); err != nil {
+				r.logger.Printf("Could not deserialize %s of virtual session %s: %s", k, sid, err)
+				continue
+			}
+			userdata[k] = value
+		}
+		users = append(users, userdata)
 	}
 	return users
 }
 
-func (r *Room) filterPermissions(users []api.StringMap) []api.StringMap {
+func (r *Room) filterPermissions(users api.UserDataList) api.UserDataList {
 	for _, user := range users {
 		delete(user, "permissions")
 	}
@@ -877,17 +961,68 @@ func IsInCall(value any) (bool, bool) {
 	}
 }
 
-func (r *Room) setUsers(users []api.StringMap) {
+func (r *Room) addUser(sessionId api.PublicSessionId, user api.UserData) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.users = users
+	r.users[sessionId] = user
 }
 
-func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.StringMap) {
-	r.setUsers(users)
+func (r *Room) removeUsers(sessionIds ...api.PublicSessionId) {
+	if len(sessionIds) == 0 {
+		return
+	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, sid := range sessionIds {
+		r.removeUserLocked(sid)
+	}
+}
+
+// +checklocks:r.mu
+func (r *Room) removeUserLocked(sessionId api.PublicSessionId) {
+	delete(r.users, sessionId)
+}
+
+func (r *Room) setVirtualSessionData(sessionId api.PublicSessionId, data api.UserData) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delete(data, "inCall")
+	if len(data) > 0 {
+		r.virtualSessionData[sessionId] = data
+	} else {
+		delete(r.virtualSessionData, sessionId)
+	}
+}
+
+func (r *Room) isVirtualSessionId(sessionId api.PublicSessionId) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for vsess := range r.virtualSessions {
+		if vsess.PublicId() == sessionId {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
+	var toRemove []api.PublicSessionId
 	for _, user := range changed {
+		sessionId, found := user.SessionId()
+		if !found {
+			// TODO: Do we still need this fallback?
+			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
+			if !found {
+				continue
+			}
+		}
+
 		inCallInterface, found := user["inCall"]
 		if !found {
 			continue
@@ -897,12 +1032,15 @@ func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.St
 			continue
 		}
 
-		sessionId, found := api.GetStringMapString[api.PublicSessionId](user, "sessionId")
-		if !found {
-			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
-			if !found {
-				continue
-			}
+		if inCall {
+			r.addUser(sessionId, user)
+		} else {
+			toRemove = append(toRemove, sessionId)
+		}
+
+		if r.isVirtualSessionId(sessionId) {
+			r.setVirtualSessionData(sessionId, user)
+			continue
 		}
 
 		session := r.hub.GetSessionByPublicId(sessionId)
@@ -922,8 +1060,15 @@ func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.St
 		}
 	}
 
+	r.removeUsers(toRemove...)
+
 	changed = r.filterPermissions(changed)
-	users = r.filterPermissions(users)
+	// TODO: Do we still need the whole list of users to send to all participants?
+	users := r.filterPermissions(r.getUsers())
+	// Always include clustered sessions, the local room might not
+	// know about any sessions in the call.
+	users = r.addInternalSessions(users, true)
+	mergeVirtualSessionData(users, changed)
 
 	message := &api.ServerMessage{
 		Type: "event",
@@ -933,12 +1078,55 @@ func (r *Room) PublishUsersInCallChanged(changed []api.StringMap, users []api.St
 			Update: &api.RoomEventServerMessage{
 				RoomId:  r.id,
 				Changed: changed,
-				Users:   r.addInternalSessions(users),
+				Users:   users,
 			},
 		},
 	}
-	if err := r.publish(message); err != nil {
+	if err := r.publishLocal(message); err != nil {
 		r.logger.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+	}
+}
+
+// mergeVirtualSessionData updates virtual sessions in "users" with the data
+// from "changed". The data of clustered virtual sessions might not have been
+// updated on the remote server yet.
+func mergeVirtualSessionData(users api.UserDataList, changed api.UserDataList) {
+	if len(users) == 0 || len(changed) == 0 {
+		return
+	}
+
+	data := make(map[api.PublicSessionId]api.UserData, len(changed))
+	for _, user := range changed {
+		if sid, found := user.SessionId(); found {
+			data[sid] = user
+		}
+	}
+
+	for _, user := range users {
+		if virtual, _ := user["virtual"].(bool); !virtual {
+			continue
+		}
+
+		sid, found := user.SessionId()
+		if !found {
+			continue
+		}
+
+		ud, found := data[sid]
+		if !found {
+			continue
+		}
+
+		for k, v := range ud {
+			switch k {
+			case "inCall":
+				// The "inCall" state of virtual sessions is managed by the
+				// internal client.
+			case "sessionId":
+			default:
+				user[k] = v
+			}
+		}
 	}
 }
 
@@ -986,6 +1174,8 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 			notify = append(notify, clientSession)
 		}
 
+		clear(r.users)
+
 		// Perform actual leaving asynchronously.
 		go func(sessions map[Session]bool) {
 			for session := range sessions {
@@ -1024,9 +1214,41 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 	}
 }
 
-func (r *Room) PublishUsersChanged(changed []api.StringMap, users []api.StringMap) {
+func isUserInCall(user api.UserData) bool {
+	inCallInterface, found := user["inCall"]
+	if !found {
+		return false
+	}
+
+	inCall, ok := IsInCall(inCallInterface)
+	if !ok {
+		return false
+	}
+
+	return inCall
+}
+
+func (r *Room) PublishUsersChanged(changed api.UserDataList) {
+	for _, user := range changed {
+		sessionId, found := user.SessionId()
+		if !found {
+			// TODO: Do we still need this fallback?
+			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
+			if !found {
+				continue
+			}
+		}
+
+		if !isUserInCall(user) {
+			continue
+		}
+
+		r.addUser(sessionId, user)
+	}
+
 	changed = r.filterPermissions(changed)
-	users = r.filterPermissions(users)
+	// TODO: Do we still need the whole list of users to send to all participants?
+	users := r.filterPermissions(r.getUsers())
 
 	message := &api.ServerMessage{
 		Type: "event",
@@ -1036,20 +1258,24 @@ func (r *Room) PublishUsersChanged(changed []api.StringMap, users []api.StringMa
 			Update: &api.RoomEventServerMessage{
 				RoomId:  r.id,
 				Changed: changed,
-				Users:   r.addInternalSessions(users),
+				Users:   r.addInternalSessions(users, len(changed) > 0),
 			},
 		},
 	}
-	if err := r.publish(message); err != nil {
+	if err := r.publishLocal(message); err != nil {
 		r.logger.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
 	}
 }
 
-func (r *Room) getParticipantsUpdateMessage() *api.ServerMessage {
+func (r *Room) getUsers() api.UserDataList {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	users := r.filterPermissions(r.users)
+	return r.users.Users().Clone()
+}
+
+func (r *Room) getParticipantsUpdateMessage(includeClustered bool) *api.ServerMessage {
+	users := r.filterPermissions(r.getUsers())
 
 	message := &api.ServerMessage{
 		Type: "event",
@@ -1058,7 +1284,7 @@ func (r *Room) getParticipantsUpdateMessage() *api.ServerMessage {
 			Type:   "update",
 			Update: &api.RoomEventServerMessage{
 				RoomId: r.id,
-				Users:  r.addInternalSessionsLocked(users),
+				Users:  r.addInternalSessions(users, includeClustered),
 			},
 		},
 	}
@@ -1066,7 +1292,9 @@ func (r *Room) getParticipantsUpdateMessage() *api.ServerMessage {
 }
 
 func (r *Room) NotifySessionResumed(session *ClientSession) {
-	message := r.getParticipantsUpdateMessage()
+	// Always include clustered sessions, the local room might not know about
+	// any sessions in the call.
+	message := r.getParticipantsUpdateMessage(true)
 	if len(message.Event.Update.Users) == 0 {
 		return
 	}
@@ -1112,7 +1340,7 @@ func (r *Room) NotifySessionChanged(session Session, flags SessionChangeFlag) {
 }
 
 func (r *Room) publishUsersChangedWithInternal() {
-	message := r.getParticipantsUpdateMessage()
+	message := r.getParticipantsUpdateMessage(false)
 	if len(message.Event.Update.Users) == 0 {
 		return
 	}
@@ -1235,9 +1463,17 @@ func (r *Room) publishRoomMessage(message *talk.BackendRoomMessageRequest) {
 			},
 		},
 	}
-	if err := r.publish(msg); err != nil {
+	if err := r.publishLocal(msg); err != nil {
 		r.logger.Printf("Could not publish room message in room %s: %s", r.Id(), err)
 	}
+}
+
+func (r *Room) getClientSession(sessionId api.PublicSessionId) *ClientSession {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	session, _ := r.sessions[sessionId].(*ClientSession)
+	return session
 }
 
 func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) {
@@ -1255,12 +1491,14 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 		}
 
 		for _, sessionId := range message.SessionsList {
+			session := r.getClientSession(sessionId)
+			if session == nil {
+				continue
+			}
+
 			wg.Go(func() {
-				if err := r.events.PublishSessionMessage(sessionId, r.backend, &events.AsyncMessage{
-					Type:    "message",
-					Message: msg,
-				}); err != nil {
-					r.logger.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
+				if !session.SendMessage(msg) {
+					r.logger.Printf("Error sending switchto event to session %s", sessionId)
 				}
 			})
 		}
@@ -1268,6 +1506,11 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 
 	if len(message.SessionsMap) > 0 {
 		for sessionId, details := range message.SessionsMap {
+			session := r.getClientSession(sessionId)
+			if session == nil {
+				continue
+			}
+
 			wg.Go(func() {
 				msg := &api.ServerMessage{
 					Type: "event",
@@ -1281,11 +1524,8 @@ func (r *Room) publishSwitchTo(message *talk.BackendRoomSwitchToMessageRequest) 
 					},
 				}
 
-				if err := r.events.PublishSessionMessage(sessionId, r.backend, &events.AsyncMessage{
-					Type:    "message",
-					Message: msg,
-				}); err != nil {
-					r.logger.Printf("Error publishing switchto event to session %s: %s", sessionId, err)
+				if !session.SendMessage(msg) {
+					r.logger.Printf("Error sending switchto event to session %s", sessionId)
 				}
 			})
 		}

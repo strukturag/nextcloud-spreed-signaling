@@ -110,42 +110,32 @@ type BackendServerRoomRequest struct {
 }
 
 type BackendRoomInviteRequest struct {
-	UserIds []string `json:"userids,omitempty"`
-	// TODO(jojo): We should get rid of "AllUserIds" and find a better way to
-	// notify existing users the room has changed and they need to update it.
-	AllUserIds []string        `json:"alluserids,omitempty"`
+	UserIds    []string        `json:"userids,omitempty"`
 	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 type BackendRoomDisinviteRequest struct {
 	UserIds    []string            `json:"userids,omitempty"`
 	SessionIds []api.RoomSessionId `json:"sessionids,omitempty"`
-	// TODO(jojo): We should get rid of "AllUserIds" and find a better way to
-	// notify existing users the room has changed and they need to update it.
-	AllUserIds []string        `json:"alluserids,omitempty"`
-	Properties json.RawMessage `json:"properties,omitempty"`
+	Properties json.RawMessage     `json:"properties,omitempty"`
 }
 
 type BackendRoomUpdateRequest struct {
-	UserIds    []string        `json:"userids,omitempty"`
 	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 type BackendRoomDeleteRequest struct {
-	UserIds []string `json:"userids,omitempty"`
 }
 
 type BackendRoomInCallRequest struct {
 	// TODO(jojo): Change "InCall" to "int" when #914 has landed in NC Talk.
-	InCall  json.RawMessage `json:"incall,omitempty"`
-	All     bool            `json:"all,omitempty"`
-	Changed []api.StringMap `json:"changed,omitempty"`
-	Users   []api.StringMap `json:"users,omitempty"`
+	InCall  json.RawMessage  `json:"incall,omitempty"`
+	All     bool             `json:"all,omitempty"`
+	Changed api.UserDataList `json:"changed,omitempty"`
 }
 
 type BackendRoomParticipantsRequest struct {
-	Changed []api.StringMap `json:"changed,omitempty"`
-	Users   []api.StringMap `json:"users,omitempty"`
+	Changed api.UserDataList `json:"changed,omitempty"`
 }
 
 type BackendRoomMessageRequest struct {

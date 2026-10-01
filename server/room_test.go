@@ -112,9 +112,6 @@ func TestRoom_Update(t *testing.T) {
 	msg := &talk.BackendServerRoomRequest{
 		Type: "update",
 		Update: &talk.BackendRoomUpdateRequest{
-			UserIds: []string{
-				testDefaultUserId,
-			},
 			Properties: roomProperties,
 		},
 	}
@@ -204,12 +201,8 @@ func TestRoom_Delete(t *testing.T) {
 
 	// Simulate backend request from Nextcloud to update the room.
 	msg := &talk.BackendServerRoomRequest{
-		Type: "delete",
-		Delete: &talk.BackendRoomDeleteRequest{
-			UserIds: []string{
-				testDefaultUserId,
-			},
-		},
+		Type:   "delete",
+		Delete: &talk.BackendRoomDeleteRequest{},
 	}
 
 	data, err := json.Marshal(msg)
@@ -228,12 +221,18 @@ func TestRoom_Delete(t *testing.T) {
 		// Ordering should be "leave room", "disinvited".
 		checkMessageRoomId(t, message1, "")
 		if message2, ok := client.RunUntilMessage(ctx); ok {
-			checkMessageRoomlistDisinvite(t, message2)
+			if msg, ok := checkMessageRoomlistDisinvite(t, message2); ok {
+				assert.Equal(roomId, msg.RoomId)
+				assert.Equal(api.DisinviteReasonDeleted, msg.Reason)
+			}
 		}
 		client.RunUntilClosed(ctx)
 	} else {
 		// Ordering should be "disinvited", "leave room".
-		checkMessageRoomlistDisinvite(t, message1)
+		if msg, ok := checkMessageRoomlistDisinvite(t, message1); ok {
+			assert.Equal(roomId, msg.RoomId)
+			assert.Equal(api.DisinviteReasonDeleted, msg.Reason)
+		}
 		// The connection should get closed after the "disinvited".
 		// However due to the asynchronous processing, the "leave room" message might be received before.
 		if message2, ok := client.RunUntilMessageOrClosed(ctx); ok && message2 != nil {
@@ -400,16 +399,6 @@ func TestRoom_InCall(t *testing.T) {
 					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
 				},
 			},
-			Users: []api.StringMap{
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
-				},
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
-				},
-			},
 		},
 	}
 
@@ -425,11 +414,9 @@ func TestRoom_InCall(t *testing.T) {
 	if msg, ok := client1.RunUntilMessage(ctx); ok {
 		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
 			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 2) {
+			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
 				assert.EqualValues(FlagInCall, message.Users[0]["inCall"])
-				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
-				assert.EqualValues(0, message.Users[1]["inCall"])
 			}
 		}
 	}
@@ -437,11 +424,9 @@ func TestRoom_InCall(t *testing.T) {
 	if msg, ok := client2.RunUntilMessage(ctx); ok {
 		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
 			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 2) {
+			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
 				assert.EqualValues(FlagInCall, message.Users[0]["inCall"])
-				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
-				assert.EqualValues(0, message.Users[1]["inCall"])
 			}
 		}
 	}
@@ -453,16 +438,6 @@ func TestRoom_InCall(t *testing.T) {
 			Changed: []api.StringMap{
 				{
 					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
-				},
-			},
-			Users: []api.StringMap{
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
-				},
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId),
 					"inCall":    json.RawMessage(strconv.FormatInt(0, 10)),
 				},
 			},
@@ -481,11 +456,9 @@ func TestRoom_InCall(t *testing.T) {
 	if msg, ok := client1.RunUntilMessage(ctx); ok {
 		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
 			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 2) {
+			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
 				assert.EqualValues(0, message.Users[0]["inCall"])
-				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
-				assert.EqualValues(0, message.Users[1]["inCall"])
 			}
 		}
 	}
@@ -493,11 +466,9 @@ func TestRoom_InCall(t *testing.T) {
 	if msg, ok := client2.RunUntilMessage(ctx); ok {
 		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
 			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 2) {
+			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
 				assert.EqualValues(0, message.Users[0]["inCall"])
-				assert.EqualValues(hello2.Hello.SessionId, message.Users[1]["sessionId"])
-				assert.EqualValues(0, message.Users[1]["inCall"])
 			}
 		}
 	}
@@ -624,7 +595,14 @@ func TestRoom_InCallAllLeave(t *testing.T) {
 	roomMsg = MustSucceed2(t, client2.JoinRoom, ctx, roomId)
 	require.Equal(roomId, roomMsg.Room.RoomId)
 
-	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+	// The participants update of the internal session could be received
+	// before the "join" event of the other session.
+	_, unexpected, _ := client2.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello)
+	if len(unexpected) == 0 {
+		if msg, ok := client2.RunUntilMessage(ctx); ok {
+			unexpected = append(unexpected, msg)
+		}
+	}
 
 	client1.RunUntilJoined(ctx, hello2.Hello)
 
@@ -638,8 +616,8 @@ func TestRoom_InCallAllLeave(t *testing.T) {
 		}
 	}
 
-	if msg, ok := client2.RunUntilMessage(ctx); ok {
-		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
+	if assert.Len(unexpected, 1) {
+		if message, ok := checkMessageParticipantsInCall(t, unexpected[0]); ok {
 			assert.Equal(roomId, message.RoomId)
 			if assert.Len(message.Users, 1) {
 				assert.EqualValues(hello2.Hello.SessionId, message.Users[0]["sessionId"])
@@ -653,12 +631,6 @@ func TestRoom_InCallAllLeave(t *testing.T) {
 		InCall: &talk.BackendRoomInCallRequest{
 			InCall: json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
 			Changed: []api.StringMap{
-				{
-					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
-					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
-				},
-			},
-			Users: []api.StringMap{
 				{
 					"sessionId": fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 					"inCall":    json.RawMessage(strconv.FormatInt(FlagInCall, 10)),
@@ -731,13 +703,9 @@ func TestRoom_InCallAllLeave(t *testing.T) {
 		client1.checkMessageRoomLeave(msg, hello2.Hello)
 	}
 
-	if msg, ok := client1.RunUntilMessage(ctx); ok {
-		if message, ok := checkMessageParticipantsInCall(t, msg); ok {
-			assert.Equal(roomId, message.RoomId)
-			if assert.Len(message.Users, 1) {
-				assert.EqualValues(hello1.Hello.SessionId, message.Users[0]["sessionId"])
-				assert.EqualValues(0, message.Users[0]["inCall"])
-			}
-		}
-	}
+	// No other messages will be sent after the "leave".
+	ctx2, cancel2 := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel2()
+
+	client1.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 }
