@@ -52,7 +52,15 @@ var (
 	// The "/api/v1/signaling/" URL will be changed to use "v3" as the "signaling-v3"
 	// feature is returned by the capabilities endpoint.
 	PathToOcsSignalingBackend = "ocs/v2.php/apps/spreed/api/v1/signaling/backend"
+
+	// errRoomRequestSuperseded is the cancel cause of a pending room request
+	// that was replaced by a newer room request of the same session.
+	errRoomRequestSuperseded = errors.New("room request superseded")
 )
+
+type pendingRoomRequest struct {
+	cancel context.CancelCauseFunc
+}
 
 // ResponseHandlerFunc will return "true" has been fully processed.
 type ResponseHandlerFunc func(message *api.ClientMessage) bool
@@ -124,6 +132,11 @@ type ClientSession struct {
 	responseHandlersLock sync.Mutex
 	// +checklocks:responseHandlersLock
 	responseHandlers map[string]ResponseHandlerFunc
+
+	// roomJoinLock serializes applying the result of room requests.
+	roomJoinLock sync.Mutex
+
+	pendingRoomRequest atomic.Pointer[pendingRoomRequest]
 }
 
 func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.PublicSessionId, data *session.SessionIdData, backend *talk.Backend, hello *api.HelloClientMessage, auth *talk.BackendClientAuthResponse) (*ClientSession, error) {
@@ -591,21 +604,46 @@ func (s *ClientSession) doUnsubscribeRoomEvents(notify bool) {
 	s.roomSessionIdLock.Lock()
 	defer s.roomSessionIdLock.Unlock()
 	if notify && room != nil && s.roomSessionId != "" && !s.roomSessionId.IsFederated() {
-		// Notify
-		go func(sid api.RoomSessionId) {
-			ctx := log.NewLoggerContext(context.Background(), s.logger)
-			request := talk.NewBackendClientRoomRequest(room.Id(), s.userId, sid)
-			request.Room.UpdateFromSession(s)
-			request.Room.Action = "leave"
-			var response api.StringMap
-			if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
-				s.logger.Printf("Could not notify about room session %s left room %s: %s", sid, room.Id(), err)
-			} else {
-				s.logger.Printf("Removed room session %s: %+v", sid, response)
-			}
-		}(s.roomSessionId)
+		s.notifyBackendRoomLeft(room.Id(), s.roomSessionId)
 	}
 	s.roomSessionId = ""
+}
+
+func (s *ClientSession) notifyBackendRoomLeft(roomId string, sid api.RoomSessionId) {
+	go func() {
+		ctx := log.NewLoggerContext(context.Background(), s.logger)
+		request := talk.NewBackendClientRoomRequest(roomId, s.userId, sid)
+		request.Room.UpdateFromSession(s)
+		request.Room.Action = "leave"
+		var response api.StringMap
+		if err := s.hub.backend.PerformJSONRequest(ctx, s.ParsedBackendOcsUrl(), request, &response); err != nil {
+			s.logger.Printf("Could not notify about room session %s left room %s: %s", sid, roomId, err)
+		} else {
+			s.logger.Printf("Removed room session %s: %+v", sid, response)
+		}
+	}()
+}
+
+// StartRoomRequest cancels any pending room request of the session and
+// returns the context to use for a new one. The returned function must be
+// called once the request has been processed.
+func (s *ClientSession) StartRoomRequest() (context.Context, func()) {
+	ctx, cancel := context.WithCancelCause(s.Context())
+	request := &pendingRoomRequest{
+		cancel: cancel,
+	}
+
+	if prev := s.pendingRoomRequest.Swap(request); prev != nil {
+		prev.cancel(errRoomRequestSuperseded)
+	}
+	return ctx, func() {
+		s.pendingRoomRequest.CompareAndSwap(request, nil)
+		cancel(nil)
+	}
+}
+
+func isRoomRequestSuperseded(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), errRoomRequestSuperseded)
 }
 
 func (s *ClientSession) ClearClient(client ClientWithSession) {
