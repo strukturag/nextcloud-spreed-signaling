@@ -431,6 +431,13 @@ func (c *FederationClient) readPump(conn *websocket.Conn) {
 			continue
 		}
 
+		if c.closer.IsClosed() {
+			// Connection closed locally, ignore remaining messages (e.g. the
+			// "bye" response from the remote server) as they must not be
+			// forwarded to the session.
+			break
+		}
+
 		var msg api.ServerMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			c.logger.Printf("Error unmarshalling %s from %s: %s", string(data), c.URL(), err)
