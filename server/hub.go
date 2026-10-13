@@ -2105,6 +2105,16 @@ func (h *Hub) GetTransientEntries(roomId string, backend *talk.Backend) (api.Tra
 	return entries, true
 }
 
+func (h *Hub) GetRoomUsers(roomId string, backend *talk.Backend) (api.UserDataList, bool) {
+	room := h.GetRoomForBackend(roomId, backend)
+	if room == nil {
+		return nil, false
+	}
+
+	entries := room.getUsers()
+	return entries, true
+}
+
 func (h *Hub) removeRoom(room *Room) {
 	internalRoomId := getRoomIdForBackend(room.Id(), room.Backend())
 	h.ru.Lock()
