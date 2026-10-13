@@ -380,6 +380,13 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 	}
 	r.mu.Unlock()
 	if !found {
+		if isFirst {
+			// Fetch initial state of room from other nodes in the cluster.
+			var wg sync.WaitGroup
+			wg.Go(r.fetchInitialTransientData)
+			wg.Go(r.fetchInitialUsers)
+			wg.Wait()
+		}
 		r.PublishSessionJoined(session, roomSessionData)
 		if publishUsersChanged {
 			r.publishUsersChangedWithInternal()
@@ -389,9 +396,6 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 		}
 		if clientSession, ok := session.(*ClientSession); ok {
 			r.transientData.AddListener(clientSession)
-		}
-		if isFirst {
-			r.fetchInitialTransientData()
 		}
 	}
 
@@ -1651,5 +1655,53 @@ func (r *Room) fetchInitialTransientData() {
 	defer mu.Unlock()
 	if len(initial) > 0 {
 		r.transientData.SetInitial(initial)
+	}
+}
+
+func (r *Room) fetchInitialUsers() {
+	if r.hub.rpcClients == nil {
+		return
+	}
+
+	ctx := log.NewLoggerContext(context.Background(), r.logger)
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	// +checklocks:mu
+	var initial api.UserDataMap
+	for _, client := range r.hub.rpcClients.GetClients() {
+		wg.Go(func() {
+			data, err := client.GetRoomUsers(ctx, r.Id(), r.Backend())
+			if err != nil {
+				r.logger.Printf("Received error while getting initial users for %s@%s from %s: %s", r.Id(), r.Backend().Id(), client.Target(), err)
+				return
+			} else if len(data) == 0 {
+				return
+			}
+
+			r.logger.Printf("Received initial users %+v for %s@%s from %s", data, r.Id(), r.Backend().Id(), client.Target())
+			mu.Lock()
+			defer mu.Unlock()
+			for _, u := range data {
+				if sid, found := u.SessionId(); found {
+					if initial == nil {
+						initial = make(api.UserDataMap)
+					}
+					initial[sid] = u
+				}
+			}
+		})
+	}
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	for sid, u := range initial {
+		// Only store information on users that have not been updated through backend requests.
+		if _, found := r.users[sid]; !found {
+			r.users[sid] = u
+		}
 	}
 }

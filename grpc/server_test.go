@@ -458,6 +458,10 @@ func (h *testServerHub) GetTransientEntries(roomId string, backend *talk.Backend
 	return nil, false
 }
 
+func (h *testServerHub) GetRoomUsers(roomId string, backend *talk.Backend) (api.UserDataList, bool) {
+	return nil, false
+}
+
 func (h *testServerHub) GetPublisherIdForSessionId(ctx context.Context, sessionId api.PublicSessionId, streamType sfu.StreamType) (*GetPublisherIdReply, error) {
 	if sessionId == testSessionId {
 		if streamType != testStreamType {
