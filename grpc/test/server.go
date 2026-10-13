@@ -108,6 +108,10 @@ func (h *MockHub) GetTransientEntries(roomId string, backend *talk.Backend) (api
 	return nil, false
 }
 
+func (h *MockHub) GetRoomUsers(roomId string, backend *talk.Backend) (api.UserDataList, bool) {
+	return nil, false
+}
+
 func (h *MockHub) GetPublisherIdForSessionId(ctx context.Context, sessionId api.PublicSessionId, streamType sfu.StreamType) (*grpc.GetPublisherIdReply, error) {
 	return nil, errors.New("not implemented")
 }
