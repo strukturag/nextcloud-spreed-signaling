@@ -261,6 +261,7 @@ func (s *ClientSession) HasAnyPermission(permission ...api.Permission) bool {
 }
 
 // +checklocks:s.mu
+// +checklocksignore: See https://github.com/google/gvisor/issues/15728
 func (s *ClientSession) hasAnyPermissionLocked(permission ...api.Permission) bool {
 	if len(permission) == 0 {
 		return false
