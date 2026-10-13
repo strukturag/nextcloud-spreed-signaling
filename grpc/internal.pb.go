@@ -275,6 +275,146 @@ func (x *GetTransientDataReply) GetEntries() map[string]*GrpcTransientDataEntry 
 	return nil
 }
 
+type GetRoomUsersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RoomId        string                 `protobuf:"bytes,1,opt,name=roomId,proto3" json:"roomId,omitempty"`
+	BackendUrls   []string               `protobuf:"bytes,2,rep,name=backendUrls,proto3" json:"backendUrls,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRoomUsersRequest) Reset() {
+	*x = GetRoomUsersRequest{}
+	mi := &file_grpc_internal_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRoomUsersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRoomUsersRequest) ProtoMessage() {}
+
+func (x *GetRoomUsersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_grpc_internal_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRoomUsersRequest.ProtoReflect.Descriptor instead.
+func (*GetRoomUsersRequest) Descriptor() ([]byte, []int) {
+	return file_grpc_internal_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetRoomUsersRequest) GetRoomId() string {
+	if x != nil {
+		return x.RoomId
+	}
+	return ""
+}
+
+func (x *GetRoomUsersRequest) GetBackendUrls() []string {
+	if x != nil {
+		return x.BackendUrls
+	}
+	return nil
+}
+
+type GrpcRoomUserEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Value         []byte                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GrpcRoomUserEntry) Reset() {
+	*x = GrpcRoomUserEntry{}
+	mi := &file_grpc_internal_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrpcRoomUserEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrpcRoomUserEntry) ProtoMessage() {}
+
+func (x *GrpcRoomUserEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_grpc_internal_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GrpcRoomUserEntry.ProtoReflect.Descriptor instead.
+func (*GrpcRoomUserEntry) Descriptor() ([]byte, []int) {
+	return file_grpc_internal_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *GrpcRoomUserEntry) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+type GetRoomUsersReply struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*GrpcRoomUserEntry   `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRoomUsersReply) Reset() {
+	*x = GetRoomUsersReply{}
+	mi := &file_grpc_internal_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRoomUsersReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRoomUsersReply) ProtoMessage() {}
+
+func (x *GetRoomUsersReply) ProtoReflect() protoreflect.Message {
+	mi := &file_grpc_internal_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRoomUsersReply.ProtoReflect.Descriptor instead.
+func (*GetRoomUsersReply) Descriptor() ([]byte, []int) {
+	return file_grpc_internal_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *GetRoomUsersReply) GetEntries() []*GrpcRoomUserEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
 var File_grpc_internal_proto protoreflect.FileDescriptor
 
 const file_grpc_internal_proto_rawDesc = "" +
@@ -294,10 +434,18 @@ const file_grpc_internal_proto_rawDesc = "" +
 	"\aentries\x18\x01 \x03(\v2(.grpc.GetTransientDataReply.EntriesEntryR\aentries\x1aX\n" +
 	"\fEntriesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x122\n" +
-	"\x05value\x18\x02 \x01(\v2\x1c.grpc.GrpcTransientDataEntryR\x05value:\x028\x012\xa2\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x1c.grpc.GrpcTransientDataEntryR\x05value:\x028\x01\"O\n" +
+	"\x13GetRoomUsersRequest\x12\x16\n" +
+	"\x06roomId\x18\x01 \x01(\tR\x06roomId\x12 \n" +
+	"\vbackendUrls\x18\x02 \x03(\tR\vbackendUrls\")\n" +
+	"\x11GrpcRoomUserEntry\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\fR\x05value\"F\n" +
+	"\x11GetRoomUsersReply\x121\n" +
+	"\aentries\x18\x01 \x03(\v2\x17.grpc.GrpcRoomUserEntryR\aentries2\xe8\x01\n" +
 	"\vRpcInternal\x12A\n" +
 	"\vGetServerId\x12\x18.grpc.GetServerIdRequest\x1a\x16.grpc.GetServerIdReply\"\x00\x12P\n" +
-	"\x10GetTransientData\x12\x1d.grpc.GetTransientDataRequest\x1a\x1b.grpc.GetTransientDataReply\"\x00B7Z5github.com/strukturag/nextcloud-spreed-signaling/grpcb\x06proto3"
+	"\x10GetTransientData\x12\x1d.grpc.GetTransientDataRequest\x1a\x1b.grpc.GetTransientDataReply\"\x00\x12D\n" +
+	"\fGetRoomUsers\x12\x19.grpc.GetRoomUsersRequest\x1a\x17.grpc.GetRoomUsersReply\"\x00B7Z5github.com/strukturag/nextcloud-spreed-signaling/grpcb\x06proto3"
 
 var (
 	file_grpc_internal_proto_rawDescOnce sync.Once
@@ -311,27 +459,33 @@ func file_grpc_internal_proto_rawDescGZIP() []byte {
 	return file_grpc_internal_proto_rawDescData
 }
 
-var file_grpc_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_grpc_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_grpc_internal_proto_goTypes = []any{
 	(*GetServerIdRequest)(nil),      // 0: grpc.GetServerIdRequest
 	(*GetServerIdReply)(nil),        // 1: grpc.GetServerIdReply
 	(*GetTransientDataRequest)(nil), // 2: grpc.GetTransientDataRequest
 	(*GrpcTransientDataEntry)(nil),  // 3: grpc.GrpcTransientDataEntry
 	(*GetTransientDataReply)(nil),   // 4: grpc.GetTransientDataReply
-	nil,                             // 5: grpc.GetTransientDataReply.EntriesEntry
+	(*GetRoomUsersRequest)(nil),     // 5: grpc.GetRoomUsersRequest
+	(*GrpcRoomUserEntry)(nil),       // 6: grpc.GrpcRoomUserEntry
+	(*GetRoomUsersReply)(nil),       // 7: grpc.GetRoomUsersReply
+	nil,                             // 8: grpc.GetTransientDataReply.EntriesEntry
 }
 var file_grpc_internal_proto_depIdxs = []int32{
-	5, // 0: grpc.GetTransientDataReply.entries:type_name -> grpc.GetTransientDataReply.EntriesEntry
-	3, // 1: grpc.GetTransientDataReply.EntriesEntry.value:type_name -> grpc.GrpcTransientDataEntry
-	0, // 2: grpc.RpcInternal.GetServerId:input_type -> grpc.GetServerIdRequest
-	2, // 3: grpc.RpcInternal.GetTransientData:input_type -> grpc.GetTransientDataRequest
-	1, // 4: grpc.RpcInternal.GetServerId:output_type -> grpc.GetServerIdReply
-	4, // 5: grpc.RpcInternal.GetTransientData:output_type -> grpc.GetTransientDataReply
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	8, // 0: grpc.GetTransientDataReply.entries:type_name -> grpc.GetTransientDataReply.EntriesEntry
+	6, // 1: grpc.GetRoomUsersReply.entries:type_name -> grpc.GrpcRoomUserEntry
+	3, // 2: grpc.GetTransientDataReply.EntriesEntry.value:type_name -> grpc.GrpcTransientDataEntry
+	0, // 3: grpc.RpcInternal.GetServerId:input_type -> grpc.GetServerIdRequest
+	2, // 4: grpc.RpcInternal.GetTransientData:input_type -> grpc.GetTransientDataRequest
+	5, // 5: grpc.RpcInternal.GetRoomUsers:input_type -> grpc.GetRoomUsersRequest
+	1, // 6: grpc.RpcInternal.GetServerId:output_type -> grpc.GetServerIdReply
+	4, // 7: grpc.RpcInternal.GetTransientData:output_type -> grpc.GetTransientDataReply
+	7, // 8: grpc.RpcInternal.GetRoomUsers:output_type -> grpc.GetRoomUsersReply
+	6, // [6:9] is the sub-list for method output_type
+	3, // [3:6] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_grpc_internal_proto_init() }
@@ -345,7 +499,7 @@ func file_grpc_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_grpc_internal_proto_rawDesc), len(file_grpc_internal_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
