@@ -288,7 +288,12 @@ func (c *testClient) notifyDeleted(key string, oldValue []byte) {
 }
 
 func (c *testClient) addWatcher(w *testWatch, opts ...clientv3.OpOption) error {
-	keys, values, _ := c.server.getValues(w.key, w.rev, opts...)
+	// Keep the server locked until the watcher is registered so no updates
+	// between fetching the current values and registering get lost.
+	c.server.mu.Lock()
+	defer c.server.mu.Unlock()
+
+	keys, values, _ := c.server.getValuesLocked(w.key, w.rev, opts...)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -384,6 +389,11 @@ func (s *Server) getValues(key string, minRevision int64, opts ...clientv3.OpOpt
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.getValuesLocked(key, minRevision, opts...)
+}
+
+// +checklocks:s.mu
+func (s *Server) getValuesLocked(key string, minRevision int64, opts ...clientv3.OpOption) (keys []string, values [][]byte, revision int64) {
 	var op clientv3.Op
 	for _, o := range opts {
 		o(&op)
