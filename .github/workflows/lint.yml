@@ -51,7 +51,7 @@ jobs:
 
       - name: moderize
         run: |
-          go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -any=false -reflecttypefor=false -test ./...
+          go fix -diff -any=false -reflecttypefor=false ./...
 
   checklocks:
     name: checklocks
