@@ -374,6 +374,36 @@ func (c *Client) GetTransientData(ctx context.Context, roomId string, backend *t
 	return result, nil
 }
 
+func (c *Client) GetRoomUsers(ctx context.Context, roomId string, backend *talk.Backend) (api.UserDataList, error) {
+	statsGrpcClientCalls.WithLabelValues("GetRoomUsers").Inc()
+	// TODO: Remove debug logging
+	c.logger.Printf("Get room users for %s@%s on %s", roomId, backend.Id(), c.Target())
+	response, err := c.impl.GetRoomUsers(ctx, &GetRoomUsersRequest{
+		RoomId:      roomId,
+		BackendUrls: backend.Urls(),
+	}, grpc.WaitForReady(true))
+	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	entries := response.GetEntries()
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	result := make(api.UserDataList, 0, len(entries))
+	for _, v := range entries {
+		var value api.UserData
+		if err := json.Unmarshal(v.Value, &value); err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
 type ProxySessionReceiver interface {
 	RemoteAddr() string
 	Country() geoip.Country
