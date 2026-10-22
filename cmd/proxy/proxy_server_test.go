@@ -995,7 +995,7 @@ func (p *TestRemotePublisher) MaxBitrate() api.Bandwidth {
 
 func (p *TestRemotePublisher) Close(ctx context.Context) {
 	if count := p.refcnt.Add(-1); assert.GreaterOrEqual(p.t, int(count), 0) && count == 0 {
-		p.closeFunc()
+		defer p.closeFunc()
 		shortCtx, cancel := context.WithTimeout(ctx, time.Millisecond)
 		defer cancel()
 		// Won't be able to preform remote call to actually stop publishing.
