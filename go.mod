@@ -14,7 +14,7 @@ require (
 	github.com/nats-io/nats.go v1.54.0
 	github.com/notedit/janus-go v0.0.0-20200517101215-10eb8b95d1a0
 	github.com/oschwald/maxminddb-golang v1.13.1
-	github.com/pion/ice/v4 v4.4.7
+	github.com/pion/ice/v4 v4.4.8
 	github.com/pion/sdp/v3 v3.0.20
 	github.com/pquerna/cachecontrol v0.2.0
 	github.com/prometheus/client_golang v1.25.0
