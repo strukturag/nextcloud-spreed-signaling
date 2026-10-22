@@ -33,6 +33,9 @@ updates:
       opentelemetry:
         patterns:
         - "go.opentelemetry.io*"
+      grpc-ecosystem:
+        patterns:
+        - "github.com/grpc-ecosystem/*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
