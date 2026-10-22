@@ -111,7 +111,7 @@ func (c *ProxyTestClient) Close() {
 loop:
 	for {
 		select {
-		case <-c.readErrorChan:
+		case <-c.readErrorChan: // nolint: errcheck
 		case <-c.messageChan:
 		default:
 			break loop
