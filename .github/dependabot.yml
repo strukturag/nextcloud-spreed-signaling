@@ -19,6 +19,12 @@ updates:
     directory: /
     schedule:
       interval: daily
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
     groups:
       etcd:
         patterns:
