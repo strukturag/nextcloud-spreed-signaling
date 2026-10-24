@@ -39,6 +39,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1819,7 +1820,7 @@ func TestClientHelloResumeProxy(t *testing.T) { // nolint:paralleltest
 					"inCall":    1,
 				},
 			}
-			room.PublishUsersInCallChanged(users, users)
+			room.PublishUsersInCallChanged(users)
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 		})
 	})
@@ -2426,15 +2427,23 @@ func TestClientMessageToCall(t *testing.T) {
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 			// Simulate request from the backend that somebody joined the call.
-			users := []api.StringMap{
-				{
-					"sessionId": hello1.Hello.SessionId,
-					"inCall":    1,
-				},
-			}
 			room1 := hub1.getRoom(roomId)
 			require.NotNil(room1, "Could not find room %s", roomId)
-			room1.PublishUsersInCallChanged(users, users)
+			require.NoError(hub1.events.PublishBackendRoomMessage(roomId, room1.Backend(), &events.AsyncMessage{
+				Type: "room",
+				Room: &talk.BackendServerRoomRequest{
+					RoomId: roomId,
+					Type:   "incall",
+					InCall: &talk.BackendRoomInCallRequest{
+						Changed: api.UserDataList{
+							{
+								"sessionId": hello1.Hello.SessionId,
+								"inCall":    1,
+							},
+						},
+					},
+				},
+			}))
 			checkReceiveClientEvent(ctx, t, client1, "update", nil)
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -2459,19 +2468,27 @@ func TestClientMessageToCall(t *testing.T) {
 			client2.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 
 			// Simulate request from the backend that somebody joined the call.
-			users = []api.StringMap{
-				{
-					"sessionId": hello1.Hello.SessionId,
-					"inCall":    1,
-				},
-				{
-					"sessionId": hello2.Hello.SessionId,
-					"inCall":    1,
-				},
-			}
 			room2 := hub2.getRoom(roomId)
 			require.NotNil(room2, "Could not find room %s", roomId)
-			room2.PublishUsersInCallChanged(users, users)
+			require.NoError(hub2.events.PublishBackendRoomMessage(roomId, room2.Backend(), &events.AsyncMessage{
+				Type: "room",
+				Room: &talk.BackendServerRoomRequest{
+					RoomId: roomId,
+					Type:   "incall",
+					InCall: &talk.BackendRoomInCallRequest{
+						Changed: api.UserDataList{
+							{
+								"sessionId": hello1.Hello.SessionId,
+								"inCall":    1,
+							},
+							{
+								"sessionId": hello2.Hello.SessionId,
+								"inCall":    1,
+							},
+						},
+					},
+				},
+			}))
 			checkReceiveClientEvent(ctx, t, client1, "update", nil)
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -2527,15 +2544,23 @@ func TestClientControlToCall(t *testing.T) {
 			WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
 			// Simulate request from the backend that somebody joined the call.
-			users := []api.StringMap{
-				{
-					"sessionId": hello1.Hello.SessionId,
-					"inCall":    1,
-				},
-			}
 			room1 := hub1.getRoom(roomId)
 			require.NotNil(room1, "Could not find room %s", roomId)
-			room1.PublishUsersInCallChanged(users, users)
+			require.NoError(hub1.events.PublishBackendRoomMessage(roomId, room1.Backend(), &events.AsyncMessage{
+				Type: "room",
+				Room: &talk.BackendServerRoomRequest{
+					RoomId: roomId,
+					Type:   "incall",
+					InCall: &talk.BackendRoomInCallRequest{
+						Changed: api.UserDataList{
+							{
+								"sessionId": hello1.Hello.SessionId,
+								"inCall":    1,
+							},
+						},
+					},
+				},
+			}))
 			checkReceiveClientEvent(ctx, t, client1, "update", nil)
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -2560,19 +2585,27 @@ func TestClientControlToCall(t *testing.T) {
 			client2.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
 
 			// Simulate request from the backend that somebody joined the call.
-			users = []api.StringMap{
-				{
-					"sessionId": hello1.Hello.SessionId,
-					"inCall":    1,
-				},
-				{
-					"sessionId": hello2.Hello.SessionId,
-					"inCall":    1,
-				},
-			}
 			room2 := hub2.getRoom(roomId)
 			require.NotNil(room2, "Could not find room %s", roomId)
-			room2.PublishUsersInCallChanged(users, users)
+			require.NoError(hub2.events.PublishBackendRoomMessage(roomId, room2.Backend(), &events.AsyncMessage{
+				Type: "room",
+				Room: &talk.BackendServerRoomRequest{
+					RoomId: roomId,
+					Type:   "incall",
+					InCall: &talk.BackendRoomInCallRequest{
+						Changed: api.UserDataList{
+							{
+								"sessionId": hello1.Hello.SessionId,
+								"inCall":    1,
+							},
+							{
+								"sessionId": hello2.Hello.SessionId,
+								"inCall":    1,
+							},
+						},
+					},
+				},
+			}))
 			checkReceiveClientEvent(ctx, t, client1, "update", nil)
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -3284,13 +3317,13 @@ func TestRoomParticipantsListUpdateWhileDisconnected(t *testing.T) {
 	}
 	room := hub.getRoom(roomId)
 	require.NotNil(room, "Could not find room %s", roomId)
-	room.PublishUsersInCallChanged(users, users)
+	room.PublishUsersInCallChanged(users)
 	checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
 	client2.Close()
 	assert.NoError(client2.WaitForClientRemoved(ctx))
 
-	room.PublishUsersInCallChanged(users, users)
+	room.PublishUsersInCallChanged(users)
 
 	// Give asynchronous events some time to be processed.
 	time.Sleep(100 * time.Millisecond)
@@ -3620,13 +3653,7 @@ func TestClientSendOfferPermissionsAudioVideo(t *testing.T) {
 	msg := &talk.BackendServerRoomRequest{
 		Type: "participants",
 		Participants: &talk.BackendRoomParticipantsRequest{
-			Changed: []api.StringMap{
-				{
-					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_AUDIO},
-				},
-			},
-			Users: []api.StringMap{
+			Changed: api.UserDataList{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_AUDIO},
@@ -3717,13 +3744,7 @@ func TestClientSendOfferPermissionsAudioVideoMedia(t *testing.T) {
 	msg := &talk.BackendServerRoomRequest{
 		Type: "participants",
 		Participants: &talk.BackendRoomParticipantsRequest{
-			Changed: []api.StringMap{
-				{
-					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
-					"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA, api.PERMISSION_MAY_CONTROL},
-				},
-			},
-			Users: []api.StringMap{
+			Changed: api.UserDataList{
 				{
 					"sessionId":   fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId),
 					"permissions": []api.Permission{api.PERMISSION_MAY_PUBLISH_MEDIA, api.PERMISSION_MAY_CONTROL},
@@ -3855,15 +3876,23 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			require.True(checkMessageError(t, msg, "not_allowed"))
 
 			// Simulate request from the backend that somebody joined the call.
-			users1 := []api.StringMap{
-				{
-					"sessionId": hello2.Hello.SessionId,
-					"inCall":    1,
-				},
-			}
 			room2 := hub2.getRoom(roomId)
 			require.NotNil(room2, "Could not find room %s", roomId)
-			room2.PublishUsersInCallChanged(users1, users1)
+			require.NoError(hub2.events.PublishBackendRoomMessage(roomId, room2.Backend(), &events.AsyncMessage{
+				Type: "room",
+				Room: &talk.BackendServerRoomRequest{
+					RoomId: roomId,
+					Type:   "incall",
+					InCall: &talk.BackendRoomInCallRequest{
+						Changed: api.UserDataList{
+							{
+								"sessionId": hello2.Hello.SessionId,
+								"inCall":    1,
+							},
+						},
+					},
+				},
+			}))
 			checkReceiveClientEvent(ctx, t, client1, "update", nil)
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -3881,15 +3910,23 @@ func TestClientRequestOfferNotInRoom(t *testing.T) {
 			require.True(checkMessageError(t, msg, "not_allowed"))
 
 			// Simulate request from the backend that somebody joined the call.
-			users2 := []api.StringMap{
-				{
-					"sessionId": hello1.Hello.SessionId,
-					"inCall":    1,
-				},
-			}
 			room1 := hub1.getRoom(roomId)
 			require.NotNil(room1, "Could not find room %s", roomId)
-			room1.PublishUsersInCallChanged(users2, users2)
+			require.NoError(hub1.events.PublishBackendRoomMessage(roomId, room1.Backend(), &events.AsyncMessage{
+				Type: "room",
+				Room: &talk.BackendServerRoomRequest{
+					RoomId: roomId,
+					Type:   "incall",
+					InCall: &talk.BackendRoomInCallRequest{
+						Changed: api.UserDataList{
+							{
+								"sessionId": hello1.Hello.SessionId,
+								"inCall":    1,
+							},
+						},
+					},
+				},
+			}))
 			checkReceiveClientEvent(ctx, t, client1, "update", nil)
 			checkReceiveClientEvent(ctx, t, client2, "update", nil)
 
@@ -4546,6 +4583,90 @@ func TestVirtualClientSessions(t *testing.T) {
 	}
 }
 
+func TestInternalSessionJoinedParticipantsUpdate(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId)
+			defer client1.CloseWithBye()
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+
+			// Internal session on the same server as the regular client.
+			internal1 := NewTestClient(t, server1, hub1)
+			defer internal1.CloseWithBye()
+			require.NoError(internal1.SendHelloInternal())
+			helloInternal1 := MustSucceed1(t, internal1.RunUntilHello, ctx)
+			MustSucceed2(t, internal1.JoinRoom, ctx, roomId)
+
+			client1.RunUntilJoined(ctx, helloInternal1.Hello)
+			if msg, ok := client1.RunUntilMessage(ctx); ok {
+				if update, ok := checkMessageParticipantsInCall(t, msg); ok && assert.Len(update.Users, 1, "%+v", update) {
+					assert.EqualValues(helloInternal1.Hello.SessionId, update.Users[0]["sessionId"])
+				}
+			}
+			_, unexpected, _ := internal1.RunUntilJoinedAndReturn(ctx, hello1.Hello, helloInternal1.Hello)
+			if len(unexpected) == 0 {
+				if msg, ok := internal1.RunUntilMessage(ctx); ok {
+					unexpected = append(unexpected, msg)
+				}
+			}
+			if assert.Len(unexpected, 1) {
+				checkMessageParticipantsInCall(t, unexpected[0])
+			}
+			assertNoMoreMessages(t, client1, internal1)
+
+			// Internal session on the other server (in the clustered case).
+			internal2 := NewTestClient(t, server2, hub2)
+			defer internal2.CloseWithBye()
+			require.NoError(internal2.SendHelloInternal())
+			helloInternal2 := MustSucceed1(t, internal2.RunUntilHello, ctx)
+			MustSucceed2(t, internal2.JoinRoom, ctx, roomId)
+
+			// The participants update is only sent by the server the internal
+			// session is connected to, other servers don't send their (partial)
+			// list of internal sessions.
+			for _, client := range []*TestClient{client1, internal1} {
+				client.RunUntilJoined(ctx, helloInternal2.Hello)
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					if update, ok := checkMessageParticipantsInCall(t, msg); ok {
+						assert.Equal(roomId, update.RoomId)
+						found := false
+						for _, user := range update.Users {
+							if sid, _ := user.SessionId(); sid == helloInternal2.Hello.SessionId {
+								found = true
+								assert.Equal(true, user["internal"], "%+v", user)
+							}
+						}
+						assert.True(found, "internal session %s not found in %+v", helloInternal2.Hello.SessionId, update)
+					}
+				}
+			}
+			assertNoMoreMessages(t, client1, internal1)
+		})
+	}
+}
+
 func TestDuplicateVirtualSessions(t *testing.T) {
 	t.Parallel()
 	for _, subtest := range clusteredTests {
@@ -4576,6 +4697,9 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 
 			client1.RunUntilJoined(ctx, hello1.Hello)
 
+			room1 := hub1.getRoom(roomId)
+			require.NotNil(room1)
+
 			client2 := NewTestClient(t, server2, hub2)
 			defer client2.CloseWithBye()
 
@@ -4604,6 +4728,12 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 						}
 					}
 				}
+			}
+
+			room2 := hub2.getRoom(roomId)
+			require.NotNil(room2)
+			if hub1 != hub2 {
+				require.NotSame(room1, room2)
 			}
 
 			_, unexpected, _ := client2.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello)
@@ -4713,8 +4843,9 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				Type: "incall",
 				InCall: &talk.BackendRoomInCallRequest{
 					InCall: []byte("0"),
-					Users: []api.StringMap{
+					Changed: api.UserDataList{
 						{
+							"inCall":                 0,
 							"sessionId":              virtualSession.PublicId(),
 							"participantPermissions": 246,
 							"participantType":        4,
@@ -4722,6 +4853,7 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 						},
 						{
 							// Request is coming from Nextcloud, so use its session id (which is our "room session id").
+							"inCall":                 0,
 							"sessionId":              fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
 							"participantPermissions": 254,
 							"participantType":        1,
@@ -4743,20 +4875,28 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 			if msg, ok := client1.RunUntilMessage(ctx); ok {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 3) {
-						assert.Equal(true, msg.Users[0]["virtual"], "%+v", msg)
-						assert.EqualValues(virtualSession.PublicId(), msg.Users[0]["sessionId"], "%+v", msg)
-						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[0]["inCall"], "%+v", msg)
-						assert.EqualValues(246, msg.Users[0]["participantPermissions"], "%+v", msg)
-						assert.EqualValues(4, msg.Users[0]["participantType"], "%+v", msg)
+						users := msg.Users.Map()
+						if user := users[virtualSession.PublicId()]; assert.NotNil(user, "expected %s, got %+v", virtualSession.PublicId(), msg) {
+							assert.Equal(true, user["virtual"], "%+v", msg)
+							assert.EqualValues(virtualSession.PublicId(), user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithPhone, user["inCall"], "%+v", msg)
+							assert.EqualValues(246, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(4, user["participantType"], "%+v", msg)
+						}
 
-						assert.EqualValues(hello1.Hello.SessionId, msg.Users[1]["sessionId"], "%+v", msg)
-						assert.Nil(msg.Users[1]["inCall"], "%+v", msg)
-						assert.EqualValues(254, msg.Users[1]["participantPermissions"], "%+v", msg)
-						assert.EqualValues(1, msg.Users[1]["participantType"], "%+v", msg)
+						if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, msg) {
+							assert.EqualValues(hello1.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(0, user["inCall"], "%+v", msg)
+							assert.EqualValues(254, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(1, user["participantType"], "%+v", msg)
+						}
 
-						assert.Equal(true, msg.Users[2]["internal"], "%+v", msg)
-						assert.EqualValues(hello2.Hello.SessionId, msg.Users[2]["sessionId"], "%+v", msg)
-						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[2]["inCall"], "%+v", msg)
+						if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+							assert.Equal(true, user["internal"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+							assert.EqualValues(hello2.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
 					}
 				}
 			}
@@ -4764,20 +4904,27 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 			if msg, ok := client2.RunUntilMessage(ctx); ok {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 3) {
-						assert.Equal(true, msg.Users[0]["virtual"], "%+v", msg)
-						assert.EqualValues(virtualSession.PublicId(), msg.Users[0]["sessionId"], "%+v", msg)
-						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[0]["inCall"], "%+v", msg)
-						assert.EqualValues(246, msg.Users[0]["participantPermissions"], "%+v", msg)
-						assert.EqualValues(4, msg.Users[0]["participantType"], "%+v", msg)
+						users := msg.Users.Map()
+						if user := users[virtualSession.PublicId()]; assert.NotNil(user, "expected %s, got %+v", virtualSession.PublicId(), msg) {
+							assert.Equal(true, user["virtual"], "%+v", msg)
+							assert.EqualValues(virtualSession.PublicId(), user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithPhone, user["inCall"], "%+v", msg)
+							assert.EqualValues(246, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(4, user["participantType"], "%+v", msg)
+						}
 
-						assert.EqualValues(hello1.Hello.SessionId, msg.Users[1]["sessionId"], "%+v", msg)
-						assert.Nil(msg.Users[1]["inCall"], "%+v", msg)
-						assert.EqualValues(254, msg.Users[1]["participantPermissions"], "%+v", msg)
-						assert.EqualValues(1, msg.Users[1]["participantType"], "%+v", msg)
+						if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, msg) {
+							assert.EqualValues(hello1.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(0, user["inCall"], "%+v", msg)
+							assert.EqualValues(254, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(1, user["participantType"], "%+v", msg)
+						}
 
-						assert.Equal(true, msg.Users[2]["internal"], "%+v", msg)
-						assert.EqualValues(hello2.Hello.SessionId, msg.Users[2]["sessionId"], "%+v", msg)
-						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[2]["inCall"], "%+v", msg)
+						if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+							assert.Equal(true, user["internal"], "%+v", msg)
+							assert.EqualValues(hello2.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
 					}
 				}
 			}
@@ -4795,23 +4942,403 @@ func TestDuplicateVirtualSessions(t *testing.T) {
 				assert.Equal(hello1.Hello.ResumeId, hello3.Hello.ResumeId, "%+v", hello3.Hello)
 			}
 
+			// Resumed client will receive information on sessions currently in the call.
 			if msg, ok := client3.RunUntilMessage(ctx); ok {
 				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
+					if assert.Len(msg.Users, 2) {
+						users := msg.Users.Map()
+						if user := users[virtualSession.PublicId()]; assert.NotNil(user, "expected %s, got %+v", virtualSession.PublicId(), msg) {
+							assert.Equal(true, user["virtual"], "%+v", msg)
+							assert.EqualValues(virtualSession.PublicId(), user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithPhone, user["inCall"], "%+v", msg)
+							assert.EqualValues(246, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(4, user["participantType"], "%+v", msg)
+						}
+
+						if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+							assert.Equal(true, user["internal"], "%+v", msg)
+							assert.EqualValues(hello2.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
+					}
+				}
+			}
+
+			setSessionRequestHandler(t, func(request *talk.BackendClientSessionRequest) {
+				defer calledCancel()
+				assert.Equal("remove", request.Action, "%+v", request)
+				assert.Equal(roomId, request.RoomId, "%+v", request)
+				assert.NotEqual(generatedSessionId, request.SessionId, "%+v", request)
+				assert.Equal(virtualUserId, request.UserId, "%+v", request)
+			})
+		})
+	}
+}
+
+func TestDuplicateVirtualSessionsDifferentHubs(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			var hub1 *Hub
+			var hub2 *Hub
+			var server1 *httptest.Server
+			var server2 *httptest.Server
+			if isLocalTest(t) {
+				hub1, _, _, server1 = CreateHubForTest(t)
+
+				hub2 = hub1
+				server2 = server1
+			} else {
+				hub1, hub2, server1, server2 = CreateClusteredHubsForTest(t)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId)
+
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+
+			client1.RunUntilJoined(ctx, hello1.Hello)
+
+			room1 := hub1.getRoom(roomId)
+			require.NotNil(room1)
+
+			msg := &talk.BackendServerRoomRequest{
+				Type: "incall",
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: []byte(strconv.Itoa(FlagInCall | FlagWithAudio)),
+					Changed: api.UserDataList{
+						{
+							// Request is coming from Nextcloud, so use its session id (which is our "room session id").
+							"inCall":                 FlagInCall | FlagWithAudio,
+							"sessionId":              fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
+							"participantPermissions": 254,
+							"participantType":        1,
+							"lastPing":               234567890,
+						},
+					},
+				},
+			}
+
+			data, err := json.Marshal(msg)
+			require.NoError(err)
+			res, err := performBackendRequest(server1.URL+"/api/v1/room/"+roomId, data)
+			require.NoError(err)
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			assert.NoError(err)
+			assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+			if msg, ok := client1.RunUntilMessage(ctx); ok {
+				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
+					if assert.Len(msg.Users, 1) {
+						assert.EqualValues(hello1.Hello.SessionId, msg.Users[0]["sessionId"], "%+v", msg)
+						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[0]["inCall"], "%+v", msg)
+					}
+				}
+			}
+
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+
+			require.NoError(client2.SendHelloInternal())
+
+			hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
+			session2 := hub2.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+			require.NotNil(session2, "Session %s does not exist", hello2.Hello.SessionId)
+
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+
+			if _, additional, ok := client1.RunUntilJoinedAndReturn(ctx, hello2.Hello); ok {
+				// TODO: Should not receive participants update before joined event.
+				if len(additional) == 0 {
+					if msg, ok := client1.RunUntilMessage(ctx); ok {
+						additional = append(additional, msg)
+					}
+				}
+
+				if assert.Len(additional, 1) {
+					if msg, ok := checkMessageParticipantsInCall(t, additional[0]); ok {
+						if assert.Len(msg.Users, 2) {
+							users := msg.Users.Map()
+							if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, msg) {
+								assert.EqualValues(hello1.Hello.SessionId, user["sessionId"], "%+v", msg)
+								assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+							}
+
+							if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+								assert.Equal(true, user["internal"], "%+v", msg)
+								assert.EqualValues(hello2.Hello.SessionId, user["sessionId"], "%+v", msg)
+								assert.EqualValues(3, user["inCall"], "%+v", msg)
+							}
+						}
+					}
+				}
+			}
+
+			room2 := hub2.getRoom(roomId)
+			require.NotNil(room2)
+			if hub1 != hub2 {
+				require.NotSame(room1, room2)
+			}
+
+			_, unexpected, _ := client2.RunUntilJoinedAndReturn(ctx, hello1.Hello, hello2.Hello)
+
+			if len(unexpected) == 0 {
+				if msg, ok := client2.RunUntilMessage(ctx); ok {
+					unexpected = append(unexpected, msg)
+				}
+			}
+
+			require.Len(unexpected, 1)
+			if msg, ok := checkMessageParticipantsInCall(t, unexpected[0]); ok {
+				if assert.Len(msg.Users, 2) {
+					users := msg.Users.Map()
+					if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, msg) {
+						assert.EqualValues(hello1.Hello.SessionId, user["sessionId"], "%+v", msg)
+						assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+					}
+
+					if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+						assert.Equal(true, user["internal"])
+						assert.EqualValues(hello2.Hello.SessionId, user["sessionId"])
+						assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"])
+					}
+				}
+			}
+
+			calledCtx, calledCancel := context.WithTimeout(ctx, time.Second)
+
+			virtualSessionId := api.PublicSessionId("virtual-session-id")
+			virtualUserId := "virtual-user-id"
+			generatedSessionId := GetVirtualSessionId(session2, virtualSessionId)
+
+			setSessionRequestHandler(t, func(request *talk.BackendClientSessionRequest) {
+				defer calledCancel()
+				assert.Equal("add", request.Action, "%+v", request)
+				assert.Equal(roomId, request.RoomId, "%+v", request)
+				assert.NotEqual(generatedSessionId, request.SessionId, "%+v", request)
+				assert.Equal(virtualUserId, request.UserId, "%+v", request)
+			})
+
+			require.NoError(client2.SendInternalAddSession(&api.AddSessionInternalClientMessage{
+				CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
+					SessionId: virtualSessionId,
+					RoomId:    roomId,
+				},
+				UserId: virtualUserId,
+				Flags:  FLAG_MUTED_SPEAKING,
+			}))
+			<-calledCtx.Done()
+			if err := calledCtx.Err(); err != nil {
+				require.ErrorIs(err, context.Canceled)
+			}
+
+			virtualSessions := session2.GetVirtualSessions()
+			for len(virtualSessions) == 0 {
+				time.Sleep(time.Millisecond)
+				virtualSessions = session2.GetVirtualSessions()
+			}
+
+			virtualSession := virtualSessions[0]
+			if msg, ok := client1.RunUntilMessage(ctx); ok {
+				client1.checkMessageJoinedSession(msg, virtualSession.PublicId(), virtualUserId)
+			}
+
+			if msg, ok := client1.RunUntilMessage(ctx); ok {
+				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
 					if assert.Len(msg.Users, 3) {
-						assert.Equal(true, msg.Users[0]["virtual"], "%+v", msg)
-						assert.EqualValues(virtualSession.PublicId(), msg.Users[0]["sessionId"], "%+v", msg)
-						assert.EqualValues(FlagInCall|FlagWithPhone, msg.Users[0]["inCall"], "%+v", msg)
-						assert.EqualValues(246, msg.Users[0]["participantPermissions"], "%+v", msg)
-						assert.EqualValues(4, msg.Users[0]["participantType"], "%+v", msg)
+						users := msg.Users.Map()
+						if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, msg) {
+							assert.EqualValues(hello1.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
 
-						assert.EqualValues(hello1.Hello.SessionId, msg.Users[1]["sessionId"], "%+v", msg)
-						assert.Nil(msg.Users[1]["inCall"], "%+v", msg)
-						assert.EqualValues(254, msg.Users[1]["participantPermissions"], "%+v", msg)
-						assert.EqualValues(1, msg.Users[1]["participantType"], "%+v", msg)
+						if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+							assert.Equal(true, user["internal"], "%+v", msg)
+							assert.EqualValues(hello2.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
 
-						assert.Equal(true, msg.Users[2]["internal"], "%+v", msg)
-						assert.EqualValues(hello2.Hello.SessionId, msg.Users[2]["sessionId"], "%+v", msg)
-						assert.EqualValues(FlagInCall|FlagWithAudio, msg.Users[2]["inCall"], "%+v", msg)
+						if user := users[virtualSession.PublicId()]; assert.NotNil(user, "expected %s, got %+v", virtualSession.PublicId(), msg) {
+							assert.Equal(true, user["virtual"], "%+v", msg)
+							assert.EqualValues(virtualSession.PublicId(), user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithPhone, user["inCall"], "%+v", msg)
+						}
+					}
+				}
+			}
+
+			if msg, ok := client1.RunUntilMessage(ctx); ok {
+				if flags, ok := checkMessageParticipantFlags(t, msg); ok {
+					assert.Equal(roomId, flags.RoomId)
+					assert.Equal(virtualSession.PublicId(), flags.SessionId)
+					assert.EqualValues(FLAG_MUTED_SPEAKING, flags.Flags)
+				}
+			}
+
+			if msg, ok := client2.RunUntilMessage(ctx); ok {
+				client2.checkMessageJoinedSession(msg, virtualSession.PublicId(), virtualUserId)
+			}
+
+			if msg, ok := client2.RunUntilMessage(ctx); ok {
+				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
+					if assert.Len(msg.Users, 3) {
+						users := msg.Users.Map()
+						if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, msg) {
+							assert.EqualValues(hello1.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
+
+						if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+							assert.Equal(true, user["internal"], "%+v", msg)
+							assert.EqualValues(hello2.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
+
+						if user := users[virtualSession.PublicId()]; assert.NotNil(user, "expected %s, got %+v", virtualSession.PublicId(), msg) {
+							assert.Equal(true, user["virtual"], "%+v", msg)
+							assert.EqualValues(virtualSession.PublicId(), user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithPhone, user["inCall"], "%+v", msg)
+						}
+					}
+				}
+			}
+
+			if msg, ok := client2.RunUntilMessage(ctx); ok {
+				if flags, ok := checkMessageParticipantFlags(t, msg); ok {
+					assert.Equal(roomId, flags.RoomId)
+					assert.Equal(virtualSession.PublicId(), flags.SessionId)
+					assert.EqualValues(FLAG_MUTED_SPEAKING, flags.Flags)
+				}
+			}
+
+			msg = &talk.BackendServerRoomRequest{
+				Type: "incall",
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: []byte("0"),
+					Changed: api.UserDataList{
+						{
+							"inCall":                 0,
+							"sessionId":              virtualSession.PublicId(),
+							"participantPermissions": 246,
+							"participantType":        4,
+							"lastPing":               123456789,
+						},
+						{
+							// Request is coming from Nextcloud, so use its session id (which is our "room session id").
+							"inCall":                 0,
+							"sessionId":              fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId),
+							"participantPermissions": 254,
+							"participantType":        1,
+							"lastPing":               234567890,
+						},
+					},
+				},
+			}
+
+			data, err = json.Marshal(msg)
+			require.NoError(err)
+			res, err = performBackendRequest(server2.URL+"/api/v1/room/"+roomId, data)
+			require.NoError(err)
+			defer res.Body.Close()
+			body, err = io.ReadAll(res.Body)
+			assert.NoError(err)
+			assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+			if msg, ok := client1.RunUntilMessage(ctx); ok {
+				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
+					if assert.Len(msg.Users, 3) {
+						users := msg.Users.Map()
+						if user := users[virtualSession.PublicId()]; assert.NotNil(user, "expected %s, got %+v", virtualSession.PublicId(), msg) {
+							assert.Equal(true, user["virtual"], "%+v", msg)
+							assert.EqualValues(virtualSession.PublicId(), user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithPhone, user["inCall"], "%+v", msg)
+							assert.EqualValues(246, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(4, user["participantType"], "%+v", msg)
+						}
+
+						if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, msg) {
+							assert.EqualValues(hello1.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(0, user["inCall"], "%+v", msg)
+							assert.EqualValues(254, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(1, user["participantType"], "%+v", msg)
+						}
+
+						if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+							assert.Equal(true, user["internal"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+							assert.EqualValues(hello2.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
+					}
+				}
+			}
+
+			if msg, ok := client2.RunUntilMessage(ctx); ok {
+				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
+					if assert.Len(msg.Users, 3) {
+						users := msg.Users.Map()
+						if user := users[virtualSession.PublicId()]; assert.NotNil(user, "expected %s, got %+v", virtualSession.PublicId(), msg) {
+							assert.Equal(true, user["virtual"], "%+v", msg)
+							assert.EqualValues(virtualSession.PublicId(), user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithPhone, user["inCall"], "%+v", msg)
+							assert.EqualValues(246, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(4, user["participantType"], "%+v", msg)
+						}
+
+						if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, msg) {
+							assert.EqualValues(hello1.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(0, user["inCall"], "%+v", msg)
+							assert.EqualValues(254, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(1, user["participantType"], "%+v", msg)
+						}
+
+						if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+							assert.Equal(true, user["internal"], "%+v", msg)
+							assert.EqualValues(hello2.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
+					}
+				}
+			}
+
+			client1.Close()
+			assert.NoError(client1.WaitForClientRemoved(ctx))
+
+			client3 := NewTestClient(t, server1, hub1)
+			defer client3.CloseWithBye()
+
+			require.NoError(client3.SendHelloResume(hello1.Hello.ResumeId))
+			if hello3, ok := client3.RunUntilHello(ctx); ok {
+				assert.Equal(testDefaultUserId, hello3.Hello.UserId, "%+v", hello3.Hello)
+				assert.Equal(hello1.Hello.SessionId, hello3.Hello.SessionId, "%+v", hello3.Hello)
+				assert.Equal(hello1.Hello.ResumeId, hello3.Hello.ResumeId, "%+v", hello3.Hello)
+			}
+
+			// Resumed client will receive information on sessions currently in the call.
+			if msg, ok := client3.RunUntilMessage(ctx); ok {
+				if msg, ok := checkMessageParticipantsInCall(t, msg); ok {
+					if assert.Len(msg.Users, 2) {
+						users := msg.Users.Map()
+						if user := users[virtualSession.PublicId()]; assert.NotNil(user, "expected %s, got %+v", virtualSession.PublicId(), msg) {
+							assert.Equal(true, user["virtual"], "%+v", msg)
+							assert.EqualValues(virtualSession.PublicId(), user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithPhone, user["inCall"], "%+v", msg)
+							assert.EqualValues(246, user["participantPermissions"], "%+v", msg)
+							assert.EqualValues(4, user["participantType"], "%+v", msg)
+						}
+
+						if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, msg) {
+							assert.Equal(true, user["internal"], "%+v", msg)
+							assert.EqualValues(hello2.Hello.SessionId, user["sessionId"], "%+v", msg)
+							assert.EqualValues(FlagInCall|FlagWithAudio, user["inCall"], "%+v", msg)
+						}
 					}
 				}
 			}
@@ -4910,11 +5437,9 @@ func DoTestSwitchToOne(t *testing.T, details api.StringMap) {
 			}
 			client1.RunUntilSwitchTo(ctx, roomId2, detailsData)
 
-			// The other client will not receive a message.
-			ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
-			defer cancel2()
-
-			client2.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
+			// The other client will not receive a message and the switchto
+			// event is only sent once (not once per server in the cluster).
+			assertNoMoreMessages(t, client1, client2)
 		})
 	}
 }
@@ -5023,6 +5548,10 @@ func DoTestSwitchToMultiple(t *testing.T, details1 api.StringMap, details2 api.S
 				require.NoError(err)
 			}
 			client2.RunUntilSwitchTo(ctx, roomId2, detailsData2)
+
+			// The switchto events are only sent once (not once per server in
+			// the cluster).
+			assertNoMoreMessages(t, client1, client2)
 		})
 	}
 }
