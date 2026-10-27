@@ -300,6 +300,10 @@ func (c *Client) SendMessage(message WritableClientMessage) bool {
 }
 
 func (c *Client) ReadPump() {
+	c.readPump(pongWait)
+}
+
+func (c *Client) readPump(readTimeout time.Duration) {
 	defer func() {
 		close(c.messageChan)
 		c.Close()
@@ -319,7 +323,7 @@ func (c *Client) ReadPump() {
 	conn.SetReadLimit(maxMessageSize)
 	conn.SetPongHandler(func(msg string) error {
 		now := time.Now()
-		conn.SetReadDeadline(now.Add(pongWait)) // nolint
+		conn.SetReadDeadline(now.Add(readTimeout)) // nolint
 		if msg == "" {
 			return nil
 		}
@@ -341,7 +345,7 @@ func (c *Client) ReadPump() {
 	})
 
 	for {
-		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
+		conn.SetReadDeadline(time.Now().Add(readTimeout)) // nolint
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
 			// Gorilla websocket hides the original net.Error, so also compare error messages
@@ -523,7 +527,11 @@ func (c *Client) sendPing() bool {
 }
 
 func (c *Client) WritePump() {
-	ticker := time.NewTicker(pingPeriod)
+	c.writePump(pingPeriod)
+}
+
+func (c *Client) writePump(interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer func() {
 		ticker.Stop()
 	}()
