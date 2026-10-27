@@ -341,3 +341,105 @@ func TestClient(t *testing.T) {
 		assert.EqualValues(3, clients[0].received.Load())
 	}
 }
+
+// newHeartbeatTestServer uses the production Client read/write pump
+// implementations with shorter test-only intervals. It neither mocks
+// their WebSocket traffic nor changes global production constants.
+func newHeartbeatTestServer(t *testing.T, timeout, interval time.Duration) (string, <-chan *serverClient, <-chan struct{}) {
+	t.Helper()
+
+	h := newTestHandler(t)
+	ready := make(chan *serverClient, 1)
+	closed := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := h.upgrader.Upgrade(w, r, nil)
+		if !assert.NoError(t, err) {
+			return
+		}
+
+		client := newTestClient(h, r, conn, h.id.Add(1))
+		h.addClient(client)
+		ready <- client
+
+		go client.writePump(interval)
+		client.readPump(timeout)
+		close(closed)
+	}))
+	t.Cleanup(server.Close)
+	return strings.ReplaceAll(server.URL, "http://", "ws://"), ready, closed
+}
+
+func TestClientHeartbeatDelayedPong(t *testing.T) {
+	const timeout = 4 * time.Second
+	const delayedPong = 1300 * time.Millisecond
+
+	// Preserve production's ping/read-timeout ratio with a short test
+	// timeout. At the previous 90% interval this delayed pong arrives
+	// after the read deadline; at 50% it arrives beforehand.
+	interval := time.Duration(float64(timeout) * float64(pingPeriod) / float64(pongWait))
+	url, ready, closed := newHeartbeatTestServer(t, timeout, interval)
+	client := newLocalClient(t, url)
+	t.Cleanup(func() {
+		assert.NoError(t, client.Close())
+		select {
+		case <-closed:
+		case <-time.After(2 * time.Second):
+			t.Error("signaling read pump did not stop after client disconnect")
+		}
+	})
+
+	serverClient := <-ready
+	var pings atomic.Int32
+	client.conn.SetPingHandler(func(message string) error {
+		if pings.Add(1) == 2 {
+			time.Sleep(delayedPong)
+		}
+		return client.conn.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(time.Second))
+	})
+	go func() {
+		for {
+			if _, _, err := client.conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-closed:
+		t.Fatal("signaling closed a recoverable connection after a delayed pong")
+	case <-time.After(timeout + 600*time.Millisecond):
+	}
+	require.GreaterOrEqual(t, pings.Load(), int32(2), "the test must exercise a delayed second pong")
+	require.True(t, serverClient.IsConnected())
+	require.NoError(t, client.WriteJSON("Hello world!"))
+	require.Eventually(t, func() bool {
+		return serverClient.received.Load() == 1
+	}, 2*time.Second, 10*time.Millisecond, "the connection should still deliver messages")
+}
+
+func TestClientHeartbeatMissingPongCloses(t *testing.T) {
+	const timeout = 600 * time.Millisecond
+	url, ready, closed := newHeartbeatTestServer(t, timeout, 200*time.Millisecond)
+	client := newLocalClient(t, url)
+	t.Cleanup(func() {
+		assert.NoError(t, client.Close())
+	})
+	serverClient := <-ready
+
+	// Continue reading control frames, but deliberately do not answer pings.
+	client.conn.SetPingHandler(func(string) error { return nil })
+	go func() {
+		for {
+			if _, _, err := client.conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-closed:
+	case <-time.After(3 * timeout):
+		t.Fatal("an unresponsive peer must still expire at the read deadline")
+	}
+	require.False(t, serverClient.IsConnected())
+}
