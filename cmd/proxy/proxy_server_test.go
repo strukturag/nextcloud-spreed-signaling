@@ -1860,17 +1860,19 @@ func TestScheduleShutdown(t *testing.T) {
 
 	readyChan := make(chan struct{})
 	var readyReceived atomic.Bool
+	shutdownDone := make(chan struct{})
 	go func() {
-		for {
+		defer close(shutdownDone)
+		select {
+		case <-proxyServer.ShutdownChannel():
+			// Shutdown must only happen after "readyChan" was closed.
 			select {
 			case <-readyChan:
 				readyReceived.Store(true)
-			case <-proxyServer.ShutdownChannel():
-				return
-			case <-ctx.Done():
-				assert.NoError(ctx.Err())
-				return
+			default:
 			}
+		case <-ctx.Done():
+			assert.NoError(ctx.Err())
 		}
 	}()
 
@@ -1908,6 +1910,7 @@ func TestScheduleShutdown(t *testing.T) {
 	}
 
 	<-proxyServer.ShutdownChannel()
+	<-shutdownDone
 	assert.True(readyReceived.Load())
 }
 
@@ -1964,17 +1967,19 @@ func TestScheduleShutdownOnResume(t *testing.T) {
 
 	readyChan := make(chan struct{})
 	var readyReceived atomic.Bool
+	shutdownDone := make(chan struct{})
 	go func() {
-		for {
+		defer close(shutdownDone)
+		select {
+		case <-proxyServer.ShutdownChannel():
+			// Shutdown must only happen after "readyChan" was closed.
 			select {
-			case <-proxyServer.ShutdownChannel():
-				return
 			case <-readyChan:
 				readyReceived.Store(true)
-			case <-ctx.Done():
-				assert.NoError(ctx.Err())
-				return
+			default:
 			}
+		case <-ctx.Done():
+			assert.NoError(ctx.Err())
 		}
 	}()
 
@@ -2048,5 +2053,6 @@ func TestScheduleShutdownOnResume(t *testing.T) {
 	}
 
 	<-proxyServer.ShutdownChannel()
+	<-shutdownDone
 	assert.True(readyReceived.Load())
 }
