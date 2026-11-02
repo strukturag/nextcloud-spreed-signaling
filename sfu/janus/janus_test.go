@@ -866,7 +866,10 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	require.NoError(err)
 	defer sub.Close(context.Background())
 
+	pubDone := make(chan struct{})
 	go func() {
+		defer close(pubDone)
+
 		data := &api.MessageClientMessageData{
 			Type: "offer",
 			Payload: api.StringMap{
@@ -914,6 +917,9 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 		}
 	})
 	<-done
+	// Also wait for the publisher request to finish, otherwise its
+	// transaction could still be active when the test gateway is checked.
+	<-pubDone
 }
 
 func Test_JanusRemotePublisher(t *testing.T) {
