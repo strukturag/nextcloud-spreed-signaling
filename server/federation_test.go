@@ -359,21 +359,25 @@ func Test_Federation(t *testing.T) {
 			"actorType": "federated_users",
 		},
 	}
-	room.PublishUsersInCallChanged(users, users)
+	room.PublishUsersInCallChanged(users)
 	var event *api.EventServerMessage
 	// For the local user, it's a federated user on server 2 that joined.
 	if checkReceiveClientEvent(ctx, t, client1, "update", &event) {
-		assert.EqualValues(remoteSessionId, event.Update.Users[0]["sessionId"])
-		assert.Equal("remoteUser@"+strings.TrimPrefix(server2.URL, "http://"), event.Update.Users[0]["actorId"])
-		assert.Equal("federated_users", event.Update.Users[0]["actorType"])
 		assert.Equal(roomId, event.Update.RoomId)
+		if assert.Len(event.Update.Users, 1) {
+			assert.EqualValues(remoteSessionId, event.Update.Users[0]["sessionId"])
+			assert.Equal("remoteUser@"+strings.TrimPrefix(server2.URL, "http://"), event.Update.Users[0]["actorId"])
+			assert.Equal("federated_users", event.Update.Users[0]["actorType"])
+		}
 	}
 	// For the federated user, it's a local user that joined.
 	if checkReceiveClientEvent(ctx, t, client2, "update", &event) {
-		assert.EqualValues(hello2.Hello.SessionId, event.Update.Users[0]["sessionId"])
-		assert.Equal("remoteUser", event.Update.Users[0]["actorId"])
-		assert.Equal("users", event.Update.Users[0]["actorType"])
 		assert.Equal(federatedRoomId, event.Update.RoomId)
+		if assert.Len(event.Update.Users, 1) {
+			assert.EqualValues(hello2.Hello.SessionId, event.Update.Users[0]["sessionId"])
+			assert.Equal("remoteUser", event.Update.Users[0]["actorId"])
+			assert.Equal("users", event.Update.Users[0]["actorType"])
+		}
 	}
 
 	// Simulate request from the backend that a local user joined the call.
@@ -385,20 +389,42 @@ func Test_Federation(t *testing.T) {
 			"actorType": "users",
 		},
 	}
-	room.PublishUsersInCallChanged(users, users)
+	room.PublishUsersInCallChanged(users)
 	// For the local user, it's a local user that joined.
 	if checkReceiveClientEvent(ctx, t, client1, "update", &event) {
-		assert.EqualValues(hello1.Hello.SessionId, event.Update.Users[0]["sessionId"])
-		assert.Equal("localUser", event.Update.Users[0]["actorId"])
-		assert.Equal("users", event.Update.Users[0]["actorType"])
 		assert.Equal(roomId, event.Update.RoomId)
+		if assert.Len(event.Update.Users, 2) {
+			users := event.Update.Users.Map()
+			if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, event) {
+				assert.EqualValues(hello1.Hello.SessionId, user["sessionId"])
+				assert.Equal("localUser", user["actorId"])
+				assert.Equal("users", user["actorType"])
+			}
+
+			if user := users[remoteSessionId]; assert.NotNil(user, "expected %s, got %+v", remoteSessionId, event) {
+				assert.EqualValues(remoteSessionId, user["sessionId"])
+				assert.Equal("remoteUser@"+strings.TrimPrefix(server2.URL, "http://"), user["actorId"])
+				assert.Equal("federated_users", user["actorType"])
+			}
+		}
 	}
 	// For the federated user, it's a federated user on server 1 that joined.
 	if checkReceiveClientEvent(ctx, t, client2, "update", &event) {
-		assert.EqualValues(hello1.Hello.SessionId, event.Update.Users[0]["sessionId"])
-		assert.Equal("localUser@"+strings.TrimPrefix(server1.URL, "http://"), event.Update.Users[0]["actorId"])
-		assert.Equal("federated_users", event.Update.Users[0]["actorType"])
 		assert.Equal(federatedRoomId, event.Update.RoomId)
+		if assert.Len(event.Update.Users, 2) {
+			users := event.Update.Users.Map()
+			if user := users[hello1.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello1.Hello.SessionId, event) {
+				assert.EqualValues(hello1.Hello.SessionId, user["sessionId"])
+				assert.Equal("localUser@"+strings.TrimPrefix(server1.URL, "http://"), user["actorId"])
+				assert.Equal("federated_users", user["actorType"])
+			}
+
+			if user := users[hello2.Hello.SessionId]; assert.NotNil(user, "expected %s, got %+v", hello2.Hello.SessionId, event) {
+				assert.EqualValues(hello2.Hello.SessionId, user["sessionId"])
+				assert.Equal("remoteUser", user["actorId"])
+				assert.Equal("users", user["actorType"])
+			}
+		}
 	}
 
 	// Joining another "direct" session will trigger correct events.

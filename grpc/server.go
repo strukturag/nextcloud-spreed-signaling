@@ -56,6 +56,7 @@ type ServerHub interface {
 	GetBackend(u *url.URL) *talk.Backend
 	GetInternalSessions(roomId string, backend *talk.Backend) ([]*InternalSessionData, []*VirtualSessionData, bool)
 	GetTransientEntries(roomId string, backend *talk.Backend) (api.TransientDataEntries, bool)
+	GetRoomUsers(roomId string, backend *talk.Backend) (api.UserDataList, bool)
 	GetPublisherIdForSessionId(ctx context.Context, sessionId api.PublicSessionId, streamType sfu.StreamType) (*GetPublisherIdReply, error)
 
 	ProxySession(request RpcSessions_ProxySessionServer) error
@@ -191,8 +192,6 @@ func (s *Server) IsSessionInCall(ctx context.Context, request *IsSessionInCallRe
 
 func (s *Server) GetInternalSessions(ctx context.Context, request *GetInternalSessionsRequest) (*GetInternalSessionsReply, error) {
 	statsGrpcServerCalls.WithLabelValues("GetInternalSessions").Inc()
-	// TODO: Remove debug logging
-	s.logger.Printf("Get internal sessions from %s on %v (fallback %s)", request.RoomId, request.BackendUrls, request.BackendUrl) // nolint
 
 	var backendUrls []string
 	if len(request.BackendUrls) > 0 {
@@ -203,6 +202,9 @@ func (s *Server) GetInternalSessions(ctx context.Context, request *GetInternalSe
 		// Only compat backend.
 		backendUrls = []string{""}
 	}
+
+	// TODO: Remove debug logging
+	s.logger.Printf("Get internal sessions from %s on %v (fallback %s)", request.RoomId, backendUrls, request.BackendUrl) // nolint
 
 	result := &GetInternalSessionsReply{}
 	processed := make(map[string]bool)
@@ -307,6 +309,58 @@ func (s *Server) GetTransientData(ctx context.Context, request *GetTransientData
 				e.Expires = v.Expires.UnixMicro()
 			}
 			result.Entries[k] = e
+		}
+	}
+
+	return result, nil
+}
+
+func (s *Server) GetRoomUsers(ctx context.Context, request *GetRoomUsersRequest) (*GetRoomUsersReply, error) {
+	statsGrpcServerCalls.WithLabelValues("GetRoomUsers").Inc()
+
+	backendUrls := request.BackendUrls
+	if len(backendUrls) == 0 {
+		// Only compat backend.
+		backendUrls = []string{""}
+	}
+
+	result := &GetRoomUsersReply{}
+	processed := make(map[string]bool)
+	for _, bu := range backendUrls {
+		var parsed *url.URL
+		if bu != "" {
+			var err error
+			parsed, err = url.Parse(bu)
+			if err != nil {
+				return nil, status.Error(codes.InvalidArgument, "invalid url")
+			}
+		}
+
+		backend := s.hub.GetBackend(parsed)
+		if backend == nil {
+			return nil, status.Error(codes.NotFound, "no such backend")
+		}
+
+		// Only process each backend once.
+		if processed[backend.Id()] {
+			continue
+		}
+		processed[backend.Id()] = true
+
+		entries, found := s.hub.GetRoomUsers(request.RoomId, backend)
+		if !found {
+			return nil, status.Error(codes.NotFound, "no such room")
+		} else if len(entries) == 0 {
+			return nil, status.Error(codes.NotFound, "room has no transient data")
+		}
+
+		for _, u := range entries {
+			e := &GrpcRoomUserEntry{}
+			var err error
+			if e.Value, err = json.Marshal(u); err != nil {
+				return nil, status.Errorf(codes.Internal, "error marshalling data: %s", err)
+			}
+			result.Entries = append(result.Entries, e)
 		}
 	}
 

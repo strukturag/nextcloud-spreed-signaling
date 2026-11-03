@@ -28,6 +28,7 @@ package grpc;
 service RpcInternal {
   rpc GetServerId(GetServerIdRequest) returns (GetServerIdReply) {}
   rpc GetTransientData(GetTransientDataRequest) returns (GetTransientDataReply) {}
+  rpc GetRoomUsers(GetRoomUsersRequest) returns (GetRoomUsersReply) {}
 }
 
 message GetServerIdRequest {
@@ -50,4 +51,17 @@ message GrpcTransientDataEntry {
 
 message GetTransientDataReply {
   map<string, GrpcTransientDataEntry> entries = 1;
+}
+
+message GetRoomUsersRequest {
+  string roomId = 1;
+  repeated string backendUrls = 2;
+}
+
+message GrpcRoomUserEntry {
+  bytes value = 1;
+}
+
+message GetRoomUsersReply {
+  repeated GrpcRoomUserEntry entries = 1;
 }
