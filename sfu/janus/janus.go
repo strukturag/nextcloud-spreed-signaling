@@ -1110,7 +1110,11 @@ func (m *janusSFU) getOrCreateRemotePublisher(ctx context.Context, controller sf
 	pub.janusClient.handleMedia = pub.handleMedia
 
 	if err := controller.StartPublishing(ctx, pub); err != nil {
-		go pub.Close(context.Background())
+		// The publisher was never returned, so it is not referenced and must be
+		// cleaned up directly. Closing happens asynchronously, so the signaler is
+		// released immediately to not be used by a retry for the same stream.
+		pub.releaseSignaler()
+		go pub.closeLocal(context.Background())
 		return nil, err
 	}
 

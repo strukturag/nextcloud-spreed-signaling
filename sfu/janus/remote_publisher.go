@@ -131,6 +131,13 @@ func (p *janusRemotePublisher) Close(ctx context.Context) {
 		p.logger.Printf("Error stopping remote publisher %s in room %d: %s", p.id, p.roomId, err)
 	}
 
+	p.closeLocal(ctx)
+}
+
+// closeLocal removes the remote publisher from Janus and releases its
+// resources without notifying the controller. Used directly if publishing
+// could not be started.
+func (p *janusRemotePublisher) closeLocal(ctx context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -156,7 +163,10 @@ func (p *janusRemotePublisher) Close(ctx context.Context) {
 				p.logger.Printf("Room %d destroyed", p.roomId)
 			}
 			p.mcu.mu.Lock()
-			delete(p.mcu.remotePublishers, sfu.GetStreamId(p.id, p.streamType))
+			key := sfu.GetStreamId(p.id, p.streamType)
+			if p.mcu.remotePublishers[key] == p {
+				delete(p.mcu.remotePublishers, key)
+			}
 			p.mcu.mu.Unlock()
 			p.roomId = 0
 		}
