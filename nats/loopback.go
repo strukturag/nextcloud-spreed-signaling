@@ -135,6 +135,11 @@ func (s *loopbackSubscription) Unsubscribe() error {
 	return nil
 }
 
+func (c *LoopbackClient) FlushWithContext(ctx context.Context) error {
+	// Subscriptions are active immediately.
+	return nil
+}
+
 func (c *LoopbackClient) Subscribe(subject string, cb MsgHandler) (Subscription, error) {
 	if strings.HasSuffix(subject, ".") || strings.Contains(subject, " ") {
 		return nil, nats.ErrBadSubject
