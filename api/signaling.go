@@ -331,11 +331,10 @@ type WelcomeServerMessage struct {
 
 func NewWelcomeServerMessage(version string, feature ...string) *WelcomeServerMessage {
 	message := &WelcomeServerMessage{
-		Version:  version,
-		Features: feature,
+		Version: version,
 	}
 	if len(feature) > 0 {
-		slices.Sort(message.Features)
+		message.Features = slices.Sorted(slices.Values(feature))
 	}
 	return message
 }
