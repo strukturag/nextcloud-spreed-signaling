@@ -128,6 +128,11 @@ type ClientSession struct {
 	seenJoinedEvents map[api.PublicSessionId]bool
 	// +checklocks:filterDuplicateLock
 	seenFlags map[api.PublicSessionId]uint32
+	// Send time of the last "join" / "leave" event of other sessions. All these
+	// events of a session are published by the server the session is connected
+	// to, so their send times can be compared to detect outdated events.
+	// +checklocks:filterDuplicateLock
+	membershipTimes map[api.PublicSessionId]time.Time
 
 	responseHandlersLock sync.Mutex
 	// +checklocks:responseHandlersLock
@@ -362,6 +367,7 @@ func (s *ClientSession) onRoomSet(hasRoom bool, joinTime time.Time) {
 	defer s.filterDuplicateLock.Unlock()
 	s.seenJoinedEvents = nil
 	s.seenFlags = nil
+	s.membershipTimes = nil
 }
 
 func (s *ClientSession) GetFederationClient() *FederationClient {
@@ -776,7 +782,12 @@ func (s *ClientSession) SendError(e *api.Error) bool {
 }
 
 func (s *ClientSession) SendMessage(message *api.ServerMessage) bool {
-	message, messages := s.filterMessage(message)
+	return s.sendMessage(message, time.Time{})
+}
+
+// sendMessage sends a message that was published at the given time (if known).
+func (s *ClientSession) sendMessage(message *api.ServerMessage, sendTime time.Time) bool {
+	message, messages := s.filterMessage(message, sendTime)
 	if message == nil && len(messages) == 0 {
 		return true
 	}
@@ -1232,7 +1243,7 @@ func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
 		return
 	}
 
-	s.SendMessage(serverMessage)
+	s.sendMessage(serverMessage, message.SendTime)
 }
 
 // +checklocks:s.mu
@@ -1295,36 +1306,72 @@ func filterDisplayNames(events []api.EventServerMessageSessionEntry) []api.Event
 	return result
 }
 
+// isOutdatedMembershipEvent checks if a "join" or "leave" event for the given
+// session was published before the last event that was processed for it. This
+// can happen as the events are received through different channels.
+//
 // +checklocks:s.filterDuplicateLock
-func (s *ClientSession) filterUnknownLeave(entries []api.PublicSessionId) []api.PublicSessionId {
-	idx := slices.IndexFunc(entries, func(e api.PublicSessionId) bool {
-		return !s.seenJoinedEvents[e] // +checklocksignore
-	})
-	if idx == -1 {
-		return entries
-	} else if idx+1 == len(entries) {
-		// Simple case: all entries filtered.
-		s.logger.Printf("Session %s got unknown leave events for %+v", s.publicId, entries)
-		return nil
+func (s *ClientSession) isOutdatedMembershipEvent(sessionId api.PublicSessionId, sendTime time.Time, join bool) bool {
+	if sendTime.IsZero() {
+		return false
 	}
 
-	// Filter remaining entries.
-	filtered := []api.PublicSessionId{
-		entries[idx],
+	last, found := s.membershipTimes[sessionId]
+	if !found {
+		return false
+	} else if join {
+		return !sendTime.After(last)
 	}
-	result := append([]api.PublicSessionId{}, entries[:idx]...)
-	for _, e := range entries[idx+1:] {
-		if s.seenJoinedEvents[e] {
-			result = append(result, e)
-		} else {
-			filtered = append(filtered, e)
+
+	return sendTime.Before(last)
+}
+
+// +checklocks:s.filterDuplicateLock
+func (s *ClientSession) updateMembershipTime(sessionId api.PublicSessionId, sendTime time.Time) {
+	if sendTime.IsZero() {
+		return
+	}
+
+	if last, found := s.membershipTimes[sessionId]; !found || sendTime.After(last) {
+		if s.membershipTimes == nil {
+			s.membershipTimes = make(map[api.PublicSessionId]time.Time)
 		}
+		s.membershipTimes[sessionId] = sendTime
 	}
-	s.logger.Printf("Session %s got unknown leave events for %+v", s.publicId, filtered)
+}
+
+// +checklocks:s.filterDuplicateLock
+func (s *ClientSession) filterLeave(entries []api.PublicSessionId, sendTime time.Time) []api.PublicSessionId {
+	result := make([]api.PublicSessionId, 0, len(entries))
+	var unknown []api.PublicSessionId
+	var outdated []api.PublicSessionId
+	for _, e := range entries {
+		if s.isOutdatedMembershipEvent(e, sendTime, false) {
+			// The session joined again after the leave event was published.
+			outdated = append(outdated, e)
+			continue
+		}
+
+		s.updateMembershipTime(e, sendTime)
+		delete(s.seenFlags, e)
+		if !s.seenJoinedEvents[e] {
+			unknown = append(unknown, e)
+			continue
+		}
+
+		delete(s.seenJoinedEvents, e)
+		result = append(result, e)
+	}
+	if len(unknown) > 0 {
+		s.logger.Printf("Session %s got unknown leave events for %+v", s.publicId, unknown)
+	}
+	if len(outdated) > 0 {
+		s.logger.Printf("Session %s got outdated leave events for %+v", s.publicId, outdated)
+	}
 	return result
 }
 
-func (s *ClientSession) filterDuplicateJoin(entries []api.EventServerMessageSessionEntry) []api.EventServerMessageSessionEntry {
+func (s *ClientSession) filterDuplicateJoin(entries []api.EventServerMessageSessionEntry, sendTime time.Time) []api.EventServerMessageSessionEntry {
 	s.filterDuplicateLock.Lock()
 	defer s.filterDuplicateLock.Unlock()
 
@@ -1333,6 +1380,13 @@ func (s *ClientSession) filterDuplicateJoin(entries []api.EventServerMessageSess
 	// level.
 	result := make([]api.EventServerMessageSessionEntry, 0, len(entries))
 	for _, e := range entries {
+		if s.isOutdatedMembershipEvent(e.SessionId, sendTime, true) {
+			// The session left after the join event was published.
+			s.logger.Printf("Session %s got outdated joined event for %s, ignoring", s.publicId, e.SessionId)
+			continue
+		}
+
+		s.updateMembershipTime(e.SessionId, sendTime)
 		if s.seenJoinedEvents[e.SessionId] {
 			s.logger.Printf("Session %s got duplicate joined event for %s, ignoring", s.publicId, e.SessionId)
 			continue
@@ -1370,7 +1424,7 @@ func (s *ClientSession) filterDuplicateFlags(message *api.RoomFlagsServerMessage
 	return false
 }
 
-func (s *ClientSession) filterMessage(message *api.ServerMessage) (*api.ServerMessage, []*api.ServerMessage) {
+func (s *ClientSession) filterMessage(message *api.ServerMessage, sendTime time.Time) (*api.ServerMessage, []*api.ServerMessage) {
 	switch message.Type {
 	case "event":
 		switch message.Event.Target {
@@ -1416,7 +1470,7 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) (*api.ServerMe
 		case "room":
 			switch message.Event.Type {
 			case "join":
-				join := s.filterDuplicateJoin(message.Event.Join)
+				join := s.filterDuplicateJoin(message.Event.Join, sendTime)
 				if len(join) == 0 {
 					return nil, nil
 				}
@@ -1454,14 +1508,9 @@ func (s *ClientSession) filterMessage(message *api.ServerMessage) (*api.ServerMe
 				s.filterDuplicateLock.Lock()
 				defer s.filterDuplicateLock.Unlock()
 
-				leave := s.filterUnknownLeave(message.Event.Leave)
+				leave := s.filterLeave(message.Event.Leave, sendTime)
 				if len(leave) == 0 {
 					return nil, nil
-				}
-
-				for _, e := range message.Event.Leave {
-					delete(s.seenJoinedEvents, e)
-					delete(s.seenFlags, e)
 				}
 
 				if len(leave) != len(message.Event.Leave) {
