@@ -23,7 +23,9 @@ package async
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -193,24 +195,110 @@ func TestNotifierSignalBeforeWait(t *testing.T) {
 
 func TestNotifierDuplicateSignaler(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		assert := assert.New(t)
+		var notifier Notifier
 
+		// Multiple signalers can exist for the same key, waiters are notified by
+		// any of them.
+		signaler1, release1 := notifier.NewSignaler("foo")
+		defer release1()
+		signaler2, release2 := notifier.NewSignaler("foo")
+		defer release2()
+
+		waiter, release := notifier.NewWaiter("foo")
+		defer release()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		var done sync.WaitGroup
+		done.Go(func() {
+			assert.NoError(waiter.Wait(ctx))
+		})
+
+		synctest.Wait()
+		signaler2.Signal()
+		done.Wait()
+
+		// Signaling again is a no-op.
+		signaler1.Signal()
+	})
+}
+
+func TestNotifierConcurrentSignal(t *testing.T) {
+	t.Parallel()
 	assert := assert.New(t)
 	var notifier Notifier
 
-	_, release := notifier.NewSignaler("foo")
-	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 
-	defer func() {
-		err := recover()
-		if e, ok := err.(error); assert.True(ok, "expected error, got %+v", err) {
-			assert.ErrorIs(e, ErrDuplicateSignaler)
-		}
-	}()
+	// Multiple signalers of the same key can signal concurrently.
+	for range 100 {
+		signaler1, release1 := notifier.NewSignaler("foo")
+		signaler2, release2 := notifier.NewSignaler("foo")
+		waiter, release := notifier.NewWaiter("foo")
 
-	_, release2 := notifier.NewSignaler("foo")
-	defer release2()
+		var wg sync.WaitGroup
+		wg.Go(signaler1.Signal)
+		wg.Go(signaler2.Signal)
+		wg.Wait()
 
-	assert.Fail("should have triggered panic")
+		assert.NoError(waiter.Wait(ctx))
+		release()
+		release1()
+		release2()
+	}
+	notifier.Lock()
+	defer notifier.Unlock()
+	assert.Empty(notifier.entries)
+}
+
+func TestNotifierReplaceSignaler(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		assert := assert.New(t)
+		var notifier Notifier
+
+		// The previous signaler has signaled and is still active (e.g. being closed).
+		signaler1, release1 := notifier.NewSignaler("foo")
+		signaler1.Signal()
+
+		signaler2, release2 := notifier.NewSignaler("foo")
+		defer release2()
+
+		// Waiters must wait for the new signaler.
+		waiter, release := notifier.NewWaiter("foo")
+		defer release()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		var done sync.WaitGroup
+		var notified atomic.Bool
+		done.Go(func() {
+			assert.NoError(waiter.Wait(ctx))
+			notified.Store(true)
+		})
+
+		synctest.Wait()
+		assert.False(notified.Load())
+
+		// Releasing the previous signaler must not affect the new one.
+		release1()
+		synctest.Wait()
+		assert.False(notified.Load())
+
+		signaler2.Signal()
+		done.Wait()
+		assert.True(notified.Load())
+
+		// Waiters created afterwards are notified immediately.
+		waiter2, release3 := notifier.NewWaiter("foo")
+		defer release3()
+		assert.NoError(waiter2.Wait(ctx))
+	})
 }
 
 func TestNotifierSignalerReleaseTwice(t *testing.T) {
@@ -229,4 +317,85 @@ func TestNotifierWaiterReleaseTwice(t *testing.T) {
 	_, release := notifier.NewWaiter("foo")
 	release()
 	release()
+}
+
+func TestNotifierResetKeepsSignaler(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		assert := assert.New(t)
+		var notifier Notifier
+
+		signaler, releaseSignaler := notifier.NewSignaler("foo")
+		signaler.Signal()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		waiter1, release1 := notifier.NewWaiter("foo")
+		assert.NoError(waiter1.Wait(ctx))
+
+		// After a reset (e.g. reconnect to the server), waiters must wait until the
+		// existing signaler signals again.
+		notifier.Reset()
+
+		waiter2, release2 := notifier.NewWaiter("foo")
+		var done sync.WaitGroup
+		var notified atomic.Bool
+		done.Go(func() {
+			assert.NoError(waiter2.Wait(ctx))
+			notified.Store(true)
+		})
+
+		synctest.Wait()
+		assert.False(notified.Load())
+
+		// Releasing waiters of the previous entry doesn't affect the new one.
+		release1()
+		synctest.Wait()
+		assert.False(notified.Load())
+
+		signaler.Signal()
+		done.Wait()
+		assert.True(notified.Load())
+
+		release2()
+		releaseSignaler()
+
+		notifier.Lock()
+		defer notifier.Unlock()
+		assert.Empty(notifier.entries)
+	})
+}
+
+func TestNotifierResetConcurrent(t *testing.T) {
+	t.Parallel()
+
+	var notifier Notifier
+	var wg sync.WaitGroup
+	for i := range 10 {
+		// Signalers are re-armed by a reset and must signal again (e.g. once a
+		// publisher connected again), so use a separate key for each goroutine.
+		key := fmt.Sprintf("foo-%d", i)
+		wg.Go(func() {
+			for range 100 {
+				signaler, release := notifier.NewSignaler(key)
+				waiter, releaseWaiter := notifier.NewWaiter(key)
+				signaler.Signal()
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				// The waiter is notified by the signal or the reset.
+				assert.NoError(t, waiter.Wait(ctx))
+				cancel()
+				releaseWaiter()
+				release()
+			}
+		})
+	}
+	for range 100 {
+		notifier.Reset()
+	}
+	wg.Wait()
+
+	notifier.Lock()
+	defer notifier.Unlock()
+	assert.Empty(t, notifier.entries)
 }
