@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,9 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/mock"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
+	sfutest "github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
@@ -492,5 +496,171 @@ func TestRoom_ParticipantsUpdateRemovesUsers(t *testing.T) {
 			assertRoomUsers(t, roomId, hubs)
 			assertNoMoreMessages(t, client1, client2)
 		})
+	}
+}
+
+func TestRoom_InCallChangesAfterRoomSwitch(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	mcu := sfutest.NewSFU(t)
+	require.NoError(mcu.Start(ctx))
+	defer mcu.Stop()
+	hub.SetMcu(mcu)
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
+
+	roomId1 := "test-room-1"
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId1)
+	client1.RunUntilJoined(ctx, hello1.Hello)
+	MustSucceed2(t, client2.JoinRoom, ctx, roomId1)
+	client1.RunUntilJoined(ctx, hello2.Hello)
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	room1 := hub.getRoom(roomId1)
+	require.NotNil(room1)
+	session1, ok := hub.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+	sid1 := hello1.Hello.SessionId
+
+	// Session 1 switches to a different room (e.g. a breakout room) and joins
+	// the call there.
+	roomId2 := "test-room-2"
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId2)
+	client1.RunUntilJoined(ctx, hello1.Hello)
+	client2.RunUntilLeft(ctx, hello1.Hello)
+	room2 := hub.getRoom(roomId2)
+	require.NotNil(room2)
+	require.Same(room2, session1.GetRoom())
+
+	publishInCall := func(room *Room, inCall int) {
+		t.Helper()
+		publishBackendRoomRequest(t, hub, room.Id(), room.Backend(), &talk.BackendServerRoomRequest{
+			Type: "incall",
+			InCall: &talk.BackendRoomInCallRequest{
+				InCall: json.RawMessage(strconv.Itoa(inCall)),
+				Changed: api.UserDataList{
+					{
+						"sessionId": sid1,
+						"inCall":    inCall,
+					},
+				},
+			},
+		})
+		client := client2
+		if room == room2 {
+			client = client1
+		}
+		if msg, ok := client.RunUntilMessage(ctx); ok {
+			checkMessageParticipantsInCall(t, msg)
+		}
+	}
+
+	publishInCall(room2, FlagInCall|FlagWithAudio|FlagWithVideo)
+	assert.True(room2.IsSessionInCall(session1))
+
+	require.NoError(client1.SendMessage(api.MessageClientMessageRecipient{
+		Type:      "session",
+		SessionId: sid1,
+	}, api.MessageClientMessageData{
+		Type:     "offer",
+		Sid:      "54321",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}))
+	client1.RunUntilAnswer(ctx, mock.MockSdpAnswerAudioAndVideo)
+	require.NotNil(session1.GetPublisher(sfu.StreamTypeVideo))
+
+	// Delayed in-call changes for the previous room may not affect the session.
+	publishInCall(room1, FlagInCall)
+	assert.False(room1.IsSessionInCall(session1))
+	publishInCall(room1, FlagDisconnected)
+	assert.True(room2.IsSessionInCall(session1))
+	assert.NotNil(session1.GetPublisher(sfu.StreamTypeVideo), "publisher should not have been closed")
+
+	// Leaving the call in the previous room doesn't release the media while
+	// the session is still in the call.
+	session1.LeaveCall(room1)
+	session1.LeaveCall(room2)
+	assert.NotNil(session1.GetPublisher(sfu.StreamTypeVideo), "publisher should not have been closed")
+
+	// Leaving the call in the current room releases the media.
+	publishInCall(room2, FlagDisconnected)
+	assert.False(room2.IsSessionInCall(session1))
+	assert.Nil(session1.GetPublisher(sfu.StreamTypeVideo), "publisher should have been closed")
+
+	assertNoMoreMessages(t, client1, client2)
+}
+
+func TestRoom_NotifyInternalRoomDeletedLockOrder(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+	require.NoError(client.SendHelloInternal())
+	hello := MustSucceed1(t, client.RunUntilHello, ctx)
+
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+	room, err := hub.CreateRoom("test-room", nil, session.Backend())
+	require.NoError(err)
+	defer room.Close()
+	require.NoError(room.AddSession(session, nil))
+
+	// Simulate a session that is leaving the room: it holds its own lock and
+	// then needs the room lock.
+	session.mu.Lock()
+	notified := make(chan struct{})
+	go func() {
+		defer close(notified)
+		room.notifyInternalRoomDeleted()
+	}()
+
+	// Give the notification a chance to block on the session lock.
+	time.Sleep(100 * time.Millisecond)
+
+	locked := make(chan struct{})
+	go func() {
+		defer close(locked)
+		room.mu.Lock()
+		room.mu.Unlock() // nolint
+	}()
+
+	select {
+	case <-locked:
+	case <-ctx.Done():
+		assert.Fail("could not acquire room lock while session is notified, deadlock")
+	}
+	session.mu.Unlock()
+
+	select {
+	case <-notified:
+	case <-ctx.Done():
+		assert.Fail("session was not notified")
+	}
+
+	if msg, ok := client.RunUntilMessage(ctx); ok && checkMessageType(t, msg, "event") {
+		assert.Equal("room", msg.Event.Target)
+		assert.Equal("delete", msg.Event.Type)
 	}
 }
