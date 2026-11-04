@@ -63,7 +63,7 @@ require (
 	github.com/pion/transport/v5 v5.1.4 // indirect
 	github.com/pion/turn/v5 v5.1.3 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
-	github.com/prometheus/common v0.73.0 // indirect
+	github.com/prometheus/common v0.73.1 // indirect
 	github.com/prometheus/procfs v0.23.0 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
