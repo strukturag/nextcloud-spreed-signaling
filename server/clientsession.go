@@ -106,10 +106,14 @@ type ClientSession struct {
 	// +checklocks:roomSessionIdLock
 	roomSessionId api.RoomSessionId
 
-	publishersCond sync.Cond
+	// Uses "mu" as locker, can be signaled without holding the lock.
+	publishersCond sync.Cond // +checklocksignore
 
 	// +checklocks:mu
 	publishers map[sfu.StreamType]sfu.Publisher
+	// Stream types for which a publisher is currently being created.
+	// +checklocks:mu
+	creatingPublishers map[sfu.StreamType]bool
 	// +checklocks:mu
 	subscribers map[sfu.StreamId]sfu.Subscriber
 
@@ -990,7 +994,25 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu sfu.SFU, s
 	}
 
 	publisher, found := s.publishers[streamType]
+	if !found && s.creatingPublishers[streamType] {
+		// Wait for the publisher that is being created by another request, so only
+		// one publisher is created for each stream type.
+		publisher, found = s.waitForCreatingPublisherLocked(ctx, streamType)
+		if err := ctx.Err(); err != nil && !found {
+			return nil, err
+		}
+	}
 	if !found {
+		if s.creatingPublishers == nil {
+			s.creatingPublishers = make(map[sfu.StreamType]bool)
+		}
+		s.creatingPublishers[streamType] = true
+		defer func() {
+			// Called while holding the lock.
+			delete(s.creatingPublishers, streamType)
+			s.publishersCond.Broadcast()
+		}()
+
 		client := s.getClientUnlocked()
 		s.mu.Unlock()
 		defer s.mu.Lock()
@@ -1044,6 +1066,25 @@ func (s *ClientSession) GetOrCreatePublisher(ctx context.Context, mcu sfu.SFU, s
 	}
 
 	return publisher, nil
+}
+
+// waitForCreatingPublisherLocked waits until a publisher of the given stream
+// type has been created by another request. Returns "false" if creating the
+// publisher failed or the context is done.
+//
+// +checklocks:s.mu
+func (s *ClientSession) waitForCreatingPublisherLocked(ctx context.Context, streamType sfu.StreamType) (sfu.Publisher, bool) {
+	stop := context.AfterFunc(ctx, func() {
+		s.publishersCond.Broadcast()
+	})
+	defer stop()
+
+	for s.creatingPublishers[streamType] && ctx.Err() == nil {
+		s.publishersCond.Wait()
+	}
+
+	publisher, found := s.publishers[streamType]
+	return publisher, found
 }
 
 // +checklocks:s.mu

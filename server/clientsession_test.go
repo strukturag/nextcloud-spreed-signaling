@@ -24,8 +24,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -916,4 +919,119 @@ func Test_ClientSessionSubscriberEvents(t *testing.T) {
 
 	session2.SubscriberClosed(sub)
 	assert.Nil(session2.GetSubscriber(hello1.Hello.SessionId, sfu.StreamTypeVideo))
+}
+
+type blockingPublisherSFU struct {
+	*test.SFU
+
+	created atomic.Int32
+	// Receives an error (or nil) for each publisher to create.
+	results chan error
+}
+
+func (m *blockingPublisherSFU) NewPublisher(ctx context.Context, listener sfu.Listener, id api.PublicSessionId, sid string, streamType sfu.StreamType, settings sfu.NewPublisherSettings, initiator sfu.Initiator) (sfu.Publisher, error) {
+	m.created.Add(1)
+	select {
+	case err := <-m.results:
+		if err != nil {
+			return nil, err
+		}
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	return m.SFU.NewPublisher(ctx, listener, id, sid, streamType, settings, initiator)
+}
+
+func TestClientSession_GetOrCreatePublisherConcurrent(t *testing.T) {
+	t.Parallel()
+
+	for _, failFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failFirst=%t", failFirst), func(t *testing.T) {
+			t.Parallel()
+			require := require.New(t)
+			assert := assert.New(t)
+			hub, _, _, server := CreateHubForTest(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			mcu := &blockingPublisherSFU{
+				SFU:     test.NewSFU(t),
+				results: make(chan error),
+			}
+
+			client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+			defer client.CloseWithBye()
+
+			session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+			require.True(ok)
+
+			data := &api.MessageClientMessageData{
+				Sid:      "12345",
+				RoomType: string(sfu.StreamTypeVideo),
+			}
+
+			// Create publishers concurrently, only one must be created at a time.
+			const count = 3
+			publishers := make(chan sfu.Publisher, count)
+			var failed atomic.Int32
+			var wg sync.WaitGroup
+			for range count {
+				wg.Go(func() {
+					if pub, err := session.GetOrCreatePublisher(ctx, mcu, sfu.StreamTypeVideo, data); err != nil {
+						failed.Add(1)
+					} else {
+						publishers <- pub
+					}
+				})
+			}
+
+			assert.Eventually(func() bool {
+				return mcu.created.Load() == 1
+			}, testTimeout, time.Millisecond)
+			if !assert.Never(func() bool {
+				return mcu.created.Load() > 1
+			}, 100*time.Millisecond, time.Millisecond, "only one publisher must be created at a time") {
+				// Don't block until the timeout.
+				cancel()
+				wg.Wait()
+				return
+			}
+
+			if failFirst {
+				// One of the waiting requests creates the publisher if the first failed.
+				mcu.results <- errors.New("failed")
+				assert.Eventually(func() bool {
+					return mcu.created.Load() == 2
+				}, testTimeout, time.Millisecond)
+			}
+			mcu.results <- nil
+			wg.Wait()
+			close(publishers)
+
+			expected := int32(1)
+			if failFirst {
+				expected = 2
+			}
+			assert.Equal(expected, mcu.created.Load())
+
+			// Only the failed request doesn't return a publisher.
+			var received []sfu.Publisher
+			for pub := range publishers {
+				received = append(received, pub)
+			}
+			if failFirst {
+				assert.EqualValues(1, failed.Load())
+				require.Len(received, count-1)
+			} else {
+				assert.EqualValues(0, failed.Load())
+				require.Len(received, count)
+			}
+			for _, pub := range received {
+				assert.Same(received[0], pub)
+			}
+			assert.Same(received[0], session.GetPublisher(sfu.StreamTypeVideo))
+		})
+	}
 }
