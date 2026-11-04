@@ -1164,11 +1164,20 @@ func IsInCall(value any) (bool, bool) {
 	}
 }
 
+// newStoredUser returns a copy of the user data that can be stored, so the
+// stored data is not modified through the passed data and vice versa. The
+// permissions are not stored as they are never sent to other participants.
+func newStoredUser(user api.UserData) api.UserData {
+	result := user.Clone()
+	delete(result, "permissions")
+	return result
+}
+
 func (r *Room) addUser(sessionId api.PublicSessionId, user api.UserData) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.users[sessionId] = user
+	r.users[sessionId] = newStoredUser(user)
 }
 
 // setUsers replaces the users with the users in call from the given list.
@@ -1183,7 +1192,7 @@ func (r *Room) setUsers(users api.UserDataList) {
 			continue
 		}
 
-		r.users[sessionId] = user.Clone()
+		r.users[sessionId] = newStoredUser(user)
 	}
 }
 
@@ -1199,7 +1208,7 @@ func (r *Room) updateUser(sessionId api.PublicSessionId, user api.UserData) {
 
 	updated := existing.Clone()
 	maps.Copy(updated, user)
-	r.users[sessionId] = updated
+	r.users[sessionId] = newStoredUser(updated)
 }
 
 func (r *Room) removeUsers(sessionIds ...api.PublicSessionId) {
@@ -1224,6 +1233,7 @@ func (r *Room) setVirtualSessionData(sessionId api.PublicSessionId, data api.Use
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	data = newStoredUser(data)
 	delete(data, "inCall")
 	if len(data) > 0 {
 		r.virtualSessionData[sessionId] = data
@@ -1429,8 +1439,12 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, user := range r.users {
-		user["inCall"] = inCall
+	// The stored data must not be modified as it might be referenced by
+	// messages that are being sent.
+	for sessionId, user := range r.users {
+		updated := user.Clone()
+		updated["inCall"] = inCall
+		r.users[sessionId] = updated
 	}
 
 	if inCall&FlagInCall != 0 {
@@ -1992,7 +2006,7 @@ func (r *Room) fetchInitialUsers() {
 		for sid, u := range initial {
 			// Only store information on users that have not been updated through backend requests.
 			if _, found := r.users[sid]; !found {
-				r.users[sid] = u
+				r.users[sid] = newStoredUser(u)
 			}
 		}
 	}

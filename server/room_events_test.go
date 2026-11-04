@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -816,4 +817,70 @@ func TestRoom_RemoveSessionWhileNotifyingJoined(t *testing.T) {
 		assert.Fail("session was not removed")
 	}
 	assert.False(room.HasSession(session))
+}
+
+func TestRoom_StoredUsersAreCopies(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+	room, err := hub.CreateRoom("test-room", nil, session.Backend())
+	require.NoError(err)
+	defer room.Close()
+
+	// Read the users concurrently, e.g. as done for requests from other servers.
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				room.getUsers()
+			}
+		}
+	})
+
+	sid := api.PublicSessionId("the-session")
+	var changed api.UserDataList
+	for range 100 {
+		changed = api.UserDataList{
+			{
+				"sessionId":   sid,
+				"inCall":      FlagInCall,
+				"permissions": []any{"publish-audio"},
+			},
+		}
+		room.PublishUsersInCallChanged(changed)
+	}
+	close(stop)
+	wg.Wait()
+
+	if users := room.getUsers(); assert.Len(users, 1) {
+		assert.NotContains(users[0], "permissions")
+	}
+
+	// Modifying the data passed to the room doesn't modify the stored data.
+	changed[0]["foo"] = "bar"
+	if users := room.getUsers(); assert.Len(users, 1) {
+		assert.NotContains(users[0], "foo")
+	}
+
+	// Modifying the stored data doesn't modify the data passed to the room
+	// (which could be referenced by messages being sent).
+	room.PublishUsersInCallChangedAll(FlagInCall | FlagWithAudio)
+	assert.Equal(FlagInCall, changed[0]["inCall"])
+	if users := room.getUsers(); assert.Len(users, 1) {
+		assert.Equal(FlagInCall|FlagWithAudio, users[0]["inCall"])
+	}
 }
