@@ -1515,7 +1515,7 @@ func TestRoom_InitialStateIncludesChangesWhileSyncing(t *testing.T) {
 		{"sessionId": sid1, "participantType": 3},
 	})
 	room.publishUsersInCallChangedAll(FlagInCall|FlagWithAudio, nil)
-	room.applyInitialState(nil, initialUsers())
+	room.applyInitialState(nil, initialUsers(), true)
 	users := room.getUsers().Map()
 	if assert.Len(users, 2) {
 		assert.EqualValues(3, users[sid1]["participantType"])
@@ -1532,7 +1532,7 @@ func TestRoom_InitialStateIncludesChangesWhileSyncing(t *testing.T) {
 	room.publishUsersInCallChangedAll(FlagDisconnected, map[api.PublicSessionId]bool{
 		sid3: true,
 	})
-	room.applyInitialState(nil, initialUsers())
+	room.applyInitialState(nil, initialUsers(), true)
 	assertRoomUsers(t, "test-room-2", []*Hub{hub}, sid3)
 }
 

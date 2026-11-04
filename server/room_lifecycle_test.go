@@ -25,19 +25,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/dlintw/goconf"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	googlegrpc "google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
 	eventstest "github.com/strukturag/nextcloud-spreed-signaling/v2/async/events/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/grpc"
+	grpctest "github.com/strukturag/nextcloud-spreed-signaling/v2/grpc/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/test"
 )
 
 func reserveRoomJoin(hub *Hub, room *Room) {
@@ -234,9 +244,10 @@ func TestRoom_FetchUsersAfterClose(t *testing.T) {
 	room2.Close()
 
 	// Applying the initial users to a closed room may not modify it.
-	users := room2.fetchInitialUsers(ctx)
+	_, users, failed := room2.fetchInitialState(ctx, hub2.rpcClients.GetClients())
 	assert.Len(users, 1)
-	room2.applyInitialState(nil, users)
+	assert.Empty(failed)
+	room2.applyInitialState(nil, users, true)
 	assert.Empty(room2.getUsers())
 
 	room3, err := hub2.CreateRoom(roomId, nil, session2.Backend())
@@ -677,4 +688,155 @@ func TestRoom_JoiningInternalSessionNotVisible(t *testing.T) {
 	inUsers, inInternal = isVisible(room2)
 	assert.True(inUsers, "session should be in the list of users")
 	assert.True(inInternal, "session should be in the internal sessions")
+}
+
+// initialStateHub provides the users of a room to other servers.
+type initialStateHub struct {
+	grpctest.MockHub
+
+	backend *talk.Backend
+	users   api.UserDataList
+}
+
+func (h *initialStateHub) GetBackend(u *url.URL) *talk.Backend {
+	return h.backend
+}
+
+func (h *initialStateHub) GetRoomUsers(ctx context.Context, roomId string, backend *talk.Backend) (api.UserDataList, bool) {
+	return h.users, true
+}
+
+// newInitialStateServer creates a GRPC server providing the given users that
+// accepts connections but doesn't serve requests until it is started.
+func newInitialStateServer(t *testing.T, backend *talk.Backend, users api.UserDataList) (*grpc.Server, string) {
+	t.Helper()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	var server *grpc.Server
+	var addr string
+	for port := 50100; port < 50200; port++ {
+		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+		config := goconf.NewConfigFile()
+		config.AddOption("grpc", "listen", addr)
+		var err error
+		server, err = grpc.NewServer(ctx, config, "0.0.0")
+		if test.IsErrorAddressAlreadyInUse(err) {
+			continue
+		}
+
+		require.NoError(t, err)
+		break
+	}
+	require.NotNil(t, server, "could not find free port")
+	server.SetServerId("dont-match")
+	server.SetHub(&initialStateHub{
+		backend: backend,
+		users:   users,
+	})
+	t.Cleanup(func() {
+		server.Close()
+	})
+	return server, addr
+}
+
+func TestRoom_RetryInitialState(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, _ := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	backend := talk.NewCompatBackend(nil)
+	room, err := hub.CreateRoom("test-room", nil, backend)
+	require.NoError(err)
+	defer room.Close()
+	waitForRoomSynced(ctx, t, room)
+
+	server, addr := newInitialStateServer(t, backend, api.UserDataList{
+		{
+			"sessionId": "session1",
+			"inCall":    FlagInCall,
+		},
+		{
+			"sessionId": "session2",
+			"inCall":    FlagInCall,
+		},
+	})
+	client, err := grpc.NewClient(logger, addr, nil, googlegrpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(err)
+	defer client.Close() // nolint
+
+	// The hub has no other servers, simulate that the initial state is fetched.
+	room.mu.Lock()
+	room.syncState = newRoomSyncState()
+	room.mu.Unlock()
+
+	// The server doesn't serve requests yet, so fetching the state fails.
+	fetchCtx, fetchCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer fetchCancel()
+	failed := room.fetchAndApplyInitialState(fetchCtx, []*grpc.Client{client}, false)
+	assert.Equal([]*grpc.Client{client}, failed)
+	assert.Empty(room.getUsers())
+
+	// Changes from events are still tracked while the state is retried.
+	room.removeUsers("session2")
+
+	go func() {
+		assert.NoError(server.Run())
+	}()
+
+	room.initialStateRetryDelay = time.Millisecond
+	room.retryInitialState(failed)
+
+	if users := room.getUsers(); assert.Len(users, 1) {
+		sid, _ := users[0].SessionId()
+		assert.EqualValues("session1", sid)
+	}
+	room.mu.RLock()
+	assert.Nil(room.syncState, "changes should no longer be tracked")
+	room.mu.RUnlock()
+}
+
+func TestRoom_RetryInitialStateGiveUp(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, _ := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	backend := talk.NewCompatBackend(nil)
+	room, err := hub.CreateRoom("test-room", nil, backend)
+	require.NoError(err)
+	defer room.Close()
+	waitForRoomSynced(ctx, t, room)
+
+	// Get an address where no server is listening.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(err)
+	addr := listener.Addr().String()
+	require.NoError(listener.Close())
+
+	client, err := grpc.NewClient(logger, addr, nil, googlegrpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(err)
+	defer client.Close() // nolint
+
+	room.mu.Lock()
+	room.syncState = newRoomSyncState()
+	room.mu.Unlock()
+
+	room.initialStateRetryDelay = time.Millisecond
+	room.retryInitialState([]*grpc.Client{client})
+
+	// Changes are no longer tracked after giving up.
+	room.mu.RLock()
+	assert.Nil(room.syncState)
+	room.mu.RUnlock()
 }

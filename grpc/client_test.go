@@ -31,6 +31,10 @@ import (
 	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns"
 	dnstest "github.com/strukturag/nextcloud-spreed-signaling/v2/dns/test"
@@ -38,6 +42,7 @@ import (
 	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/v2/etcd/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/test"
 )
 
@@ -282,4 +287,37 @@ func Test_GrpcClients_EtcdIgnoreSelf(t *testing.T) {
 	if clients := client.GetClients(); assert.Len(clients, 1) {
 		assert.Equal(addr1, clients[0].Target())
 	}
+}
+
+func Test_GrpcClient_RoomStateFailFast(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	// Get an address where no server is listening.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(err)
+	addr := listener.Addr().String()
+	require.NoError(listener.Close())
+
+	logger := logtest.NewLoggerForTest(t)
+	client, err := NewClient(logger, addr, nil, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(err)
+	defer client.Close() // nolint
+
+	backend := talk.NewCompatBackend(nil)
+
+	// Requests for the state of a room fail immediately if the server is not
+	// reachable instead of waiting until the deadline.
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	start := time.Now()
+	_, err = client.GetRoomUsers(ctx, "room", backend)
+	assert.Equal(codes.Unavailable, status.Code(err), "unexpected error %v", err)
+	_, err = client.GetTransientData(ctx, "room", backend)
+	assert.Equal(codes.Unavailable, status.Code(err), "unexpected error %v", err)
+	_, _, err = client.GetInternalSessions(ctx, "room", backend.Urls())
+	assert.Equal(codes.Unavailable, status.Code(err), "unexpected error %v", err)
+	assert.Less(time.Since(start), testTimeout/2)
 }

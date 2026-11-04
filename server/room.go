@@ -71,6 +71,15 @@ var ErrRoomClosed = errors.New("room closed") // +checklocksignore: Global reado
 // removed. Requests that were received before can't be delayed that long.
 const defaultInCallChangesMaxAge = time.Minute
 
+const (
+	// Timeout for fetching the initial state of a room from other servers.
+	initialStateTimeout = time.Second
+	// Number of retries if the initial state could not be fetched from servers.
+	initialStateMaxRetries = 3
+	// Delay before the first retry, doubled for each further retry.
+	initialStateRetryDelay = time.Second
+)
+
 func init() {
 	RegisterRoomStats()
 }
@@ -88,7 +97,8 @@ type Room struct {
 	closer     *internal.Closer
 	mu         *sync.RWMutex
 	asyncQueue *events.AsyncQueue
-	// Closed once the initial state was fetched from other servers.
+	// Closed once the initial state was fetched from other servers (servers
+	// that failed are retried in the background).
 	synced chan struct{}
 	// Changes made while the initial state is fetched from other servers.
 	// +checklocks:mu
@@ -147,6 +157,8 @@ type Room struct {
 	// the goroutine processing the asynchronous messages.
 	inCallChangesMaxAge   time.Duration
 	lastInCallChangePrune int64
+	// Delay before retrying to fetch the initial state from other servers.
+	initialStateRetryDelay time.Duration
 
 	transientData *api.TransientData
 }
@@ -228,6 +240,8 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		lastInCallReceived:  make(map[api.PublicSessionId]int64),
 		inCallChangesMaxAge: defaultInCallChangesMaxAge,
 
+		initialStateRetryDelay: initialStateRetryDelay,
+
 		transientData: api.NewTransientData(),
 	}
 
@@ -300,7 +314,8 @@ loop:
 // syncInitialState fetches the initial state of the room from other servers
 // in the cluster. Events are processed in the meantime, so the room can provide
 // its state to other servers. Changes from these events are not overwritten by
-// the (possibly outdated) initial state.
+// the (possibly outdated) initial state. If the state could not be fetched from
+// some servers, they are retried in the background.
 func (r *Room) syncInitialState() {
 	defer close(r.synced)
 	if r.hub.rpcClients == nil {
@@ -308,7 +323,7 @@ func (r *Room) syncInitialState() {
 	}
 
 	ctx := log.NewLoggerContext(context.Background(), r.logger)
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	ctx, cancel := context.WithTimeout(ctx, initialStateTimeout)
 	defer cancel()
 
 	// Make sure the listener for backend room events is active before fetching
@@ -317,34 +332,71 @@ func (r *Room) syncInitialState() {
 		r.logger.Printf("Error flushing events for room %s: %s", r.id, err)
 	}
 
-	var wg sync.WaitGroup
-	var transientData api.TransientDataEntries
-	var users api.UserDataMap
-	wg.Go(func() {
-		transientData = r.fetchInitialTransientData(ctx)
-	})
-	wg.Go(func() {
-		users = r.fetchInitialUsers(ctx)
-	})
-	wg.Wait()
+	failed := r.fetchAndApplyInitialState(ctx, r.hub.rpcClients.GetClients(), false)
+	if len(failed) > 0 {
+		go r.retryInitialState(failed)
+	}
+}
+
+// retryInitialState fetches the initial state from servers that failed before.
+func (r *Room) retryInitialState(clients []*grpc.Client) {
+	delay := r.initialStateRetryDelay
+	for attempt := 1; attempt <= initialStateMaxRetries; attempt++ {
+		select {
+		case <-time.After(delay):
+		case <-r.closer.C:
+			return
+		}
+
+		ctx := log.NewLoggerContext(context.Background(), r.logger)
+		ctx, cancel := context.WithTimeout(ctx, initialStateTimeout)
+		clients = r.fetchAndApplyInitialState(ctx, clients, attempt == initialStateMaxRetries)
+		cancel()
+		if len(clients) == 0 {
+			return
+		}
+
+		delay *= 2
+	}
+
+	targets := make([]string, 0, len(clients))
+	for _, client := range clients {
+		targets = append(targets, client.Target())
+	}
+	r.logger.Printf("Could not fetch initial state of room %s from %v, giving up", r.id, targets)
+}
+
+// fetchAndApplyInitialState fetches the initial state from the given servers
+// and applies it. Returns the servers the state could not be fetched from. The
+// changes made by events are tracked until the state could be fetched from
+// all servers, or "final" is true.
+func (r *Room) fetchAndApplyInitialState(ctx context.Context, clients []*grpc.Client, final bool) []*grpc.Client {
+	transientData, users, failed := r.fetchInitialState(ctx, clients)
 
 	// Apply the state from the goroutine processing the events, so it is
 	// ordered with changes from events.
 	applied := make(chan struct{})
 	r.asyncQueue.Execute(func() {
 		defer close(applied)
-		r.applyInitialState(transientData, users)
+		r.applyInitialState(transientData, users, final || len(failed) == 0)
 	})
 	select {
 	case <-applied:
 	case <-r.closer.C:
+		return nil
 	}
+
+	return failed
 }
 
-func (r *Room) applyInitialState(transientData api.TransientDataEntries, users api.UserDataMap) {
+// applyInitialState applies the state fetched from other servers. If "final"
+// is true, changes made by events are no longer tracked afterwards.
+func (r *Room) applyInitialState(transientData api.TransientDataEntries, users api.UserDataMap, final bool) {
 	r.mu.Lock()
 	state := r.syncState
-	r.syncState = nil
+	if final {
+		r.syncState = nil
+	}
 	if state == nil || r.closed {
 		r.mu.Unlock()
 		return
@@ -357,7 +409,7 @@ func (r *Room) applyInitialState(transientData api.TransientDataEntries, users a
 			}
 
 			// Only store information on users that have not been updated through
-			// backend requests.
+			// backend requests (or were received from other servers before).
 			if _, found := r.users[sid]; found {
 				continue
 			}
@@ -373,9 +425,10 @@ func (r *Room) applyInitialState(transientData api.TransientDataEntries, users a
 			r.users[sid] = newStoredUser(user)
 		}
 	}
+	removedTransientData := slices.Collect(maps.Keys(state.removedTransientData))
 	r.mu.Unlock()
 
-	for key := range state.removedTransientData {
+	for _, key := range removedTransientData {
 		delete(transientData, key)
 	}
 	if len(transientData) > 0 {
@@ -2277,16 +2330,29 @@ func (r *Room) doRemoveTransientData(key string) {
 	r.transientData.Remove(key)
 }
 
-func (r *Room) fetchInitialTransientData(ctx context.Context) api.TransientDataEntries {
+// fetchInitialState fetches the transient data and the users of the room from
+// the given servers. Returns the servers the state could not (completely) be
+// fetched from.
+func (r *Room) fetchInitialState(ctx context.Context, clients []*grpc.Client) (api.TransientDataEntries, api.UserDataMap, []*grpc.Client) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	// +checklocks:mu
-	var initial api.TransientDataEntries
-	for _, client := range r.hub.rpcClients.GetClients() {
+	var transientData api.TransientDataEntries
+	// +checklocks:mu
+	var users api.UserDataMap
+	// +checklocks:mu
+	failed := make(map[*grpc.Client]bool)
+	fail := func(client *grpc.Client, what string, err error) {
+		r.logger.Printf("Received error while getting %s for %s@%s from %s: %s", what, r.Id(), r.Backend().Id(), client.Target(), err)
+		mu.Lock()
+		defer mu.Unlock()
+		failed[client] = true
+	}
+	for _, client := range clients {
 		wg.Go(func() {
 			data, err := client.GetTransientData(ctx, r.Id(), r.Backend())
 			if err != nil {
-				r.logger.Printf("Received error while getting transient data for %s@%s from %s: %s", r.Id(), r.Backend().Id(), client.Target(), err)
+				fail(client, "transient data", err)
 				return
 			} else if len(data) == 0 {
 				return
@@ -2295,29 +2361,15 @@ func (r *Room) fetchInitialTransientData(ctx context.Context) api.TransientDataE
 			r.logger.Printf("Received initial transient data %+v from %s", data, client.Target())
 			mu.Lock()
 			defer mu.Unlock()
-			if initial == nil {
-				initial = make(api.TransientDataEntries)
+			if transientData == nil {
+				transientData = make(api.TransientDataEntries)
 			}
-			maps.Copy(initial, data)
+			maps.Copy(transientData, data)
 		})
-	}
-	wg.Wait()
-
-	mu.Lock()
-	defer mu.Unlock()
-	return initial
-}
-
-func (r *Room) fetchInitialUsers(ctx context.Context) api.UserDataMap {
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	// +checklocks:mu
-	var initial api.UserDataMap
-	for _, client := range r.hub.rpcClients.GetClients() {
 		wg.Go(func() {
 			data, err := client.GetRoomUsers(ctx, r.Id(), r.Backend())
 			if err != nil {
-				r.logger.Printf("Received error while getting initial users for %s@%s from %s: %s", r.Id(), r.Backend().Id(), client.Target(), err)
+				fail(client, "initial users", err)
 				return
 			} else if len(data) == 0 {
 				return
@@ -2328,10 +2380,10 @@ func (r *Room) fetchInitialUsers(ctx context.Context) api.UserDataMap {
 			defer mu.Unlock()
 			for _, u := range data {
 				if sid, found := u.SessionId(); found {
-					if initial == nil {
-						initial = make(api.UserDataMap)
+					if users == nil {
+						users = make(api.UserDataMap)
 					}
-					initial[sid] = u
+					users[sid] = u
 				}
 			}
 		})
@@ -2340,5 +2392,6 @@ func (r *Room) fetchInitialUsers(ctx context.Context) api.UserDataMap {
 
 	mu.Lock()
 	defer mu.Unlock()
-	return initial
+	// Both parts of the state are fetched again from servers that failed.
+	return transientData, users, slices.Collect(maps.Keys(failed))
 }
