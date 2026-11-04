@@ -996,15 +996,27 @@ func (r *Room) publish(message *api.ServerMessage) error {
 	})
 }
 
-func (r *Room) getSessions() []Session {
+// getPublishSessions returns the sessions that should receive messages
+// published to the room. Virtual sessions are skipped, they forward messages
+// to their internal session which receives the messages itself (and virtual
+// sessions don't receive messages published to the room through NATS).
+func (r *Room) getPublishSessions() []Session {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return slices.Collect(maps.Values(r.sessions))
+	sessions := make([]Session, 0, len(r.sessions))
+	for _, session := range r.sessions {
+		if _, ok := session.(*VirtualSession); ok {
+			continue
+		}
+
+		sessions = append(sessions, session)
+	}
+	return sessions
 }
 
 func (r *Room) publishLocal(message *api.ServerMessage) (err error) {
-	sessions := r.getSessions()
+	sessions := r.getPublishSessions()
 	if len(sessions) == 0 {
 		return nil
 	}

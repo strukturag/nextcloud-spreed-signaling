@@ -26,11 +26,13 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
@@ -701,4 +703,163 @@ func TestVirtualSessionCleanup(t *testing.T) {
 	if msg2, ok := client.RunUntilMessage(ctx); ok {
 		client.checkMessageRoomLeaveSession(msg2, sessionId)
 	}
+}
+
+func TestVirtualSessionNoDuplicateRoomEvents(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	roomId := "the-room-id"
+	emptyProperties := json.RawMessage("{}")
+	backend := talk.NewCompatBackend(nil)
+	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
+	require.NoError(err)
+	defer room.Close()
+
+	clientInternal := NewTestClient(t, server, hub)
+	defer clientInternal.CloseWithBye()
+	require.NoError(clientInternal.SendHelloInternal())
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	MustSucceed1(t, clientInternal.RunUntilHello, ctx)
+	roomMsg := MustSucceed3(t, clientInternal.JoinRoomWithRoomSession, ctx, roomId, "")
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	for _, sid := range []api.PublicSessionId{"session1", "session2"} {
+		msgAdd := &api.ClientMessage{
+			Type: "internal",
+			Internal: &api.InternalClientMessage{
+				Type: "addsession",
+				AddSession: &api.AddSessionInternalClientMessage{
+					CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
+						SessionId: sid,
+						RoomId:    roomId,
+					},
+					UserId: "user-" + string(sid),
+				},
+			},
+		}
+		require.NoError(clientInternal.WriteJSON(msgAdd))
+	}
+
+	assert.Eventually(func() bool {
+		room.mu.RLock()
+		defer room.mu.RUnlock()
+		return len(room.virtualSessions) == 2
+	}, testTimeout, time.Millisecond)
+
+	// Simulate requests from the backend. Messages are published to all local
+	// sessions before the call returns.
+	for _, data := range []string{"\"first\"", "\"last\""} {
+		room.processAsyncMessage(&events.AsyncMessage{
+			Type: "room",
+			Room: &talk.BackendServerRoomRequest{
+				Type: "message",
+				Message: &talk.BackendRoomMessageRequest{
+					Data: json.RawMessage(data),
+				},
+			},
+		})
+	}
+
+	// The internal client must receive the message only once, not again for
+	// each of its virtual sessions.
+	received := 0
+	for {
+		msg, ok := clientInternal.RunUntilMessage(ctx)
+		require.True(ok)
+		if msg.Type != "event" || msg.Event.Target != "room" || msg.Event.Type != "message" {
+			continue
+		}
+
+		if string(msg.Event.Message.Data) == "\"last\"" {
+			break
+		}
+
+		assert.Equal("\"first\"", string(msg.Event.Message.Data))
+		received++
+	}
+	assert.Equal(1, received)
+}
+
+func TestVirtualSessionNoDuplicateRoomDeleted(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	roomId := "the-room-id"
+	emptyProperties := json.RawMessage("{}")
+	backend := talk.NewCompatBackend(nil)
+	room, err := hub.CreateRoom(roomId, emptyProperties, backend)
+	require.NoError(err)
+	defer room.Close()
+
+	clientInternal := NewTestClient(t, server, hub)
+	defer clientInternal.CloseWithBye()
+	require.NoError(clientInternal.SendHelloInternal())
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	MustSucceed1(t, clientInternal.RunUntilHello, ctx)
+	roomMsg := MustSucceed3(t, clientInternal.JoinRoomWithRoomSession, ctx, roomId, "")
+	require.Equal(roomId, roomMsg.Room.RoomId)
+
+	for _, sid := range []api.PublicSessionId{"session1", "session2"} {
+		msgAdd := &api.ClientMessage{
+			Type: "internal",
+			Internal: &api.InternalClientMessage{
+				Type: "addsession",
+				AddSession: &api.AddSessionInternalClientMessage{
+					CommonSessionInternalClientMessage: api.CommonSessionInternalClientMessage{
+						SessionId: sid,
+						RoomId:    roomId,
+					},
+					UserId: "user-" + string(sid),
+				},
+			},
+		}
+		require.NoError(clientInternal.WriteJSON(msgAdd))
+	}
+
+	assert.Eventually(func() bool {
+		room.mu.RLock()
+		defer room.mu.RUnlock()
+		return len(room.virtualSessions) == 2
+	}, testTimeout, time.Millisecond)
+
+	// Simulate the deletion of the room by the backend.
+	room.processAsyncMessage(&events.AsyncMessage{
+		Type: "room",
+		Room: &talk.BackendServerRoomRequest{
+			Type:   "delete",
+			Delete: &talk.BackendRoomDeleteRequest{},
+		},
+	})
+
+	// The internal client must receive the "disinvite" only once, not again for
+	// each of its virtual sessions.
+	received := 0
+	for {
+		msg, ok := clientInternal.RunUntilMessageOrClosed(ctx)
+		require.True(ok)
+		if msg == nil {
+			// The connection was closed after the "disinvite".
+			break
+		}
+
+		if msg.Type == "event" && msg.Event.Target == "roomlist" && msg.Event.Type == "disinvite" {
+			if assert.NotNil(msg.Event.Disinvite) {
+				assert.Equal(roomId, msg.Event.Disinvite.RoomId)
+				assert.Equal(api.DisinviteReasonDeleted, msg.Event.Disinvite.Reason)
+			}
+			received++
+		}
+	}
+	assert.Equal(1, received)
 }

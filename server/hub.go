@@ -3170,7 +3170,9 @@ func (h *Hub) processRoomDeleted(room *Room, message *talk.BackendServerRoomRequ
 	for _, session := range sessions {
 		session.SetPendingCloseRoom(roomId)
 		// The session is no longer in the room
-		session.SendMessage(msg)
+		if _, ok := session.(*VirtualSession); !ok {
+			session.SendMessage(msg)
+		}
 		session.LeaveRoom(true)
 		switch sess := session.(type) {
 		case *ClientSession:
