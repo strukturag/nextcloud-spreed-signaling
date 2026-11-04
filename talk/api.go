@@ -132,10 +132,18 @@ type BackendRoomInCallRequest struct {
 	InCall  json.RawMessage  `json:"incall,omitempty"`
 	All     bool             `json:"all,omitempty"`
 	Changed api.UserDataList `json:"changed,omitempty"`
+	// Deprecated: Complete list of users, only sent by older versions of Talk.
+	// Not using "omitempty" so an empty list can be distinguished from a missing
+	// list.
+	Users api.UserDataList `json:"users"`
 }
 
 type BackendRoomParticipantsRequest struct {
 	Changed api.UserDataList `json:"changed,omitempty"`
+	// Deprecated: Complete list of users, only sent by older versions of Talk.
+	// Not using "omitempty" so an empty list can be distinguished from a missing
+	// list.
+	Users api.UserDataList `json:"users"`
 }
 
 type BackendRoomMessageRequest struct {
