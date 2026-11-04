@@ -94,12 +94,14 @@ type Room struct {
 	// Number of sessions that are about to join the room.
 	// +checklocks:mu
 	pendingJoins int
-	// Held while publishing the sessions in reply to a "sessionjoined" event
-	// and while removing sessions, so a session that is included in the reply
-	// can only leave after the reply was published.
+	// Held while publishing the sessions in reply to a "sessionjoined" event,
+	// while publishing the "join" event of a session and while removing
+	// sessions. This ensures that a session that is included in a reply can only
+	// leave after the reply was published, and that a "leave" event is only
+	// published if other sessions could know about the session.
 	membershipMu sync.Mutex
-	// Sessions that are currently being added, the value is "true" if the
-	// session was removed while it was being added.
+	// Sessions that are being added and whose "join" event was not published
+	// yet. They are not sent to other sessions in reply to "sessionjoined".
 	// +checklocks:mu
 	joiningSessions map[api.PublicSessionId]bool
 	// +checklocks:mu
@@ -674,7 +676,7 @@ func (r *Room) startAddSession(session Session, sessionData json.RawMessage, res
 		r.logger.Printf("Session %s sent room session data %+v", session.PublicId(), roomSessionData)
 	}
 	if !found {
-		r.joiningSessions[sid] = false
+		r.joiningSessions[sid] = true
 	}
 	return &roomSessionJoin{
 		session:             session,
@@ -690,30 +692,27 @@ func (r *Room) finishAddSession(join *roomSessionJoin) {
 	if join.isNew {
 		// The session should get the initial state from other servers.
 		<-r.synced
-		r.PublishSessionJoined(session, join.sessionData)
+
+		if !r.publishSessionJoining(session, join.sessionData) {
+			// The session was removed or the room was closed before the "join" event
+			// was published, so no other session knows about it.
+			return
+		}
+
 		if join.publishUsersChanged {
 			r.publishUsersChangedWithInternal()
 			if session, ok := session.(*VirtualSession); ok && session.Flags() != 0 {
 				r.publishSessionFlagsChanged(session)
 			}
 		}
-		clientSession, isClientSession := session.(*ClientSession)
-		if isClientSession {
+		if clientSession, ok := session.(*ClientSession); ok {
 			r.transientData.AddListener(clientSession)
-		}
-
-		r.mu.Lock()
-		left := r.joiningSessions[sid]
-		delete(r.joiningSessions, sid)
-		r.mu.Unlock()
-		if left {
-			// The session was removed while it was being added, publish the
-			// "leave" event now that the "join" event has been published.
-			if isClientSession {
+			if r.isSessionGone(session) {
+				// The session was removed (which published the "leave" event) or the
+				// room was closed in the meantime.
 				r.transientData.RemoveListener(clientSession)
+				return
 			}
-			r.PublishSessionLeft(session)
-			return
 		}
 	}
 
@@ -730,6 +729,39 @@ func (r *Room) finishAddSession(join *roomSessionJoin) {
 	}
 }
 
+// publishSessionJoining publishes the "join" event of a session that is being
+// added. Returns "false" if the session was removed or the room was closed in
+// the meantime, no event is published in this case.
+func (r *Room) publishSessionJoining(session Session, sessionData *talk.RoomSessionData) bool {
+	r.membershipMu.Lock()
+	defer r.membershipMu.Unlock()
+
+	r.mu.Lock()
+	sid := session.PublicId()
+	gone := r.isSessionGoneLocked(session)
+	delete(r.joiningSessions, sid)
+	r.mu.Unlock()
+	if gone {
+		return false
+	}
+
+	r.PublishSessionJoined(session, sessionData)
+	return true
+}
+
+// isSessionGone checks if a session was removed or the room was closed.
+func (r *Room) isSessionGone(session Session) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.isSessionGoneLocked(session)
+}
+
+// +checklocksread:r.mu
+func (r *Room) isSessionGoneLocked(session Session) bool {
+	return r.closed || r.sessions[session.PublicId()] != session
+}
+
 func (r *Room) getOtherSessions(ignoreSessionId api.PublicSessionId) (Session, []Session) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -737,6 +769,9 @@ func (r *Room) getOtherSessions(ignoreSessionId api.PublicSessionId) (Session, [
 	sessions := make([]Session, 0, len(r.sessions))
 	for _, s := range r.sessions {
 		if s.PublicId() == ignoreSessionId {
+			continue
+		} else if r.joiningSessions[s.PublicId()] {
+			// The session will publish its "join" event once it has been added.
 			continue
 		}
 
@@ -915,10 +950,10 @@ func (r *Room) RemoveSession(session Session) bool {
 	r.removeSessionFromCallLocked(session)
 	delete(r.roomSessionData, sid)
 	publishLeft := true
-	if left, found := r.joiningSessions[sid]; found && !left {
-		// The "leave" event will be published once the "join" event has been
-		// published by the session that is still being added.
-		r.joiningSessions[sid] = true
+	if r.joiningSessions[sid] {
+		// The "join" event was not published yet, so no other session knows about
+		// the session.
+		delete(r.joiningSessions, sid)
 		publishLeft = false
 	}
 	isEmpty := len(r.sessions) == 0 && r.pendingJoins == 0
@@ -1117,6 +1152,11 @@ func (r *Room) GetInternalSessions() ([]*grpc.InternalSessionData, []*grpc.Virtu
 	if l := len(r.internalSessions); l > 0 {
 		internalSessions = make([]*grpc.InternalSessionData, 0, l)
 		for session := range r.internalSessions {
+			if r.joiningSessions[session.PublicId()] {
+				// Will be visible once the "join" event has been published.
+				continue
+			}
+
 			internalSessions = append(internalSessions, &grpc.InternalSessionData{
 				SessionId: string(session.PublicId()),
 				InCall:    uint32(session.GetInCall()),
@@ -1129,6 +1169,11 @@ func (r *Room) GetInternalSessions() ([]*grpc.InternalSessionData, []*grpc.Virtu
 	if l := len(r.virtualSessions); l > 0 {
 		virtualSessions = make([]*grpc.VirtualSessionData, 0, l)
 		for session := range r.virtualSessions {
+			if r.joiningSessions[session.PublicId()] {
+				// Will be visible once the "join" event has been published.
+				continue
+			}
+
 			sd := &grpc.VirtualSessionData{
 				SessionId: string(session.PublicId()),
 				InCall:    uint32(session.GetInCall()),
@@ -1199,6 +1244,11 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap, includeClustered
 		}
 	}
 	for session := range r.internalSessions {
+		if r.joiningSessions[session.PublicId()] {
+			// Will be visible once the "join" event has been published.
+			continue
+		}
+
 		u := api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.PublicId(),
@@ -1225,6 +1275,9 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap, includeClustered
 	for session := range r.virtualSessions {
 		sid := session.PublicId()
 		if skipSession[sid] {
+			continue
+		} else if r.joiningSessions[sid] {
+			// Will be visible once the "join" event has been published.
 			continue
 		}
 		skipSession[sid] = true

@@ -37,18 +37,6 @@ import (
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
 )
 
-func waitForRoomEvent(ctx context.Context, t *testing.T, listener *eventstest.Listener) (*api.EventServerMessage, bool) {
-	t.Helper()
-	message, ok := listener.WaitForMessage(ctx)
-	if !ok ||
-		!assert.Equal(t, "message", message.Type, "invalid message %+v", message) ||
-		!assert.NotNil(t, message.Message, "invalid message %+v", message) ||
-		!checkMessageType(t, message.Message, "event") {
-		return nil, false
-	}
-	return message.Message.Event, true
-}
-
 func reserveRoomJoin(hub *Hub, room *Room) {
 	hub.ru.Lock()
 	defer hub.ru.Unlock()
@@ -321,19 +309,10 @@ func TestRoom_SessionLeavesWhileJoining(t *testing.T) {
 			listener.AssertNoMessage(200 * time.Millisecond)
 			assertNoMoreMessages(t, client1)
 
+			// Neither a "join" nor a "leave" event is published for the session that
+			// already left, as no other session could know about it.
 			room.finishAddSession(join)
-			if event, ok := waitForRoomEvent(ctx, t, listener); ok && assert.Equal("join", event.Type, "expected join event, got %+v", event) {
-				if assert.Len(event.Join, 1) {
-					assert.Equal(hello2.Hello.SessionId, event.Join[0].SessionId)
-				}
-			}
-			if event, ok := waitForRoomEvent(ctx, t, listener); ok && assert.Equal("leave", event.Type, "expected leave event, got %+v", event) {
-				assert.Equal([]api.PublicSessionId{hello2.Hello.SessionId}, event.Leave)
-			}
 			listener.AssertNoMessage(200 * time.Millisecond)
-
-			client1.RunUntilJoined(ctx, hello2.Hello)
-			client1.RunUntilLeft(ctx, hello2.Hello)
 			assert.False(room.HasSession(session2))
 
 			// The removed session may not receive transient data.
@@ -344,4 +323,147 @@ func TestRoom_SessionLeavesWhileJoining(t *testing.T) {
 			assertNoMoreMessages(t, client1, client2)
 		})
 	}
+}
+
+func TestRoom_DeletedWhileJoining(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	roomId := "test-room"
+	room, err := hub.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+
+	// Monitor the events published to the room.
+	listener := eventstest.NewListener(t)
+	require.NoError(hub.events.RegisterRoomListener(roomId, session.Backend(), listener))
+	defer func() {
+		assert.NoError(hub.events.UnregisterRoomListener(roomId, session.Backend(), listener))
+	}()
+
+	// The room is deleted while the session is still being added.
+	join, err := room.startAddSession(session, nil, false)
+	require.NoError(err)
+	assert.Len(room.Close(), 1)
+
+	// No events are published to the closed room.
+	room.finishAddSession(join)
+	listener.AssertNoMessage(200 * time.Millisecond)
+
+	// The session was not added as listener for transient data.
+	assert.True(room.transientData.Set("foo", "bar"))
+	assertNoMoreMessages(t, client)
+}
+
+func TestRoom_JoiningSessionNotSentToOthers(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	client1.RunUntilJoined(ctx, hello1.Hello)
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+	session2, ok := hub.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	// A session that is still being added is not sent to other sessions joining
+	// the room, it publishes its "join" event once it has been added.
+	join, err := room.startAddSession(session2, nil, false)
+	require.NoError(err)
+	room.notifySessionJoined(hello1.Hello.SessionId)
+	assertNoMoreMessages(t, client1)
+
+	// So no other session needs to be notified if it leaves before.
+	room.RemoveSession(session2)
+	room.finishAddSession(join)
+	assert.False(room.HasSession(session2))
+	assertNoMoreMessages(t, client1, client2)
+}
+
+func TestRoom_JoiningInternalSessionNotVisible(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client := NewTestClient(t, server, hub)
+	defer client.CloseWithBye()
+	require.NoError(client.SendHelloInternal())
+	hello := MustSucceed1(t, client.RunUntilHello, ctx)
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	room, err := hub.CreateRoom("test-room", nil, session.Backend())
+	require.NoError(err)
+	defer room.Close()
+	waitForRoomSynced(ctx, t, room)
+
+	isVisible := func(room *Room) (bool, bool) {
+		t.Helper()
+		var inUsers bool
+		for _, user := range room.getParticipantsUpdateMessage(true).Event.Update.Users {
+			if sid, _ := user.SessionId(); sid == hello.Hello.SessionId {
+				inUsers = true
+			}
+		}
+		internal, _, _ := room.GetInternalSessions()
+		var inInternal bool
+		for _, s := range internal {
+			if s.SessionId == string(hello.Hello.SessionId) {
+				inInternal = true
+			}
+		}
+		return inUsers, inInternal
+	}
+
+	// The internal session is not visible to others while it is being added,
+	// so it doesn't need to be removed if it leaves before it was added.
+	join, err := room.startAddSession(session, nil, false)
+	require.NoError(err)
+	inUsers, inInternal := isVisible(room)
+	assert.False(inUsers, "joining session should not be in the list of users")
+	assert.False(inInternal, "joining session should not be in the internal sessions")
+	room.RemoveSession(session)
+	room.finishAddSession(join)
+
+	// The internal session is visible once it has been added.
+	room2, err := hub.CreateRoom("test-room-2", nil, session.Backend())
+	require.NoError(err)
+	defer room2.Close()
+	waitForRoomSynced(ctx, t, room2)
+	require.NoError(room2.AddSession(session, nil))
+	inUsers, inInternal = isVisible(room2)
+	assert.True(inUsers, "session should be in the list of users")
+	assert.True(inInternal, "session should be in the internal sessions")
 }
