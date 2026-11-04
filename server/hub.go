@@ -2076,6 +2076,11 @@ func (h *Hub) GetInternalSessions(roomId string, backend *talk.Backend) ([]*grpc
 	return room.GetInternalSessions()
 }
 
+// Time to wait for pending events before returning the state of a room to
+// other servers if the request has no deadline. Otherwise half of the remaining
+// time is used.
+const defaultWaitForPendingEvents = 500 * time.Millisecond
+
 // getRoomForInitialState returns the room if its state can be used as initial
 // state by other servers.
 func (h *Hub) getRoomForInitialState(ctx context.Context, roomId string, backend *talk.Backend) *Room {
@@ -2087,9 +2092,19 @@ func (h *Hub) getRoomForInitialState(ctx context.Context, roomId string, backend
 	// Make sure all events that were already received are included in the state.
 	// A room that is still fetching its initial state from other servers can
 	// still provide the changes from events that it received.
-	if err := room.waitForPendingEvents(ctx); err != nil {
-		h.logger.Printf("Error waiting for pending events in room %s: %s", roomId, err)
+	// The processing of events can be slow (e.g. if other servers need to be
+	// contacted), so only wait for part of the time the caller is waiting and
+	// return the current state otherwise.
+	timeout := defaultWaitForPendingEvents
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = time.Until(deadline) / 2
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := room.waitForPendingEvents(waitCtx); errors.Is(err, ErrRoomClosed) {
 		return nil
+	} else if err != nil {
+		h.logger.Printf("Error waiting for pending events in room %s, returning current state: %s", roomId, err)
 	}
 
 	return room

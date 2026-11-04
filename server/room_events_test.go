@@ -1126,6 +1126,51 @@ func TestRoom_SyncingRoomProvidesEvents(t *testing.T) {
 	assertRoomUsers(t, roomId, []*Hub{hub1, hub2}, other)
 }
 
+func TestRoom_InitialStateWithBusyRoom(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	roomId := "test-room"
+	room, err := hub.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	defer room.Close()
+	waitForRoomSynced(ctx, t, room)
+
+	other := api.PublicSessionId("the-other-session")
+	room.addUser(other, api.UserData{
+		"sessionId": other,
+		"inCall":    FlagInCall,
+	})
+
+	// The processing of events is blocked (e.g. waiting for other servers).
+	release := make(chan struct{})
+	defer close(release)
+	room.asyncQueue.Execute(func() {
+		<-release
+	})
+
+	// The current state is returned before the request times out.
+	requestCtx, requestCancel := context.WithTimeout(ctx, time.Second)
+	defer requestCancel()
+	start := time.Now()
+	users, found := hub.GetRoomUsers(requestCtx, roomId, session.Backend())
+	assert.Less(time.Since(start), 900*time.Millisecond)
+	if assert.True(found) && assert.Len(users, 1) {
+		sid, _ := users[0].SessionId()
+		assert.Equal(other, sid)
+	}
+}
+
 func TestRoom_InitialStateIncludesChangesWhileSyncing(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
