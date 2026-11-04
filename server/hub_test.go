@@ -39,6 +39,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -437,12 +438,36 @@ func processAuthRequest(t *testing.T, w http.ResponseWriter, r *http.Request, re
 	return response
 }
 
+var (
+	roomRequestsMu sync.Mutex
+	// +checklocks:roomRequestsMu
+	roomRequests test.Storage[[]*talk.BackendClientRoomRequest]
+)
+
+func getRoomRequests(t *testing.T) []*talk.BackendClientRoomRequest {
+	roomRequestsMu.Lock()
+	defer roomRequestsMu.Unlock()
+
+	entries, _ := roomRequests.Get(t)
+	return slices.Clone(entries)
+}
+
+func storeRoomRequest(t *testing.T, request *talk.BackendClientRoomRequest) {
+	roomRequestsMu.Lock()
+	defer roomRequestsMu.Unlock()
+
+	entries, _ := roomRequests.Get(t)
+	roomRequests.Set(t, append(entries, request))
+}
+
 func processRoomRequest(t *testing.T, w http.ResponseWriter, r *http.Request, request *talk.BackendClientRequest) *talk.BackendClientResponse {
 	require := require.New(t)
 	assert := assert.New(t)
 	if request.Type != "room" || request.Room == nil {
 		require.Fail("Expected an room backend request", "received %+v", request)
 	}
+
+	storeRoomRequest(t, request.Room)
 
 	switch request.Room.RoomId {
 	case "test-room-slow":
@@ -3164,7 +3189,145 @@ func TestJoinRoomSwitchClientSupersede(t *testing.T) {
 			} else if newRoomId == "" {
 				assert.Nil(room)
 			}
+
+			// The room session of the slow room was registered by the backend and is
+			// removed again.
+			assert.Eventually(func() bool {
+				return hasLeaveRoomRequest(t, roomId, msg.Room.SessionId)
+			}, testTimeout, time.Millisecond)
 		})
+	}
+}
+
+func hasLeaveRoomRequest(t *testing.T, roomId string, roomSessionId api.RoomSessionId) bool {
+	return slices.ContainsFunc(getRoomRequests(t), func(request *talk.BackendClientRoomRequest) bool {
+		return request.Action == "leave" && request.RoomId == roomId && request.SessionId == roomSessionId
+	})
+}
+
+// waitForJoinRoomRequests waits until the backend received the given number of
+// requests to join the room with the room session id.
+func waitForJoinRoomRequests(t *testing.T, roomId string, roomSessionId api.RoomSessionId, count int) {
+	t.Helper()
+	assert.Eventually(t, func() bool {
+		found := 0
+		for _, request := range getRoomRequests(t) {
+			if request.Action != "leave" && request.RoomId == roomId && request.SessionId == roomSessionId {
+				found++
+			}
+		}
+		return found >= count
+	}, testTimeout, time.Millisecond)
+}
+
+func TestJoinRoomSupersededBySameJoin(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+
+	roomId := "test-room-slow"
+	roomSessionId := api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId))
+	require.NoError(client.WriteJSON(&api.ClientMessage{
+		Id:   "ABCD",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId:    roomId,
+			SessionId: roomSessionId,
+		},
+	}))
+	// Make sure the request is being processed before the client resumes.
+	waitForJoinRoomRequests(t, roomId, roomSessionId, 1)
+
+	// Resume while the room request is still pending and join the same room
+	// with the same room session again.
+	defer client.Close()
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloResume(hello.Hello.ResumeId))
+	if hello2, ok := client2.RunUntilHello(ctx); ok {
+		assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+	}
+
+	roomMsg := MustSucceed3(t, client2.JoinRoomWithRoomSession, ctx, roomId, roomSessionId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	client2.RunUntilJoined(ctx, hello.Hello)
+
+	// The backend received both requests to join, the first one is superseded
+	// by the second one. The session must not leave the room in the backend
+	// when the response of the first request is processed, it joined again.
+	waitForJoinRoomRequests(t, roomId, roomSessionId, 2)
+	assert.Never(func() bool {
+		return hasLeaveRoomRequest(t, roomId, roomSessionId)
+	}, 200*time.Millisecond, time.Millisecond)
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+	if room := session.GetRoom(); assert.NotNil(room) {
+		assert.Equal(roomId, room.Id())
+	}
+}
+
+func TestJoinRoomSupersededByLeaveAndSameJoin(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+
+	roomId := "test-room-slow"
+	roomSessionId := api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId))
+	require.NoError(client.WriteJSON(&api.ClientMessage{
+		Id:   "ABCD",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId:    roomId,
+			SessionId: roomSessionId,
+		},
+	}))
+	// Make sure the request is being processed before the client resumes.
+	waitForJoinRoomRequests(t, roomId, roomSessionId, 1)
+
+	// Resume while the room request is still pending, leave the room and join
+	// the same room with the same room session again.
+	defer client.Close()
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloResume(hello.Hello.ResumeId))
+	if hello2, ok := client2.RunUntilHello(ctx); ok {
+		assert.Equal(hello.Hello.SessionId, hello2.Hello.SessionId, "%+v", hello2.Hello)
+	}
+
+	require.NoError(client2.WriteJSON(&api.ClientMessage{
+		Id:   "EFGH",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId: "",
+		},
+	}))
+	roomMsg := MustSucceed3(t, client2.JoinRoomWithRoomSession, ctx, roomId, roomSessionId)
+	require.Equal(roomId, roomMsg.Room.RoomId)
+	client2.RunUntilJoined(ctx, hello.Hello)
+
+	// The backend received both requests to join, the first one is superseded
+	// by the second one. The session must not leave the room in the backend
+	// when the response of the first request is processed, it joined again.
+	waitForJoinRoomRequests(t, roomId, roomSessionId, 2)
+	assert.Never(func() bool {
+		return hasLeaveRoomRequest(t, roomId, roomSessionId)
+	}, 200*time.Millisecond, time.Millisecond)
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+	if room := session.GetRoom(); assert.NotNil(room) {
+		assert.Equal(roomId, room.Id())
 	}
 }
 

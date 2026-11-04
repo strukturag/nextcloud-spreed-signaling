@@ -60,6 +60,14 @@ var (
 
 type pendingRoomRequest struct {
 	cancel context.CancelCauseFunc
+	join   roomJoin
+}
+
+// roomJoin identifies a request to join a room. It is empty for requests that
+// leave a room or join a federated room.
+type roomJoin struct {
+	roomId        string
+	roomSessionId api.RoomSessionId
 }
 
 // ResponseHandlerFunc will return "true" has been fully processed.
@@ -676,11 +684,13 @@ func (s *ClientSession) notifyBackendRoomLeft(roomId string, sid api.RoomSession
 
 // StartRoomRequest cancels any pending room request of the session and
 // returns the context to use for a new one. The returned function must be
-// called once the request has been processed.
-func (s *ClientSession) StartRoomRequest() (context.Context, func()) {
+// called once the request has been processed. The join is empty for requests
+// that don't join a (local) room.
+func (s *ClientSession) StartRoomRequest(join roomJoin) (context.Context, func()) {
 	ctx, cancel := context.WithCancelCause(s.Context())
 	request := &pendingRoomRequest{
 		cancel: cancel,
+		join:   join,
 	}
 
 	if prev := s.pendingRoomRequest.Swap(request); prev != nil {
@@ -694,6 +704,25 @@ func (s *ClientSession) StartRoomRequest() (context.Context, func()) {
 
 func isRoomRequestSuperseded(ctx context.Context) bool {
 	return errors.Is(context.Cause(ctx), errRoomRequestSuperseded)
+}
+
+// isRoomJoinInUse checks if the session joined the given room with the same
+// room session id, or if the latest pending room request joins it. The
+// result of room requests must be applied while holding "roomJoinLock".
+func (s *ClientSession) isRoomJoinInUse(join roomJoin) bool {
+	if join.roomId == "" {
+		return false
+	}
+
+	if pending := s.pendingRoomRequest.Load(); pending != nil && pending.join == join {
+		return true
+	}
+
+	roomSessionId := s.RoomSessionId()
+	if roomSessionId == "" {
+		roomSessionId = api.RoomSessionId(s.PublicId())
+	}
+	return s.IsInRoom(join.roomId) && roomSessionId == join.roomSessionId
 }
 
 func (s *ClientSession) ClearClient(client ClientWithSession) {
