@@ -67,6 +67,10 @@ var (
 
 var ErrRoomClosed = errors.New("room closed") // +checklocksignore: Global readonly variable.
 
+// Time after which the timestamp of the last in-call change of a session is
+// removed. Requests that were received before can't be delayed that long.
+const defaultInCallChangesMaxAge = time.Minute
+
 func init() {
 	RegisterRoomStats()
 }
@@ -134,6 +138,15 @@ type Room struct {
 	// from the goroutine processing the asynchronous messages.
 	lastUpdateReceived int64
 	lastUsersReceived  int64
+	// Timestamps of the last in-call changes of sessions and of all sessions.
+	// Only accessed from the goroutine processing the asynchronous messages.
+	lastInCallReceived    map[api.PublicSessionId]int64
+	lastInCallAllReceived int64
+	// Time after which the timestamp of the last in-call change of a session is
+	// removed, and the time the timestamps were last pruned. Only accessed from
+	// the goroutine processing the asynchronous messages.
+	inCallChangesMaxAge   time.Duration
+	lastInCallChangePrune int64
 
 	transientData *api.TransientData
 }
@@ -211,6 +224,9 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		}),
 		statsCallRoomsTotal: statsCallRoomsTotal.WithLabelValues(backend.Id()),
 		users:               make(api.UserDataMap),
+
+		lastInCallReceived:  make(map[api.PublicSessionId]int64),
+		inCallChangesMaxAge: defaultInCallChangesMaxAge,
 
 		transientData: api.NewTransientData(),
 	}
@@ -521,13 +537,20 @@ func (r *Room) processBackendRoomRequestRoom(message *talk.BackendServerRoomRequ
 			return
 		}
 
-		r.processInCallRequest(message.InCall)
+		r.processInCallRequest(message.InCall, message.ReceivedTime)
 	case "participants":
 		if !r.processUsersList(message, message.Participants.Users) { // nolint
 			return
 		}
 
-		r.PublishUsersChanged(message.Participants.Changed)
+		hasChanges := len(message.Participants.Changed) > 0
+		changed := r.filterOutdatedInCallChanges(message.Participants.Changed, message.ReceivedTime)
+		if hasChanges && len(changed) == 0 && message.Participants.Users == nil { // nolint
+			// All changes are outdated and no (new) list of users was received.
+			return
+		}
+
+		r.PublishUsersChanged(changed)
 	case "message":
 		r.publishRoomMessage(message.Message)
 	case "switchto":
@@ -1444,9 +1467,64 @@ func (r *Room) isVirtualSessionId(sessionId api.PublicSessionId) bool {
 	return false
 }
 
-func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest) {
+// filterOutdatedInCallChanges removes changes of the in-call state of sessions
+// that were received before the last change of their in-call state, e.g. if a
+// request was delayed or received by a different server. Changes without
+// in-call state are not filtered.
+func (r *Room) filterOutdatedInCallChanges(changed api.UserDataList, received int64) api.UserDataList {
+	if received == 0 {
+		return changed
+	}
+
+	result := slices.DeleteFunc(changed, func(user api.UserData) bool {
+		if _, found := user["inCall"]; !found {
+			return false
+		}
+
+		sessionId, found := user.SessionId()
+		if !found {
+			return false
+		}
+
+		last := max(r.lastInCallReceived[sessionId], r.lastInCallAllReceived)
+		if last > received {
+			r.logger.Printf("Ignore outdated in-call change %+v in room %s", user, r.Id())
+			return true
+		}
+
+		r.lastInCallReceived[sessionId] = received
+		return false
+	})
+	r.pruneInCallChanges(received)
+	return result
+}
+
+// pruneInCallChanges removes timestamps of in-call changes that are older than
+// the maximum age, relative to the given (newest) timestamp. The timestamps are
+// only checked from time to time.
+func (r *Room) pruneInCallChanges(received int64) {
+	maxAge := int64(r.inCallChangesMaxAge)
+	if received-r.lastInCallChangePrune < maxAge/2 {
+		return
+	}
+
+	r.lastInCallChangePrune = received
+	for sessionId, last := range r.lastInCallReceived {
+		if received-last > maxAge {
+			delete(r.lastInCallReceived, sessionId)
+		}
+	}
+}
+
+func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest, received int64) {
 	if !request.All {
-		r.PublishUsersInCallChanged(request.Changed)
+		changed := r.filterOutdatedInCallChanges(request.Changed, received)
+		// Older versions of Talk send the complete list of users which must be
+		// published even if no changes are left (e.g. if the changed sessions are
+		// not connected).
+		if len(changed) > 0 || request.Users != nil { // nolint
+			r.PublishUsersInCallChanged(changed)
+		}
 		return
 	}
 
@@ -1463,7 +1541,30 @@ func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest) {
 		}
 	}
 
-	r.PublishUsersInCallChangedAll(flags)
+	var keep map[api.PublicSessionId]bool
+	if received != 0 {
+		if r.lastInCallAllReceived > received {
+			r.logger.Printf("Ignore outdated in-call change of all sessions in room %s", r.Id())
+			return
+		}
+
+		r.lastInCallAllReceived = received
+		// Sessions that changed their in-call state after the request was
+		// received keep their state. Older changes are covered by the timestamp
+		// of the request from now on.
+		for sessionId, last := range r.lastInCallReceived {
+			if last > received {
+				if keep == nil {
+					keep = make(map[api.PublicSessionId]bool)
+				}
+				keep[sessionId] = true
+			} else {
+				delete(r.lastInCallReceived, sessionId)
+			}
+		}
+	}
+
+	r.publishUsersInCallChangedAll(flags, keep)
 }
 
 func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
@@ -1589,49 +1690,73 @@ func mergeVirtualSessionData(users api.UserDataList, changed api.UserDataList) {
 	}
 }
 
-func (r *Room) PublishUsersInCallChangedAll(inCall int) {
-	notify, left := r.updateInCallAll(inCall)
-	if len(notify) == 0 {
-		return
-	}
+// publishUsersInCallChangedAll changes the in-call state of all sessions
+// except the ones that should keep their state.
+func (r *Room) publishUsersInCallChangedAll(inCall int, keep map[api.PublicSessionId]bool) {
+	notify, left, kept := r.updateInCallAll(inCall, keep)
+	if len(notify) > 0 {
+		inCallMsg := json.RawMessage(strconv.FormatInt(int64(inCall), 10))
 
-	inCallMsg := json.RawMessage(strconv.FormatInt(int64(inCall), 10))
-
-	message := &api.ServerMessage{
-		Type: "event",
-		Event: &api.EventServerMessage{
-			Target: "participants",
-			Type:   "update",
-			Update: &api.RoomEventServerMessage{
-				RoomId: r.id,
-				InCall: inCallMsg,
-				All:    true,
+		message := &api.ServerMessage{
+			Type: "event",
+			Event: &api.EventServerMessage{
+				Target: "participants",
+				Type:   "update",
+				Update: &api.RoomEventServerMessage{
+					RoomId: r.id,
+					InCall: inCallMsg,
+					All:    true,
+				},
 			},
-		},
-	}
+		}
 
-	// The sessions must not be accessed while holding the room lock, as the
-	// session lock must be acquired before the room lock.
-	for _, session := range notify {
-		if !session.SendMessage(message) {
-			r.logger.Printf("Could not send incall message from room %s to %s", r.Id(), session.PublicId())
+		// The sessions must not be accessed while holding the room lock, as the
+		// session lock must be acquired before the room lock.
+		for _, session := range notify {
+			if !session.SendMessage(message) {
+				r.logger.Printf("Could not send incall message from room %s to %s", r.Id(), session.PublicId())
+			}
 		}
 	}
 	for _, session := range left {
 		session.LeaveCall(r)
 	}
+
+	if len(kept) > 0 {
+		// The event for all sessions doesn't apply to sessions that kept their
+		// state, so notify about their current state.
+		r.PublishUsersChanged(kept)
+	}
 }
 
-// updateInCallAll updates the in-call state of all sessions and returns the
-// sessions to notify and the sessions that left the call.
-func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*ClientSession) {
+// updateInCallAll updates the in-call state of all sessions (except the ones
+// that should keep their state) and returns the sessions to notify, the
+// sessions that left the call and the current state of the kept sessions.
+func (r *Room) updateInCallAll(inCall int, keep map[api.PublicSessionId]bool) (notify []*ClientSession, left []*ClientSession, kept api.UserDataList) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	for sessionId := range keep {
+		if user, found := r.users[sessionId]; found {
+			kept = append(kept, user.Clone())
+		} else if inCall&FlagInCall != 0 {
+			// Clients must know that the session didn't join the call. If all
+			// sessions left the call, the session is not in the call anyway.
+			kept = append(kept, api.UserData{
+				"sessionId": sessionId,
+				"inCall":    FlagDisconnected,
+			})
+		}
+	}
 
 	if inCall&FlagInCall != 0 {
 		// The stored data must not be modified as it might be referenced by
 		// messages that are being sent.
 		for sessionId, user := range r.users {
+			if keep[sessionId] {
+				continue
+			}
+
 			updated := user.Clone()
 			updated["inCall"] = inCall
 			r.users[sessionId] = updated
@@ -1654,6 +1779,11 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 				continue
 			}
 
+			if keep[session.PublicId()] {
+				// The session must not join the call because of the event.
+				continue
+			}
+
 			if r.addSessionToCallLocked(session) {
 				joined = append(joined, session.PublicId())
 			}
@@ -1661,11 +1791,16 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 		}
 
 		if len(joined) == 0 {
-			return nil, nil
+			return nil, nil, nil
 		}
 
 		r.logger.Printf("Sessions %v joined call %s", joined, r.id)
-	} else if len(r.inCallSessions) > 0 || len(r.users) > 0 {
+	} else {
+		if len(r.inCallSessions) == 0 && len(r.users) == 0 {
+			// All sessions already left the call, no need to notify.
+			return nil, nil, nil
+		}
+
 		// Somebody was in the call. This could also be users connected to other
 		// servers, so the local sessions must be notified even if none of them
 		// was in the call.
@@ -1673,25 +1808,38 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 			clientSession, ok := session.(*ClientSession)
 			if !ok {
 				continue
+			} else if user, found := r.users[session.PublicId()]; found && keep[session.PublicId()] && isUserInCall(user) {
+				// The session must not leave the call because of the event. Kept
+				// sessions that are not in the call are notified that the others
+				// left.
+				continue
 			}
 
 			notify = append(notify, clientSession)
 		}
 
-		r.clearUsersLocked()
-
+		for sessionId := range r.users {
+			if !keep[sessionId] {
+				r.removeUserLocked(sessionId)
+			}
+		}
+		if r.syncState != nil {
+			// The kept users are stored, the initial users are outdated.
+			r.syncState.usersReplaced = true
+		}
 		for session := range r.inCallSessions {
+			if keep[session.PublicId()] {
+				continue
+			}
+
+			r.removeSessionFromCallLocked(session)
 			if clientSession, ok := session.(*ClientSession); ok {
 				left = append(left, clientSession)
 			}
 		}
-		r.inCallSessions = make(map[Session]bool)
-
-		r.clearInCallStats()
 	}
-	// Otherwise all sessions already left the call, no need to notify.
 
-	return notify, left
+	return notify, left, kept
 }
 
 func isUserInCall(user api.UserData) bool {

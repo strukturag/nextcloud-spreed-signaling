@@ -1345,17 +1345,17 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	}
 
 	// The first request is published after the second one (because of the
-	// timeout while looking up the unknown session), but must still be processed
-	// as it contains changes.
+	// timeout while looking up the unknown session). Its in-call change of the
+	// first session is older than the one from the second request, so it is
+	// ignored.
 	for _, client := range []*TestClient{client1, client2} {
-		for range 2 {
-			if msg, ok := client.RunUntilMessage(ctx); ok {
-				if inCall, ok := checkMessageParticipantsInCall(t, msg); ok {
-					assert.Len(inCall.Users, 2)
-				}
+		if msg, ok := client.RunUntilMessage(ctx); ok {
+			if inCall, ok := checkMessageParticipantsInCall(t, msg); ok {
+				assert.Len(inCall.Users, 2)
 			}
 		}
 	}
+	assertRoomUsers(t, roomId, []*Hub{hub}, hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
@@ -1448,6 +1448,24 @@ func TestBackendServer_InCallUsersList(t *testing.T) {
 				},
 			})
 			assertUsers(hello2.Hello.SessionId)
+
+			// The complete list of users is published even if the changed sessions
+			// are not connected.
+			sendRequest(&talk.BackendServerRoomRequest{
+				Type: "incall",
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: json.RawMessage("7"),
+					Changed: api.UserDataList{
+						{"sessionId": "unknown-room-session-id", "inCall": 7},
+					},
+					Users: api.UserDataList{ // nolint
+						{"sessionId": roomSessionId1, "inCall": 7},
+						{"sessionId": roomSessionId2, "inCall": 3},
+						{"sessionId": "unknown-room-session-id", "inCall": 7},
+					},
+				},
+			})
+			assertUsers(hello1.Hello.SessionId, hello2.Hello.SessionId)
 			assertNoMoreMessages(t, client1, client2)
 		})
 	}
