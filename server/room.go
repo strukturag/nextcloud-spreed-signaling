@@ -65,6 +65,8 @@ var (
 	updateActiveSessionsInterval = 10 * time.Second
 )
 
+var ErrRoomClosed = errors.New("room closed") // +checklocksignore: Global readonly variable.
+
 func init() {
 	RegisterRoomStats()
 }
@@ -82,6 +84,15 @@ type Room struct {
 	closer  *internal.Closer
 	mu      *sync.RWMutex
 	asyncCh events.AsyncChannel
+	// +checklocks:mu
+	closed bool
+	// Number of sessions that are about to join the room.
+	// +checklocks:mu
+	pendingJoins int
+	// Sessions that are currently being added, the value is "true" if the
+	// session was removed while it was being added.
+	// +checklocks:mu
+	joiningSessions map[api.PublicSessionId]bool
 	// +checklocks:mu
 	sessions map[api.PublicSessionId]Session
 	// +checklocks:mu
@@ -136,6 +147,8 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		mu:       &sync.RWMutex{},
 		asyncCh:  make(events.AsyncChannel, events.DefaultAsyncChannelSize),
 		sessions: make(map[api.PublicSessionId]Session),
+
+		joiningSessions: make(map[api.PublicSessionId]bool),
 
 		internalSessions:   make(map[*ClientSession]bool),
 		virtualSessions:    make(map[*VirtualSession]bool),
@@ -239,23 +252,83 @@ func (r *Room) unsubscribeBackend() {
 	}
 }
 
-func (r *Room) Close() []Session {
-	r.hub.removeRoom(r)
+// closeLocked closes the room. The metrics series are shared with other rooms
+// of the same id, so they may only be deleted if the room is still registered
+// in the hub. Otherwise only the remaining sessions of this room are removed
+// from them.
+//
+// +checklocks:r.mu
+func (r *Room) closeLocked(registered bool) {
+	r.closed = true
+	if registered {
+		r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeClient)})
+		r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeFederation)})
+		r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeInternal)})
+		r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeVirtual)})
+		r.clearInCallStats()
+	} else {
+		for _, session := range r.sessions {
+			r.statsRoomSessionsCurrent.With(prometheus.Labels{"clienttype": string(session.ClientType())}).Dec()
+		}
+		for session := range r.inCallSessions {
+			r.statsCallSessionsCurrent.WithLabelValues(string(session.ClientType())).Dec()
+		}
+	}
+	clear(r.inCallSessions)
+	r.unsubscribeBackend()
 	r.doClose()
+}
+
+// closeIfEmpty closes the room if it has no sessions and no sessions are
+// about to join. Returns "true" if the room is closed.
+func (r *Room) closeIfEmpty() bool {
+	r.hub.ru.Lock()
+	defer r.hub.ru.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.unsubscribeBackend()
-	result := make([]Session, 0, len(r.sessions))
-	for _, s := range r.sessions {
-		result = append(result, s)
+	if r.closed {
+		return true
+	} else if len(r.sessions) > 0 || r.pendingJoins > 0 {
+		return false
 	}
-	r.sessions = nil
-	r.users = nil
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeClient)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeFederation)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeInternal)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeVirtual)})
-	r.clearInCallStats()
+
+	r.closeRegisteredLocked()
+	return true
+}
+
+// closeRegisteredLocked removes the room from the hub and closes it. This must
+// happen while holding the "ru" lock of the hub, so a new room with the same id
+// can only be created once the metrics of this room have been cleaned up.
+//
+// +checklocks:r.hub.ru
+// +checklocks:r.mu
+func (r *Room) closeRegisteredLocked() {
+	removed := r.hub.removeRoomLocked(r)
+	if removed {
+		r.hub.roomPing.DeleteRoom(r.Id())
+	}
+	r.closeLocked(removed)
+}
+
+func (r *Room) IsClosed() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.closed
+}
+
+func (r *Room) Close() []Session {
+	r.hub.ru.Lock()
+	defer r.hub.ru.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil
+	}
+
+	r.closeRegisteredLocked()
+	result := slices.Collect(maps.Values(r.sessions))
+	clear(r.sessions)
+	clear(r.users)
 	return result
 }
 
@@ -335,7 +408,48 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *events.AsyncRoomMessa
 	}
 }
 
-func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
+// reserveJoin marks that a session is about to join the room. This prevents
+// the room from being closed if the last session leaves before the joining
+// session has been added. The reservation is consumed by "addReservedSession".
+//
+// The caller must hold the "ru" lock of the hub and the room must still be
+// registered in the hub.
+func (r *Room) reserveJoin() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.pendingJoins++
+}
+
+type roomSessionJoin struct {
+	session             Session
+	sessionData         *talk.RoomSessionData
+	isNew               bool
+	isFirst             bool
+	publishUsersChanged bool
+}
+
+func (r *Room) AddSession(session Session, sessionData json.RawMessage) error {
+	join, err := r.startAddSession(session, sessionData, false)
+	if err != nil {
+		return err
+	}
+
+	r.finishAddSession(join)
+	return nil
+}
+
+func (r *Room) addReservedSession(session Session, sessionData json.RawMessage) error {
+	join, err := r.startAddSession(session, sessionData, true)
+	if err != nil {
+		return err
+	}
+
+	r.finishAddSession(join)
+	return nil
+}
+
+func (r *Room) startAddSession(session Session, sessionData json.RawMessage, reserved bool) (*roomSessionJoin, error) {
 	var roomSessionData *talk.RoomSessionData
 	if len(sessionData) > 0 {
 		roomSessionData = &talk.RoomSessionData{}
@@ -347,6 +461,14 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 
 	sid := session.PublicId()
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if reserved {
+		r.pendingJoins--
+	}
+	if r.closed {
+		return nil, ErrRoomClosed
+	}
+
 	isFirst := len(r.sessions) == 0
 	_, found := r.sessions[sid]
 	r.sessions[sid] = session
@@ -359,7 +481,6 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 		clientSession, ok := session.(*ClientSession)
 		if !ok {
 			delete(r.sessions, sid)
-			r.mu.Unlock()
 			panic(fmt.Sprintf("Expected a client session, got %v (%T)", session, session))
 		}
 		r.internalSessions[clientSession] = true
@@ -368,7 +489,6 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 		virtualSession, ok := session.(*VirtualSession)
 		if !ok {
 			delete(r.sessions, sid)
-			r.mu.Unlock()
 			panic(fmt.Sprintf("Expected a virtual session, got %v (%T)", session, session))
 		}
 		r.virtualSessions[virtualSession] = true
@@ -378,24 +498,53 @@ func (r *Room) AddSession(session Session, sessionData json.RawMessage) {
 		r.roomSessionData[sid] = roomSessionData
 		r.logger.Printf("Session %s sent room session data %+v", session.PublicId(), roomSessionData)
 	}
-	r.mu.Unlock()
 	if !found {
-		if isFirst {
+		r.joiningSessions[sid] = false
+	}
+	return &roomSessionJoin{
+		session:             session,
+		sessionData:         roomSessionData,
+		isNew:               !found,
+		isFirst:             isFirst,
+		publishUsersChanged: publishUsersChanged,
+	}, nil
+}
+
+func (r *Room) finishAddSession(join *roomSessionJoin) {
+	session := join.session
+	sid := session.PublicId()
+	if join.isNew {
+		if join.isFirst {
 			// Fetch initial state of room from other nodes in the cluster.
 			var wg sync.WaitGroup
 			wg.Go(r.fetchInitialTransientData)
 			wg.Go(r.fetchInitialUsers)
 			wg.Wait()
 		}
-		r.PublishSessionJoined(session, roomSessionData)
-		if publishUsersChanged {
+		r.PublishSessionJoined(session, join.sessionData)
+		if join.publishUsersChanged {
 			r.publishUsersChangedWithInternal()
 			if session, ok := session.(*VirtualSession); ok && session.Flags() != 0 {
 				r.publishSessionFlagsChanged(session)
 			}
 		}
-		if clientSession, ok := session.(*ClientSession); ok {
+		clientSession, isClientSession := session.(*ClientSession)
+		if isClientSession {
 			r.transientData.AddListener(clientSession)
+		}
+
+		r.mu.Lock()
+		left := r.joiningSessions[sid]
+		delete(r.joiningSessions, sid)
+		r.mu.Unlock()
+		if left {
+			// The session was removed while it was being added, publish the
+			// "leave" event now that the "join" event has been published.
+			if isClientSession {
+				r.transientData.RemoveListener(clientSession)
+			}
+			r.PublishSessionLeft(session)
+			return
 		}
 	}
 
@@ -591,29 +740,30 @@ func (r *Room) RemoveSession(session Session) bool {
 	}
 	r.removeSessionFromCallLocked(session)
 	delete(r.roomSessionData, sid)
-	if len(r.sessions) > 0 {
-		r.mu.Unlock()
-		if err := r.RemoveTransientData(api.TransientSessionDataPrefix + string(sid)); err != nil {
-			r.logger.Printf("Error removing transient data for session %s", sid)
-		}
-		r.PublishSessionLeft(session)
-		return true
+	publishLeft := true
+	if left, found := r.joiningSessions[sid]; found && !left {
+		// The "leave" event will be published once the "join" event has been
+		// published by the session that is still being added.
+		r.joiningSessions[sid] = true
+		publishLeft = false
+	}
+	isEmpty := len(r.sessions) == 0 && r.pendingJoins == 0
+	r.mu.Unlock()
+
+	hasSessions := true
+	if isEmpty {
+		hasSessions = !r.closeIfEmpty()
 	}
 
-	r.hub.removeRoom(r)
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeClient)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeFederation)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeInternal)})
-	r.statsRoomSessionsCurrent.Delete(prometheus.Labels{"clienttype": string(api.HelloClientTypeVirtual)})
-	r.unsubscribeBackend()
-	r.doClose()
-	r.mu.Unlock()
 	if err := r.RemoveTransientData(api.TransientSessionDataPrefix + string(sid)); err != nil {
 		r.logger.Printf("Error removing transient data for session %s", sid)
 	}
-	// Still need to publish an event so sessions on other servers get notified.
-	r.PublishSessionLeft(session)
-	return false
+	if publishLeft {
+		// Still need to publish an event if the room was closed so sessions
+		// on other servers get notified.
+		r.PublishSessionLeft(session)
+	}
+	return hasSessions
 }
 
 func (r *Room) publish(message *api.ServerMessage) error {
@@ -1701,6 +1851,9 @@ func (r *Room) fetchInitialUsers() {
 	if len(initial) > 0 {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+		if r.closed {
+			return
+		}
 
 		for sid, u := range initial {
 			// Only store information on users that have not been updated through backend requests.

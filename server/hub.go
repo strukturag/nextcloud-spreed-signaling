@@ -2115,15 +2115,19 @@ func (h *Hub) GetRoomUsers(roomId string, backend *talk.Backend) (api.UserDataLi
 	return entries, true
 }
 
-func (h *Hub) removeRoom(room *Room) {
+// removeRoomLocked removes the given room from the hub. Returns "false" if
+// a different room is registered for the same id.
+//
+// +checklocks:h.ru
+func (h *Hub) removeRoomLocked(room *Room) bool {
 	internalRoomId := getRoomIdForBackend(room.Id(), room.Backend())
-	h.ru.Lock()
-	if _, found := h.rooms[internalRoomId]; found {
-		delete(h.rooms, internalRoomId)
-		statsHubRoomsCurrent.WithLabelValues(room.Backend().Id()).Dec()
+	if h.rooms[internalRoomId] != room {
+		return false
 	}
-	h.ru.Unlock()
-	h.roomPing.DeleteRoom(room.Id())
+
+	delete(h.rooms, internalRoomId)
+	statsHubRoomsCurrent.WithLabelValues(room.Backend().Id()).Dec()
+	return true
 }
 
 func (h *Hub) CreateRoom(id string, properties json.RawMessage, backend *talk.Backend) (*Room, error) {
@@ -2183,6 +2187,9 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage
 			return
 		}
 	}
+	// Make sure the room doesn't get closed if the last session leaves before
+	// this session has been added.
+	r.reserveJoin()
 	h.ru.Unlock()
 
 	h.mu.Lock()
@@ -2198,7 +2205,14 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage
 		session.SetPermissions(*room.Room.Permissions)
 	}
 	h.sendRoom(session, message, r)
-	r.AddSession(session, room.Room.Session)
+	if err := r.addReservedSession(session, room.Room.Session); err != nil {
+		// The room was deleted while the session was joining.
+		h.logger.Printf("Could not add session %s to room %s: %s", session.PublicId(), roomId, err)
+		session.SetPendingCloseRoom(roomId)
+		session.SendMessage(newRoomDeletedMessage(roomId))
+		session.LeaveRoom(true)
+		h.sendRoom(session, nil, nil)
+	}
 }
 
 func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
@@ -2683,7 +2697,13 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 		h.logger.Printf("Session %s added virtual session %s with initial flags %d", session.PublicId(), sess.PublicId(), sess.Flags())
 		session.AddVirtualSession(sess)
 		sess.SetRoom(room, time.Now())
-		room.AddSession(sess, nil)
+		if err := room.AddSession(sess, nil); err != nil {
+			h.logger.Printf("Could not add virtual session %s to room %s: %s", sess.PublicId(), room.Id(), err)
+			sess.Close()
+			reply := message.NewErrorServerMessage(api.NewError("add_failed", "Could not add virtual session."))
+			session.SendMessage(reply)
+			return
+		}
 	case "updatesession":
 		msg := msg.UpdateSession
 		room := h.GetRoomForBackend(msg.RoomId, session.Backend())
@@ -3106,6 +3126,22 @@ func (h *Hub) processRoomUpdated(message *talk.BackendServerRoomRequest) {
 	room.UpdateProperties(message.Update.Properties)
 }
 
+func newRoomDeletedMessage(roomId string) *api.ServerMessage {
+	return &api.ServerMessage{
+		Type: "event",
+		Event: &api.EventServerMessage{
+			Target: "roomlist",
+			Type:   "disinvite",
+			Disinvite: &api.RoomDisinviteEventServerMessage{
+				RoomEventServerMessage: api.RoomEventServerMessage{
+					RoomId: roomId,
+				},
+				Reason: api.DisinviteReasonDeleted,
+			},
+		},
+	}
+}
+
 func (h *Hub) processRoomDeleted(message *talk.BackendServerRoomRequest) {
 	room := h.GetRoomForBackend(message.RoomId, message.Backend)
 	if room == nil {
@@ -3117,19 +3153,7 @@ func (h *Hub) processRoomDeleted(message *talk.BackendServerRoomRequest) {
 		return
 	}
 
-	msg := &api.ServerMessage{
-		Type: "event",
-		Event: &api.EventServerMessage{
-			Target: "roomlist",
-			Type:   "disinvite",
-			Disinvite: &api.RoomDisinviteEventServerMessage{
-				RoomEventServerMessage: api.RoomEventServerMessage{
-					RoomId: message.RoomId,
-				},
-				Reason: api.DisinviteReasonDeleted,
-			},
-		},
-	}
+	msg := newRoomDeletedMessage(message.RoomId)
 	roomId := room.Id()
 	for _, session := range sessions {
 		session.SetPendingCloseRoom(roomId)
