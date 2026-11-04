@@ -514,7 +514,8 @@ func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, req
 
 		// Convert (Nextcloud) session ids to signaling session ids.
 		request.InCall.Changed = b.fixupUserSessions(ctx, request.InCall.Changed)
-		if len(request.InCall.Changed) == 0 {
+		request.InCall.Users = b.fixupUserSessions(ctx, request.InCall.Users) // nolint
+		if len(request.InCall.Changed) == 0 && request.InCall.Users == nil {  // nolint
 			return nil
 		}
 	}
@@ -534,7 +535,8 @@ func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid s
 	defer cancel()
 
 	request.Participants.Changed = b.fixupUserSessions(ctx, request.Participants.Changed)
-	if len(request.Participants.Changed) == 0 {
+	request.Participants.Users = b.fixupUserSessions(ctx, request.Participants.Users) // nolint
+	if len(request.Participants.Changed) == 0 && request.Participants.Users == nil {  // nolint
 		return nil
 	}
 

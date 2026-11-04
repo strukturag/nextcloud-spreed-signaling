@@ -76,11 +76,7 @@ func (s *natsSubscription) sendMessage(msg *nats.Msg) {
 	defer s.mu.RUnlock()
 
 	for listener := range s.listeners {
-		select {
-		case listener.AsyncChannel() <- msg:
-		default:
-			s.logger.Printf("Slow consumer %s, dropping message", msg.Subject)
-		}
+		listener.AsyncEventReceived(msg)
 	}
 }
 

@@ -35,14 +35,10 @@ var (
 	ErrAlreadyRegistered = errors.New("already registered") // +checklocksignore: Global readonly variable.
 )
 
-const (
-	DefaultAsyncChannelSize = 64
-)
-
-type AsyncChannel chan *nats.Msg
-
 type AsyncEventListener interface {
-	AsyncChannel() AsyncChannel
+	// AsyncEventReceived is called for every message received for the
+	// listener. It must not block.
+	AsyncEventReceived(msg *nats.Msg)
 }
 
 type AsyncEvents interface {

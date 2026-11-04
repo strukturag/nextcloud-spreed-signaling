@@ -94,8 +94,8 @@ type ClientSession struct {
 	backendUrl       string
 	parsedBackendUrl *url.URL
 
-	mu      sync.Mutex
-	asyncCh events.AsyncChannel
+	mu         sync.Mutex
+	asyncQueue *events.AsyncQueue
 
 	// +checklocks:mu
 	client       ClientWithSession
@@ -158,8 +158,8 @@ func NewClientSession(hub *Hub, privateId api.PrivateSessionId, publicId api.Pub
 		userData:      auth.User,
 		parseUserData: parseUserData(auth.User),
 
-		backend: backend,
-		asyncCh: make(events.AsyncChannel, events.DefaultAsyncChannelSize),
+		backend:    backend,
+		asyncQueue: events.NewAsyncQueue(hub.logger, "session "+string(publicId)),
 	}
 	s.publishersCond.L = &s.mu
 	if s.clientType == api.HelloClientTypeInternal {
@@ -411,22 +411,12 @@ func (s *ClientSession) releaseMcuObjects() {
 	}
 }
 
-func (s *ClientSession) AsyncChannel() events.AsyncChannel {
-	return s.asyncCh
+func (s *ClientSession) AsyncEventReceived(msg *nats.Msg) {
+	s.asyncQueue.Push(msg)
 }
 
 func (s *ClientSession) run() {
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case msg := <-s.asyncCh:
-			s.processAsyncNatsMessage(msg)
-			for count := len(s.asyncCh); count > 0; count-- {
-				s.processAsyncNatsMessage(<-s.asyncCh)
-			}
-		}
-	}
+	s.asyncQueue.Run(s.ctx.Done(), s.processAsyncNatsMessage)
 }
 
 func (s *ClientSession) Close() {

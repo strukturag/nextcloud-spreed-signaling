@@ -64,7 +64,7 @@ type VirtualSession struct {
 
 	parseUserData func() (api.StringMap, error)
 
-	asyncCh events.AsyncChannel
+	asyncQueue *events.AsyncQueue
 }
 
 func GetVirtualSessionId(session Session, sessionId api.PublicSessionId) api.PublicSessionId {
@@ -91,7 +91,7 @@ func NewVirtualSession(session *ClientSession, privateId api.PrivateSessionId, p
 		parseUserData: parseUserData(msg.User),
 		options:       msg.Options,
 
-		asyncCh: make(events.AsyncChannel, events.DefaultAsyncChannelSize),
+		asyncQueue: events.NewAsyncQueue(session.hub.logger, "virtual session "+string(publicId)),
 	}
 
 	if err := session.events.RegisterSessionListener(publicId, session.Backend(), result); err != nil {
@@ -193,22 +193,12 @@ func (s *VirtualSession) LeaveRoom(notify bool) *Room {
 	return room
 }
 
-func (s *VirtualSession) AsyncChannel() events.AsyncChannel {
-	return s.asyncCh
+func (s *VirtualSession) AsyncEventReceived(msg *nats.Msg) {
+	s.asyncQueue.Push(msg)
 }
 
 func (s *VirtualSession) run() {
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case msg := <-s.asyncCh:
-			s.processAsyncNatsMessage(msg)
-			for count := len(s.asyncCh); count > 0; count-- {
-				s.processAsyncNatsMessage(<-s.asyncCh)
-			}
-		}
-	}
+	s.asyncQueue.Run(s.ctx.Done(), s.processAsyncNatsMessage)
 }
 
 func (s *VirtualSession) Close() {
