@@ -1177,6 +1177,21 @@ func (r *Room) setUsers(users api.UserDataList) {
 	}
 }
 
+// updateUser merges the given properties into the user if it is stored.
+func (r *Room) updateUser(sessionId api.PublicSessionId, user api.UserData) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, found := r.users[sessionId]
+	if !found {
+		return
+	}
+
+	updated := existing.Clone()
+	maps.Copy(updated, user)
+	r.users[sessionId] = updated
+}
+
 func (r *Room) removeUsers(sessionIds ...api.PublicSessionId) {
 	if len(sessionIds) == 0 {
 		return
@@ -1460,6 +1475,7 @@ func isUserInCall(user api.UserData) bool {
 }
 
 func (r *Room) PublishUsersChanged(changed api.UserDataList) {
+	var toRemove []api.PublicSessionId
 	for _, user := range changed {
 		sessionId, found := user.SessionId()
 		if !found {
@@ -1470,12 +1486,26 @@ func (r *Room) PublishUsersChanged(changed api.UserDataList) {
 			}
 		}
 
-		if !isUserInCall(user) {
+		inCallInterface, found := user["inCall"]
+		if !found {
+			// The in-call state didn't change, only update the other properties.
+			r.updateUser(sessionId, user)
+			continue
+		}
+		inCall, ok := IsInCall(inCallInterface)
+		if !ok {
 			continue
 		}
 
-		r.addUser(sessionId, user)
+		if inCall {
+			r.addUser(sessionId, user)
+		} else {
+			// Only users in the call are tracked.
+			toRemove = append(toRemove, sessionId)
+		}
 	}
+
+	r.removeUsers(toRemove...)
 
 	changed = r.filterPermissions(changed)
 	// TODO: Do we still need the whole list of users to send to all participants?

@@ -56,6 +56,21 @@ func publishBackendRoomRequest(t *testing.T, hub *Hub, roomId string, backend *t
 	}))
 }
 
+// assertRoomUsers checks that the room on all hubs has the expected users.
+func assertRoomUsers(t *testing.T, roomId string, hubs []*Hub, expected ...api.PublicSessionId) {
+	t.Helper()
+	for _, hub := range hubs {
+		room := hub.getRoom(roomId)
+		if assert.NotNil(t, room) {
+			users := room.getUsers().Map()
+			assert.Len(t, users, len(expected), "users: %+v", users)
+			for _, sid := range expected {
+				assert.Contains(t, users, sid)
+			}
+		}
+	}
+}
+
 func TestRoom_ProcessOlderChangeRequests(t *testing.T) {
 	t.Parallel()
 	for _, subtest := range clusteredTests {
@@ -278,7 +293,6 @@ func TestRoom_OlderUsersListsAreIgnored(t *testing.T) {
 			logger := logtest.NewLoggerForTest(t)
 			ctx := log.NewLoggerContext(t.Context(), logger)
 			require := require.New(t)
-			assert := assert.New(t)
 			hub1, hub2, server1, server2 := createHubsForClusteredTest(t)
 
 			ctx, cancel := context.WithTimeout(ctx, testTimeout)
@@ -310,16 +324,7 @@ func TestRoom_OlderUsersListsAreIgnored(t *testing.T) {
 			}
 			assertUsers := func(expected ...api.PublicSessionId) {
 				t.Helper()
-				for _, hub := range []*Hub{hub1, hub2} {
-					room := hub.getRoom(roomId)
-					if assert.NotNil(room) {
-						users := room.getUsers().Map()
-						assert.Len(users, len(expected), "users: %+v", users)
-						for _, sid := range expected {
-							assert.Contains(users, sid)
-						}
-					}
-				}
+				assertRoomUsers(t, roomId, []*Hub{hub1, hub2}, expected...)
 			}
 			assertParticipantsUpdate := func() {
 				t.Helper()
@@ -401,6 +406,90 @@ func TestRoom_OlderUsersListsAreIgnored(t *testing.T) {
 			})
 			assertParticipantsUpdate()
 			assertUsers()
+			assertNoMoreMessages(t, client1, client2)
+		})
+	}
+}
+
+func TestRoom_ParticipantsUpdateRemovesUsers(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			hub1, hub2, server1, server2 := createHubsForClusteredTest(t)
+
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
+
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			session1, ok := hub1.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+			require.True(ok)
+			backend := session1.Backend()
+
+			sid1 := hello1.Hello.SessionId
+			sid2 := hello2.Hello.SessionId
+			hubs := []*Hub{hub1, hub2}
+			publishParticipants := func(changed ...api.UserData) {
+				t.Helper()
+				publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+					Type: "participants",
+					Participants: &talk.BackendRoomParticipantsRequest{
+						Changed: changed,
+					},
+				})
+				for _, client := range []*TestClient{client1, client2} {
+					if msg, ok := client.RunUntilMessage(ctx); ok {
+						checkMessageParticipantsInCall(t, msg)
+					}
+				}
+			}
+
+			publishParticipants(
+				api.UserData{"sessionId": sid1, "inCall": FlagInCall | FlagWithAudio},
+				api.UserData{"sessionId": sid2, "inCall": FlagInCall},
+			)
+			assertRoomUsers(t, roomId, hubs, sid1, sid2)
+
+			// Users that are no longer in the call are removed.
+			publishParticipants(
+				api.UserData{"sessionId": sid1, "inCall": FlagDisconnected},
+			)
+			assertRoomUsers(t, roomId, hubs, sid2)
+
+			// Changes without in-call information only update the other properties
+			// of users that are stored.
+			publishParticipants(
+				api.UserData{"sessionId": sid1, "participantType": 3},
+				api.UserData{"sessionId": sid2, "participantType": 3},
+			)
+			assertRoomUsers(t, roomId, hubs, sid2)
+			for _, hub := range hubs {
+				room := hub.getRoom(roomId)
+				require.NotNil(room)
+				if user := room.getUsers().Map()[sid2]; assert.NotNil(t, user) {
+					assert.EqualValues(t, 3, user["participantType"], "user: %+v", user)
+					assert.True(t, isUserInCall(user), "user: %+v", user)
+				}
+			}
+
+			publishParticipants(
+				api.UserData{"sessionId": sid2, "inCall": FlagDisconnected},
+			)
+			assertRoomUsers(t, roomId, hubs)
 			assertNoMoreMessages(t, client1, client2)
 		})
 	}
