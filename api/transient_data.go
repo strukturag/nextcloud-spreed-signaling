@@ -24,7 +24,9 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 )
@@ -86,6 +88,13 @@ func (e TransientDataEntries) String() string {
 }
 
 type TransientData struct {
+	// Held while modifying the data and notifying the listeners, so they get
+	// notified in the order the changes were made. Must be acquired before
+	// "mu". The listeners are notified without holding "mu", so they may be
+	// removed while being notified. They may not modify the data or add
+	// listeners while being notified.
+	notifyMu sync.Mutex
+
 	mu sync.Mutex
 	// +checklocks:mu
 	data TransientDataEntries
@@ -100,16 +109,36 @@ func NewTransientData() *TransientData {
 	return &TransientData{}
 }
 
-// +checklocks:t.mu
-func (t *TransientData) sendMessageToListener(listener TransientListener, message *ServerMessage) {
-	t.mu.Unlock()
-	defer t.mu.Lock()
+// transientNotification is a message to send to listeners after a change.
+type transientNotification struct {
+	listeners []TransientListener
+	message   *ServerMessage
+}
 
-	listener.SendMessage(message)
+func (n *transientNotification) send() {
+	if n == nil {
+		return
+	}
+
+	for _, listener := range n.listeners {
+		listener.SendMessage(n.message)
+	}
 }
 
 // +checklocks:t.mu
-func (t *TransientData) notifySet(key string, prev, value any) {
+func (t *TransientData) newNotification(message *ServerMessage) *transientNotification {
+	if len(t.listeners) == 0 {
+		return nil
+	}
+
+	return &transientNotification{
+		listeners: slices.Collect(maps.Keys(t.listeners)),
+		message:   message,
+	}
+}
+
+// +checklocks:t.mu
+func (t *TransientData) notifySet(key string, prev, value any) *transientNotification {
 	msg := &ServerMessage{
 		Type: "transient",
 		TransientData: &TransientDataServerMessage{
@@ -119,13 +148,11 @@ func (t *TransientData) notifySet(key string, prev, value any) {
 			OldValue: prev,
 		},
 	}
-	for listener := range t.listeners {
-		t.sendMessageToListener(listener, msg)
-	}
+	return t.newNotification(msg)
 }
 
 // +checklocks:t.mu
-func (t *TransientData) notifyDeleted(key string, prev *TransientDataEntry) {
+func (t *TransientData) notifyDeleted(key string, prev *TransientDataEntry) *transientNotification {
 	msg := &ServerMessage{
 		Type: "transient",
 		TransientData: &TransientDataServerMessage{
@@ -136,13 +163,21 @@ func (t *TransientData) notifyDeleted(key string, prev *TransientDataEntry) {
 	if prev != nil {
 		msg.TransientData.OldValue = prev.Value
 	}
-	for listener := range t.listeners {
-		t.sendMessageToListener(listener, msg)
-	}
+	return t.newNotification(msg)
 }
 
 // AddListener adds a new listener to be notified about changes.
 func (t *TransientData) AddListener(listener TransientListener) {
+	t.notifyMu.Lock()
+	defer t.notifyMu.Unlock()
+
+	if msg := t.addListener(listener); msg != nil {
+		listener.SendMessage(msg)
+	}
+}
+
+// +checklocks:t.notifyMu
+func (t *TransientData) addListener(listener TransientListener) *ServerMessage {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -150,19 +185,20 @@ func (t *TransientData) AddListener(listener TransientListener) {
 		t.listeners = make(map[TransientListener]bool)
 	}
 	t.listeners[listener] = true
-	if len(t.data) > 0 {
-		data := make(StringMap, len(t.data))
-		for k, v := range t.data {
-			data[k] = v.Value
-		}
-		msg := &ServerMessage{
-			Type: "transient",
-			TransientData: &TransientDataServerMessage{
-				Type: "initial",
-				Data: data,
-			},
-		}
-		t.sendMessageToListener(listener, msg)
+	if len(t.data) == 0 {
+		return nil
+	}
+
+	data := make(StringMap, len(t.data))
+	for k, v := range t.data {
+		data[k] = v.Value
+	}
+	return &ServerMessage{
+		Type: "transient",
+		TransientData: &TransientDataServerMessage{
+			Type: "initial",
+			Data: data,
+		},
 	}
 }
 
@@ -198,10 +234,11 @@ func (t *TransientData) removeAfterTTL(key string, value any, ttl time.Duration)
 	}
 
 	timer := time.AfterFunc(ttl, func() {
-		t.mu.Lock()
-		defer t.mu.Unlock()
+		t.notifyMu.Lock()
+		defer t.notifyMu.Unlock()
 
-		t.compareAndRemove(key, value)
+		_, notification := t.compareAndRemove(key, value)
+		notification.send()
 	})
 	if t.timers == nil {
 		t.timers = make(map[string]*time.Timer)
@@ -210,7 +247,7 @@ func (t *TransientData) removeAfterTTL(key string, value any, ttl time.Duration)
 }
 
 // +checklocks:t.mu
-func (t *TransientData) doSet(key string, value any, prev *TransientDataEntry, ttl time.Duration) {
+func (t *TransientData) doSet(key string, value any, prev *TransientDataEntry, ttl time.Duration) *transientNotification {
 	if t.data == nil {
 		t.data = make(TransientDataEntries)
 	}
@@ -222,8 +259,8 @@ func (t *TransientData) doSet(key string, value any, prev *TransientDataEntry, t
 		oldValue = prev.Value
 		prev.update(value, ttl)
 	}
-	t.notifySet(key, oldValue, value)
 	t.removeAfterTTL(key, value, ttl)
+	return t.notifySet(key, oldValue, value)
 }
 
 // Set sets a new value for the given key and notifies listeners
@@ -239,17 +276,26 @@ func (t *TransientData) SetTTL(key string, value any, ttl time.Duration) bool {
 		return t.Remove(key)
 	}
 
+	t.notifyMu.Lock()
+	defer t.notifyMu.Unlock()
+
+	changed, notification := t.setTTL(key, value, ttl)
+	notification.send()
+	return changed
+}
+
+// +checklocks:t.notifyMu
+func (t *TransientData) setTTL(key string, value any, ttl time.Duration) (bool, *transientNotification) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	prev, found := t.data[key]
 	if found && reflect.DeepEqual(prev.Value, value) {
 		t.updateTTL(key, value, ttl)
-		return false
+		return false, nil
 	}
 
-	t.doSet(key, value, prev, ttl)
-	return true
+	return true, t.doSet(key, value, prev, ttl)
 }
 
 // CompareAndSet sets a new value for the given key only for a given old value
@@ -266,63 +312,85 @@ func (t *TransientData) CompareAndSetTTL(key string, old, value any, ttl time.Du
 		return t.CompareAndRemove(key, old)
 	}
 
+	t.notifyMu.Lock()
+	defer t.notifyMu.Unlock()
+
+	changed, notification := t.compareAndSetTTL(key, old, value, ttl)
+	notification.send()
+	return changed
+}
+
+// +checklocks:t.notifyMu
+func (t *TransientData) compareAndSetTTL(key string, old, value any, ttl time.Duration) (bool, *transientNotification) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	prev, found := t.data[key]
 	if old != nil && (!found || !reflect.DeepEqual(prev.Value, old)) {
-		return false
+		return false, nil
 	} else if old == nil && found {
-		return false
+		return false, nil
 	}
 
-	t.doSet(key, value, prev, ttl)
-	return true
+	return true, t.doSet(key, value, prev, ttl)
 }
 
 // +checklocks:t.mu
-func (t *TransientData) doRemove(key string, prev *TransientDataEntry) {
+func (t *TransientData) doRemove(key string, prev *TransientDataEntry) *transientNotification {
 	delete(t.data, key)
 	if old, found := t.timers[key]; found {
 		old.Stop()
 		delete(t.timers, key)
 	}
-	t.notifyDeleted(key, prev)
+	return t.notifyDeleted(key, prev)
 }
 
 // Remove deletes the value with the given key and notifies listeners
 // if the key was removed.
 func (t *TransientData) Remove(key string) bool {
+	t.notifyMu.Lock()
+	defer t.notifyMu.Unlock()
+
+	removed, notification := t.remove(key)
+	notification.send()
+	return removed
+}
+
+// +checklocks:t.notifyMu
+func (t *TransientData) remove(key string) (bool, *transientNotification) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	prev, found := t.data[key]
 	if !found {
-		return false
+		return false, nil
 	}
 
-	t.doRemove(key, prev)
-	return true
+	return true, t.doRemove(key, prev)
 }
 
 // CompareAndRemove deletes the value with the given key if it has a given value
 // and notifies listeners if the key was removed.
 func (t *TransientData) CompareAndRemove(key string, old any) bool {
+	t.notifyMu.Lock()
+	defer t.notifyMu.Unlock()
+
+	removed, notification := t.compareAndRemove(key, old)
+	notification.send()
+	return removed
+}
+
+// +checklocks:t.notifyMu
+func (t *TransientData) compareAndRemove(key string, old any) (bool, *transientNotification) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	return t.compareAndRemove(key, old)
-}
-
-// +checklocks:t.mu
-func (t *TransientData) compareAndRemove(key string, old any) bool {
 	prev, found := t.data[key]
 	if !found || !reflect.DeepEqual(prev.Value, old) {
-		return false
+		return false, nil
 	}
 
-	t.doRemove(key, prev)
-	return true
+	return true, t.doRemove(key, prev)
 }
 
 // GetData returns a copy of the internal data.
@@ -363,6 +431,14 @@ func (t *TransientData) SetInitial(data TransientDataEntries) {
 		return
 	}
 
+	t.notifyMu.Lock()
+	defer t.notifyMu.Unlock()
+
+	t.setInitial(data).send()
+}
+
+// +checklocks:t.notifyMu
+func (t *TransientData) setInitial(data TransientDataEntries) *transientNotification {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -390,16 +466,14 @@ func (t *TransientData) SetInitial(data TransientDataEntries) {
 		t.data[k] = v
 	}
 	if len(msgData) == 0 {
-		return
+		return nil
 	}
-	msg := &ServerMessage{
+
+	return t.newNotification(&ServerMessage{
 		Type: "transient",
 		TransientData: &TransientDataServerMessage{
 			Type: "initial",
 			Data: msgData,
 		},
-	}
-	for listener := range t.listeners {
-		t.sendMessageToListener(listener, msg)
-	}
+	})
 }
