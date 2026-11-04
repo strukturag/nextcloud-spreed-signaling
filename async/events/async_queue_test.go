@@ -156,3 +156,49 @@ func TestAsyncQueue_Barrier(t *testing.T) {
 		require.NoError(ctx.Err())
 	}
 }
+
+func TestAsyncQueue_MaxPending(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	logger := logtest.NewLoggerForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	queue := NewAsyncQueue(logger, "test")
+	queue.maxPending = 10
+
+	// Messages are dropped if too many are pending, functions are not.
+	for i := range 15 {
+		queue.Push(&nats.Msg{Data: []byte(strconv.Itoa(i))})
+	}
+	barrier := queue.Barrier()
+
+	done := make(chan struct{})
+	defer close(done)
+	received := make(chan string, 15)
+	go queue.Run(done, func(msg *nats.Msg) {
+		received <- string(msg.Data)
+	})
+
+	select {
+	case <-barrier:
+	case <-ctx.Done():
+		require.NoError(ctx.Err())
+	}
+	if assert.Len(received, 10) {
+		for i := range 10 {
+			assert.Equal(strconv.Itoa(i), <-received)
+		}
+	}
+
+	// Messages are accepted again once the pending messages were processed.
+	queue.Push(&nats.Msg{Data: []byte("next")})
+	select {
+	case data := <-received:
+		assert.Equal("next", data)
+	case <-ctx.Done():
+		require.NoError(ctx.Err())
+	}
+}

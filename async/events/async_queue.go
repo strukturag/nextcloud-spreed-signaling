@@ -29,8 +29,13 @@ import (
 )
 
 const (
-	// Log a warning if more messages are pending.
+	// Log a warning if more messages are pending (and again whenever the
+	// number of pending messages doubled).
 	warnAsyncQueuePendingCount = 1024
+
+	// Maximum number of pending messages, further messages are dropped. This
+	// is only reached if the handler is stalled.
+	maxAsyncQueuePendingCount = 65536
 )
 
 type asyncQueueEntry struct {
@@ -46,11 +51,16 @@ type AsyncQueue struct {
 	name   string        // +checklocksignore: Only written to from constructor.
 	notify chan struct{} // +checklocksignore: Only written to from constructor.
 
+	// Only modified before the queue is used.
+	maxPending int // +checklocksignore
+
 	mu sync.Mutex
 	// +checklocks:mu
 	pending []asyncQueueEntry
 	// +checklocks:mu
-	warned bool
+	nextWarnCount int
+	// +checklocks:mu
+	dropped int
 }
 
 func NewAsyncQueue(logger log.Logger, name string) *AsyncQueue {
@@ -58,6 +68,9 @@ func NewAsyncQueue(logger log.Logger, name string) *AsyncQueue {
 		logger: logger,
 		name:   name,
 		notify: make(chan struct{}, 1),
+
+		maxPending:    maxAsyncQueuePendingCount,
+		nextWarnCount: warnAsyncQueuePendingCount,
 	}
 }
 
@@ -90,10 +103,21 @@ func (q *AsyncQueue) Execute(fn func()) {
 
 func (q *AsyncQueue) push(entry asyncQueueEntry) {
 	q.mu.Lock()
+	// Functions are never dropped, they are only used internally.
+	if entry.fn == nil && len(q.pending) >= q.maxPending {
+		q.dropped++
+		if q.dropped&(q.dropped-1) == 0 {
+			// Only log for every power of two to not flood the log.
+			q.logger.Printf("Queue of %s is full with %d pending messages, dropped %d messages", q.name, len(q.pending), q.dropped)
+		}
+		q.mu.Unlock()
+		return
+	}
+
 	q.pending = append(q.pending, entry)
-	if count := len(q.pending); count >= warnAsyncQueuePendingCount && !q.warned {
-		q.warned = true
+	if count := len(q.pending); count >= q.nextWarnCount {
 		q.logger.Printf("Queue of %s has %d pending messages", q.name, count)
+		q.nextWarnCount *= 2
 	}
 	q.mu.Unlock()
 
@@ -137,8 +161,7 @@ func (q *AsyncQueue) takePending() []asyncQueueEntry {
 
 	result := q.pending
 	q.pending = nil
-	if len(result) < warnAsyncQueuePendingCount {
-		q.warned = false
-	}
+	q.nextWarnCount = warnAsyncQueuePendingCount
+	q.dropped = 0
 	return result
 }
