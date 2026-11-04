@@ -81,9 +81,9 @@ type Room struct {
 	// +checklocks:mu
 	properties json.RawMessage
 
-	closer  *internal.Closer
-	mu      *sync.RWMutex
-	asyncCh events.AsyncChannel
+	closer     *internal.Closer
+	mu         *sync.RWMutex
+	asyncQueue *events.AsyncQueue
 	// +checklocks:mu
 	closed bool
 	// Number of sessions that are about to join the room.
@@ -119,8 +119,9 @@ type Room struct {
 	// +checklocks:mu
 	users api.UserDataMap
 
-	// Timestamps of last backend requests for the different types.
-	lastRoomRequests map[string]int64
+	// Timestamp of last backend "update" request. Only accessed from the
+	// goroutine processing the asynchronous messages.
+	lastUpdateReceived int64
 
 	transientData *api.TransientData
 }
@@ -143,10 +144,10 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 
 		properties: properties,
 
-		closer:   internal.NewCloser(),
-		mu:       &sync.RWMutex{},
-		asyncCh:  make(events.AsyncChannel, events.DefaultAsyncChannelSize),
-		sessions: make(map[api.PublicSessionId]Session),
+		closer:     internal.NewCloser(),
+		mu:         &sync.RWMutex{},
+		asyncQueue: events.NewAsyncQueue(hub.logger, "room "+roomId),
+		sessions:   make(map[api.PublicSessionId]Session),
 
 		joiningSessions: make(map[api.PublicSessionId]bool),
 
@@ -169,8 +170,6 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		}),
 		statsCallRoomsTotal: statsCallRoomsTotal.WithLabelValues(backend.Id()),
 		users:               make(api.UserDataMap),
-
-		lastRoomRequests: make(map[string]int64),
 
 		transientData: api.NewTransientData(),
 	}
@@ -220,22 +219,20 @@ func (r *Room) IsEqual(other *Room) bool {
 	return b1.Id() == b2.Id()
 }
 
-func (r *Room) AsyncChannel() events.AsyncChannel {
-	return r.asyncCh
+func (r *Room) AsyncEventReceived(msg *nats.Msg) {
+	r.asyncQueue.Push(msg)
 }
 
 func (r *Room) run() {
+	go r.asyncQueue.Run(r.closer.C, r.processAsyncNatsMessage)
+
 	ticker := time.NewTicker(updateActiveSessionsInterval)
+	defer ticker.Stop()
 loop:
 	for {
 		select {
 		case <-r.closer.C:
 			break loop
-		case msg := <-r.asyncCh:
-			r.processAsyncNatsMessage(msg)
-			for count := len(r.asyncCh); count > 0; count-- {
-				r.processAsyncNatsMessage(<-r.asyncCh)
-			}
 		case <-ticker.C:
 			r.publishActiveSessions()
 		}
@@ -343,6 +340,12 @@ func (r *Room) processAsyncNatsMessage(msg *nats.Msg) {
 }
 
 func (r *Room) processAsyncMessage(message *events.AsyncMessage) {
+	if r.IsClosed() {
+		// Messages that were still pending when the room was closed may not be
+		// processed, a new room with the same id might exist already.
+		return
+	}
+
 	switch message.Type {
 	case "room":
 		r.processBackendRoomRequestRoom(message.Room)
@@ -354,29 +357,31 @@ func (r *Room) processAsyncMessage(message *events.AsyncMessage) {
 }
 
 func (r *Room) processBackendRoomRequestRoom(message *talk.BackendServerRoomRequest) {
-	received := message.ReceivedTime
-	if last, found := r.lastRoomRequests[message.Type]; found && last > received {
-		if msg, err := json.Marshal(message); err == nil {
-			r.logger.Printf("Ignore old backend room request for %s: %s", r.Id(), string(msg))
-		} else {
-			r.logger.Printf("Ignore old backend room request for %s: %+v", r.Id(), message)
-		}
-		return
-	}
-
-	r.lastRoomRequests[message.Type] = received
 	message.RoomId = r.Id()
 	message.Backend = r.Backend()
 	switch message.Type {
 	case "update":
-		r.hub.roomUpdated <- message
+		// Updates contain the complete properties, so older requests can be
+		// ignored. All other request types contain only changes or events and
+		// must always be processed.
+		if received := message.ReceivedTime; r.lastUpdateReceived > received {
+			if msg, err := json.Marshal(message); err == nil {
+				r.logger.Printf("Ignore old backend room request for %s: %s", r.Id(), string(msg))
+			} else {
+				r.logger.Printf("Ignore old backend room request for %s: %+v", r.Id(), message)
+			}
+			return
+		}
+
+		r.lastUpdateReceived = message.ReceivedTime
+		r.UpdateProperties(message.Update.Properties)
 	case "delete":
 		r.notifyInternalRoomDeleted()
-		r.hub.roomDeleted <- message
+		r.hub.processRoomDeleted(r, message)
 	case "incall":
-		r.hub.roomInCall <- message
+		r.processInCallRequest(message.InCall)
 	case "participants":
-		r.hub.roomParticipants <- message
+		r.PublishUsersChanged(message.Participants.Changed)
 	case "message":
 		r.publishRoomMessage(message.Message)
 	case "switchto":
@@ -1163,6 +1168,28 @@ func (r *Room) isVirtualSessionId(sessionId api.PublicSessionId) bool {
 	}
 
 	return false
+}
+
+func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest) {
+	if !request.All {
+		r.PublishUsersInCallChanged(request.Changed)
+		return
+	}
+
+	var flags int
+	if err := json.Unmarshal(request.InCall, &flags); err != nil {
+		var incall bool
+		if err := json.Unmarshal(request.InCall, &incall); err != nil {
+			r.logger.Printf("Unsupported InCall flags type: %+v, ignoring", string(request.InCall))
+			return
+		}
+
+		if incall {
+			flags = FlagInCall
+		}
+	}
+
+	r.PublishUsersInCallChangedAll(flags)
 }
 
 func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {

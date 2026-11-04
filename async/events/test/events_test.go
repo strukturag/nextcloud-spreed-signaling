@@ -30,17 +30,8 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
-	"github.com/strukturag/nextcloud-spreed-signaling/v2/nats"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
-
-type testListener struct {
-	ch events.AsyncChannel
-}
-
-func (l *testListener) AsyncChannel() events.AsyncChannel {
-	return l.ch
-}
 
 func TestAsyncEventsTest(t *testing.T) {
 	t.Parallel()
@@ -57,9 +48,7 @@ func TestAsyncEventsTest(t *testing.T) {
 
 			eventsHandler := GetAsyncEventsForTest(t)
 
-			listener := &testListener{
-				ch: make(events.AsyncChannel, 1),
-			}
+			listener := NewListener(t)
 			sessionId := api.PublicSessionId("foo")
 			backend := talk.NewCompatBackend(nil)
 			require.NoError(eventsHandler.RegisterSessionListener(sessionId, backend, listener))
@@ -75,16 +64,10 @@ func TestAsyncEventsTest(t *testing.T) {
 				},
 			}
 			if err := eventsHandler.PublishSessionMessage(sessionId, backend, &msg); assert.NoError(err) {
-				select {
-				case natsMsg := <-listener.ch:
-					var received events.AsyncMessage
-					if err := nats.Decode(natsMsg, &received); assert.NoError(err) {
-						assert.True(msg.SendTime.Equal(received.SendTime), "send times don't match, expected %s, got %s", msg.SendTime, received.SendTime)
-						received.SendTime = msg.SendTime
-						assert.Equal(msg, received)
-					}
-				case <-ctx.Done():
-					require.NoError(ctx.Err())
+				if received, ok := listener.WaitForMessage(ctx); ok {
+					assert.True(msg.SendTime.Equal(received.SendTime), "send times don't match, expected %s, got %s", msg.SendTime, received.SendTime)
+					received.SendTime = msg.SendTime
+					assert.Equal(msg, *received)
 				}
 			}
 

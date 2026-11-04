@@ -32,39 +32,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
-	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
+	eventstest "github.com/strukturag/nextcloud-spreed-signaling/v2/async/events/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
-	"github.com/strukturag/nextcloud-spreed-signaling/v2/nats"
 )
 
-func waitForRoomEvent(ctx context.Context, t *testing.T, ch events.AsyncChannel) (*api.EventServerMessage, bool) {
+func waitForRoomEvent(ctx context.Context, t *testing.T, listener *eventstest.Listener) (*api.EventServerMessage, bool) {
 	t.Helper()
-	select {
-	case msg := <-ch:
-		var message events.AsyncMessage
-		if !assert.NoError(t, nats.Decode(msg, &message)) ||
-			!assert.Equal(t, "message", message.Type, "invalid message %+v", message) ||
-			!assert.NotNil(t, message.Message, "invalid message %+v", message) ||
-			!checkMessageType(t, message.Message, "event") {
-			return nil, false
-		}
-		return message.Message.Event, true
-	case <-ctx.Done():
-		assert.Fail(t, "no room event received", "error: %s", ctx.Err())
+	message, ok := listener.WaitForMessage(ctx)
+	if !ok ||
+		!assert.Equal(t, "message", message.Type, "invalid message %+v", message) ||
+		!assert.NotNil(t, message.Message, "invalid message %+v", message) ||
+		!checkMessageType(t, message.Message, "event") {
 		return nil, false
 	}
-}
-
-func assertNoRoomEvents(t *testing.T, ch events.AsyncChannel) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	defer cancel()
-	select {
-	case msg := <-ch:
-		assert.Fail(t, "received unexpected room event", "event: %s", string(msg.Data))
-	case <-ctx.Done():
-	}
+	return message.Message.Event, true
 }
 
 func reserveRoomJoin(hub *Hub, room *Room) {
@@ -322,10 +304,7 @@ func TestRoom_SessionLeavesWhileJoining(t *testing.T) {
 			}
 
 			// Monitor the events published to the room.
-			roomEvents := make(events.AsyncChannel, events.DefaultAsyncChannelSize)
-			listener := &channelEventListener{
-				ch: roomEvents,
-			}
+			listener := eventstest.NewListener(t)
 			require.NoError(hub1.events.RegisterRoomListener(roomId, session1.Backend(), listener))
 			defer func() {
 				assert.NoError(hub1.events.UnregisterRoomListener(roomId, session1.Backend(), listener))
@@ -337,19 +316,19 @@ func TestRoom_SessionLeavesWhileJoining(t *testing.T) {
 			// The session leaves while it is still being added, the "leave" event
 			// may not be published before the "join" event.
 			room.RemoveSession(session2)
-			assertNoRoomEvents(t, roomEvents)
+			listener.AssertNoMessage(200 * time.Millisecond)
 			assertNoMoreMessages(t, client1)
 
 			room.finishAddSession(join)
-			if event, ok := waitForRoomEvent(ctx, t, roomEvents); ok && assert.Equal("join", event.Type, "expected join event, got %+v", event) {
+			if event, ok := waitForRoomEvent(ctx, t, listener); ok && assert.Equal("join", event.Type, "expected join event, got %+v", event) {
 				if assert.Len(event.Join, 1) {
 					assert.Equal(hello2.Hello.SessionId, event.Join[0].SessionId)
 				}
 			}
-			if event, ok := waitForRoomEvent(ctx, t, roomEvents); ok && assert.Equal("leave", event.Type, "expected leave event, got %+v", event) {
+			if event, ok := waitForRoomEvent(ctx, t, listener); ok && assert.Equal("leave", event.Type, "expected leave event, got %+v", event) {
 				assert.Equal([]api.PublicSessionId{hello2.Hello.SessionId}, event.Leave)
 			}
-			assertNoRoomEvents(t, roomEvents)
+			listener.AssertNoMessage(200 * time.Millisecond)
 
 			client1.RunUntilJoined(ctx, hello2.Hello)
 			client1.RunUntilLeft(ctx, hello2.Hello)

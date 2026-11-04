@@ -37,12 +37,89 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
-type TestBackendRoomListener struct {
-	events AsyncChannel
+type testListener struct {
+	t        *testing.T
+	queue    *AsyncQueue
+	messages chan *nats.Msg
+	// If set, processing of messages is blocked until the channel is closed.
+	blocked chan struct{}
 }
 
-func (l *TestBackendRoomListener) AsyncChannel() AsyncChannel {
-	return l.events
+func newTestListener(t *testing.T) *testListener {
+	return startTestListener(t, nil)
+}
+
+// newBlockedTestListener creates a listener that doesn't process received
+// messages until "release" is called.
+func newBlockedTestListener(t *testing.T) *testListener {
+	return startTestListener(t, make(chan struct{}))
+}
+
+func startTestListener(t *testing.T, blocked chan struct{}) *testListener {
+	listener := &testListener{
+		t:        t,
+		queue:    NewAsyncQueue(logtest.NewLoggerForTest(t), "test listener"),
+		messages: make(chan *nats.Msg),
+		blocked:  blocked,
+	}
+
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		close(done)
+	})
+	go listener.queue.Run(done, func(msg *nats.Msg) {
+		if blocked != nil {
+			select {
+			case <-blocked:
+			case <-done:
+				return
+			}
+		}
+
+		select {
+		case listener.messages <- msg:
+		case <-done:
+		}
+	})
+	return listener
+}
+
+func (l *testListener) release() {
+	close(l.blocked)
+}
+
+func (l *testListener) assertNoMessage(timeout time.Duration) {
+	l.t.Helper()
+	ctx, cancel := context.WithTimeout(l.t.Context(), timeout)
+	defer cancel()
+
+	select {
+	case msg := <-l.messages:
+		assert.Fail(l.t, "received unexpected message", "message: %s", string(msg.Data))
+	case <-ctx.Done():
+	}
+}
+
+func (l *testListener) AsyncEventReceived(msg *nats.Msg) {
+	l.queue.Push(msg)
+}
+
+func (l *testListener) assertMessage(expected *AsyncMessage) {
+	l.t.Helper()
+	ctx, cancel := context.WithTimeout(l.t.Context(), time.Second)
+	defer cancel()
+
+	select {
+	case msg := <-l.messages:
+		var received AsyncMessage
+		if assert.NoError(l.t, nats.Decode(msg, &received)) {
+			assert.True(l.t, expected.SendTime.Equal(received.SendTime), "send times don't match, expected %s, got %s", expected.SendTime, received.SendTime)
+			received.SendTime = expected.SendTime
+			assert.Equal(l.t, expected, &received)
+		}
+	case <-ctx.Done():
+		assert.NoError(l.t, ctx.Err(), "no message received")
+	}
 }
 
 func testAsyncEvents(t *testing.T, events AsyncEvents) {
@@ -73,15 +150,9 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 		}
 	})
 
-	listener := &TestBackendRoomListener{
-		events: make(AsyncChannel, 1),
-	}
-	listener2 := &TestBackendRoomListener{
-		events: make(AsyncChannel, 1),
-	}
-	slowListener := &TestBackendRoomListener{
-		events: make(AsyncChannel),
-	}
+	listener := newTestListener(t)
+	listener2 := newTestListener(t)
+	slowListener := newBlockedTestListener(t)
 
 	roomId := "1234"
 	backend := talk.NewCompatBackend(nil)
@@ -105,28 +176,29 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 			Type: "test",
 		},
 	}
-	if assert.NoError(events.PublishBackendRoomMessage(roomId, backend, msg)) {
-		received := <-listener.events
-		var receivedMsg AsyncMessage
-		if assert.NoError(nats.Decode(received, &receivedMsg)) {
-			assert.True(msg.SendTime.Equal(receivedMsg.SendTime), "send times don't match, expected %s, got %s", msg.SendTime, receivedMsg.SendTime)
-			receivedMsg.SendTime = msg.SendTime
-			assert.Equal(msg, &receivedMsg)
-		}
+	msg2 := &AsyncMessage{
+		Type: "room",
+		Room: &talk.BackendServerRoomRequest{
+			Type: "test2",
+		},
+	}
+	if assert.NoError(events.PublishBackendRoomMessage(roomId, backend, msg)) &&
+		assert.NoError(events.PublishBackendRoomMessage(roomId, backend, msg2)) {
+		// The slow listener is still blocked processing the first message, but
+		// didn't prevent the other listeners from receiving both messages (the
+		// second message can only be delivered once delivery of the first one
+		// has completed for all listeners).
+		listener.assertMessage(msg)
+		listener.assertMessage(msg2)
+		listener2.assertMessage(msg)
+		listener2.assertMessage(msg2)
+		slowListener.assertNoMessage(100 * time.Millisecond)
 
-		received2 := <-listener2.events
-		var received2Msg AsyncMessage
-		if assert.NoError(nats.Decode(received2, &received2Msg)) {
-			assert.True(msg.SendTime.Equal(received2Msg.SendTime), "send times don't match, expected %s, got %s", msg.SendTime, received2Msg.SendTime)
-			received2Msg.SendTime = msg.SendTime
-			assert.Equal(msg, &received2Msg)
-		}
-		select {
-		case msg := <-slowListener.events:
-			assert.Fail("should not have received message", "got %+v", msg)
-		default:
-			// Expected, the slow listener was skipped.
-		}
+		// The slow listener gets the messages once processing continues, so
+		// they were queued and not dropped.
+		slowListener.release()
+		slowListener.assertMessage(msg)
+		slowListener.assertMessage(msg2)
 	}
 
 	require.NoError(events.RegisterRoomListener(roomId, backend, listener))
@@ -146,21 +218,9 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 		},
 	}
 	if assert.NoError(events.PublishRoomMessage(roomId, backend, roomMessage)) {
-		received := <-listener.events
-		var receivedMsg AsyncMessage
-		if assert.NoError(nats.Decode(received, &receivedMsg)) {
-			assert.True(roomMessage.SendTime.Equal(receivedMsg.SendTime), "send times don't match, expected %s, got %s", roomMessage.SendTime, receivedMsg.SendTime)
-			receivedMsg.SendTime = roomMessage.SendTime
-			assert.Equal(roomMessage, &receivedMsg)
-		}
+		listener.assertMessage(roomMessage)
 
-		received2 := <-listener2.events
-		var received2Msg AsyncMessage
-		if assert.NoError(nats.Decode(received2, &received2Msg)) {
-			assert.True(roomMessage.SendTime.Equal(received2Msg.SendTime), "send times don't match, expected %s, got %s", roomMessage.SendTime, received2Msg.SendTime)
-			received2Msg.SendTime = roomMessage.SendTime
-			assert.Equal(roomMessage, &received2Msg)
-		}
+		listener2.assertMessage(roomMessage)
 	}
 
 	userId := "the-user"
@@ -177,13 +237,7 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 		},
 	}
 	if assert.NoError(events.PublishUserMessage(userId, backend, userMessage)) {
-		received := <-listener.events
-		var receivedMsg AsyncMessage
-		if assert.NoError(nats.Decode(received, &receivedMsg)) {
-			assert.True(userMessage.SendTime.Equal(receivedMsg.SendTime), "send times don't match, expected %s, got %s", userMessage.SendTime, receivedMsg.SendTime)
-			receivedMsg.SendTime = userMessage.SendTime
-			assert.Equal(userMessage, &receivedMsg)
-		}
+		listener.assertMessage(userMessage)
 	}
 
 	sessionId := api.PublicSessionId("the-session")
@@ -200,19 +254,11 @@ func testAsyncEvents(t *testing.T, events AsyncEvents) {
 		},
 	}
 	if assert.NoError(events.PublishSessionMessage(sessionId, backend, sessionMessage)) {
-		received := <-listener.events
-		var receivedMsg AsyncMessage
-		if assert.NoError(nats.Decode(received, &receivedMsg)) {
-			assert.True(sessionMessage.SendTime.Equal(receivedMsg.SendTime), "send times don't match, expected %s, got %s", sessionMessage.SendTime, receivedMsg.SendTime)
-			receivedMsg.SendTime = sessionMessage.SendTime
-			assert.Equal(sessionMessage, &receivedMsg)
-		}
+		listener.assertMessage(sessionMessage)
 	}
 
 	// Will get cleaned up on close.
-	listener3 := &TestBackendRoomListener{
-		events: make(AsyncChannel, 1),
-	}
+	listener3 := newTestListener(t)
 	assert.NoError(events.RegisterBackendRoomListener(roomId+"-other", backend, listener3))
 	assert.NoError(events.RegisterRoomListener(roomId+"-other", backend, listener3))
 	assert.NoError(events.RegisterUserListener(userId+"-other", backend, listener3))

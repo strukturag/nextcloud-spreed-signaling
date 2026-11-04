@@ -176,11 +176,6 @@ type Hub struct {
 	shutdown          *internal.Closer
 	shutdownScheduled atomic.Bool
 
-	roomUpdated      chan *talk.BackendServerRoomRequest
-	roomDeleted      chan *talk.BackendServerRoomRequest
-	roomInCall       chan *talk.BackendServerRoomRequest
-	roomParticipants chan *talk.BackendServerRoomRequest
-
 	mu sync.RWMutex
 	ru sync.RWMutex
 
@@ -395,11 +390,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		closer:   internal.NewCloser(),
 		shutdown: internal.NewCloser(),
 
-		roomUpdated:      make(chan *talk.BackendServerRoomRequest),
-		roomDeleted:      make(chan *talk.BackendServerRoomRequest),
-		roomInCall:       make(chan *talk.BackendServerRoomRequest),
-		roomParticipants: make(chan *talk.BackendServerRoomRequest),
-
 		clients:  make(map[uint64]ClientWithSession),
 		sessions: make(map[uint64]Session),
 		rooms:    make(map[string]*Room),
@@ -563,15 +553,6 @@ func (h *Hub) Run() {
 loop:
 	for {
 		select {
-		// Backend notifications from Nextcloud.
-		case message := <-h.roomUpdated:
-			h.processRoomUpdated(message)
-		case message := <-h.roomDeleted:
-			h.processRoomDeleted(message)
-		case message := <-h.roomInCall:
-			h.processRoomInCallChanged(message)
-		case message := <-h.roomParticipants:
-			h.processRoomParticipants(message)
 		// Periodic internal housekeeping.
 		case now := <-housekeeping.C:
 			h.performHousekeeping(now)
@@ -3117,15 +3098,6 @@ func (h *Hub) processByeMsg(client ClientWithSession, message *api.ClientMessage
 	}
 }
 
-func (h *Hub) processRoomUpdated(message *talk.BackendServerRoomRequest) {
-	room := h.GetRoomForBackend(message.RoomId, message.Backend)
-	if room == nil {
-		return
-	}
-
-	room.UpdateProperties(message.Update.Properties)
-}
-
 func newRoomDeletedMessage(roomId string) *api.ServerMessage {
 	return &api.ServerMessage{
 		Type: "event",
@@ -3142,12 +3114,7 @@ func newRoomDeletedMessage(roomId string) *api.ServerMessage {
 	}
 }
 
-func (h *Hub) processRoomDeleted(message *talk.BackendServerRoomRequest) {
-	room := h.GetRoomForBackend(message.RoomId, message.Backend)
-	if room == nil {
-		return
-	}
-
+func (h *Hub) processRoomDeleted(room *Room, message *talk.BackendServerRoomRequest) {
 	sessions := room.Close()
 	if len(sessions) == 0 {
 		return
@@ -3167,41 +3134,6 @@ func (h *Hub) processRoomDeleted(message *talk.BackendServerRoomRequest) {
 			}
 		}
 	}
-}
-
-func (h *Hub) processRoomInCallChanged(message *talk.BackendServerRoomRequest) {
-	room := h.GetRoomForBackend(message.RoomId, message.Backend)
-	if room == nil {
-		return
-	}
-
-	if message.InCall.All {
-		var flags int
-		if err := json.Unmarshal(message.InCall.InCall, &flags); err != nil {
-			var incall bool
-			if err := json.Unmarshal(message.InCall.InCall, &incall); err != nil {
-				h.logger.Printf("Unsupported InCall flags type: %+v, ignoring", string(message.InCall.InCall))
-				return
-			}
-
-			if incall {
-				flags = FlagInCall
-			}
-		}
-
-		room.PublishUsersInCallChangedAll(flags)
-	} else {
-		room.PublishUsersInCallChanged(message.InCall.Changed)
-	}
-}
-
-func (h *Hub) processRoomParticipants(message *talk.BackendServerRoomRequest) {
-	room := h.GetRoomForBackend(message.RoomId, message.Backend)
-	if room == nil {
-		return
-	}
-
-	room.PublishUsersChanged(message.Participants.Changed)
 }
 
 func (h *Hub) GetStats() api.StringMap {
