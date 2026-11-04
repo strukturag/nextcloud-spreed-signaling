@@ -22,6 +22,7 @@
 package api
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -231,4 +232,84 @@ func Test_TransientDataSetInitial(t *testing.T) {
 		assert.EqualValues(2, listener1.sent.Load())
 		assert.EqualValues(2, listener2.sent.Load())
 	})
+}
+
+type changesTransientListener struct {
+	mu sync.Mutex
+	// +checklocks:mu
+	changes [][2]any
+}
+
+func (l *changesTransientListener) SendMessage(message *ServerMessage) bool {
+	if message.TransientData.Type != "set" {
+		return true
+	}
+
+	// Give concurrent changes a chance to overtake this notification.
+	time.Sleep(time.Microsecond)
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.changes = append(l.changes, [2]any{message.TransientData.OldValue, message.TransientData.Value})
+	return true
+}
+
+func Test_TransientDataConcurrentChanges(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	data := NewTransientData()
+
+	listeners := []*changesTransientListener{
+		{},
+		{},
+	}
+	for _, listener := range listeners {
+		data.AddListener(listener)
+	}
+
+	stop := make(chan struct{})
+	var churn sync.WaitGroup
+	// Listeners can be added and removed while others are notified.
+	churn.Go(func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			listener := &changesTransientListener{}
+			data.AddListener(listener)
+			data.RemoveListener(listener)
+		}
+	})
+
+	var wg sync.WaitGroup
+	for _, prefix := range []string{"a", "b"} {
+		wg.Go(func() {
+			for i := range 100 {
+				data.Set("foo", prefix+strconv.Itoa(i))
+			}
+		})
+	}
+	wg.Wait()
+	close(stop)
+	churn.Wait()
+
+	// The listeners were notified in the order the changes were made.
+	final := data.GetData()["foo"]
+	for _, listener := range listeners {
+		listener.mu.Lock()
+		changes := listener.changes
+		listener.mu.Unlock()
+
+		if assert.Len(changes, 200) {
+			var prev any
+			for idx, change := range changes {
+				assert.Equal(prev, change[0], "change %d has unexpected previous value", idx)
+				prev = change[1]
+			}
+			assert.Equal(final, prev)
+		}
+	}
 }
