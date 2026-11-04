@@ -70,8 +70,8 @@ const (
 	startDialoutTimeout = 45 * time.Second
 
 	// roomSessionLookupMaxRetries bounds how many additional times
-	// lookupByRoomSessionId retries a miss before giving up.
-	roomSessionLookupMaxRetries = 20
+	// lookupByRoomSessionId retries a failed lookup before giving up.
+	roomSessionLookupMaxRetries = 2
 
 	// roomSessionLookupRetryDelay is the delay between retries.
 	roomSessionLookupRetryDelay = 25 * time.Millisecond
@@ -439,32 +439,26 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 		return "", nil
 	}
 
-	var sid api.PublicSessionId
-	var err error
-	timer := time.NewTimer(0)
-	defer timer.Stop()
 	for attempt := 0; ; attempt++ {
+		// Lookups wait for sessions that are still joining, so sessions that are
+		// not found don't exist. Retry if a server failed while looking up the
+		// session, it might be registered on a different server in the meantime.
+		sid, err := b.roomSessions.LookupSessionId(ctx, roomSessionId, "")
+		switch {
+		case err == nil:
+			return sid, nil
+		case errors.Is(err, ErrNoSuchRoomSession):
+			return "", nil
+		case attempt >= roomSessionLookupMaxRetries:
+			return "", err
+		}
+
 		select {
-		case <-timer.C:
+		case <-time.After(roomSessionLookupRetryDelay):
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
-
-		sid, err = b.roomSessions.LookupSessionId(ctx, roomSessionId, "")
-		if err != ErrNoSuchRoomSession || attempt >= roomSessionLookupMaxRetries {
-			break
-		}
-
-		timer.Reset(roomSessionLookupRetryDelay)
 	}
-
-	if err == ErrNoSuchRoomSession {
-		return "", nil
-	} else if err != nil {
-		return "", err
-	}
-
-	return sid, nil
 }
 
 // fixupUserSessions converts the Nextcloud session ids of the users to signaling

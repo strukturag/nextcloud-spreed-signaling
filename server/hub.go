@@ -744,7 +744,11 @@ func (h *Hub) GetSessionIdByResumeId(resumeId api.PrivateSessionId) api.PublicSe
 	return session.PublicId()
 }
 
-func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
+func (h *Hub) GetSessionIdByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, wait bool) (api.PublicSessionId, error) {
+	if wait {
+		return h.roomSessions.WaitForSessionId(ctx, roomSessionId)
+	}
+
 	return h.roomSessions.GetSessionId(roomSessionId)
 }
 
@@ -1954,6 +1958,10 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 			// TODO(jojo): Better make the session id required in the request.
 			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
 			sessionId = api.RoomSessionId(session.PublicId())
+		} else {
+			// Talk might send requests for the room session id while processing the
+			// join, so lookups wait until the join has finished.
+			defer h.roomSessions.StartJoin(sessionId)()
 		}
 		request := talk.NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
 		request.Room.UpdateFromSession(session)

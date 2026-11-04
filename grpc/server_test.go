@@ -389,7 +389,7 @@ func (h *testServerHub) GetSessionIdByResumeId(resumeId api.PrivateSessionId) ap
 	return ""
 }
 
-func (h *testServerHub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
+func (h *testServerHub) GetSessionIdByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, wait bool) (api.PublicSessionId, error) {
 	if roomSessionId == testRoomSessionId {
 		return testSessionId, nil
 	}

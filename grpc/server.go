@@ -48,7 +48,10 @@ func init() {
 
 type ServerHub interface {
 	GetSessionIdByResumeId(resumeId api.PrivateSessionId) api.PublicSessionId
-	GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error)
+	// GetSessionIdByRoomSessionId returns the session id for a room session id.
+	// If "wait" is true, joins of the room session id that are still in progress
+	// are waited for.
+	GetSessionIdByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, wait bool) (api.PublicSessionId, error)
 	IsSessionIdInCall(sessionId api.PublicSessionId, roomId string, backendUrl string) (bool, bool)
 
 	DisconnectSessionByRoomSessionId(sessionId api.PublicSessionId, roomSessionId api.RoomSessionId, reason string)
@@ -159,7 +162,10 @@ func (s *Server) LookupSessionId(ctx context.Context, request *LookupSessionIdRe
 	statsGrpcServerCalls.WithLabelValues("LookupSessionId").Inc()
 	// TODO: Remove debug logging
 	s.logger.Printf("Lookup session id for room session id %s", request.RoomSessionId)
-	sid, err := s.hub.GetSessionIdByRoomSessionId(api.RoomSessionId(request.RoomSessionId))
+	// Lookups to disconnect previous sessions must not wait for joins in progress,
+	// they are performed while a session with the same room session id joins.
+	wait := request.DisconnectReason == ""
+	sid, err := s.hub.GetSessionIdByRoomSessionId(ctx, api.RoomSessionId(request.RoomSessionId), wait)
 	if errors.Is(err, ErrNoSuchRoomSession) {
 		return nil, status.Error(codes.NotFound, "no such room session id")
 	} else if err != nil {

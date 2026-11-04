@@ -32,12 +32,24 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
+// pendingRoomSession is a room session id that is currently joining a room.
+// The fields are guarded by the lock of BuiltinRoomSessions.
+type pendingRoomSession struct {
+	// Number of joins in progress.
+	count int
+	// Closed (and replaced) whenever the room session id was registered for a
+	// session, and once all joins have finished.
+	changed chan struct{}
+}
+
 type BuiltinRoomSessions struct {
 	mu sync.RWMutex
 	// +checklocks:mu
 	sessionIdToRoomSession map[api.PublicSessionId]api.RoomSessionId
 	// +checklocks:mu
 	roomSessionToSessionid map[api.RoomSessionId]api.PublicSessionId
+	// +checklocks:mu
+	pending map[api.RoomSessionId]*pendingRoomSession
 
 	clients *grpc.Clients
 }
@@ -46,9 +58,42 @@ func NewBuiltinRoomSessions(clients *grpc.Clients) (RoomSessions, error) {
 	return &BuiltinRoomSessions{
 		sessionIdToRoomSession: make(map[api.PublicSessionId]api.RoomSessionId),
 		roomSessionToSessionid: make(map[api.RoomSessionId]api.PublicSessionId),
+		pending:                make(map[api.RoomSessionId]*pendingRoomSession),
 
 		clients: clients,
 	}, nil
+}
+
+func (r *BuiltinRoomSessions) StartJoin(roomSessionId api.RoomSessionId) func() {
+	if roomSessionId == "" {
+		return func() {}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	p, found := r.pending[roomSessionId]
+	if !found {
+		p = &pendingRoomSession{
+			changed: make(chan struct{}),
+		}
+		r.pending[roomSessionId] = p
+	}
+	p.count++
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+
+			p.count--
+			if p.count == 0 {
+				close(p.changed)
+				delete(r.pending, roomSessionId)
+			}
+		})
+	}
 }
 
 func (r *BuiltinRoomSessions) SetRoomSession(session Session, roomSessionId api.RoomSessionId) error {
@@ -71,6 +116,11 @@ func (r *BuiltinRoomSessions) SetRoomSession(session Session, roomSessionId api.
 
 		r.sessionIdToRoomSession[sid] = roomSessionId
 		r.roomSessionToSessionid[roomSessionId] = sid
+		if p, found := r.pending[roomSessionId]; found {
+			// Wake up lookups waiting for the join to finish.
+			close(p.changed)
+			p.changed = make(chan struct{})
+		}
 	}
 	return nil
 }
@@ -100,10 +150,44 @@ func (r *BuiltinRoomSessions) GetSessionId(roomSessionId api.RoomSessionId) (api
 	return sid, nil
 }
 
+func (r *BuiltinRoomSessions) WaitForSessionId(ctx context.Context, roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
+	for {
+		r.mu.RLock()
+		sid, found := r.roomSessionToSessionid[roomSessionId]
+		p := r.pending[roomSessionId]
+		var changed <-chan struct{}
+		if p != nil {
+			changed = p.changed
+		}
+		r.mu.RUnlock()
+		if found {
+			return sid, nil
+		} else if p == nil {
+			return "", ErrNoSuchRoomSession
+		}
+
+		// Wait until the room session id was registered or all joins finished,
+		// a new join might have started in the meantime.
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+}
+
 func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
-	sid, err := r.GetSessionId(roomSessionId)
+	var sid api.PublicSessionId
+	var err error
+	if disconnectReason == "" {
+		sid, err = r.WaitForSessionId(ctx, roomSessionId)
+	} else {
+		sid, err = r.GetSessionId(roomSessionId)
+	}
 	if err == nil {
 		return sid, nil
+	} else if !errors.Is(err, ErrNoSuchRoomSession) {
+		return "", err
 	}
 
 	if r.clients == nil {
@@ -133,9 +217,6 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 			case err != nil:
 				logger.Printf("Received error while checking for room session id %s on %s: %s", roomSessionId, client.Target(), err)
 				lookupErr.CompareAndSwap(nil, &err)
-				return
-			case sid == "":
-				logger.Printf("Received empty session id for room session id %s from %s", roomSessionId, client.Target())
 				return
 			}
 
