@@ -518,12 +518,16 @@ func (s *ClientSession) SubscribeRoomEvents(roomid string, roomSessionId api.Roo
 	return nil
 }
 
-func (s *ClientSession) LeaveCall() {
+// LeaveCall releases the media of the session after it left the call in the
+// given room. Nothing happens if the session moved to a different room or
+// joined the call again in the meantime.
+func (s *ClientSession) LeaveCall(room *Room) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	room := s.GetRoom()
-	if room == nil {
+	if current := s.GetRoom(); current == nil || current != room {
+		return
+	} else if room.IsSessionInCall(s) {
 		return
 	}
 

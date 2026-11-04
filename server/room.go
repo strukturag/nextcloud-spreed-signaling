@@ -1292,6 +1292,10 @@ func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
 		session := r.hub.GetSessionByPublicId(sessionId)
 		if session == nil {
 			continue
+		} else if session.GetRoom() != r {
+			// The session moved to a different room in the meantime.
+			r.logger.Printf("Ignore in-call change of session %s that is no longer in room %s", sessionId, r.id)
+			continue
 		}
 
 		if inCall {
@@ -1301,7 +1305,7 @@ func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
 		} else {
 			r.removeSessionFromCall(session)
 			if clientSession, ok := session.(*ClientSession); ok {
-				clientSession.LeaveCall()
+				clientSession.LeaveCall(r)
 			}
 		}
 	}
@@ -1377,6 +1381,41 @@ func mergeVirtualSessionData(users api.UserDataList, changed api.UserDataList) {
 }
 
 func (r *Room) PublishUsersInCallChangedAll(inCall int) {
+	notify, left := r.updateInCallAll(inCall)
+	if len(notify) == 0 {
+		return
+	}
+
+	inCallMsg := json.RawMessage(strconv.FormatInt(int64(inCall), 10))
+
+	message := &api.ServerMessage{
+		Type: "event",
+		Event: &api.EventServerMessage{
+			Target: "participants",
+			Type:   "update",
+			Update: &api.RoomEventServerMessage{
+				RoomId: r.id,
+				InCall: inCallMsg,
+				All:    true,
+			},
+		},
+	}
+
+	// The sessions must not be accessed while holding the room lock, as the
+	// session lock must be acquired before the room lock.
+	for _, session := range notify {
+		if !session.SendMessage(message) {
+			r.logger.Printf("Could not send incall message from room %s to %s", r.Id(), session.PublicId())
+		}
+	}
+	for _, session := range left {
+		session.LeaveCall(r)
+	}
+}
+
+// updateInCallAll updates the in-call state of all sessions and returns the
+// sessions to notify and the sessions that left the call.
+func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*ClientSession) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1384,7 +1423,6 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 		user["inCall"] = inCall
 	}
 
-	var notify []*ClientSession
 	if inCall&FlagInCall != 0 {
 		// All connected sessions join the call.
 		var joined []api.PublicSessionId
@@ -1406,7 +1444,7 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 		}
 
 		if len(joined) == 0 {
-			return
+			return nil, nil
 		}
 
 		r.logger.Printf("Sessions %v joined call %s", joined, r.id)
@@ -1422,42 +1460,18 @@ func (r *Room) PublishUsersInCallChangedAll(inCall int) {
 
 		clear(r.users)
 
-		// Perform actual leaving asynchronously.
-		go func(sessions map[Session]bool) {
-			for session := range sessions {
-				if clientSession, ok := session.(*ClientSession); ok {
-					clientSession.LeaveCall()
-				}
+		for session := range r.inCallSessions {
+			if clientSession, ok := session.(*ClientSession); ok {
+				left = append(left, clientSession)
 			}
-		}(r.inCallSessions)
+		}
 		r.inCallSessions = make(map[Session]bool)
 
 		r.clearInCallStats()
-	} else {
-		// All sessions already left the call, no need to notify.
-		return
 	}
+	// Otherwise all sessions already left the call, no need to notify.
 
-	inCallMsg := json.RawMessage(strconv.FormatInt(int64(inCall), 10))
-
-	message := &api.ServerMessage{
-		Type: "event",
-		Event: &api.EventServerMessage{
-			Target: "participants",
-			Type:   "update",
-			Update: &api.RoomEventServerMessage{
-				RoomId: r.id,
-				InCall: inCallMsg,
-				All:    true,
-			},
-		},
-	}
-
-	for _, session := range notify {
-		if !session.SendMessage(message) {
-			r.logger.Printf("Could not send incall message from room %s to %s", r.Id(), session.PublicId())
-		}
-	}
+	return notify, left
 }
 
 func isUserInCall(user api.UserData) bool {
@@ -1590,7 +1604,7 @@ func (r *Room) NotifySessionChanged(session Session, flags SessionChangeFlag) {
 			case 2:
 				r.removeSessionFromCall(session)
 				if clientSession, ok := session.(*ClientSession); ok {
-					clientSession.LeaveCall()
+					clientSession.LeaveCall(r)
 				}
 			}
 
@@ -1803,9 +1817,12 @@ func (r *Room) notifyInternalRoomDeleted() {
 		},
 	}
 
+	// The sessions must not be accessed while holding the room lock, as the
+	// session lock must be acquired before the room lock.
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for s := range r.internalSessions {
+	sessions := slices.Collect(maps.Keys(r.internalSessions))
+	r.mu.RUnlock()
+	for _, s := range sessions {
 		s.SendMessage(msg)
 	}
 }
