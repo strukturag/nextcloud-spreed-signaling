@@ -125,11 +125,11 @@ checklocks: $(GOPATHBIN)/checklocks
 
 cover: vet
 	rm -f cover.out && \
-	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out ./...
+	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out -coverpkg ./... ./...
 
 coverhtml: vet
 	rm -f cover.out && \
-	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out ./... && \
+	GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test -timeout $(TIMEOUT) -coverprofile cover.out -coverpkg ./... ./... && \
 	sed -i "/_easyjson/d" cover.out && \
 	sed -i "/\.pb\.go/d" cover.out && \
 	$(GO) tool cover -html=cover.out -o coverage.html
