@@ -589,7 +589,7 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *events.AsyncRoomMessa
 
 // reserveJoin marks that a session is about to join the room. This prevents
 // the room from being closed if the last session leaves before the joining
-// session has been added. The reservation is consumed by "addReservedSession".
+// session has been added. The reservation is consumed by "startAddSession".
 //
 // The caller must hold the "ru" lock of the hub and the room must still be
 // registered in the hub.
@@ -609,16 +609,6 @@ type roomSessionJoin struct {
 
 func (r *Room) AddSession(session Session, sessionData json.RawMessage) error {
 	join, err := r.startAddSession(session, sessionData, false)
-	if err != nil {
-		return err
-	}
-
-	r.finishAddSession(join)
-	return nil
-}
-
-func (r *Room) addReservedSession(session Session, sessionData json.RawMessage) error {
-	join, err := r.startAddSession(session, sessionData, true)
 	if err != nil {
 		return err
 	}

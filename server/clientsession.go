@@ -127,6 +127,16 @@ type ClientSession struct {
 	// +checklocks:mu
 	virtualSessions map[*VirtualSession]bool
 
+	// Messages are held back while joining a room, so the response to the join
+	// request is sent before any events of the room.
+	// +checklocks:mu
+	holdMessages bool
+	// +checklocks:mu
+	heldMessages []heldMessage
+	// Subject of events of the room that is being joined.
+	// +checklocks:mu
+	heldRoomSubject string
+
 	filterDuplicateLock sync.Mutex
 	// +checklocks:filterDuplicateLock
 	seenJoinedEvents map[api.PublicSessionId]bool
@@ -768,6 +778,28 @@ func (s *ClientSession) sendCandidate(client sfu.Client, sender api.PublicSessio
 
 // +checklocks:s.mu
 func (s *ClientSession) sendMessageUnlocked(message *api.ServerMessage) {
+	s.sendMessageFromSubjectUnlocked(message, "")
+}
+
+type heldMessage struct {
+	message *api.ServerMessage
+	// The subject the message was received from (if any).
+	subject string
+}
+
+// sendMessageFromSubjectUnlocked sends a message that was received from the
+// given events subject (if any).
+//
+// +checklocks:s.mu
+func (s *ClientSession) sendMessageFromSubjectUnlocked(message *api.ServerMessage, subject string) {
+	if s.holdMessages {
+		s.heldMessages = append(s.heldMessages, heldMessage{
+			message: message,
+			subject: subject,
+		})
+		return
+	}
+
 	if c := s.getClientUnlocked(); c != nil {
 		if c.SendMessage(message) {
 			return
@@ -775,6 +807,40 @@ func (s *ClientSession) sendMessageUnlocked(message *api.ServerMessage) {
 	}
 
 	s.storePendingMessage(message)
+}
+
+// HoldMessages holds back all messages to the session until ReleaseMessages
+// is called while the session is joining the given room.
+func (s *ClientSession) HoldMessages(roomId string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.holdMessages = true
+	s.heldRoomSubject = events.GetSubjectForRoomId(roomId, s.backend)
+}
+
+// ReleaseMessages sends the given messages followed by the messages that were
+// held back since HoldMessages was called. If the room was not joined, held
+// events of the room are not sent.
+func (s *ClientSession) ReleaseMessages(joined bool, first ...*api.ServerMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.holdMessages = false
+	held := s.heldMessages
+	s.heldMessages = nil
+	roomSubject := s.heldRoomSubject
+	s.heldRoomSubject = ""
+	for _, message := range first {
+		s.sendMessageUnlocked(message)
+	}
+	for _, entry := range held {
+		if !joined && entry.subject == roomSubject {
+			continue
+		}
+
+		s.sendMessageUnlocked(entry.message)
+	}
 }
 
 func (s *ClientSession) SendError(e *api.Error) bool {
@@ -786,11 +852,11 @@ func (s *ClientSession) SendError(e *api.Error) bool {
 }
 
 func (s *ClientSession) SendMessage(message *api.ServerMessage) bool {
-	return s.sendMessage(message, time.Time{})
+	return s.sendMessage(message, time.Time{}, "")
 }
 
 // sendMessage sends a message that was published at the given time (if known).
-func (s *ClientSession) sendMessage(message *api.ServerMessage, sendTime time.Time) bool {
+func (s *ClientSession) sendMessage(message *api.ServerMessage, sendTime time.Time, subject string) bool {
 	message, messages := s.filterMessage(message, sendTime)
 	if message == nil && len(messages) == 0 {
 		return true
@@ -800,10 +866,10 @@ func (s *ClientSession) sendMessage(message *api.ServerMessage, sendTime time.Ti
 	defer s.mu.Unlock()
 
 	if message != nil {
-		s.sendMessageUnlocked(message)
+		s.sendMessageFromSubjectUnlocked(message, subject)
 	}
 	for _, msg := range messages {
-		s.sendMessageUnlocked(msg)
+		s.sendMessageFromSubjectUnlocked(msg, subject)
 	}
 	return true
 }
@@ -1173,10 +1239,16 @@ func (s *ClientSession) processAsyncNatsMessage(msg *nats.Msg) {
 		return
 	}
 
-	s.processAsyncMessage(&message)
+	s.processAsyncMessageFromSubject(&message, msg.Subject)
 }
 
 func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
+	s.processAsyncMessageFromSubject(message, "")
+}
+
+// processAsyncMessageFromSubject processes a message that was received from
+// the given events subject (if known).
+func (s *ClientSession) processAsyncMessageFromSubject(message *events.AsyncMessage, subject string) {
 	switch message.Type {
 	case "permissions":
 		s.SetPermissions(message.Permissions)
@@ -1284,7 +1356,7 @@ func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
 		return
 	}
 
-	s.sendMessage(serverMessage, message.SendTime)
+	s.sendMessage(serverMessage, message.SendTime, subject)
 }
 
 // +checklocks:s.mu

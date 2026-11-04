@@ -1714,6 +1714,10 @@ func (h *Hub) disconnectSessionWithReason(session Session, reason string) {
 }
 
 func (h *Hub) sendRoom(session *ClientSession, message *api.ClientMessage, room *Room) bool {
+	return session.SendMessage(h.newRoomResponse(message, room))
+}
+
+func (h *Hub) newRoomResponse(message *api.ClientMessage, room *Room) *api.ServerMessage {
 	response := &api.ServerMessage{
 		Type: "room",
 	}
@@ -1767,7 +1771,7 @@ func (h *Hub) sendRoom(session *ClientSession, message *api.ClientMessage, room 
 			}
 		}
 	}
-	return session.SendMessage(response)
+	return response
 }
 
 func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
@@ -2180,12 +2184,15 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage
 	delete(h.federatedSessions, session)
 	h.mu.Unlock()
 
+	// Messages to the session are held back until the response was sent, so
+	// the client knows that the events of the room belong to the joined room.
 	roomId := room.Room.RoomId
+	session.HoldMessages(roomId)
+
 	internalRoomId := getRoomIdForBackend(roomId, session.Backend())
 	if err := session.SubscribeRoomEvents(roomId, message.Room.SessionId); err != nil {
-		session.SendMessage(message.NewWrappedErrorServerMessage(err))
 		// The session (implicitly) left the room due to an error.
-		h.sendRoom(session, nil, nil)
+		session.ReleaseMessages(false, message.NewWrappedErrorServerMessage(err), h.newRoomResponse(nil, nil))
 		return
 	}
 
@@ -2195,10 +2202,9 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage
 		var err error
 		if r, err = h.createRoomLocked(roomId, room.Room.Properties, session.Backend()); err != nil {
 			h.ru.Unlock()
-			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			// The session (implicitly) left the room due to an error.
 			session.UnsubscribeRoomEvents()
-			h.sendRoom(session, nil, nil)
+			session.ReleaseMessages(false, message.NewWrappedErrorServerMessage(err), h.newRoomResponse(nil, nil))
 			return
 		}
 	}
@@ -2219,15 +2225,20 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage
 	if room.Room.Permissions != nil {
 		session.SetPermissions(*room.Room.Permissions)
 	}
-	h.sendRoom(session, message, r)
-	if err := r.addReservedSession(session, room.Room.Session); err != nil {
+	// The session must be added before the response is sent, so the response
+	// can tell whether joining failed.
+	join, err := r.startAddSession(session, room.Room.Session, true)
+	if err != nil {
 		// The room was deleted while the session was joining.
 		h.logger.Printf("Could not add session %s to room %s: %s", session.PublicId(), roomId, err)
 		session.SetPendingCloseRoom(roomId)
-		session.SendMessage(newRoomDeletedMessage(roomId))
 		session.LeaveRoom(true)
-		h.sendRoom(session, nil, nil)
+		session.ReleaseMessages(false, newRoomDeletedMessage(roomId), h.newRoomResponse(message, nil))
+		return
 	}
+
+	session.ReleaseMessages(true, h.newRoomResponse(message, r))
+	r.finishAddSession(join)
 }
 
 func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {

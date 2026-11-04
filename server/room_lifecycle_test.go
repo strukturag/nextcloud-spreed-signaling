@@ -23,6 +23,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -32,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
 	eventstest "github.com/strukturag/nextcloud-spreed-signaling/v2/async/events/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
@@ -79,7 +82,9 @@ func TestRoom_LastSessionLeavesWhileJoining(t *testing.T) {
 
 	session2, ok := hub.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
 	require.True(ok)
-	require.NoError(room.addReservedSession(session2, nil))
+	join, err := room.startAddSession(session2, nil, true)
+	require.NoError(err)
+	room.finishAddSession(join)
 	assert.True(room.HasSession(session2))
 	assert.False(room.IsClosed())
 	assert.Same(room, hub.getRoom(roomId))
@@ -186,7 +191,8 @@ func TestRoom_DeleteWhileJoining(t *testing.T) {
 	assert.Empty(room.Close())
 	assert.Nil(hub.getRoom(roomId))
 
-	assert.ErrorIs(room.addReservedSession(session, nil), ErrRoomClosed)
+	_, err = room.startAddSession(session, nil, true)
+	assert.ErrorIs(err, ErrRoomClosed)
 	assert.ErrorIs(room.AddSession(session, nil), ErrRoomClosed)
 	assert.False(room.HasSession(session))
 	assert.Nil(room.Close())
@@ -404,6 +410,211 @@ func TestRoom_JoiningSessionNotSentToOthers(t *testing.T) {
 	room.finishAddSession(join)
 	assert.False(room.HasSession(session2))
 	assertNoMoreMessages(t, client1, client2)
+}
+
+func TestRoom_JoinDeletedRoom(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	// Simulate that the room is deleted while the session joins it.
+	roomId := "test-room"
+	room, err := hub.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	room.Close()
+	internalRoomId := getRoomIdForBackend(roomId, session.Backend())
+	hub.ru.Lock()
+	hub.rooms[internalRoomId] = room
+	hub.ru.Unlock()
+	defer func() {
+		hub.ru.Lock()
+		defer hub.ru.Unlock()
+		hub.removeRoomLocked(room)
+	}()
+
+	require.NoError(client.WriteJSON(&api.ClientMessage{
+		Id:   "ABCD",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId:    roomId,
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId)),
+		},
+	}))
+
+	// The client is notified that the room was deleted and never gets a
+	// successful response. The connection gets closed after the "disinvite", so
+	// the (empty) room response might not be received.
+	var disinvited bool
+	for {
+		msg, ok := client.RunUntilMessageOrClosed(ctx)
+		if !ok || msg == nil {
+			break
+		}
+
+		switch msg.Type {
+		case "room":
+			assert.Equal("ABCD", msg.Id)
+			assert.Empty(msg.Room.RoomId, "should not have joined the room: %+v", msg)
+		default:
+			if event, ok := checkMessageRoomlistDisinvite(t, msg); ok {
+				assert.False(disinvited, "received duplicate disinvite: %+v", msg)
+				disinvited = true
+				assert.Equal(roomId, event.RoomId)
+				assert.Equal(api.DisinviteReasonDeleted, event.Reason)
+			}
+		}
+	}
+	assert.True(disinvited, "should have been disinvited")
+	assert.False(room.HasSession(session))
+}
+
+func TestRoom_JoinResponseBeforeEvents(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+
+	// Messages are held back while the session is joining the room, so events
+	// received through different channels are not sent before the response.
+	session.HoldMessages(roomId)
+	event := func(sessionId api.PublicSessionId) *api.ServerMessage {
+		return &api.ServerMessage{
+			Type: "event",
+			Event: &api.EventServerMessage{
+				Target: "participants",
+				Type:   "update",
+				Update: &api.RoomEventServerMessage{
+					RoomId: roomId,
+					Users: api.UserDataList{
+						{"sessionId": sessionId, "inCall": FlagInCall},
+					},
+				},
+			},
+		}
+	}
+	assert.NoError(hub.events.PublishRoomMessage(roomId, session.Backend(), &events.AsyncMessage{
+		Type:    "message",
+		Message: event("session-1"),
+	}))
+	assert.NoError(room.publishLocal(event("session-2")))
+	assertNoMoreMessages(t, client)
+
+	session.ReleaseMessages(true, hub.newRoomResponse(&api.ClientMessage{Id: "ABCD"}, room))
+	if msg, ok := client.RunUntilMessage(ctx); ok && checkMessageRoomId(t, msg, roomId) {
+		assert.Equal("ABCD", msg.Id)
+	}
+	// The events are received in the order they were held back.
+	var received []any
+	for range 2 {
+		if msg, ok := client.RunUntilMessage(ctx); ok {
+			if update, ok := checkMessageParticipantsInCall(t, msg); ok && assert.Len(update.Users, 1) {
+				received = append(received, update.Users[0]["sessionId"])
+			}
+		}
+	}
+	assert.ElementsMatch([]any{"session-1", "session-2"}, received)
+	assertNoMoreMessages(t, client)
+}
+
+func TestRoom_JoinFailedDropsRoomEvents(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	session.HoldMessages(roomId)
+	// An event of the room that is being joined.
+	assert.NoError(hub.events.PublishRoomMessage(roomId, session.Backend(), &events.AsyncMessage{
+		Type: "message",
+		Message: &api.ServerMessage{
+			Type: "event",
+			Event: &api.EventServerMessage{
+				Target: "participants",
+				Type:   "update",
+				Update: &api.RoomEventServerMessage{
+					RoomId: roomId,
+					Users: api.UserDataList{
+						{"sessionId": "the-other-session", "inCall": FlagInCall},
+					},
+				},
+			},
+		},
+	}))
+	// A message that is not related to the room.
+	data := json.RawMessage("{\"foo\":\"bar\"}")
+	assert.NoError(hub.events.PublishSessionMessage(hello.Hello.SessionId, session.Backend(), &events.AsyncMessage{
+		Type: "message",
+		Message: &api.ServerMessage{
+			Type: "message",
+			Message: &api.MessageServerMessage{
+				Sender: &api.MessageServerMessageSender{
+					Type:      "session",
+					SessionId: "the-other-session",
+				},
+				Data: data,
+			},
+		},
+	}))
+	// The messages are held back until the join has finished.
+	assert.Eventually(func() bool {
+		session.mu.Lock()
+		defer session.mu.Unlock()
+		return len(session.heldMessages) == 2
+	}, testTimeout, time.Millisecond)
+	assertNoMoreMessages(t, client)
+
+	// Joining the room failed, so held events of the room are not sent.
+	session.ReleaseMessages(false, hub.newRoomResponse(&api.ClientMessage{Id: "ABCD"}, nil))
+	if msg, ok := client.RunUntilMessage(ctx); ok && checkMessageRoomId(t, msg, "") {
+		assert.Equal("ABCD", msg.Id)
+	}
+	if msg, ok := client.RunUntilMessage(ctx); ok && checkMessageType(t, msg, "message") {
+		assert.Equal(string(data), string(msg.Message.Data))
+	}
+	assertNoMoreMessages(t, client)
 }
 
 func TestRoom_JoiningInternalSessionNotVisible(t *testing.T) {
