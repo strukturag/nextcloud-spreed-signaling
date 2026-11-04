@@ -664,3 +664,156 @@ func TestRoom_NotifyInternalRoomDeletedLockOrder(t *testing.T) {
 		assert.Equal("delete", msg.Event.Type)
 	}
 }
+
+func TestRoom_OutdatedMembershipEvents(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+
+	MustSucceed2(t, client.JoinRoom, ctx, "test-room")
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	// Events about a session can be received out of order through different
+	// channels, the send times are set by the server of that session.
+	other := api.PublicSessionId("the-other-session")
+	start := time.Now()
+	at := func(ms int) time.Time {
+		return start.Add(time.Duration(ms) * time.Millisecond)
+	}
+	process := func(sendTime time.Time, event *api.EventServerMessage) {
+		t.Helper()
+		session.processAsyncMessage(&events.AsyncMessage{
+			Type:     "message",
+			SendTime: sendTime,
+			Message: &api.ServerMessage{
+				Type:  "event",
+				Event: event,
+			},
+		})
+	}
+	join := func(sendTime time.Time) {
+		t.Helper()
+		process(sendTime, &api.EventServerMessage{
+			Target: "room",
+			Type:   "join",
+			Join: []api.EventServerMessageSessionEntry{
+				{SessionId: other},
+			},
+		})
+	}
+	leave := func(sendTime time.Time) {
+		t.Helper()
+		process(sendTime, &api.EventServerMessage{
+			Target: "room",
+			Type:   "leave",
+			Leave:  []api.PublicSessionId{other},
+		})
+	}
+	expectJoin := func() {
+		t.Helper()
+		if msg, ok := client.RunUntilMessage(ctx); ok && checkMessageType(t, msg, "event") &&
+			assert.Equal("join", msg.Event.Type, "invalid event %+v", msg.Event) &&
+			assert.Len(msg.Event.Join, 1) {
+			assert.Equal(other, msg.Event.Join[0].SessionId)
+		}
+	}
+	expectLeave := func() {
+		t.Helper()
+		if msg, ok := client.RunUntilMessage(ctx); ok && checkMessageType(t, msg, "event") &&
+			assert.Equal("leave", msg.Event.Type, "invalid event %+v", msg.Event) {
+			assert.Equal([]api.PublicSessionId{other}, msg.Event.Leave)
+		}
+	}
+
+	// The "leave" is received before the outdated "join".
+	leave(at(20))
+	join(at(10))
+	assertNoMoreMessages(t, client)
+
+	// The session joins again.
+	join(at(30))
+	expectJoin()
+
+	// The session left and joined again, but the "leave" is received after
+	// the "join".
+	join(at(50))
+	leave(at(40))
+	assertNoMoreMessages(t, client)
+
+	leave(at(60))
+	expectLeave()
+	join(at(55))
+	assertNoMoreMessages(t, client)
+
+	// Messages sent directly (e.g. from federated servers) have no send time and
+	// are not checked.
+	session.SendMessage(&api.ServerMessage{
+		Type: "event",
+		Event: &api.EventServerMessage{
+			Target: "room",
+			Type:   "join",
+			Join: []api.EventServerMessageSessionEntry{
+				{SessionId: other},
+			},
+		},
+	})
+	expectJoin()
+	assertNoMoreMessages(t, client)
+}
+
+func TestRoom_RemoveSessionWhileNotifyingJoined(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	// While the sessions are published in reply to a "sessionjoined" event,
+	// they may not be removed, otherwise the "leave" event could be published
+	// before the "join" event.
+	room.membershipMu.Lock()
+	removed := make(chan struct{})
+	go func() {
+		defer close(removed)
+		room.RemoveSession(session)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	assert.True(room.HasSession(session))
+	room.membershipMu.Unlock()
+
+	select {
+	case <-removed:
+	case <-ctx.Done():
+		assert.Fail("session was not removed")
+	}
+	assert.False(room.HasSession(session))
+}

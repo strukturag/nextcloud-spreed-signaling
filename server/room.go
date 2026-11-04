@@ -89,6 +89,10 @@ type Room struct {
 	// Number of sessions that are about to join the room.
 	// +checklocks:mu
 	pendingJoins int
+	// Held while publishing the sessions in reply to a "sessionjoined" event
+	// and while removing sessions, so a session that is included in the reply
+	// can only leave after the reply was published.
+	membershipMu sync.Mutex
 	// Sessions that are currently being added, the value is "true" if the
 	// session was removed while it was being added.
 	// +checklocks:mu
@@ -617,6 +621,9 @@ func (r *Room) getOtherSessions(ignoreSessionId api.PublicSessionId) (Session, [
 }
 
 func (r *Room) notifySessionJoined(sessionId api.PublicSessionId) {
+	r.membershipMu.Lock()
+	defer r.membershipMu.Unlock()
+
 	session, sessions := r.getOtherSessions(sessionId)
 	if len(sessions) == 0 {
 		return
@@ -760,9 +767,11 @@ func (r *Room) removeSessionFromCallLocked(session Session) bool {
 
 // Returns "true" if there are still clients in the room.
 func (r *Room) RemoveSession(session Session) bool {
+	r.membershipMu.Lock()
 	r.mu.Lock()
 	if _, found := r.sessions[session.PublicId()]; !found {
 		r.mu.Unlock()
+		r.membershipMu.Unlock()
 		return true
 	}
 
@@ -788,6 +797,7 @@ func (r *Room) RemoveSession(session Session) bool {
 	}
 	isEmpty := len(r.sessions) == 0 && r.pendingJoins == 0
 	r.mu.Unlock()
+	r.membershipMu.Unlock()
 
 	hasSessions := true
 	if isEmpty {
