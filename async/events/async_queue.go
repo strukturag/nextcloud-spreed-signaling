@@ -33,6 +33,12 @@ const (
 	warnAsyncQueuePendingCount = 1024
 )
 
+type asyncQueueEntry struct {
+	msg *nats.Msg
+	// Closed once all entries before have been processed (if set).
+	barrier chan struct{}
+}
+
 // AsyncQueue buffers received messages and passes them to a handler in the
 // order they were received. Messages don't get dropped if the handler is slow.
 type AsyncQueue struct {
@@ -42,7 +48,7 @@ type AsyncQueue struct {
 
 	mu sync.Mutex
 	// +checklocks:mu
-	pending []*nats.Msg
+	pending []asyncQueueEntry
 	// +checklocks:mu
 	warned bool
 }
@@ -57,8 +63,25 @@ func NewAsyncQueue(logger log.Logger, name string) *AsyncQueue {
 
 // Push adds a message to the queue, it doesn't block.
 func (q *AsyncQueue) Push(msg *nats.Msg) {
+	q.push(asyncQueueEntry{
+		msg: msg,
+	})
+}
+
+// Barrier returns a channel that is closed once all messages that were added
+// before have been processed. The channel is not closed if the queue is
+// stopped before.
+func (q *AsyncQueue) Barrier() <-chan struct{} {
+	barrier := make(chan struct{})
+	q.push(asyncQueueEntry{
+		barrier: barrier,
+	})
+	return barrier
+}
+
+func (q *AsyncQueue) push(entry asyncQueueEntry) {
 	q.mu.Lock()
-	q.pending = append(q.pending, msg)
+	q.pending = append(q.pending, entry)
 	if count := len(q.pending); count >= warnAsyncQueuePendingCount && !q.warned {
 		q.warned = true
 		q.logger.Printf("Queue of %s has %d pending messages", q.name, count)
@@ -80,21 +103,26 @@ func (q *AsyncQueue) Run(done <-chan struct{}, handler func(msg *nats.Msg)) {
 		case <-q.notify:
 		}
 
-		for msgs := q.takePending(); len(msgs) > 0; msgs = q.takePending() {
-			for _, msg := range msgs {
+		for entries := q.takePending(); len(entries) > 0; entries = q.takePending() {
+			for _, entry := range entries {
 				select {
 				case <-done:
 					return
 				default:
 				}
 
-				handler(msg)
+				if entry.barrier != nil {
+					close(entry.barrier)
+					continue
+				}
+
+				handler(entry.msg)
 			}
 		}
 	}
 }
 
-func (q *AsyncQueue) takePending() []*nats.Msg {
+func (q *AsyncQueue) takePending() []asyncQueueEntry {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 

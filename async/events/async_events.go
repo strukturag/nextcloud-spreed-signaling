@@ -44,6 +44,10 @@ type AsyncEventListener interface {
 type AsyncEvents interface {
 	Close(ctx context.Context) error
 
+	// Flush waits until all listeners that were registered before are active
+	// and will receive messages published by other servers.
+	Flush(ctx context.Context) error
+
 	RegisterBackendRoomListener(roomId string, backend *talk.Backend, listener AsyncEventListener) error
 	UnregisterBackendRoomListener(roomId string, backend *talk.Backend, listener AsyncEventListener) error
 

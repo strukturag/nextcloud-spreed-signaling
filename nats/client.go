@@ -62,6 +62,10 @@ type Client interface {
 
 	Subscribe(subject string, cb MsgHandler) (Subscription, error)
 	Publish(subject string, message any) error
+
+	// FlushWithContext waits until all pending subscriptions and messages have been
+	// processed by the server.
+	FlushWithContext(ctx context.Context) error
 }
 
 // The NATS client doesn't work if a subject contains spaces. As the room id

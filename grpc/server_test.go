@@ -447,7 +447,7 @@ func (h *testServerHub) GetInternalSessions(roomId string, backend *talk.Backend
 	return nil, nil, false
 }
 
-func (h *testServerHub) GetTransientEntries(roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {
+func (h *testServerHub) GetTransientEntries(ctx context.Context, roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {
 	if roomId == testRoomId && backend == h.backend {
 		return api.TransientDataEntries{
 			"foo": api.NewTransientDataEntryWithExpires("bar", testExpires),
@@ -458,7 +458,7 @@ func (h *testServerHub) GetTransientEntries(roomId string, backend *talk.Backend
 	return nil, false
 }
 
-func (h *testServerHub) GetRoomUsers(roomId string, backend *talk.Backend) (api.UserDataList, bool) {
+func (h *testServerHub) GetRoomUsers(ctx context.Context, roomId string, backend *talk.Backend) (api.UserDataList, bool) {
 	return nil, false
 }
 

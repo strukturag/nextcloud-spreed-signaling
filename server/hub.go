@@ -2076,8 +2076,28 @@ func (h *Hub) GetInternalSessions(roomId string, backend *talk.Backend) ([]*grpc
 	return room.GetInternalSessions()
 }
 
-func (h *Hub) GetTransientEntries(roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {
+// getRoomForInitialState returns the room if its state can be used as initial
+// state by other servers.
+func (h *Hub) getRoomForInitialState(ctx context.Context, roomId string, backend *talk.Backend) *Room {
 	room := h.GetRoomForBackend(roomId, backend)
+	if room == nil {
+		return nil
+	} else if !room.isSynced() {
+		// The room is still fetching its initial state from other servers.
+		return nil
+	}
+
+	// Make sure all events that were already received are included in the state.
+	if err := room.waitForPendingEvents(ctx); err != nil {
+		h.logger.Printf("Error waiting for pending events in room %s: %s", roomId, err)
+		return nil
+	}
+
+	return room
+}
+
+func (h *Hub) GetTransientEntries(ctx context.Context, roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {
+	room := h.getRoomForInitialState(ctx, roomId, backend)
 	if room == nil {
 		return nil, false
 	}
@@ -2086,8 +2106,8 @@ func (h *Hub) GetTransientEntries(roomId string, backend *talk.Backend) (api.Tra
 	return entries, true
 }
 
-func (h *Hub) GetRoomUsers(roomId string, backend *talk.Backend) (api.UserDataList, bool) {
-	room := h.GetRoomForBackend(roomId, backend)
+func (h *Hub) GetRoomUsers(ctx context.Context, roomId string, backend *talk.Backend) (api.UserDataList, bool) {
+	room := h.getRoomForInitialState(ctx, roomId, backend)
 	if room == nil {
 		return nil, false
 	}

@@ -335,6 +335,10 @@ func (e *asyncEventsNats) UnregisterSessionListener(sessionId api.PublicSessionI
 	return e.unregisterListener(key, e.sessionSubscriptions, listener)
 }
 
+func (e *asyncEventsNats) Flush(ctx context.Context) error {
+	return e.client.FlushWithContext(ctx)
+}
+
 func (e *asyncEventsNats) publish(subject string, message *AsyncMessage) error {
 	message.SendTime = time.Now().Truncate(time.Microsecond)
 	return e.client.Publish(subject, message)

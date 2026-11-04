@@ -98,3 +98,61 @@ func TestAsyncQueue_Done(t *testing.T) {
 		assert.NoError(t, ctx.Err(), "queue was not stopped")
 	}
 }
+
+func TestAsyncQueue_Barrier(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	logger := logtest.NewLoggerForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	queue := NewAsyncQueue(logger, "test")
+
+	// The barrier is closed after the previous messages have been processed.
+	queue.Push(&nats.Msg{Data: []byte("1")})
+	barrier := queue.Barrier()
+	queue.Push(&nats.Msg{Data: []byte("2")})
+
+	done := make(chan struct{})
+	defer close(done)
+
+	release := make(chan struct{})
+	received := make(chan string, 2)
+	go queue.Run(done, func(msg *nats.Msg) {
+		received <- string(msg.Data)
+		if string(msg.Data) == "1" {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+	})
+
+	select {
+	case data := <-received:
+		assert.Equal("1", data)
+	case <-ctx.Done():
+		require.NoError(ctx.Err())
+	}
+
+	select {
+	case <-barrier:
+		assert.Fail("barrier closed before previous message was processed")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-barrier:
+	case <-ctx.Done():
+		require.NoError(ctx.Err())
+	}
+	select {
+	case data := <-received:
+		assert.Equal("2", data)
+	case <-ctx.Done():
+		require.NoError(ctx.Err())
+	}
+}

@@ -104,11 +104,11 @@ func (h *MockHub) GetInternalSessions(roomId string, backend *talk.Backend) ([]*
 	return nil, nil, false
 }
 
-func (h *MockHub) GetTransientEntries(roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {
+func (h *MockHub) GetTransientEntries(ctx context.Context, roomId string, backend *talk.Backend) (api.TransientDataEntries, bool) {
 	return nil, false
 }
 
-func (h *MockHub) GetRoomUsers(roomId string, backend *talk.Backend) (api.UserDataList, bool) {
+func (h *MockHub) GetRoomUsers(ctx context.Context, roomId string, backend *talk.Backend) (api.UserDataList, bool) {
 	return nil, false
 }
 
