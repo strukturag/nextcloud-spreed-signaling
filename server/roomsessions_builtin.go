@@ -120,16 +120,21 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 
 	var wg sync.WaitGroup
 	var result atomic.Value
+	var lookupErr atomic.Pointer[error]
 	logger := log.LoggerFromContext(ctx)
 	for _, client := range clients {
 		wg.Go(func() {
 			sid, err := client.LookupSessionId(lookupctx, roomSessionId, disconnectReason)
-			if errors.Is(err, context.Canceled) {
+			switch {
+			case errors.Is(err, context.Canceled):
 				return
-			} else if err != nil {
+			case errors.Is(err, ErrNoSuchRoomSession):
+				return
+			case err != nil:
 				logger.Printf("Received error while checking for room session id %s on %s: %s", roomSessionId, client.Target(), err)
+				lookupErr.CompareAndSwap(nil, &err)
 				return
-			} else if sid == "" {
+			case sid == "":
 				logger.Printf("Received empty session id for room session id %s from %s", roomSessionId, client.Target())
 				return
 			}
@@ -142,6 +147,10 @@ func (r *BuiltinRoomSessions) LookupSessionId(ctx context.Context, roomSessionId
 
 	value := result.Load()
 	if value == nil {
+		if err := lookupErr.Load(); err != nil {
+			// The room session could be connected to a server that failed.
+			return "", *err
+		}
 		return "", ErrNoSuchRoomSession
 	}
 

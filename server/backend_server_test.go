@@ -28,6 +28,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -35,6 +36,7 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1449,6 +1451,136 @@ func TestBackendServer_InCallUsersList(t *testing.T) {
 			assertNoMoreMessages(t, client1, client2)
 		})
 	}
+}
+
+// failingRoomSessions fails to lookup a given room session id.
+type failingRoomSessions struct {
+	RoomSessions
+
+	failing api.RoomSessionId
+}
+
+func (r *failingRoomSessions) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
+	if roomSessionId == r.failing {
+		return "", errors.New("lookup failed")
+	}
+
+	return r.RoomSessions.LookupSessionId(ctx, roomSessionId, disconnectReason)
+}
+
+func TestBackendServer_UsersListFailedLookup(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	_, b, _, hub, _, server := CreateBackendServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	client1.RunUntilJoined(ctx, hello1.Hello)
+	MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	client1.RunUntilJoined(ctx, hello2.Hello)
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	roomSessionId1 := fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId)
+	roomSessionId2 := fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId)
+	b.roomSessions = &failingRoomSessions{
+		RoomSessions: b.roomSessions,
+		failing:      api.RoomSessionId(roomSessionId2),
+	}
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+	room.addUser(hello2.Hello.SessionId, api.UserData{
+		"sessionId": hello2.Hello.SessionId,
+		"inCall":    FlagInCall,
+	})
+
+	// The session of the second user could not be looked up, so the complete
+	// list of users is incomplete and must not remove the user. The changes are
+	// still processed.
+	msg := &talk.BackendServerRoomRequest{
+		Type: "incall",
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall: json.RawMessage(strconv.Itoa(FlagInCall)),
+			Changed: api.UserDataList{
+				{"sessionId": roomSessionId1, "inCall": FlagInCall},
+			},
+			Users: api.UserDataList{ // nolint
+				{"sessionId": roomSessionId1, "inCall": FlagInCall},
+				{"sessionId": roomSessionId2, "inCall": FlagInCall},
+			},
+		},
+	}
+	data, err := json.Marshal(msg)
+	require.NoError(err)
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	for _, client := range []*TestClient{client1, client2} {
+		if msg, ok := client.RunUntilMessage(ctx); ok {
+			checkMessageParticipantsInCall(t, msg)
+		}
+	}
+	assertRoomUsers(t, roomId, []*Hub{hub}, hello1.Hello.SessionId, hello2.Hello.SessionId)
+}
+
+func TestBackendServer_InCallAllUsersList(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	// The complete list of users sent together with "all" also contains
+	// Nextcloud session ids that must be converted.
+	msg := &talk.BackendServerRoomRequest{
+		Type: "incall",
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall: json.RawMessage(strconv.Itoa(FlagInCall)),
+			All:    true,
+			Users: api.UserDataList{ // nolint
+				{"sessionId": fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId), "inCall": FlagInCall},
+			},
+		},
+	}
+	data, err := json.Marshal(msg)
+	require.NoError(err)
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if msg, ok := client.RunUntilMessage(ctx); ok {
+		checkMessageInCallAll(t, msg, roomId, FlagInCall)
+	}
+	assertRoomUsers(t, roomId, []*Hub{hub}, hello.Hello.SessionId)
 }
 
 func TestBackendServer_InCallAll(t *testing.T) {

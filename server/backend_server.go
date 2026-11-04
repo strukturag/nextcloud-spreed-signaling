@@ -467,12 +467,16 @@ func (b *BackendServer) lookupByRoomSessionId(ctx context.Context, roomSessionId
 	return sid, nil
 }
 
-func (b *BackendServer) fixupUserSessions(ctx context.Context, users api.UserDataList) api.UserDataList {
+// fixupUserSessions converts the Nextcloud session ids of the users to signaling
+// session ids, users without a signaling session are removed. Returns "false"
+// if a session id could not be looked up (e.g. because of a timeout).
+func (b *BackendServer) fixupUserSessions(ctx context.Context, users api.UserDataList) (api.UserDataList, bool) {
 	if len(users) == 0 {
-		return users
+		return users, true
 	}
 
 	var wg sync.WaitGroup
+	var failed atomic.Bool
 	for _, user := range users {
 		roomSessionId, found := user.SessionId()
 		if !found {
@@ -487,8 +491,13 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, users api.UserDat
 			continue
 		}
 
-		b.asyncLookupByRoomSessionId(ctx, api.RoomSessionId(roomSessionId), &wg, func(sessionId api.PublicSessionId) {
-			if sessionId == "" {
+		wg.Go(func() {
+			sessionId, err := b.lookupByRoomSessionId(ctx, api.RoomSessionId(roomSessionId))
+			if err != nil {
+				b.logger.Printf("Could not lookup by room session %s: %s", roomSessionId, err)
+				failed.Store(true)
+				delete(user, "sessionId")
+			} else if sessionId == "" {
 				delete(user, "sessionId")
 			} else {
 				user["sessionId"] = sessionId
@@ -501,23 +510,52 @@ func (b *BackendServer) fixupUserSessions(ctx context.Context, users api.UserDat
 		_, found := user["sessionId"]
 		return !found
 	})
+	return result, !failed.Load()
+}
+
+// fixupAllUserSessions converts the Nextcloud session ids of a complete list
+// of users (sent by older versions of Talk). Returns nil if a session id could
+// not be looked up, as the list would be incomplete and remove users that are
+// still in the room. The request will then only update the changed users.
+func (b *BackendServer) fixupAllUserSessions(ctx context.Context, users api.UserDataList) api.UserDataList {
+	if users == nil {
+		return nil
+	}
+
+	result, ok := b.fixupUserSessions(ctx, users)
+	if !ok {
+		b.logger.Printf("Could not lookup all sessions of complete list of users, ignoring list")
+		return nil
+	}
+
 	return result
 }
 
+// fixupChangedAndAllUserSessions converts the Nextcloud session ids of the
+// changed users and of the complete list of users (if present) in parallel.
+func (b *BackendServer) fixupChangedAndAllUserSessions(ctx context.Context, changed api.UserDataList, users api.UserDataList) (api.UserDataList, api.UserDataList) {
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		changed, _ = b.fixupUserSessions(ctx, changed)
+	})
+	wg.Go(func() {
+		users = b.fixupAllUserSessions(ctx, users)
+	})
+	wg.Wait()
+	return changed, users
+}
+
 func (b *BackendServer) sendRoomIncall(roomid string, backend *talk.Backend, request *talk.BackendServerRoomRequest) error {
-	if !request.InCall.All {
-		timeout := time.Second
+	timeout := time.Second
 
-		ctx := log.NewLoggerContext(context.Background(), b.logger)
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
+	ctx := log.NewLoggerContext(context.Background(), b.logger)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-		// Convert (Nextcloud) session ids to signaling session ids.
-		request.InCall.Changed = b.fixupUserSessions(ctx, request.InCall.Changed)
-		request.InCall.Users = b.fixupUserSessions(ctx, request.InCall.Users) // nolint
-		if len(request.InCall.Changed) == 0 && request.InCall.Users == nil {  // nolint
-			return nil
-		}
+	// Convert (Nextcloud) session ids to signaling session ids.
+	request.InCall.Changed, request.InCall.Users = b.fixupChangedAndAllUserSessions(ctx, request.InCall.Changed, request.InCall.Users) // nolint
+	if !request.InCall.All && len(request.InCall.Changed) == 0 && request.InCall.Users == nil {                                        // nolint
+		return nil
 	}
 
 	message := &events.AsyncMessage{
@@ -534,9 +572,8 @@ func (b *BackendServer) sendRoomParticipantsUpdate(ctx context.Context, roomid s
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	request.Participants.Changed = b.fixupUserSessions(ctx, request.Participants.Changed)
-	request.Participants.Users = b.fixupUserSessions(ctx, request.Participants.Users) // nolint
-	if len(request.Participants.Changed) == 0 && request.Participants.Users == nil {  // nolint
+	request.Participants.Changed, request.Participants.Users = b.fixupChangedAndAllUserSessions(ctx, request.Participants.Changed, request.Participants.Users) // nolint
+	if len(request.Participants.Changed) == 0 && request.Participants.Users == nil {                                                                           // nolint
 		return nil
 	}
 
