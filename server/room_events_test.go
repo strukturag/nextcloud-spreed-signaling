@@ -884,3 +884,84 @@ func TestRoom_StoredUsersAreCopies(t *testing.T) {
 		assert.Equal(FlagInCall|FlagWithAudio, users[0]["inCall"])
 	}
 }
+
+func TestRoom_InCallAllLeaveClearsUsers(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			hub1, hub2, server1, server2 := createHubsForClusteredTest(t)
+
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
+
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			session1, ok := hub1.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+			require.True(ok)
+			backend := session1.Backend()
+			hubs := []*Hub{hub1, hub2}
+			clients := []*TestClient{client1, client2}
+
+			// A user that is connected to a different server is in the call, none
+			// of the local sessions is in the call.
+			other := api.PublicSessionId("the-other-session")
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type: "incall",
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: json.RawMessage(strconv.Itoa(FlagInCall)),
+					Changed: api.UserDataList{
+						{
+							"sessionId": other,
+							"inCall":    FlagInCall,
+						},
+					},
+				},
+			})
+			for _, client := range clients {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					checkMessageParticipantsInCall(t, msg)
+				}
+			}
+			assertRoomUsers(t, roomId, hubs, other)
+
+			// The call is ended for everybody.
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type: "incall",
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: json.RawMessage(strconv.Itoa(FlagDisconnected)),
+					All:    true,
+				},
+			})
+			for _, client := range clients {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					checkMessageInCallAll(t, msg, roomId, FlagDisconnected)
+				}
+			}
+			assertRoomUsers(t, roomId, hubs)
+
+			// Nobody is in the call, so nobody gets notified.
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type: "incall",
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: json.RawMessage(strconv.Itoa(FlagDisconnected)),
+					All:    true,
+				},
+			})
+			assertNoMoreMessages(t, clients...)
+		})
+	}
+}

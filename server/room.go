@@ -1439,15 +1439,15 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// The stored data must not be modified as it might be referenced by
-	// messages that are being sent.
-	for sessionId, user := range r.users {
-		updated := user.Clone()
-		updated["inCall"] = inCall
-		r.users[sessionId] = updated
-	}
-
 	if inCall&FlagInCall != 0 {
+		// The stored data must not be modified as it might be referenced by
+		// messages that are being sent.
+		for sessionId, user := range r.users {
+			updated := user.Clone()
+			updated["inCall"] = inCall
+			r.users[sessionId] = updated
+		}
+
 		// All connected sessions join the call.
 		var joined []api.PublicSessionId
 		for _, session := range r.sessions {
@@ -1472,7 +1472,10 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 		}
 
 		r.logger.Printf("Sessions %v joined call %s", joined, r.id)
-	} else if len(r.inCallSessions) > 0 {
+	} else if len(r.inCallSessions) > 0 || len(r.users) > 0 {
+		// Somebody was in the call. This could also be users connected to other
+		// servers, so the local sessions must be notified even if none of them
+		// was in the call.
 		for _, session := range r.sessions {
 			clientSession, ok := session.(*ClientSession)
 			if !ok {
