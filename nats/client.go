@@ -91,15 +91,13 @@ func NewClient(ctx context.Context, url string, options ...nats.Option) (Client,
 		return nil, err
 	}
 
-	client := &NativeClient{
-		logger: logger,
-		closed: make(chan struct{}),
-	}
+	client := newNativeClient(logger)
 
 	options = append([]nats.Option{
 		nats.ClosedHandler(client.onClosed),
 		nats.DisconnectHandler(client.onDisconnected),
 		nats.ReconnectHandler(client.onReconnected),
+		nats.ErrorHandler(client.onError),
 		nats.MaxReconnects(-1),
 	}, options...)
 	client.conn, err = nats.Connect(url, options...)
@@ -115,9 +113,10 @@ func NewClient(ctx context.Context, url string, options ...nats.Option) (Client,
 			return nil, errors.New("interrupted")
 		}
 
-		client.conn, err = nats.Connect(url)
+		client.conn, err = nats.Connect(url, options...)
 	}
 	logger.Printf("Connection established to %s (%s)", removeURLCredentials(client.conn.ConnectedUrl()), client.conn.ConnectedServerId())
+	go client.dispatchMessages()
 	return client, nil
 }
 
