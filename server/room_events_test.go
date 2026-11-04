@@ -269,3 +269,139 @@ func TestRoom_ClosedRoomIgnoresEvents(t *testing.T) {
 	assert.Empty(room2.getUsers())
 	assert.False(room2.IsSessionInCall(session))
 }
+
+func TestRoom_OlderUsersListsAreIgnored(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			assert := assert.New(t)
+			hub1, hub2, server1, server2 := createHubsForClusteredTest(t)
+
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
+
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			session1, ok := hub1.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+			require.True(ok)
+			backend := session1.Backend()
+
+			sid1 := hello1.Hello.SessionId
+			sid2 := hello2.Hello.SessionId
+			user := func(sid api.PublicSessionId, inCall int) api.UserData {
+				return api.UserData{
+					"sessionId": sid,
+					"inCall":    inCall,
+				}
+			}
+			assertUsers := func(expected ...api.PublicSessionId) {
+				t.Helper()
+				for _, hub := range []*Hub{hub1, hub2} {
+					room := hub.getRoom(roomId)
+					if assert.NotNil(room) {
+						users := room.getUsers().Map()
+						assert.Len(users, len(expected), "users: %+v", users)
+						for _, sid := range expected {
+							assert.Contains(users, sid)
+						}
+					}
+				}
+			}
+			assertParticipantsUpdate := func() {
+				t.Helper()
+				for _, client := range []*TestClient{client1, client2} {
+					if msg, ok := client.RunUntilMessage(ctx); ok {
+						checkMessageParticipantsInCall(t, msg)
+					}
+				}
+			}
+			inCall := json.RawMessage(strconv.Itoa(FlagInCall))
+
+			// Older versions of Talk send the complete list of users.
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 2000,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall:  inCall,
+					Changed: api.UserDataList{user(sid1, FlagInCall)},
+					Users:   api.UserDataList{user(sid1, FlagInCall)}, // nolint
+				},
+			})
+			assertParticipantsUpdate()
+			assertUsers(sid1)
+
+			// Requests with a complete list of users that were received earlier
+			// are ignored, independent of the request type.
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 1000,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall:  inCall,
+					Changed: api.UserDataList{user(sid2, FlagInCall)},
+					Users:   api.UserDataList{user(sid1, FlagInCall), user(sid2, FlagInCall)}, // nolint
+				},
+			})
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "participants",
+				ReceivedTime: 1500,
+				Participants: &talk.BackendRoomParticipantsRequest{
+					Changed: api.UserDataList{user(sid2, FlagInCall)},
+					Users:   api.UserDataList{user(sid1, FlagInCall), user(sid2, FlagInCall)}, // nolint
+				},
+			})
+			assertNoMoreMessages(t, client1, client2)
+			assertUsers(sid1)
+
+			// Requests with only changes are always processed.
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 500,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall:  inCall,
+					Changed: api.UserDataList{user(sid2, FlagInCall)},
+				},
+			})
+			assertParticipantsUpdate()
+			assertUsers(sid1, sid2)
+
+			// The complete list replaces the existing users, also if it is empty.
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "participants",
+				ReceivedTime: 3000,
+				Participants: &talk.BackendRoomParticipantsRequest{
+					Changed: api.UserDataList{user(sid2, FlagInCall)},
+					Users:   api.UserDataList{user(sid2, FlagInCall)}, // nolint
+				},
+			})
+			assertParticipantsUpdate()
+			assertUsers(sid2)
+
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 4000,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall:  json.RawMessage(strconv.Itoa(FlagDisconnected)),
+					Changed: api.UserDataList{user(sid2, FlagDisconnected)},
+					Users:   api.UserDataList{}, // nolint
+				},
+			})
+			assertParticipantsUpdate()
+			assertUsers()
+			assertNoMoreMessages(t, client1, client2)
+		})
+	}
+}

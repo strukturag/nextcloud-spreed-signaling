@@ -119,9 +119,10 @@ type Room struct {
 	// +checklocks:mu
 	users api.UserDataMap
 
-	// Timestamp of last backend "update" request. Only accessed from the
-	// goroutine processing the asynchronous messages.
+	// Timestamps of last backend requests with complete data. Only accessed
+	// from the goroutine processing the asynchronous messages.
 	lastUpdateReceived int64
+	lastUsersReceived  int64
 
 	transientData *api.TransientData
 }
@@ -362,14 +363,11 @@ func (r *Room) processBackendRoomRequestRoom(message *talk.BackendServerRoomRequ
 	switch message.Type {
 	case "update":
 		// Updates contain the complete properties, so older requests can be
-		// ignored. All other request types contain only changes or events and
-		// must always be processed.
-		if received := message.ReceivedTime; r.lastUpdateReceived > received {
-			if msg, err := json.Marshal(message); err == nil {
-				r.logger.Printf("Ignore old backend room request for %s: %s", r.Id(), string(msg))
-			} else {
-				r.logger.Printf("Ignore old backend room request for %s: %+v", r.Id(), message)
-			}
+		// ignored. Other request types contain only changes or events and
+		// must always be processed (unless they contain a complete list of
+		// users, see below).
+		if r.lastUpdateReceived > message.ReceivedTime {
+			r.logIgnoredRequest(message)
 			return
 		}
 
@@ -379,8 +377,16 @@ func (r *Room) processBackendRoomRequestRoom(message *talk.BackendServerRoomRequ
 		r.notifyInternalRoomDeleted()
 		r.hub.processRoomDeleted(r, message)
 	case "incall":
+		if !r.processUsersList(message, message.InCall.Users) { // nolint
+			return
+		}
+
 		r.processInCallRequest(message.InCall)
 	case "participants":
+		if !r.processUsersList(message, message.Participants.Users) { // nolint
+			return
+		}
+
 		r.PublishUsersChanged(message.Participants.Changed)
 	case "message":
 		r.publishRoomMessage(message.Message)
@@ -402,6 +408,34 @@ func (r *Room) processBackendRoomRequestRoom(message *talk.BackendServerRoomRequ
 	default:
 		r.logger.Printf("Unsupported backend room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
+}
+
+func (r *Room) logIgnoredRequest(message *talk.BackendServerRoomRequest) {
+	if msg, err := json.Marshal(message); err == nil {
+		r.logger.Printf("Ignore old backend room request for %s: %s", r.Id(), string(msg))
+	} else {
+		r.logger.Printf("Ignore old backend room request for %s: %+v", r.Id(), message)
+	}
+}
+
+// processUsersList stores the complete list of users if one was sent by older
+// versions of Talk in "incall" or "participants" requests. Returns "false" if
+// the request is older than the last request with a complete list and must not
+// be processed, as it could overwrite more recent data.
+func (r *Room) processUsersList(message *talk.BackendServerRoomRequest, users api.UserDataList) bool {
+	if users == nil {
+		// Newer versions of Talk only send changes.
+		return true
+	}
+
+	if r.lastUsersReceived > message.ReceivedTime {
+		r.logIgnoredRequest(message)
+		return false
+	}
+
+	r.lastUsersReceived = message.ReceivedTime
+	r.setUsers(users)
+	return true
 }
 
 func (r *Room) processBackendRoomRequestAsyncRoom(message *events.AsyncRoomMessage) {
@@ -1125,6 +1159,22 @@ func (r *Room) addUser(sessionId api.PublicSessionId, user api.UserData) {
 	defer r.mu.Unlock()
 
 	r.users[sessionId] = user
+}
+
+// setUsers replaces the users with the users in call from the given list.
+func (r *Room) setUsers(users api.UserDataList) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	clear(r.users)
+	for _, user := range users {
+		sessionId, found := user.SessionId()
+		if !found || !isUserInCall(user) {
+			continue
+		}
+
+		r.users[sessionId] = user.Clone()
+	}
 }
 
 func (r *Room) removeUsers(sessionIds ...api.PublicSessionId) {

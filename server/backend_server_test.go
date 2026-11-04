@@ -1366,6 +1366,100 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	client2.RunUntilErrorIs(ctx3, context.DeadlineExceeded)
 }
 
+func TestBackendServer_InCallUsersList(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			assert := assert.New(t)
+			hub1, hub2, server1, server2 := createBackendServersForClusteredTest(t)
+
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
+
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			roomSessionId1 := fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId)
+			roomSessionId2 := fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId)
+			sendRequest := func(msg *talk.BackendServerRoomRequest) {
+				t.Helper()
+				data, err := json.Marshal(msg)
+				require.NoError(err)
+				res, err := performBackendRequest(server1.URL+"/api/v1/room/"+roomId, data)
+				require.NoError(err)
+				defer res.Body.Close()
+				body, err := io.ReadAll(res.Body)
+				assert.NoError(err)
+				assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+				for _, client := range []*TestClient{client1, client2} {
+					if msg, ok := client.RunUntilMessage(ctx); ok {
+						checkMessageParticipantsInCall(t, msg)
+					}
+				}
+			}
+			assertUsers := func(expected ...api.PublicSessionId) {
+				t.Helper()
+				for _, hub := range []*Hub{hub1, hub2} {
+					room := hub.getRoom(roomId)
+					if assert.NotNil(room) {
+						users := room.getUsers().Map()
+						assert.Len(users, len(expected), "users: %+v", users)
+						for _, sid := range expected {
+							assert.Contains(users, sid)
+						}
+					}
+				}
+			}
+
+			// Older versions of Talk send the complete list of users with Nextcloud
+			// session ids that get converted to signaling session ids.
+			sendRequest(&talk.BackendServerRoomRequest{
+				Type: "incall",
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: json.RawMessage("7"),
+					Changed: api.UserDataList{
+						{"sessionId": roomSessionId1, "inCall": 7},
+					},
+					Users: api.UserDataList{ // nolint
+						{"sessionId": roomSessionId1, "inCall": 7},
+						{"sessionId": roomSessionId2, "inCall": 3},
+					},
+				},
+			})
+			assertUsers(hello1.Hello.SessionId, hello2.Hello.SessionId)
+
+			sendRequest(&talk.BackendServerRoomRequest{
+				Type: "participants",
+				Participants: &talk.BackendRoomParticipantsRequest{
+					Changed: api.UserDataList{
+						{"sessionId": roomSessionId1, "inCall": 0},
+					},
+					Users: api.UserDataList{ // nolint
+						{"sessionId": roomSessionId1, "inCall": 0},
+						{"sessionId": roomSessionId2, "inCall": 3},
+					},
+				},
+			})
+			assertUsers(hello2.Hello.SessionId)
+			assertNoMoreMessages(t, client1, client2)
+		})
+	}
+}
+
 func TestBackendServer_InCallAll(t *testing.T) {
 	t.Parallel()
 	for _, subtest := range clusteredTests {
