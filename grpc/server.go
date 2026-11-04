@@ -55,8 +55,8 @@ type ServerHub interface {
 
 	GetBackend(u *url.URL) *talk.Backend
 	GetInternalSessions(roomId string, backend *talk.Backend) ([]*InternalSessionData, []*VirtualSessionData, bool)
-	GetTransientEntries(roomId string, backend *talk.Backend) (api.TransientDataEntries, bool)
-	GetRoomUsers(roomId string, backend *talk.Backend) (api.UserDataList, bool)
+	GetTransientEntries(ctx context.Context, roomId string, backend *talk.Backend) (api.TransientDataEntries, bool)
+	GetRoomUsers(ctx context.Context, roomId string, backend *talk.Backend) (api.UserDataList, bool)
 	GetPublisherIdForSessionId(ctx context.Context, sessionId api.PublicSessionId, streamType sfu.StreamType) (*GetPublisherIdReply, error)
 
 	ProxySession(request RpcSessions_ProxySessionServer) error
@@ -289,7 +289,7 @@ func (s *Server) GetTransientData(ctx context.Context, request *GetTransientData
 		}
 		processed[backend.Id()] = true
 
-		entries, found := s.hub.GetTransientEntries(request.RoomId, backend)
+		entries, found := s.hub.GetTransientEntries(ctx, request.RoomId, backend)
 		if !found {
 			return nil, status.Error(codes.NotFound, "no such room")
 		} else if len(entries) == 0 {
@@ -347,11 +347,11 @@ func (s *Server) GetRoomUsers(ctx context.Context, request *GetRoomUsersRequest)
 		}
 		processed[backend.Id()] = true
 
-		entries, found := s.hub.GetRoomUsers(request.RoomId, backend)
+		entries, found := s.hub.GetRoomUsers(ctx, request.RoomId, backend)
 		if !found {
 			return nil, status.Error(codes.NotFound, "no such room")
 		} else if len(entries) == 0 {
-			return nil, status.Error(codes.NotFound, "room has no transient data")
+			return nil, status.Error(codes.NotFound, "room has no users")
 		}
 
 		for _, u := range entries {

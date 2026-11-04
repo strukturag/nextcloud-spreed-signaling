@@ -84,6 +84,8 @@ type Room struct {
 	closer     *internal.Closer
 	mu         *sync.RWMutex
 	asyncQueue *events.AsyncQueue
+	// Closed once the initial state was fetched from other servers.
+	synced chan struct{}
 	// +checklocks:mu
 	closed bool
 	// Number of sessions that are about to join the room.
@@ -152,6 +154,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		closer:     internal.NewCloser(),
 		mu:         &sync.RWMutex{},
 		asyncQueue: events.NewAsyncQueue(hub.logger, "room "+roomId),
+		synced:     make(chan struct{}),
 		sessions:   make(map[api.PublicSessionId]Session),
 
 		joiningSessions: make(map[api.PublicSessionId]bool),
@@ -229,6 +232,12 @@ func (r *Room) AsyncEventReceived(msg *nats.Msg) {
 }
 
 func (r *Room) run() {
+	// Events are only processed once the initial state was fetched from other
+	// servers, events received in the meantime are queued and processed
+	// afterwards. This ensures that changes which are already included in the
+	// initial state but were processed locally before (e.g. removals) are not
+	// overwritten by the initial state.
+	r.syncInitialState()
 	go r.asyncQueue.Run(r.closer.C, r.processAsyncNatsMessage)
 
 	ticker := time.NewTicker(updateActiveSessionsInterval)
@@ -241,6 +250,51 @@ loop:
 		case <-ticker.C:
 			r.publishActiveSessions()
 		}
+	}
+}
+
+// syncInitialState fetches the initial state of the room from other servers
+// in the cluster.
+func (r *Room) syncInitialState() {
+	defer close(r.synced)
+	if r.hub.rpcClients == nil {
+		return
+	}
+
+	// Make sure the listener for backend room events is active before fetching
+	// the state, so all changes not included in the state are received as events.
+	ctx := log.NewLoggerContext(context.Background(), r.logger)
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if err := r.events.Flush(ctx); err != nil {
+		r.logger.Printf("Error flushing events for room %s: %s", r.id, err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Go(r.fetchInitialTransientData)
+	wg.Go(r.fetchInitialUsers)
+	wg.Wait()
+}
+
+func (r *Room) isSynced() bool {
+	select {
+	case <-r.synced:
+		return true
+	default:
+		return false
+	}
+}
+
+// waitForPendingEvents waits until all events received so far have been
+// processed.
+func (r *Room) waitForPendingEvents(ctx context.Context) error {
+	select {
+	case <-r.asyncQueue.Barrier():
+		return nil
+	case <-r.closer.C:
+		return ErrRoomClosed
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -468,7 +522,6 @@ type roomSessionJoin struct {
 	session             Session
 	sessionData         *talk.RoomSessionData
 	isNew               bool
-	isFirst             bool
 	publishUsersChanged bool
 }
 
@@ -512,7 +565,6 @@ func (r *Room) startAddSession(session Session, sessionData json.RawMessage, res
 		return nil, ErrRoomClosed
 	}
 
-	isFirst := len(r.sessions) == 0
 	_, found := r.sessions[sid]
 	r.sessions[sid] = session
 	if !found {
@@ -548,7 +600,6 @@ func (r *Room) startAddSession(session Session, sessionData json.RawMessage, res
 		session:             session,
 		sessionData:         roomSessionData,
 		isNew:               !found,
-		isFirst:             isFirst,
 		publishUsersChanged: publishUsersChanged,
 	}, nil
 }
@@ -557,13 +608,8 @@ func (r *Room) finishAddSession(join *roomSessionJoin) {
 	session := join.session
 	sid := session.PublicId()
 	if join.isNew {
-		if join.isFirst {
-			// Fetch initial state of room from other nodes in the cluster.
-			var wg sync.WaitGroup
-			wg.Go(r.fetchInitialTransientData)
-			wg.Go(r.fetchInitialUsers)
-			wg.Wait()
-		}
+		// The session should get the initial state from other servers.
+		<-r.synced
 		r.PublishSessionJoined(session, join.sessionData)
 		if join.publishUsersChanged {
 			r.publishUsersChangedWithInternal()

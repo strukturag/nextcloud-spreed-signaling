@@ -965,3 +965,109 @@ func TestRoom_InCallAllLeaveClearsUsers(t *testing.T) {
 		})
 	}
 }
+
+func waitForRoomSynced(ctx context.Context, t *testing.T, room *Room) {
+	t.Helper()
+	select {
+	case <-room.synced:
+	case <-ctx.Done():
+		require.NoError(t, ctx.Err(), "room was not synced")
+	}
+	require.NoError(t, room.waitForPendingEvents(ctx))
+}
+
+func publishInCallChanged(t *testing.T, hub *Hub, room *Room, sessionId api.PublicSessionId, inCall int) {
+	t.Helper()
+	publishBackendRoomRequest(t, hub, room.Id(), room.Backend(), &talk.BackendServerRoomRequest{
+		Type: "incall",
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall: json.RawMessage(strconv.Itoa(inCall)),
+			Changed: api.UserDataList{
+				{
+					"sessionId": sessionId,
+					"inCall":    inCall,
+				},
+			},
+		},
+	})
+}
+
+func TestRoom_InitialStateNotOverwritingEvents(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	hub1, hub2, server1, _ := CreateClusteredHubsForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub1.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	roomId := "test-room"
+	room1, err := hub1.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	defer room1.Close()
+	waitForRoomSynced(ctx, t, room1)
+
+	other := api.PublicSessionId("the-other-session")
+	room1.addUser(other, api.UserData{
+		"sessionId": other,
+		"inCall":    FlagInCall,
+	})
+
+	// The initial state is fetched from the first server, but returned only
+	// after the second server received an event that the user left the call.
+	room1.mu.Lock()
+	room2, err := hub2.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	defer room2.Close()
+	time.Sleep(100 * time.Millisecond)
+	publishInCallChanged(t, hub1, room1, other, FlagDisconnected)
+	time.Sleep(100 * time.Millisecond)
+	room1.mu.Unlock() // nolint
+
+	// The event is processed after the (outdated) initial state was stored.
+	waitForRoomSynced(ctx, t, room2)
+	waitForRoomSynced(ctx, t, room1)
+	assertRoomUsers(t, roomId, []*Hub{hub1, hub2})
+}
+
+func TestRoom_InitialStateIncludesPendingEvents(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	hub1, hub2, server1, _ := CreateClusteredHubsForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub1.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	roomId := "test-room"
+	room1, err := hub1.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	defer room1.Close()
+	waitForRoomSynced(ctx, t, room1)
+
+	// The first server is still processing an event when the second server
+	// requests the initial state. The second server doesn't receive the event
+	// as it was published before it subscribed to the room.
+	other := api.PublicSessionId("the-other-session")
+	room1.mu.Lock()
+	publishInCallChanged(t, hub1, room1, other, FlagInCall)
+	time.Sleep(100 * time.Millisecond)
+	room2, err := hub2.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	defer room2.Close()
+	time.Sleep(100 * time.Millisecond)
+	room1.mu.Unlock() // nolint
+
+	// The initial state includes the change from the event.
+	waitForRoomSynced(ctx, t, room2)
+	waitForRoomSynced(ctx, t, room1)
+	assertRoomUsers(t, roomId, []*Hub{hub1, hub2}, other)
+}
