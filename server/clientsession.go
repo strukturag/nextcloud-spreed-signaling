@@ -400,6 +400,39 @@ func (s *ClientSession) SetFederationClient(federation *FederationClient) {
 	}
 }
 
+// isWithoutRoom checks if the session is neither in a local nor in a
+// federated room.
+func (s *ClientSession) isWithoutRoom() bool {
+	return s.GetFederationClient() == nil && s.GetRoom() == nil
+}
+
+// notifyFederationLeft notifies the session that it left the federated room
+// (in reply to the given message), unless it joined another room in the
+// meantime.
+func (s *ClientSession) notifyFederationLeft(message *api.ClientMessage) {
+	if !s.isWithoutRoom() {
+		return
+	}
+
+	s.hub.removeFederatedSession(s)
+	s.hub.sendRoom(s, message, nil)
+}
+
+// leaveFederation removes the federation client from the session if it is
+// still the current one. Returns "true" if the session was connected through
+// the federation client.
+func (s *ClientSession) leaveFederation(federation *FederationClient) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.federation.CompareAndSwap(federation, nil) {
+		return false
+	}
+
+	s.onRoomSet(false, time.Time{})
+	return true
+}
+
 func (s *ClientSession) getRoomJoinTime() time.Time {
 	t := s.roomJoinTime.Load()
 	if t == 0 {
@@ -576,6 +609,8 @@ func (s *ClientSession) LeaveRoomWithMessage(notify bool, message *api.ClientMes
 		if err := prev.Leave(message); err != nil {
 			s.logger.Printf("Error leaving room for session %s on federation client %s: %s", s.PublicId(), prev.URL(), err)
 			prev.Close()
+			// No response will be received from the remote server.
+			s.notifyFederationLeft(message)
 		}
 		return nil
 	}

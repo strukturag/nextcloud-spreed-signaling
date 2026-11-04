@@ -126,6 +126,8 @@ type FederationClient struct {
 	pendingMessages []*api.ClientMessage
 
 	closeOnLeave atomic.Bool
+	// Join of another room on the same remote server that was not answered yet.
+	pendingJoin atomic.Pointer[federationPendingJoin]
 
 	ready     chan struct{}
 	readyOnce sync.Once
@@ -155,11 +157,6 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 	}
 	url := u.String() + "spreed"
 
-	remoteRoomId := room.Federation.RoomId
-	if remoteRoomId == "" {
-		remoteRoomId = room.RoomId
-	}
-
 	result := &FederationClient{
 		logger:  hub.logger,
 		hub:     hub,
@@ -172,10 +169,7 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 		closer: internal.NewCloser(),
 		ready:  make(chan struct{}),
 	}
-	result.roomId.Store(room.RoomId)
-	result.remoteRoomId.Store(remoteRoomId)
-	result.changeRoomId.Store(room.RoomId != remoteRoomId)
-	result.federation.Store(room.Federation)
+	result.setJoinedRoom(message)
 	result.message.Store(message)
 
 	if err := result.connect(ctx); err != nil {
@@ -217,6 +211,22 @@ func (c *FederationClient) RoomId() string {
 
 func (c *FederationClient) RemoteRoomId() string {
 	return c.remoteRoomId.Load().(string)
+}
+
+type federationPendingJoin struct {
+	// Id of the join request (the id of the message is cleared once answered).
+	id      string
+	message *api.ClientMessage
+	// Join request of the previous room.
+	previous *api.ClientMessage
+}
+
+func getRemoteRoomId(message *api.ClientMessage) string {
+	room := message.Room
+	if room.Federation.RoomId != "" {
+		return room.Federation.RoomId
+	}
+	return room.RoomId
 }
 
 func (c *FederationClient) CanReuse(federation *api.RoomFederationMessage) bool {
@@ -278,8 +288,40 @@ func (c *FederationClient) ChangeRoom(message *api.ClientMessage) error {
 		return fmt.Errorf("can't reuse federation client to join room in %+v", message)
 	}
 
-	c.message.Swap(message)
-	return c.joinRoom()
+	previous := c.message.Swap(message)
+	pending := &federationPendingJoin{
+		id:       message.Id,
+		message:  message,
+		previous: previous,
+	}
+	c.pendingJoin.Store(pending)
+	if err := c.joinRoom(); err != nil {
+		c.failPendingJoin(pending)
+		return err
+	}
+	return nil
+}
+
+// setJoinedRoom stores the room of the join request as the room the remote
+// session has joined and returns the local and remote room ids.
+func (c *FederationClient) setJoinedRoom(message *api.ClientMessage) (roomId string, remoteRoomId string) {
+	room := message.Room
+	roomId = room.RoomId
+	remoteRoomId = getRemoteRoomId(message)
+
+	c.roomId.Store(roomId)
+	c.remoteRoomId.Store(remoteRoomId)
+	c.changeRoomId.Store(roomId != remoteRoomId)
+	c.federation.Store(room.Federation)
+	return roomId, remoteRoomId
+}
+
+// failPendingJoin restores the previous join request if the join of another
+// room failed, so it will be used when reconnecting.
+func (c *FederationClient) failPendingJoin(pending *federationPendingJoin) {
+	if c.pendingJoin.CompareAndSwap(pending, nil) {
+		c.message.CompareAndSwap(pending.message, pending.previous)
+	}
 }
 
 func (c *FederationClient) Leave(message *api.ClientMessage) error {
@@ -295,12 +337,15 @@ func (c *FederationClient) Leave(message *api.ClientMessage) error {
 		}
 	}
 
+	if c.closer.IsClosed() {
+		return ErrNotConnected
+	}
+
 	c.closeOnLeave.Store(true)
 	if err := c.sendMessageLocked(message); err != nil {
+		// No response will be received, e.g. if the connection is being closed.
 		c.closeOnLeave.Store(false)
-		if !errors.Is(err, websocket.ErrCloseSent) {
-			return err
-		}
+		return err
 	}
 
 	return nil
@@ -414,7 +459,7 @@ func (c *FederationClient) readPump(conn *websocket.Conn) {
 		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
 		msgType, data, err := conn.ReadMessage()
 		if err != nil {
-			if c.closer.IsClosed() && isClosedError(err) {
+			if c.closer.IsClosed() {
 				// Connection closed locally, no need to reconnect.
 				break
 			}
@@ -489,7 +534,15 @@ func (c *FederationClient) writePump() {
 }
 
 func (c *FederationClient) closeWithError(err error) {
+	wasClosed := c.closer.IsClosed()
 	c.Close()
+	if wasClosed || c.session.GetFederationClient() != c {
+		// The session is no longer using the client (e.g. it switched to another
+		// room), so the error doesn't belong to any current request.
+		c.logger.Printf("Federation client %s for %s failed after it was closed / replaced: %s", c.URL(), c.session.PublicId(), err)
+		return
+	}
+
 	e, ok := internal.AsErrorType[*api.Error](err)
 	if !ok {
 		e = api.NewError("federation_error", err.Error())
@@ -656,10 +709,7 @@ func (c *FederationClient) joinRoom() error {
 	}
 
 	room := message.Room
-	remoteRoomId := room.Federation.RoomId
-	if remoteRoomId == "" {
-		remoteRoomId = room.RoomId
-	}
+	remoteRoomId := getRemoteRoomId(message)
 
 	return c.SendMessage(&api.ClientMessage{
 		Id:   message.Id,
@@ -792,6 +842,7 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 	roomId := c.RoomId()
 
 	var doClose bool
+	var leaveRoom bool
 	switch msg.Type {
 	case "control":
 		c.updateSessionRecipient(msg.Control.Recipient, localSessionId, remoteSessionId)
@@ -896,8 +947,19 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 					msg.Event.Invite.RoomId = roomId
 				}
 			case "disinvite":
-				if c.changeRoomId.Load() && msg.Event.Disinvite.RoomId == remoteRoomId {
-					msg.Event.Disinvite.RoomId = roomId
+				if msg.Event.Disinvite.RoomId == remoteRoomId {
+					// The session is no longer allowed in the remote room (or it was
+					// deleted), so the remote server closes the connection. Close the
+					// client so it doesn't try to reconnect to the room. If the session
+					// is switching to another room on the same server, the client is
+					// kept and joins the new room after reconnecting.
+					if pending := c.pendingJoin.Load(); pending == nil || getRemoteRoomId(pending.message) == remoteRoomId {
+						doClose = true
+						leaveRoom = true
+					}
+					if c.changeRoomId.Load() {
+						msg.Event.Disinvite.RoomId = roomId
+					}
 				}
 			case "update":
 				if c.changeRoomId.Load() && msg.Event.Update.RoomId == remoteRoomId {
@@ -906,6 +968,23 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 			}
 		}
 	case "error":
+		if pending := c.pendingJoin.Load(); pending != nil && (pending.id == "" || msg.Id == pending.id) {
+			switch {
+			case msg.Error.Code == "already_joined":
+				// The remote session is already in the requested room.
+				if c.pendingJoin.CompareAndSwap(pending, nil) {
+					roomId, remoteRoomId = c.setJoinedRoom(pending.message)
+				}
+			case pending.id != "":
+				// The join of the other room failed, the remote session is still in
+				// the previous room.
+				c.failPendingJoin(pending)
+			default:
+				// Can't check if the error belongs to the join request. Only forget
+				// it, so a "disinvite" for the previous room closes the client.
+				c.pendingJoin.CompareAndSwap(pending, nil)
+			}
+		}
 		if c.changeRoomId.Load() && msg.Error.Code == "already_joined" {
 			if len(msg.Error.Details) > 0 {
 				var details api.RoomErrorDetails
@@ -920,6 +999,11 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 			}
 		}
 	case "room":
+		if pending := c.pendingJoin.Load(); pending != nil {
+			if (pending.id != "" && msg.Id == pending.id) || (pending.id == "" && msg.Room.RoomId == getRemoteRoomId(pending.message)) {
+				c.pendingJoin.CompareAndSwap(pending, nil)
+			}
+		}
 		if message := c.message.Load(); message != nil {
 			if msg.Id != "" && message.Id == msg.Id {
 				// Got response to initial join request, clear id so future join
@@ -928,17 +1012,7 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 				c.message.Store(message)
 			}
 
-			room := message.Room
-			roomId = room.RoomId
-			remoteRoomId = room.Federation.RoomId
-			if remoteRoomId == "" {
-				remoteRoomId = room.RoomId
-			}
-
-			c.roomId.Store(room.RoomId)
-			c.remoteRoomId.Store(remoteRoomId)
-			c.changeRoomId.Store(room.RoomId != remoteRoomId)
-			c.federation.Store(room.Federation)
+			roomId, remoteRoomId = c.setJoinedRoom(message)
 		}
 
 		if msg.Room.RoomId == "" && c.closeOnLeave.Load() {
@@ -974,8 +1048,16 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 			msg.TransientData.Key = api.TransientSessionDataPrefix + string(localSessionId)
 		}
 	}
+	// Detach the client from the session before forwarding the message and
+	// closing the client, so new requests of the session don't use the closed
+	// client.
+	left := leaveRoom && c.session.leaveFederation(c)
 	c.session.SendMessage(msg)
-
+	if left {
+		// Same as for local rooms, notify the session that it is no longer in
+		// the room.
+		c.session.notifyFederationLeft(nil)
+	}
 	if doClose {
 		c.Close()
 	}
@@ -1001,6 +1083,11 @@ func (c *FederationClient) ProxyMessage(message *api.ClientMessage) error {
 func (c *FederationClient) SendMessage(message *api.ClientMessage) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.closer.IsClosed() {
+		// Messages to closed clients would be deferred and never be sent.
+		return ErrNotConnected
+	}
 
 	return c.sendMessageLocked(message)
 }

@@ -910,6 +910,13 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 	return
 }
 
+func (h *Hub) removeFederatedSession(session *ClientSession) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	delete(h.federatedSessions, session)
+}
+
 func (h *Hub) removeFederationClient(client *FederationClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
