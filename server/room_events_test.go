@@ -1071,3 +1071,113 @@ func TestRoom_InitialStateIncludesPendingEvents(t *testing.T) {
 	waitForRoomSynced(ctx, t, room1)
 	assertRoomUsers(t, roomId, []*Hub{hub1, hub2}, other)
 }
+
+func TestRoom_SyncingRoomProvidesEvents(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub1, hub2, server1, _ := CreateClusteredHubsForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub1.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	roomId := "test-room"
+	room2, err := hub2.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	defer room2.Close()
+	waitForRoomSynced(ctx, t, room2)
+
+	// The second server doesn't respond while the first server is syncing.
+	// Only non-fatal assertions are used while the lock is held.
+	other := api.PublicSessionId("the-other-session")
+	room2.mu.Lock()
+	room1, err := hub1.CreateRoom(roomId, nil, session.Backend())
+	if assert.NoError(err) {
+		// Events are processed while the room is syncing.
+		publishInCallChanged(t, hub1, room1, other, FlagInCall)
+		assert.Eventually(func() bool {
+			_, found := room1.getUsers().Map()[other]
+			return found
+		}, time.Second/2, time.Millisecond)
+
+		// The changes can be provided to other servers while still syncing.
+		select {
+		case <-room1.synced:
+			assert.Fail("room should still be syncing")
+		default:
+		}
+		users, found := hub1.GetRoomUsers(ctx, roomId, session.Backend())
+		if assert.True(found) && assert.Len(users, 1) {
+			sid, _ := users[0].SessionId()
+			assert.Equal(other, sid)
+		}
+	}
+	room2.mu.Unlock() // nolint
+	require.NoError(err)
+	defer room1.Close()
+
+	waitForRoomSynced(ctx, t, room1)
+	waitForRoomSynced(ctx, t, room2)
+	assertRoomUsers(t, roomId, []*Hub{hub1, hub2}, other)
+}
+
+func TestRoom_InitialStateIncludesChangesWhileSyncing(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	createSyncingRoom := func(roomId string) *Room {
+		t.Helper()
+		room, err := hub.CreateRoom(roomId, nil, session.Backend())
+		require.NoError(err)
+		t.Cleanup(func() {
+			room.Close()
+		})
+		waitForRoomSynced(ctx, t, room)
+
+		// Simulate that the room is still fetching its initial state.
+		room.mu.Lock()
+		room.syncState = newRoomSyncState()
+		room.mu.Unlock() // nolint
+		return room
+	}
+	sid1 := api.PublicSessionId("session-1")
+	sid2 := api.PublicSessionId("session-2")
+	// The (outdated) initial state received from other servers.
+	initialUsers := func() api.UserDataMap {
+		return api.UserDataMap{
+			sid1: {"sessionId": sid1, "inCall": FlagInCall, "participantType": 1},
+			sid2: {"sessionId": sid2, "inCall": FlagInCall, "participantType": 1},
+		}
+	}
+
+	// Changes of users that are only known from the initial state.
+	room := createSyncingRoom("test-room-1")
+	room.PublishUsersChanged(api.UserDataList{
+		{"sessionId": sid1, "participantType": 3},
+	})
+	room.PublishUsersInCallChangedAll(FlagInCall | FlagWithAudio)
+	room.applyInitialState(nil, initialUsers())
+	users := room.getUsers().Map()
+	if assert.Len(users, 2) {
+		assert.EqualValues(3, users[sid1]["participantType"])
+		assert.EqualValues(1, users[sid2]["participantType"])
+		for _, sid := range []api.PublicSessionId{sid1, sid2} {
+			assert.EqualValues(FlagInCall|FlagWithAudio, users[sid]["inCall"], "user %s: %+v", sid, users[sid])
+		}
+	}
+}

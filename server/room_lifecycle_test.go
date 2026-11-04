@@ -239,15 +239,17 @@ func TestRoom_FetchUsersAfterClose(t *testing.T) {
 	require.NoError(err)
 	room2.Close()
 
-	// Fetching the users of a closed room may not modify it.
-	room2.fetchInitialUsers()
+	// Applying the initial users to a closed room may not modify it.
+	users := room2.fetchInitialUsers(ctx)
+	assert.Len(users, 1)
+	room2.applyInitialState(nil, users)
 	assert.Empty(room2.getUsers())
 
 	room3, err := hub2.CreateRoom(roomId, nil, session2.Backend())
 	require.NoError(err)
 	defer room3.Close()
 
-	room3.fetchInitialUsers()
+	waitForRoomSynced(ctx, t, room3)
 	if users := room3.getUsers(); assert.Len(users, 1) {
 		sid, found := users[0].SessionId()
 		assert.True(found)

@@ -35,8 +35,8 @@ const (
 
 type asyncQueueEntry struct {
 	msg *nats.Msg
-	// Closed once all entries before have been processed (if set).
-	barrier chan struct{}
+	// Executed instead of the handler (if set).
+	fn func()
 }
 
 // AsyncQueue buffers received messages and passes them to a handler in the
@@ -73,10 +73,19 @@ func (q *AsyncQueue) Push(msg *nats.Msg) {
 // stopped before.
 func (q *AsyncQueue) Barrier() <-chan struct{} {
 	barrier := make(chan struct{})
-	q.push(asyncQueueEntry{
-		barrier: barrier,
+	q.Execute(func() {
+		close(barrier)
 	})
 	return barrier
+}
+
+// Execute runs a function from the goroutine processing the messages once all
+// messages that were added before have been processed. The function is not
+// executed if the queue is stopped before.
+func (q *AsyncQueue) Execute(fn func()) {
+	q.push(asyncQueueEntry{
+		fn: fn,
+	})
 }
 
 func (q *AsyncQueue) push(entry asyncQueueEntry) {
@@ -111,8 +120,8 @@ func (q *AsyncQueue) Run(done <-chan struct{}, handler func(msg *nats.Msg)) {
 				default:
 				}
 
-				if entry.barrier != nil {
-					close(entry.barrier)
+				if entry.fn != nil {
+					entry.fn()
 					continue
 				}
 

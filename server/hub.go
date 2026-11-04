@@ -2082,12 +2082,11 @@ func (h *Hub) getRoomForInitialState(ctx context.Context, roomId string, backend
 	room := h.GetRoomForBackend(roomId, backend)
 	if room == nil {
 		return nil
-	} else if !room.isSynced() {
-		// The room is still fetching its initial state from other servers.
-		return nil
 	}
 
 	// Make sure all events that were already received are included in the state.
+	// A room that is still fetching its initial state from other servers can
+	// still provide the changes from events that it received.
 	if err := room.waitForPendingEvents(ctx); err != nil {
 		h.logger.Printf("Error waiting for pending events in room %s: %s", roomId, err)
 		return nil

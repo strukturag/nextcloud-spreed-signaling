@@ -86,6 +86,9 @@ type Room struct {
 	asyncQueue *events.AsyncQueue
 	// Closed once the initial state was fetched from other servers.
 	synced chan struct{}
+	// Changes made while the initial state is fetched from other servers.
+	// +checklocks:mu
+	syncState *roomSyncState
 	// +checklocks:mu
 	closed bool
 	// Number of sessions that are about to join the room.
@@ -133,6 +136,28 @@ type Room struct {
 	transientData *api.TransientData
 }
 
+// roomSyncState contains the changes made by events while the initial state is
+// fetched from other servers, so they are not overwritten by the (possibly
+// outdated) initial state.
+type roomSyncState struct {
+	removedUsers map[api.PublicSessionId]bool
+	// All users were replaced, so the initial users are outdated.
+	usersReplaced bool
+	// Properties of users that are not stored yet, applied to the initial users.
+	updatedUsers map[api.PublicSessionId]api.UserData
+	// In-call flags of all users (if changed), applied to the initial users.
+	inCallAll            *int
+	removedTransientData map[string]bool
+}
+
+func newRoomSyncState() *roomSyncState {
+	return &roomSyncState{
+		removedUsers:         make(map[api.PublicSessionId]bool),
+		updatedUsers:         make(map[api.PublicSessionId]api.UserData),
+		removedTransientData: make(map[string]bool),
+	}
+}
+
 func getRoomIdForBackend(id string, backend *talk.Backend) string {
 	if id == "" {
 		return ""
@@ -142,6 +167,11 @@ func getRoomIdForBackend(id string, backend *talk.Backend) string {
 }
 
 func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents events.AsyncEvents, backend *talk.Backend) (*Room, error) {
+	var syncState *roomSyncState
+	if hub.rpcClients != nil {
+		// The initial state will be fetched from other servers.
+		syncState = newRoomSyncState()
+	}
 	room := &Room{
 		id:      roomId,
 		logger:  hub.logger,
@@ -155,6 +185,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		mu:         &sync.RWMutex{},
 		asyncQueue: events.NewAsyncQueue(hub.logger, "room "+roomId),
 		synced:     make(chan struct{}),
+		syncState:  syncState,
 		sessions:   make(map[api.PublicSessionId]Session),
 
 		joiningSessions: make(map[api.PublicSessionId]bool),
@@ -232,13 +263,8 @@ func (r *Room) AsyncEventReceived(msg *nats.Msg) {
 }
 
 func (r *Room) run() {
-	// Events are only processed once the initial state was fetched from other
-	// servers, events received in the meantime are queued and processed
-	// afterwards. This ensures that changes which are already included in the
-	// initial state but were processed locally before (e.g. removals) are not
-	// overwritten by the initial state.
-	r.syncInitialState()
 	go r.asyncQueue.Run(r.closer.C, r.processAsyncNatsMessage)
+	r.syncInitialState()
 
 	ticker := time.NewTicker(updateActiveSessionsInterval)
 	defer ticker.Stop()
@@ -254,34 +280,88 @@ loop:
 }
 
 // syncInitialState fetches the initial state of the room from other servers
-// in the cluster.
+// in the cluster. Events are processed in the meantime, so the room can provide
+// its state to other servers. Changes from these events are not overwritten by
+// the (possibly outdated) initial state.
 func (r *Room) syncInitialState() {
 	defer close(r.synced)
 	if r.hub.rpcClients == nil {
 		return
 	}
 
-	// Make sure the listener for backend room events is active before fetching
-	// the state, so all changes not included in the state are received as events.
 	ctx := log.NewLoggerContext(context.Background(), r.logger)
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
+
+	// Make sure the listener for backend room events is active before fetching
+	// the state, so all changes not included in the state are received as events.
 	if err := r.events.Flush(ctx); err != nil {
 		r.logger.Printf("Error flushing events for room %s: %s", r.id, err)
 	}
 
 	var wg sync.WaitGroup
-	wg.Go(r.fetchInitialTransientData)
-	wg.Go(r.fetchInitialUsers)
+	var transientData api.TransientDataEntries
+	var users api.UserDataMap
+	wg.Go(func() {
+		transientData = r.fetchInitialTransientData(ctx)
+	})
+	wg.Go(func() {
+		users = r.fetchInitialUsers(ctx)
+	})
 	wg.Wait()
+
+	// Apply the state from the goroutine processing the events, so it is
+	// ordered with changes from events.
+	applied := make(chan struct{})
+	r.asyncQueue.Execute(func() {
+		defer close(applied)
+		r.applyInitialState(transientData, users)
+	})
+	select {
+	case <-applied:
+	case <-r.closer.C:
+	}
 }
 
-func (r *Room) isSynced() bool {
-	select {
-	case <-r.synced:
-		return true
-	default:
-		return false
+func (r *Room) applyInitialState(transientData api.TransientDataEntries, users api.UserDataMap) {
+	r.mu.Lock()
+	state := r.syncState
+	r.syncState = nil
+	if state == nil || r.closed {
+		r.mu.Unlock()
+		return
+	}
+
+	if !state.usersReplaced {
+		for sid, u := range users {
+			if state.removedUsers[sid] {
+				continue
+			}
+
+			// Only store information on users that have not been updated through
+			// backend requests.
+			if _, found := r.users[sid]; found {
+				continue
+			}
+
+			user := u.Clone()
+			// Apply changes that were made while the initial state was fetched.
+			if updated, found := state.updatedUsers[sid]; found {
+				maps.Copy(user, updated)
+			}
+			if state.inCallAll != nil {
+				user["inCall"] = *state.inCallAll
+			}
+			r.users[sid] = newStoredUser(user)
+		}
+	}
+	r.mu.Unlock()
+
+	for key := range state.removedTransientData {
+		delete(transientData, key)
+	}
+	if len(transientData) > 0 {
+		r.transientData.SetInitial(transientData)
 	}
 }
 
@@ -1231,7 +1311,7 @@ func (r *Room) setUsers(users api.UserDataList) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	clear(r.users)
+	r.clearUsersLocked()
 	for _, user := range users {
 		sessionId, found := user.SessionId()
 		if !found || !isUserInCall(user) {
@@ -1249,6 +1329,15 @@ func (r *Room) updateUser(sessionId api.PublicSessionId, user api.UserData) {
 
 	existing, found := r.users[sessionId]
 	if !found {
+		if r.syncState != nil {
+			// The user might be included in the initial state from other servers.
+			pending := r.syncState.updatedUsers[sessionId]
+			if pending == nil {
+				pending = make(api.UserData)
+				r.syncState.updatedUsers[sessionId] = pending
+			}
+			maps.Copy(pending, user)
+		}
 		return
 	}
 
@@ -1273,6 +1362,17 @@ func (r *Room) removeUsers(sessionIds ...api.PublicSessionId) {
 // +checklocks:r.mu
 func (r *Room) removeUserLocked(sessionId api.PublicSessionId) {
 	delete(r.users, sessionId)
+	if r.syncState != nil {
+		r.syncState.removedUsers[sessionId] = true
+	}
+}
+
+// +checklocks:r.mu
+func (r *Room) clearUsersLocked() {
+	clear(r.users)
+	if r.syncState != nil {
+		r.syncState.usersReplaced = true
+	}
 }
 
 func (r *Room) setVirtualSessionData(sessionId api.PublicSessionId, data api.UserData) {
@@ -1493,6 +1593,10 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 			updated["inCall"] = inCall
 			r.users[sessionId] = updated
 		}
+		if r.syncState != nil {
+			// Also update users from the initial state.
+			r.syncState.inCallAll = &inCall
+		}
 
 		// All connected sessions join the call.
 		var joined []api.PublicSessionId
@@ -1531,7 +1635,7 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 			notify = append(notify, clientSession)
 		}
 
-		clear(r.users)
+		r.clearUsersLocked()
 
 		for session := range r.inCallSessions {
 			if clientSession, ok := session.(*ClientSession); ok {
@@ -1961,18 +2065,16 @@ func (r *Room) RemoveTransientData(key string) error {
 }
 
 func (r *Room) doRemoveTransientData(key string) {
+	r.mu.Lock()
+	if r.syncState != nil {
+		r.syncState.removedTransientData[key] = true
+	}
+	r.mu.Unlock()
+
 	r.transientData.Remove(key)
 }
 
-func (r *Room) fetchInitialTransientData() {
-	if r.hub.rpcClients == nil {
-		return
-	}
-
-	ctx := log.NewLoggerContext(context.Background(), r.logger)
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-
+func (r *Room) fetchInitialTransientData(ctx context.Context) api.TransientDataEntries {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	// +checklocks:mu
@@ -2000,20 +2102,10 @@ func (r *Room) fetchInitialTransientData() {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(initial) > 0 {
-		r.transientData.SetInitial(initial)
-	}
+	return initial
 }
 
-func (r *Room) fetchInitialUsers() {
-	if r.hub.rpcClients == nil {
-		return
-	}
-
-	ctx := log.NewLoggerContext(context.Background(), r.logger)
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-
+func (r *Room) fetchInitialUsers(ctx context.Context) api.UserDataMap {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	// +checklocks:mu
@@ -2045,18 +2137,5 @@ func (r *Room) fetchInitialUsers() {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(initial) > 0 {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if r.closed {
-			return
-		}
-
-		for sid, u := range initial {
-			// Only store information on users that have not been updated through backend requests.
-			if _, found := r.users[sid]; !found {
-				r.users[sid] = newStoredUser(u)
-			}
-		}
-	}
+	return initial
 }
