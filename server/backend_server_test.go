@@ -1413,16 +1413,7 @@ func TestBackendServer_InCallUsersList(t *testing.T) {
 			}
 			assertUsers := func(expected ...api.PublicSessionId) {
 				t.Helper()
-				for _, hub := range []*Hub{hub1, hub2} {
-					room := hub.getRoom(roomId)
-					if assert.NotNil(room) {
-						users := room.getUsers().Map()
-						assert.Len(users, len(expected), "users: %+v", users)
-						for _, sid := range expected {
-							assert.Contains(users, sid)
-						}
-					}
-				}
+				assertRoomUsers(t, roomId, []*Hub{hub1, hub2}, expected...)
 			}
 
 			// Older versions of Talk send the complete list of users with Nextcloud
