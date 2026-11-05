@@ -377,6 +377,37 @@ myserver.domain.invalid {
 }
 ```
 
+### Client IP and endpoint exposure
+
+Two properties of the configurations above are easy to lose when a frontend is
+configured by hand or a second virtual host is added later.
+
+**The frontend must overwrite `X-Real-IP`.** Every example above sets it from
+the address the frontend itself sees (`$remote_addr`, `%{REMOTE_ADDR}s`,
+`{remote_host}`). A frontend that passes the request on unchanged instead lets
+the client choose the value, and because the frontend is normally covered by
+`trustedproxies` (which defaults to loopback and local addresses), the
+signaling server will believe it. That address is what the `allowed_ips` check
+of the endpoints below is evaluated against, and what failed authentication
+attempts are attributed to, so a client-supplied value defeats both.
+`X-Forwarded-For` must likewise have the observed address appended to it, or be
+replaced by it, rather than being forwarded as received.
+
+**Not every path has to be reachable from the internet.** The examples proxy
+all of `/standalone-signaling/` for brevity, but the paths below it differ:
+
+| Path | Needs to be reachable from |
+| --- | --- |
+| `/standalone-signaling/spreed` | the clients, i.e. the internet |
+| `/standalone-signaling/api/v1/welcome` | anywhere; it is used to test the setup |
+| `/standalone-signaling/api/v1/room/...` | the Nextcloud server only |
+| `/standalone-signaling/api/v1/stats`, `/api/v1/serverinfo`, `/metrics` | monitoring only |
+
+The last two rows are worth restricting in the frontend as well. The room API
+is authenticated with the shared secret and the stats endpoints honour
+`allowed_ips` from the `[stats]` section, but both of those checks depend on the
+client address having been determined as described above.
+
 ## Setup of Nextcloud Talk
 
 Login to your Nextcloud as admin and open the additional settings page. Scroll
