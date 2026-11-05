@@ -166,6 +166,13 @@ func (c *reloadableCredentials) WaitForCertPoolReload(ctx context.Context, count
 }
 
 func NewReloadableCredentials(logger log.Logger, config *goconf.ConfigFile, server bool) (credentials.TransportCredentials, error) {
+	return newReloadableCredentials(logger, config, server, true)
+}
+
+// newReloadableCredentials creates the transport credentials from the "grpc"
+// section. If "warn" is false, no warning is logged if the connection will be
+// unencrypted (e.g. because GRPC is not used at all).
+func newReloadableCredentials(logger log.Logger, config *goconf.ConfigFile, server bool, warn bool) (credentials.TransportCredentials, error) {
 	var prefix string
 	var caPrefix string
 	if server {
@@ -203,10 +210,12 @@ func NewReloadableCredentials(logger log.Logger, config *goconf.ConfigFile, serv
 	}
 
 	if loader == nil && pool == nil {
-		if server {
-			logger.Printf("WARNING: No GRPC server certificate and/or key configured, running unencrypted")
-		} else {
-			logger.Printf("WARNING: No GRPC CA configured, expecting unencrypted connections")
+		if warn {
+			if server {
+				logger.Printf("WARNING: No GRPC server certificate and/or key configured, running unencrypted")
+			} else {
+				logger.Printf("WARNING: No GRPC CA configured, expecting unencrypted connections")
+			}
 		}
 		return insecure.NewCredentials(), nil
 	}

@@ -29,10 +29,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"path"
+	"slices"
 	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -857,4 +861,83 @@ func TestServer_GetSessionCount(t *testing.T) {
 			assert.EqualValues(0, count)
 		}
 	}
+}
+
+type recordingLogger struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *recordingLogger) Printf(format string, v ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(format, v...))
+}
+
+func (l *recordingLogger) Println(v ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintln(v...))
+}
+
+func (l *recordingLogger) Lines() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.lines)
+}
+
+func TestNoUnencryptedWarningWithoutGrpc(t *testing.T) {
+	t.Parallel()
+
+	t.Run("server without listener", func(t *testing.T) {
+		t.Parallel()
+		logger := &recordingLogger{}
+		ctx := log.NewLoggerContext(t.Context(), logger)
+		server, err := NewServer(ctx, goconf.NewConfigFile(), "0.0.0")
+		require.NoError(t, err)
+		t.Cleanup(server.Close)
+		assert.Empty(t, logger.Lines())
+	})
+
+	t.Run("clients without targets", func(t *testing.T) {
+		t.Parallel()
+		logger := &recordingLogger{}
+		ctx := log.NewLoggerContext(t.Context(), logger)
+		clients, err := NewClients(ctx, goconf.NewConfigFile(), nil, nil, "0.0.0")
+		require.NoError(t, err)
+		t.Cleanup(clients.Close)
+		assert.Empty(t, logger.Lines())
+	})
+}
+
+func TestUnencryptedWarningWithGrpc(t *testing.T) {
+	t.Parallel()
+
+	t.Run("server with listener", func(t *testing.T) {
+		t.Parallel()
+		logger := &recordingLogger{}
+		ctx := log.NewLoggerContext(t.Context(), logger)
+		config := goconf.NewConfigFile()
+		config.AddOption("grpc", "listen", "127.0.0.1:0")
+		server, err := NewServer(ctx, config, "0.0.0")
+		require.NoError(t, err)
+		t.Cleanup(server.Close)
+		if lines := logger.Lines(); assert.Len(t, lines, 1) {
+			assert.Contains(t, lines[0], "No GRPC server certificate")
+		}
+	})
+
+	t.Run("clients with targets", func(t *testing.T) {
+		t.Parallel()
+		logger := &recordingLogger{}
+		ctx := log.NewLoggerContext(t.Context(), logger)
+		config := goconf.NewConfigFile()
+		config.AddOption("grpc", "targets", "127.0.0.1:1")
+		clients, err := NewClients(ctx, config, nil, nil, "0.0.0")
+		require.NoError(t, err)
+		t.Cleanup(clients.Close)
+		assert.True(t, slices.ContainsFunc(logger.Lines(), func(line string) bool {
+			return strings.Contains(line, "No GRPC CA configured")
+		}))
+	})
 }

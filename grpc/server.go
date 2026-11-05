@@ -89,7 +89,8 @@ func NewServer(ctx context.Context, cfg *goconf.ConfigFile, version string) (*Se
 	}
 
 	logger := log.LoggerFromContext(ctx)
-	creds, err := NewReloadableCredentials(logger, cfg, true)
+	// Only warn about missing certificates if the server will really be started.
+	creds, err := newReloadableCredentials(logger, cfg, true, listener != nil)
 	if err != nil {
 		return nil, err
 	}

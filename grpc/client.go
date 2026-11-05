@@ -567,7 +567,15 @@ func (c *Clients) GetServerInfoGrpc() (result []talk.BackendServerInfoGrpc) {
 }
 
 func (c *Clients) load(config *goconf.ConfigFile, fromReload bool) error {
-	creds, err := NewReloadableCredentials(c.logger, config, false)
+	targetType, _ := config.GetString("grpc", "targettype")
+	if targetType == "" {
+		targetType = DefaultTargetType
+	}
+
+	// Only warn about a missing CA if there might be servers to connect to.
+	targets, _ := config.GetString("grpc", "targets")
+	warn := targetType != TargetTypeStatic || len(slices.Collect(internal.SplitEntries(targets, ","))) > 0
+	creds, err := newReloadableCredentials(c.logger, config, false, warn)
 	if err != nil {
 		return err
 	}
@@ -581,11 +589,6 @@ func (c *Clients) load(config *goconf.ConfigFile, fromReload bool) error {
 
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
 	c.dialOptions.Store(opts)
-
-	targetType, _ := config.GetString("grpc", "targettype")
-	if targetType == "" {
-		targetType = DefaultTargetType
-	}
 
 	switch targetType {
 	case TargetTypeStatic:
