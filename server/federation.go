@@ -127,7 +127,9 @@ type FederationClient struct {
 	helloAuth *api.FederationAuthParams
 	hello     atomic.Pointer[api.HelloServerMessage]
 
-	closeOnLeave atomic.Bool
+	// Request to leave the room, the client is closed once it was answered by
+	// the remote server.
+	leaveMessage atomic.Pointer[api.ClientMessage]
 	// Join of another room on the same remote server that was not answered yet.
 	pendingJoin atomic.Pointer[federationPendingJoin]
 
@@ -351,10 +353,10 @@ func (c *FederationClient) Leave(message *api.ClientMessage) error {
 		return ErrNotConnected
 	}
 
-	c.closeOnLeave.Store(true)
+	c.leaveMessage.Store(message)
 	if err := c.sendMessageLocked(message); err != nil {
 		// No response will be received, e.g. if the connection is being closed.
-		c.closeOnLeave.Store(false)
+		c.leaveMessage.Store(nil)
 		return err
 	}
 
@@ -679,6 +681,14 @@ func (c *FederationClient) processHello(msg *api.ServerMessage) {
 	c.mu.Unlock()
 	if newSession {
 		if c.reconnecting.Load() {
+			// Reset any information on previously received "join" events. The
+			// session might have switched to another room or left the room in the
+			// meantime.
+			if c.closer.IsClosed() || !c.session.resetFederationClient(c) {
+				c.closeReplaced()
+				return
+			}
+
 			c.session.SendMessage(&api.ServerMessage{
 				Type: "event",
 				Event: &api.EventServerMessage{
@@ -687,9 +697,6 @@ func (c *FederationClient) processHello(msg *api.ServerMessage) {
 					Resumed: new(false),
 				},
 			})
-			// Setting the federation client will reset any information on previously
-			// received "join" events.
-			c.session.SetFederationClient(c)
 		}
 
 		if err := c.joinRoom(); err != nil {
@@ -724,6 +731,19 @@ func (c *FederationClient) processHello(msg *api.ServerMessage) {
 				}
 			}
 		}
+	}
+}
+
+// closeReplaced closes a client that is no longer used by the session after it
+// reconnected with a new remote session.
+func (c *FederationClient) closeReplaced() {
+	c.logger.Printf("Federation client %s for %s was replaced while reconnecting", c.URL(), c.session.PublicId())
+	c.Close()
+
+	// A request to leave the room was not sent to the previous remote session,
+	// so no response will be received from the remote server.
+	if message := c.leaveMessage.Swap(nil); message != nil {
+		c.session.notifyFederationLeft(message)
 	}
 }
 
@@ -928,7 +948,7 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 					for idx, j := range msg.Event.Leave {
 						if j == remoteSessionId {
 							msg.Event.Leave[idx] = localSessionId
-							if c.closeOnLeave.Load() {
+							if c.leaveMessage.Load() != nil {
 								doClose = true
 							}
 							break
@@ -1041,7 +1061,7 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 			roomId, remoteRoomId = c.setJoinedRoom(message)
 		}
 
-		if msg.Room.RoomId == "" && c.closeOnLeave.Load() {
+		if msg.Room.RoomId == "" && c.leaveMessage.Load() != nil {
 			doClose = true
 			if !c.session.isWithoutRoom() {
 				// The session joined another room after it left the room (e.g. if the

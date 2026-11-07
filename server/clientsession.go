@@ -411,6 +411,22 @@ func (s *ClientSession) SetFederationClient(federation *FederationClient) {
 	}
 }
 
+// resetFederationClient resets the room state of the session if it is still
+// connected through the given federation client. Returns "false" if the session
+// is using another (or no) federation client.
+func (s *ClientSession) resetFederationClient(federation *FederationClient) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.federation.Load() != federation {
+		return false
+	}
+
+	s.doLeaveRoom(true)
+	s.onRoomSet(true, time.Now())
+	return true
+}
+
 // isWithoutRoom checks if the session is neither in a local nor in a
 // federated room.
 func (s *ClientSession) isWithoutRoom() bool {

@@ -934,6 +934,92 @@ func Test_FederationReplaceClientWhileSending(t *testing.T) {
 	assert.Nil(s.session2.GetFederationClient())
 }
 
+func Test_FederationReplacedClientReconnected(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	s.client2.RunUntilJoined(ctx, s.hello1.Hello, s.hello2.Hello)
+
+	// A client that reconnected with a new session after the session switched
+	// to another client doesn't replace the current client.
+	other := &FederationClient{}
+	s.session2.federation.Store(other)
+	defer s.session2.federation.Store(nil)
+	fed.reconnecting.Store(true)
+	fed.helloMu.Lock()
+	fed.helloMsgId = "the-hello-id"
+	fed.helloMu.Unlock()
+	fed.mu.Lock()
+	fed.resumeId = ""
+	fed.mu.Unlock()
+	fed.processHello(&api.ServerMessage{
+		Id:   "the-hello-id",
+		Type: "hello",
+		Hello: &api.HelloServerMessage{
+			Version:   api.HelloVersionV2,
+			SessionId: "the-new-session-id",
+			ResumeId:  "the-resume-id",
+		},
+	})
+	assert.Same(other, s.session2.GetFederationClient())
+	assert.True(fed.closer.IsClosed())
+	assertNoMoreMessages(t, s.client2)
+}
+
+func Test_FederationLeaveWhileInterruptedNotResumed(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	s.client2.RunUntilJoined(ctx, s.hello1.Hello, s.hello2.Hello)
+	remoteSession, ok := s.hub1.GetSessionByPublicId(fed.hello.Load().SessionId).(*ClientSession)
+	require.True(ok)
+	fed.mu.Lock()
+	fed.reconnectDelay = 500 * time.Millisecond
+	fed.mu.Unlock()
+	// Simulate disconnected federated client with an expired session.
+	if client := remoteSession.GetClient(); client != nil {
+		remoteSession.ClearClient(client)
+		client.Close()
+	}
+	remoteSession.Close()
+	message, ok := s.client2.RunUntilMessage(ctx)
+	for ok && (message.Type != "event" || message.Event.Type != "federation_interrupted") {
+		message, ok = s.client2.RunUntilMessage(ctx)
+	}
+	require.True(ok)
+
+	// Leaving the room while the connection is interrupted closes the client
+	// and answers the request if the session could not be resumed.
+	leaveMsg := &api.ClientMessage{
+		Id:   "leave-room-fed",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId: "",
+		},
+	}
+	require.NoError(s.client2.WriteJSON(leaveMsg))
+	if message, ok := s.client2.RunUntilMessage(ctx); ok && assert.Equal("room", message.Type, "%+v", message) {
+		assert.Equal(leaveMsg.Id, message.Id)
+		assert.Empty(message.Room.RoomId)
+	}
+	assert.True(fed.closer.IsClosed())
+	assert.Nil(s.session2.GetFederationClient())
+	s.hub2.mu.RLock()
+	_, found := s.hub2.federatedSessions[s.session2]
+	s.hub2.mu.RUnlock()
+	assert.False(found)
+	assertNoMoreMessages(t, s.client2)
+}
+
 func Test_FederationCloseOnSwitchToLocalRoom(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
