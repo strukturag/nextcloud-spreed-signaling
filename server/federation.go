@@ -112,18 +112,20 @@ type FederationClient struct {
 	reconnecting   atomic.Bool
 	// +checklocks:mu
 	reconnectFunc *time.Timer
+	// Id to resume the remote session and messages to send after it was
+	// resumed. Guarded by "mu" (and not "helloMu") as messages are deferred
+	// while sending messages.
+	// +checklocks:mu
+	resumeId api.PrivateSessionId
+	// +checklocks:mu
+	pendingMessages []*api.ClientMessage
 
 	helloMu sync.Mutex
 	// +checklocks:helloMu
 	helloMsgId string
 	// +checklocks:helloMu
 	helloAuth *api.FederationAuthParams
-	// +checklocks:helloMu
-	resumeId api.PrivateSessionId
-	hello    atomic.Pointer[api.HelloServerMessage]
-
-	// +checklocks:helloMu
-	pendingMessages []*api.ClientMessage
+	hello     atomic.Pointer[api.HelloServerMessage]
 
 	closeOnLeave atomic.Bool
 	// Join of another room on the same remote server that was not answered yet.
@@ -585,7 +587,10 @@ func (c *FederationClient) sendHelloLocked(auth *api.FederationAuthParams) error
 			Features: c.session.GetFeatures(),
 		},
 	}
-	if resumeId := c.resumeId; resumeId != "" {
+	c.mu.Lock()
+	resumeId := c.resumeId
+	c.mu.Unlock()
+	if resumeId != "" {
 		msg.Hello.ResumeId = resumeId
 	} else {
 		msg.Hello.Auth = &api.HelloClientMessageAuth{
@@ -632,8 +637,10 @@ func (c *FederationClient) processHello(msg *api.ServerMessage) {
 		case "no_such_session":
 			// Resume failed (e.g. remote has restarted), try to connect new session
 			// which may fail if the auth token has expired in the meantime.
+			c.mu.Lock()
 			c.resumeId = ""
 			c.pendingMessages = nil
+			c.mu.Unlock()
 			if err := c.sendHelloLocked(c.helloAuth); err != nil {
 				c.closeWithError(err)
 			}
@@ -651,8 +658,13 @@ func (c *FederationClient) processHello(msg *api.ServerMessage) {
 	}
 
 	c.hello.Store(msg.Hello)
-	if c.resumeId == "" {
+	c.mu.Lock()
+	newSession := c.resumeId == ""
+	if newSession {
 		c.resumeId = msg.Hello.ResumeId
+	}
+	c.mu.Unlock()
+	if newSession {
 		if c.reconnecting.Load() {
 			c.session.SendMessage(&api.ServerMessage{
 				Type: "event",
@@ -671,26 +683,27 @@ func (c *FederationClient) processHello(msg *api.ServerMessage) {
 			c.closeWithError(err)
 		}
 	} else {
-		c.session.SendMessage(&api.ServerMessage{
-			Type: "event",
-			Event: &api.EventServerMessage{
-				Target:  "room",
-				Type:    "federation_resumed",
-				Resumed: new(true),
-			},
-		})
+		if c.session.GetFederationClient() == c {
+			// Pending requests are sent even if the session left the room, e.g. a
+			// request to leave the room.
+			c.session.SendMessage(&api.ServerMessage{
+				Type: "event",
+				Event: &api.EventServerMessage{
+					Target:  "room",
+					Type:    "federation_resumed",
+					Resumed: new(true),
+				},
+			})
+		}
 
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		if count := len(c.pendingMessages); count > 0 {
 			messages := c.pendingMessages
 			c.pendingMessages = nil
 
 			c.logger.Printf("Sending %d pending messages to %s for %s", count, c.URL(), c.session.PublicId())
 
-			c.helloMu.Unlock()
-			defer c.helloMu.Lock()
-
-			c.mu.Lock()
-			defer c.mu.Unlock()
 			for _, msg := range messages {
 				if err := c.sendMessageLocked(msg); err != nil {
 					c.logger.Printf("Error sending pending message %+v on federation connection to %s: %s", msg, c.URL(), err)
@@ -1017,6 +1030,14 @@ func (c *FederationClient) processMessage(msg *api.ServerMessage) {
 
 		if msg.Room.RoomId == "" && c.closeOnLeave.Load() {
 			doClose = true
+			if !c.session.isWithoutRoom() {
+				// The session joined another room after it left the room (e.g. if the
+				// request to leave was sent after the connection was interrupted), so
+				// the response is outdated.
+				c.logger.Printf("Session %s joined another room, not forwarding outdated leave response %+v", c.session.PublicId(), msg)
+				c.Close()
+				return
+			}
 		} else if c.changeRoomId.Load() && msg.Room.RoomId == remoteRoomId {
 			msg.Room.RoomId = roomId
 		}
@@ -1092,10 +1113,10 @@ func (c *FederationClient) SendMessage(message *api.ClientMessage) error {
 	return c.sendMessageLocked(message)
 }
 
+// +checklocks:c.mu
 func (c *FederationClient) deferMessage(message *api.ClientMessage) {
-	c.helloMu.Lock()
-	defer c.helloMu.Unlock()
-	if c.resumeId == "" {
+	if c.resumeId == "" || message.Type == "hello" {
+		// A new hello request is sent after reconnecting.
 		return
 	}
 
@@ -1108,11 +1129,10 @@ func (c *FederationClient) deferMessage(message *api.ClientMessage) {
 // +checklocks:c.mu
 func (c *FederationClient) sendMessageLocked(message *api.ClientMessage) error {
 	if c.conn == nil {
-		if message.Type != "room" {
-			// Join requests will be automatically sent after the hello response has
-			// been received.
-			c.deferMessage(message)
-		}
+		// Messages are sent after the session was resumed. If a new session is
+		// created instead, they are dropped and the join request is sent after
+		// the hello response has been received.
+		c.deferMessage(message)
 		return nil
 	}
 
