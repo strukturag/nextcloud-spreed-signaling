@@ -413,6 +413,53 @@ func TestRoom_OlderUsersListsAreIgnored(t *testing.T) {
 			assertParticipantsUpdate()
 			assertUsers()
 			assertNoMoreMessages(t, client1, client2)
+
+			// A list of users that was received before all sessions left the call
+			// is ignored.
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 5000,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall:  inCall,
+					Changed: api.UserDataList{user(sid1, FlagInCall)},
+					Users:   api.UserDataList{user(sid1, FlagInCall)}, // nolint
+				},
+			})
+			assertParticipantsUpdate()
+			assertUsers(sid1)
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 7000,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: json.RawMessage(strconv.Itoa(FlagDisconnected)),
+					All:    true,
+				},
+			})
+			for _, client := range []*TestClient{client1, client2} {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					checkMessageInCallAll(t, msg, roomId, FlagDisconnected)
+				}
+			}
+			assertUsers()
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 6000,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall:  inCall,
+					Changed: api.UserDataList{user(sid2, FlagInCall)},
+					Users:   api.UserDataList{user(sid1, FlagInCall), user(sid2, FlagInCall)}, // nolint
+				},
+			})
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "participants",
+				ReceivedTime: 6500,
+				Participants: &talk.BackendRoomParticipantsRequest{
+					Changed: api.UserDataList{user(sid2, FlagInCall)},
+					Users:   api.UserDataList{user(sid1, FlagInCall), user(sid2, FlagInCall)}, // nolint
+				},
+			})
+			assertNoMoreMessages(t, client1, client2)
+			assertUsers()
 		})
 	}
 }

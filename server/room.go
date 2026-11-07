@@ -636,8 +636,9 @@ func (r *Room) logIgnoredRequest(message *talk.BackendServerRoomRequest) {
 
 // processUsersList stores the complete list of users if one was sent by older
 // versions of Talk in "incall" or "participants" requests. Returns "false" if
-// the request is older than the last request with a complete list and must not
-// be processed, as it could overwrite more recent data.
+// the request is older than the last request with a complete list (or a change
+// of all sessions) and must not be processed, as it could overwrite more recent
+// data.
 func (r *Room) processUsersList(message *talk.BackendServerRoomRequest, users api.UserDataList) bool {
 	if users == nil {
 		// Newer versions of Talk only send changes.
@@ -1614,6 +1615,9 @@ func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest, rece
 		}
 
 		r.lastInCallAllReceived = received
+		// A list of users that is older than the change of all sessions must not
+		// overwrite their in-call state.
+		r.lastUsersReceived = max(r.lastUsersReceived, received)
 		// Sessions that changed their in-call state after the request was
 		// received keep their state. Older changes are covered by the timestamp
 		// of the request from now on.
