@@ -266,6 +266,14 @@ func (c *FederationClient) connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.closer.IsClosed() {
+		// The client was closed while connecting.
+		if err := conn.Close(); err != nil && !isClosedError(err) {
+			c.logger.Printf("Error closing federation connection to %s: %s", c.URL(), err)
+		}
+		return ErrNotConnected
+	}
+
 	if c.reconnectFunc != nil {
 		c.reconnectFunc.Stop()
 		c.reconnectFunc = nil
@@ -405,6 +413,11 @@ func (c *FederationClient) scheduleReconnect() {
 
 // +checklocks:c.mu
 func (c *FederationClient) scheduleReconnectLocked() {
+	if c.closer.IsClosed() {
+		// E.g. sending the "bye" message failed while closing.
+		return
+	}
+
 	c.reconnecting.Store(true)
 	if c.hello.Swap(nil) != nil {
 		c.session.SendMessage(&api.ServerMessage{

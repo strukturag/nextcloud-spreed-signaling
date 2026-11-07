@@ -1936,3 +1936,50 @@ func Test_FederationOutdatedLeaveResponse(t *testing.T) {
 		assert.Equal(localRoomId, room.Id())
 	}
 }
+
+func Test_FederationConnectAfterClose(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+
+	// A connection that was established after the client was closed is not
+	// used.
+	fed.Close()
+	require.ErrorIs(fed.connect(ctx), ErrNotConnected)
+	fed.mu.Lock()
+	defer fed.mu.Unlock()
+	require.Nil(fed.conn)
+}
+
+func Test_FederationCloseWithBrokenConnection(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	remoteSession, ok := s.hub1.GetSessionByPublicId(fed.hello.Load().SessionId).(*ClientSession)
+	require.True(ok)
+
+	// Sending the "bye" message fails while closing the client, this must not
+	// schedule a reconnect (which resets the connection).
+	fed.closer.Close()
+	fed.mu.Lock()
+	require.NotNil(fed.conn)
+	require.NoError(fed.conn.UnderlyingConn().Close())
+	fed.closeConnection(true)
+	assert.Nil(fed.conn)
+	assert.Nil(fed.reconnectFunc)
+	assert.False(fed.reconnecting.Load())
+	fed.mu.Unlock()
+
+	// Finish closing the client. The remote session didn't receive the "bye".
+	fed.Close()
+	remoteSession.Close()
+}
