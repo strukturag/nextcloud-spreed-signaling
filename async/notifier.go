@@ -171,17 +171,25 @@ func (n *Notifier) Reset() {
 	n.entries = entries
 }
 
-// releaseEntryLocked removes the entry from the notifier once it is no longer
-// used by any signaler or waiter. The entry might have been replaced (or
-// removed by "Reset") in the meantime.
+// releaseEntryLocked removes the entry from the notifier once it has no
+// signalers and either no waiters or was notified already. New waiters must
+// not use a notified entry without signalers, they would return immediately
+// although no signaler exists any more. The entry might have been replaced
+// (or removed by "Reset") in the meantime.
 //
 // +checklocks:n.Mutex
 func (n *Notifier) releaseEntryLocked(entry *notifierEntry) {
-	if len(entry.signalers) > 0 || entry.waiters > 0 {
+	if len(entry.signalers) > 0 {
 		return
 	}
 
-	entry.notify()
+	if entry.waiters == 0 {
+		entry.notify()
+	} else if !entry.isNotified() {
+		// The waiters wait for a new signaler.
+		return
+	}
+
 	if n.entries[entry.key] == entry {
 		delete(n.entries, entry.key)
 	}

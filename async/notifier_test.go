@@ -301,6 +301,48 @@ func TestNotifierReplaceSignaler(t *testing.T) {
 	})
 }
 
+func TestNotifierReleasedSignalerWithWaiter(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		assert := assert.New(t)
+		var notifier Notifier
+
+		// The signaler signals and is released while a waiter still exists.
+		signaler, releaseSignaler := notifier.NewSignaler("foo")
+		waiter1, release1 := notifier.NewWaiter("foo")
+		defer release1()
+		signaler.Signal()
+		releaseSignaler()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		assert.NoError(waiter1.Wait(ctx))
+
+		// New waiters must wait for a new signaler.
+		waiter2, release2 := notifier.NewWaiter("foo")
+		defer release2()
+
+		var done sync.WaitGroup
+		var notified atomic.Bool
+		done.Go(func() {
+			assert.NoError(waiter2.Wait(ctx))
+			notified.Store(true)
+		})
+
+		synctest.Wait()
+		assert.False(notified.Load())
+
+		signaler2, releaseSignaler2 := notifier.NewSignaler("foo")
+		defer releaseSignaler2()
+		synctest.Wait()
+		assert.False(notified.Load())
+
+		signaler2.Signal()
+		done.Wait()
+		assert.True(notified.Load())
+	})
+}
+
 func TestNotifierSignalerReleaseTwice(t *testing.T) {
 	t.Parallel()
 
