@@ -892,6 +892,48 @@ func Test_FederationJoinWhileProcessingHelloAfterReset(t *testing.T) {
 	}
 }
 
+func Test_FederationReplaceClientWhileSending(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+
+	// The session can receive messages from the client (e.g. if its connection
+	// was interrupted) while the client is replaced.
+	fed.mu.Lock()
+	replaced := make(chan struct{})
+	go func() {
+		defer close(replaced)
+		s.session2.SetFederationClient(nil)
+	}()
+	// Wait until the client is being closed.
+	assert.Eventually(fed.closer.IsClosed, time.Second, time.Millisecond)
+	sent := make(chan struct{})
+	go func() {
+		defer close(sent)
+		s.session2.SendMessage(&api.ServerMessage{
+			Type: "event",
+			Event: &api.EventServerMessage{
+				Target: "room",
+				Type:   "federation_interrupted",
+			},
+		})
+	}()
+	select {
+	case <-sent:
+	case <-time.After(time.Second):
+		assert.Fail("sending message blocked")
+	}
+	fed.mu.Unlock()
+	<-replaced
+	<-sent
+	assert.True(fed.closer.IsClosed())
+	assert.Nil(s.session2.GetFederationClient())
+}
+
 func Test_FederationCloseOnSwitchToLocalRoom(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)

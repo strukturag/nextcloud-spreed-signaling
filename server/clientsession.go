@@ -398,12 +398,15 @@ func (s *ClientSession) GetFederationClient() *FederationClient {
 
 func (s *ClientSession) SetFederationClient(federation *FederationClient) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.doLeaveRoom(true)
 	s.onRoomSet(federation != nil, time.Now())
+	prev := s.federation.Swap(federation)
+	s.mu.Unlock()
 
-	if prev := s.federation.Swap(federation); prev != nil && prev != federation {
+	// The previous client must be closed without holding the session lock, as
+	// the client might be sending a message to the session while holding its
+	// own lock.
+	if prev != nil && prev != federation {
 		prev.Close()
 	}
 }
