@@ -152,6 +152,10 @@ type Room struct {
 	// Only accessed from the goroutine processing the asynchronous messages.
 	lastInCallReceived    map[api.PublicSessionId]int64
 	lastInCallAllReceived int64
+	// Sessions that left the room, their timestamp in "lastInCallReceived" is
+	// the time they left. Only accessed from the goroutine processing the
+	// asynchronous messages.
+	leftSessions map[api.PublicSessionId]bool
 	// Time after which the timestamp of the last in-call change of a session is
 	// removed, and the time the timestamps were last pruned. Only accessed from
 	// the goroutine processing the asynchronous messages.
@@ -238,6 +242,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		users:               make(api.UserDataMap),
 
 		lastInCallReceived:  make(map[api.PublicSessionId]int64),
+		leftSessions:        make(map[api.PublicSessionId]bool),
 		inCallChangesMaxAge: defaultInCallChangesMaxAge,
 
 		initialStateRetryDelay: initialStateRetryDelay,
@@ -658,7 +663,10 @@ func (r *Room) processUsersList(message *talk.BackendServerRoomRequest, users ap
 func (r *Room) processBackendRoomRequestAsyncRoom(message *events.AsyncRoomMessage) {
 	switch message.Type {
 	case "sessionjoined":
+		delete(r.leftSessions, message.SessionId)
 		r.notifySessionJoined(message.SessionId)
+	case "sessionleft":
+		r.removeLeftUser(message.SessionId, message.LeftTime)
 	default:
 		r.logger.Printf("Unsupported async room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
@@ -1040,7 +1048,51 @@ func (r *Room) RemoveSession(session Session) bool {
 		// on other servers get notified.
 		r.PublishSessionLeft(session)
 	}
+	// Other servers might know the session from backend requests, even if no
+	// "join" event was published. Talk doesn't send an in-call change if the
+	// session left without notifying it (e.g. if replaced by a new session with
+	// the same room session id).
+	if err := r.events.PublishBackendRoomMessage(r.id, r.backend, &events.AsyncMessage{
+		Type: "asyncroom",
+		AsyncRoom: &events.AsyncRoomMessage{
+			Type:       "sessionleft",
+			SessionId:  sid,
+			ClientType: session.ClientType(),
+			LeftTime:   time.Now().UnixNano(),
+		},
+	}); err != nil {
+		r.logger.Printf("Error publishing left event for session %s: %s", sid, err)
+	}
 	return hasSessions
+}
+
+// removeLeftUser removes the stored user data of a session that left the room
+// on any server. In-call changes of the session that were received by the
+// backend server before the session left are ignored afterwards.
+func (r *Room) removeLeftUser(sessionId api.PublicSessionId, left int64) {
+	if left != 0 {
+		if r.lastInCallReceived[sessionId] > left {
+			// The session joined the room again and changed its in-call state
+			// after it left.
+			return
+		}
+
+		r.lastInCallReceived[sessionId] = left
+		r.pruneInCallChanges(left)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, found := r.sessions[sessionId]; found {
+		// The session joined the room again in the meantime.
+		return
+	}
+
+	if left != 0 {
+		r.leftSessions[sessionId] = true
+	}
+	r.removeUserLocked(sessionId)
 }
 
 func (r *Room) publish(message *api.ServerMessage) error {
@@ -1559,6 +1611,7 @@ func (r *Room) filterOutdatedInCallChanges(changed api.UserDataList, received in
 		}
 
 		r.lastInCallReceived[sessionId] = received
+		delete(r.leftSessions, sessionId)
 		return false
 	})
 	r.pruneInCallChanges(received)
@@ -1578,6 +1631,7 @@ func (r *Room) pruneInCallChanges(received int64) {
 	for sessionId, last := range r.lastInCallReceived {
 		if received-last > maxAge {
 			delete(r.lastInCallReceived, sessionId)
+			delete(r.leftSessions, sessionId)
 		}
 	}
 }
@@ -1623,12 +1677,20 @@ func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest, rece
 		// of the request from now on.
 		for sessionId, last := range r.lastInCallReceived {
 			if last > received {
+				if r.leftSessions[sessionId] {
+					// The session left the room after the request was received, it
+					// doesn't need to keep its state. The timestamp is kept to
+					// ignore older changes of the session.
+					continue
+				}
+
 				if keep == nil {
 					keep = make(map[api.PublicSessionId]bool)
 				}
 				keep[sessionId] = true
 			} else {
 				delete(r.lastInCallReceived, sessionId)
+				delete(r.leftSessions, sessionId)
 			}
 		}
 	}

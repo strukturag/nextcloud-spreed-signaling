@@ -61,6 +61,9 @@ type AsyncRoomMessage struct {
 
 	SessionId  api.PublicSessionId `json:"sessionid,omitempty"`
 	ClientType api.ClientType      `json:"clienttype,omitempty"`
+
+	// Time (in nanoseconds) when the session left the room ("sessionleft").
+	LeftTime int64 `json:"lefttime,omitempty"`
 }
 
 type SendOfferMessage struct {
