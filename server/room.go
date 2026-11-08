@@ -1861,6 +1861,10 @@ func (r *Room) updateInCallAll(inCall int, keep map[api.PublicSessionId]bool) (n
 
 		r.logger.Printf("Sessions %v joined call %s", joined, r.id)
 	} else {
+		if r.syncState != nil {
+			// Users from the initial state might still be in the call.
+			r.syncState.usersReplaced = true
+		}
 		if len(r.inCallSessions) == 0 && len(r.users) == 0 {
 			// All sessions already left the call, no need to notify.
 			return nil, nil, nil
@@ -1887,10 +1891,6 @@ func (r *Room) updateInCallAll(inCall int, keep map[api.PublicSessionId]bool) (n
 			if !keep[sessionId] {
 				r.removeUserLocked(sessionId)
 			}
-		}
-		if r.syncState != nil {
-			// The kept users are stored, the initial users are outdated.
-			r.syncState.usersReplaced = true
 		}
 		for session := range r.inCallSessions {
 			if keep[session.PublicId()] {

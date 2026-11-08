@@ -1534,6 +1534,12 @@ func TestRoom_InitialStateIncludesChangesWhileSyncing(t *testing.T) {
 	})
 	room.applyInitialState(nil, initialUsers(), true)
 	assertRoomUsers(t, "test-room-2", []*Hub{hub}, sid3)
+
+	// All users left the call before any users were stored.
+	room = createSyncingRoom("test-room-3")
+	room.publishUsersInCallChangedAll(FlagDisconnected, nil)
+	room.applyInitialState(nil, initialUsers(), true)
+	assertRoomUsers(t, "test-room-3", []*Hub{hub})
 }
 
 func TestRoom_UnsupportedInCallAllIgnored(t *testing.T) {
