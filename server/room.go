@@ -1701,13 +1701,9 @@ func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest, rece
 func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
 	var toRemove []api.PublicSessionId
 	for _, user := range changed {
-		sessionId, found := user.SessionId()
+		sessionId, found := getChangedSessionId(user)
 		if !found {
-			// TODO: Do we still need this fallback?
-			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
-			if !found {
-				continue
-			}
+			continue
 		}
 
 		inCallInterface, found := user["inCall"]
@@ -1760,7 +1756,22 @@ func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
 	// know about any sessions in the call.
 	users = r.addInternalSessions(users, true)
 	mergeVirtualSessionData(users, changed)
+	r.publishParticipantsUpdate(changed, users)
+}
 
+// getChangedSessionId returns the session id of a changed user.
+func getChangedSessionId(user api.UserData) (api.PublicSessionId, bool) {
+	if sessionId, found := user.SessionId(); found {
+		return sessionId, true
+	}
+
+	// TODO: Do we still need this fallback?
+	return api.GetStringMapString[api.PublicSessionId](user, "sessionid")
+}
+
+// publishParticipantsUpdate publishes the changed users and the users in the
+// call to the local sessions.
+func (r *Room) publishParticipantsUpdate(changed api.UserDataList, users api.UserDataList) {
 	message := &api.ServerMessage{
 		Type: "event",
 		Event: &api.EventServerMessage{
@@ -1774,7 +1785,7 @@ func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
 		},
 	}
 	if err := r.publishLocal(message); err != nil {
-		r.logger.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+		r.logger.Printf("Could not publish participants update in room %s: %s", r.Id(), err)
 	}
 }
 
@@ -1990,13 +2001,9 @@ func isUserInCall(user api.UserData) bool {
 func (r *Room) PublishUsersChanged(changed api.UserDataList) {
 	var toRemove []api.PublicSessionId
 	for _, user := range changed {
-		sessionId, found := user.SessionId()
+		sessionId, found := getChangedSessionId(user)
 		if !found {
-			// TODO: Do we still need this fallback?
-			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
-			if !found {
-				continue
-			}
+			continue
 		}
 
 		inCallInterface, found := user["inCall"]
@@ -2023,22 +2030,7 @@ func (r *Room) PublishUsersChanged(changed api.UserDataList) {
 	changed = r.filterPermissions(changed)
 	// TODO: Do we still need the whole list of users to send to all participants?
 	users := r.filterPermissions(r.getUsers())
-
-	message := &api.ServerMessage{
-		Type: "event",
-		Event: &api.EventServerMessage{
-			Target: "participants",
-			Type:   "update",
-			Update: &api.RoomEventServerMessage{
-				RoomId:  r.id,
-				Changed: changed,
-				Users:   r.addInternalSessions(users, len(changed) > 0),
-			},
-		},
-	}
-	if err := r.publishLocal(message); err != nil {
-		r.logger.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
-	}
+	r.publishParticipantsUpdate(changed, r.addInternalSessions(users, len(changed) > 0))
 }
 
 func (r *Room) getUsers() api.UserDataList {
