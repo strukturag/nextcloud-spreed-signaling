@@ -45,16 +45,24 @@ debug = false
 [sessions]
 # Secret value used to generate checksums of sessions. This should be a random
 # string of 32 or 64 bytes.
+# If the default value is not changed, a random key will be generated on every
+# start, so sessions can't be resumed after a restart and clustering will not
+# work.
 hashkey = the-secret-for-session-checksums
 
 # Optional key for encrypting data in the sessions. Must be either 16, 24 or
 # 32 bytes.
 # If no key is specified, data will not be encrypted (not recommended).
+# If the default value is not changed, a random key will be generated on every
+# start, so sessions can't be resumed after a restart and clustering will not
+# work.
 blockkey = -encryption-key-
 
 [clients]
 # Shared secret for connections from internal clients. This must be the same
 # value as configured in the respective internal services.
+# If the default value is not changed, a random secret will be generated on
+# every start, so no internal clients can connect.
 internalsecret = the-shared-secret-for-internal-clients
 
 [federation]

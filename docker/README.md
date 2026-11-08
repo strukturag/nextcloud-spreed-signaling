@@ -22,9 +22,9 @@ The running container can be configured through different environment variables:
 - `HTTPS_WRITE_TIMEOUT`: HTTPS socket write timeout in seconds.
 - `HTTPS_CERTIFICATE`: Name of certificate file for the HTTPS listener.
 - `HTTPS_KEY`: Name of private key file for the HTTPS listener.
-- `HASH_KEY`: Secret value used to generate checksums of sessions (32 or 64 bytes).
-- `BLOCK_KEY`: Key for encrypting data in the sessions (16, 24 or 32 bytes).
-- `INTERNAL_SHARED_SECRET_KEY`: Shared secret for connections from internal clients.
+- `HASH_KEY`: Secret value used to generate checksums of sessions (32 or 64 bytes). A random value will be used if not set.
+- `BLOCK_KEY`: Key for encrypting data in the sessions (16, 24 or 32 bytes). A random value will be used if not set.
+- `INTERNAL_SHARED_SECRET_KEY`: Shared secret for connections from internal clients. A random value will be used if not set.
 - `BACKENDS_ALLOWALL`: Allow all backends. Extremly insecure - use only for development!
 - `BACKENDS_ALLOWALL_SECRET`: Secret when `BACKENDS_ALLOWALL` is enabled.
 - `BACKENDS`: Space-separated list of backend ids.

@@ -880,6 +880,71 @@ func Benchmark_DecodePublicSessionIdCached(b *testing.B) {
 	}
 }
 
+func TestHubDefaultSecretsMatchConfig(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	config, err := goconf.ReadConfigFile("../server.conf.in")
+	require.NoError(err)
+
+	if value, err := config.GetString("sessions", "hashkey"); assert.NoError(err) {
+		assert.Equal(defaultSessionsHashKey, value)
+	}
+	if value, err := config.GetString("sessions", "blockkey"); assert.NoError(err) {
+		assert.Equal(defaultSessionsBlockKey, value)
+	}
+	if value, err := config.GetString("clients", "internalsecret"); assert.NoError(err) {
+		assert.Equal(defaultInternalClientsSecret, value)
+	}
+}
+
+func TestHubRandomDefaultSecrets(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	getConfig := func(server *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(server)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("sessions", "hashkey", defaultSessionsHashKey)
+		config.AddOption("sessions", "blockkey", defaultSessionsBlockKey)
+		config.AddOption("clients", "internalsecret", defaultInternalClientsSecret)
+		return config, nil
+	}
+
+	hub1, _, _, _ := CreateHubForTestWithConfig(t, getConfig)
+	hub2, _, _, _ := CreateHubForTestWithConfig(t, getConfig)
+
+	assert.Len(hub1.internalClientsSecret, randomInternalClientsSecretLength)
+	assert.NotEqual([]byte(defaultInternalClientsSecret), hub1.internalClientsSecret)
+	assert.NotEqual(hub1.internalClientsSecret, hub2.internalClientsSecret)
+
+	data := &session.SessionIdData{
+		Sid:       1,
+		Created:   time.Now().UnixMicro(),
+		BackendId: "backend",
+	}
+	sid, err := hub1.sessionIds.EncodePrivate(data)
+	require.NoError(err)
+
+	if decoded, err := hub1.sessionIds.DecodePrivate(sid); assert.NoError(err) {
+		assert.Equal(data.Sid, decoded.Sid)
+	}
+
+	// Each hub uses different random keys.
+	_, err = hub2.sessionIds.DecodePrivate(sid)
+	assert.Error(err)
+
+	defaultCodec, err := session.NewSessionIdCodec([]byte(defaultSessionsHashKey), []byte(defaultSessionsBlockKey))
+	require.NoError(err)
+	_, err = defaultCodec.DecodePrivate(sid)
+	assert.Error(err)
+}
+
 func TestWebsocketFeatures(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)

@@ -236,9 +236,25 @@ type Hub struct {
 	blockedCandidates atomic.Pointer[container.IPList]
 }
 
+const (
+	// Default values from "server.conf.in" that will be replaced with random
+	// values if not changed by the user.
+	defaultSessionsHashKey       = "the-secret-for-session-checksums"
+	defaultSessionsBlockKey      = "-encryption-key-"
+	defaultInternalClientsSecret = "the-shared-secret-for-internal-clients"
+
+	randomSessionsHashKeyLength       = 64
+	randomSessionsBlockKeyLength      = 32
+	randomInternalClientsSecretLength = 32
+)
+
 func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *grpc.Server, rpcClients *grpc.Clients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
 	logger := log.LoggerFromContext(ctx)
 	hashKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "hashkey")
+	if hashKey == defaultSessionsHashKey {
+		logger.Println("WARNING: The sessions hash key has not been changed from the default value, using a random key. Configure a value to keep sessions valid across restarts and between clustered instances.")
+		hashKey = internal.RandomString(randomSessionsHashKeyLength)
+	}
 	switch len(hashKey) {
 	case 32:
 	case 64:
@@ -247,6 +263,10 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	}
 
 	blockKey, _ := config.GetStringOptionWithEnv(cfg, "sessions", "blockkey")
+	if blockKey == defaultSessionsBlockKey {
+		logger.Println("WARNING: The sessions block key has not been changed from the default value, using a random key. Configure a value to keep sessions valid across restarts and between clustered instances.")
+		blockKey = internal.RandomString(randomSessionsBlockKeyLength)
+	}
 	blockBytes := []byte(blockKey)
 	switch len(blockKey) {
 	case 0:
@@ -264,7 +284,11 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	}
 
 	internalClientsSecret, _ := config.GetStringOptionWithEnv(cfg, "clients", "internalsecret")
-	if internalClientsSecret == "" {
+	switch internalClientsSecret {
+	case defaultInternalClientsSecret:
+		logger.Println("WARNING: The shared secret for internal clients has not been changed from the default value, using a random secret. Internal clients will not be able to connect.")
+		internalClientsSecret = internal.RandomString(randomInternalClientsSecretLength)
+	case "":
 		logger.Println("WARNING: No shared secret has been set for internal clients.")
 	}
 
