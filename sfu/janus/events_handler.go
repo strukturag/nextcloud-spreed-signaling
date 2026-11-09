@@ -36,6 +36,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/pool"
@@ -44,19 +45,13 @@ import (
 
 const (
 	EventsSubprotocol = "janus-events"
-
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
 )
 
 var (
 	bufferPool pool.BufferPool
+
+	// Timeouts for communicating with Janus.
+	timeouts = client.Timeouts{}.WithDefaults()
 )
 
 type EventHandler interface {
@@ -241,12 +236,12 @@ func (h *EventsHandler) readPump() {
 
 	conn.SetPongHandler(func(msg string) error {
 		now := time.Now()
-		conn.SetReadDeadline(now.Add(pongWait)) // nolint
+		conn.SetReadDeadline(now.Add(timeouts.ReadWait())) // nolint
 		return nil
 	})
 
 	for {
-		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
+		conn.SetReadDeadline(time.Now().Add(timeouts.ReadWait())) // nolint
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
 			// Gorilla websocket hides the original net.Error, so also compare error messages
@@ -312,7 +307,7 @@ func (h *EventsHandler) sendPing() bool {
 
 	now := time.Now().UnixNano()
 	msg := strconv.FormatInt(now, 10)
-	h.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	h.conn.SetWriteDeadline(time.Now().Add(timeouts.WriteTimeout)) // nolint
 	if err := h.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
 		h.logger.Printf("Could not send ping to %s: %v", h.addr, err)
 		return false
@@ -322,7 +317,7 @@ func (h *EventsHandler) sendPing() bool {
 }
 
 func (h *EventsHandler) writePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(timeouts.PingInterval)
 	defer func() {
 		ticker.Stop()
 		h.close()
