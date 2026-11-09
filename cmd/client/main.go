@@ -48,6 +48,7 @@ import (
 	"github.com/mailru/easyjson/jwriter"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
@@ -72,18 +73,11 @@ var (
 
 	// Report messages that took more than 1 second.
 	messageReportDuration = 1000 * time.Millisecond
+
+	timeouts = client.Timeouts{}.WithDefaults()
 )
 
 const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
 	// Maximum message size allowed from peer.
 	maxMessageSize = 64 * 1024
 )
@@ -181,7 +175,7 @@ func (c *SignalingClient) Close() {
 		Type: "bye",
 		Bye:  &api.ByeClientMessage{},
 	})
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))                                                          // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(timeouts.WriteTimeout))                                              // nolint
 	c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) // nolint
 	c.conn.Close()
 	c.conn = nil
@@ -261,15 +255,15 @@ func (c *SignalingClient) readPump() {
 	}()
 
 	conn.SetReadLimit(maxMessageSize)
-	conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
+	conn.SetReadDeadline(time.Now().Add(timeouts.ReadWait())) // nolint
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
+		conn.SetReadDeadline(time.Now().Add(timeouts.ReadWait())) // nolint
 		return nil
 	})
 
 	var decodeBuffer bytes.Buffer
 	for {
-		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
+		conn.SetReadDeadline(time.Now().Add(timeouts.ReadWait())) // nolint
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err,
@@ -311,7 +305,7 @@ func (c *SignalingClient) readPump() {
 func (c *SignalingClient) writeInternal(message *api.ClientMessage) bool {
 	var closeData []byte
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(timeouts.WriteTimeout)) // nolint
 	var written int
 	writer, err := c.conn.NextWriter(websocket.TextMessage)
 	if err == nil {
@@ -337,8 +331,8 @@ func (c *SignalingClient) writeInternal(message *api.ClientMessage) bool {
 	return true
 
 close:
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))     // nolint
-	c.conn.WriteMessage(websocket.CloseMessage, closeData) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(timeouts.WriteTimeout)) // nolint
+	c.conn.WriteMessage(websocket.CloseMessage, closeData)         // nolint
 	return false
 }
 
@@ -349,7 +343,7 @@ func (c *SignalingClient) sendPing() bool {
 		return false
 	}
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(timeouts.WriteTimeout)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 		return false
 	}
@@ -358,7 +352,7 @@ func (c *SignalingClient) sendPing() bool {
 }
 
 func (c *SignalingClient) writePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(timeouts.PingInterval)
 	defer func() {
 		ticker.Stop()
 		c.Close()
