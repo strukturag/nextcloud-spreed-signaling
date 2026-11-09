@@ -86,6 +86,15 @@ if [ ! -f "$CONFIG" ]; then
   if [ -n "$FEDERATION_TIMEOUT" ]; then
     sed -i "/federation/,/federation/ s|#timeout =.*|timeout = $FEDERATION_TIMEOUT|" "$CONFIG"
   fi
+  if [ -n "$FEDERATION_READ_TIMEOUT" ]; then
+    sed -i "/^\[federation\]/,/^\[/ s|#readtimeout =.*|readtimeout = $FEDERATION_READ_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$FEDERATION_WRITE_TIMEOUT" ]; then
+    sed -i "/^\[federation\]/,/^\[/ s|#writetimeout =.*|writetimeout = $FEDERATION_WRITE_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$FEDERATION_PING_INTERVAL" ]; then
+    sed -i "/^\[federation\]/,/^\[/ s|#pinginterval =.*|pinginterval = $FEDERATION_PING_INTERVAL|" "$CONFIG"
+  fi
 
   HAS_ETCD=
   if [ -n "$ETCD_ENDPOINTS" ]; then

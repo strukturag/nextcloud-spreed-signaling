@@ -39,6 +39,9 @@ The running container can be configured through different environment variables:
 - `BACKEND_<ID>_MAX_STREAM_BITRATE`: Optional maximum bitrate for audio/video streams in backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_MAX_SCREEN_BITRATE`: Optional maximum bitrate for screensharing streams in backend `ID` (where `ID` is the uppercase backend id).
 - `FEDERATION_TIMEOUT`: Timeout for requests to federation targets in seconds.
+- `FEDERATION_READ_TIMEOUT`: Read timeout for websocket connections to federation targets in seconds (also the time federation targets have to respond to pings).
+- `FEDERATION_WRITE_TIMEOUT`: Write timeout for websocket connections to federation targets in seconds.
+- `FEDERATION_PING_INTERVAL`: Interval in seconds in which ping messages are sent to federation targets.
 - `NATS_URL`: Optional URL of NATS server.
 - `ETCD_ENDPOINTS`: Static list of etcd endpoints (if etcd should be used).
 - `ETCD_DISCOVERY_SRV`: Alternative domain to use for DNS SRV configuration of etcd endpoints (if etcd should be used).

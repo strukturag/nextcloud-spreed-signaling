@@ -203,6 +203,8 @@ type Hub struct {
 	// Timeouts for websocket connections on the HTTP / HTTPS listeners.
 	httpTimeouts  atomic.Pointer[client.Timeouts]
 	httpsTimeouts atomic.Pointer[client.Timeouts]
+	// Timeouts for outgoing federation connections.
+	federationTimeouts atomic.Pointer[client.Timeouts]
 
 	// +checklocks:mu
 	expiredSessions map[Session]time.Time
@@ -260,16 +262,21 @@ func (h *Hub) getTimeouts(tls bool) client.Timeouts {
 	return *h.httpTimeouts.Load()
 }
 
-func storeTimeouts(logger log.Logger, cfg *goconf.ConfigFile, section string, target *atomic.Pointer[client.Timeouts]) {
+func (h *Hub) getFederationTimeouts() client.Timeouts {
+	return *h.federationTimeouts.Load()
+}
+
+func storeTimeouts(logger log.Logger, cfg *goconf.ConfigFile, section string, description string, target *atomic.Pointer[client.Timeouts]) {
 	timeouts := client.LoadTimeouts(logger, cfg, section, client.Timeouts{})
 	if prev := target.Swap(&timeouts); prev == nil || *prev != timeouts {
-		logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for websocket connections on %s listeners", timeouts.PingInterval, timeouts.ReadTimeout, timeouts.WriteTimeout, section)
+		logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for %s", timeouts.PingInterval, timeouts.ReadTimeout, timeouts.WriteTimeout, description)
 	}
 }
 
 func (h *Hub) loadTimeouts(cfg *goconf.ConfigFile) {
-	storeTimeouts(h.logger, cfg, "http", &h.httpTimeouts)
-	storeTimeouts(h.logger, cfg, "https", &h.httpsTimeouts)
+	storeTimeouts(h.logger, cfg, "http", "websocket connections on http listeners", &h.httpTimeouts)
+	storeTimeouts(h.logger, cfg, "https", "websocket connections on https listeners", &h.httpsTimeouts)
+	storeTimeouts(h.logger, cfg, "federation", "federation connections", &h.federationTimeouts)
 }
 
 func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *grpc.Server, rpcClients *grpc.Clients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {

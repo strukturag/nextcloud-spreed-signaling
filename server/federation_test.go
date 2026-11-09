@@ -26,15 +26,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dlintw/goconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/mock"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
@@ -598,6 +601,126 @@ func Test_FederationCloseOnSessionTeardown(t *testing.T) {
 	session2.LeaveRoomWithMessage(true, nil)
 
 	assert.True(fed2.closer.IsClosed(), "federation client must be closed synchronously when the session is torn down")
+}
+
+func Test_FederationTimeouts(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+
+	hub1, hub2, _, _, server1, server2 := CreateClusteredHubsForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(server)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("federation", "pinginterval", "1")
+		config.AddOption("federation", "readtimeout", "1")
+		config.AddOption("federation", "writetimeout", "2")
+		return config, nil
+	})
+
+	expected := client.Timeouts{
+		PingInterval: time.Second,
+		ReadTimeout:  time.Second,
+		WriteTimeout: 2 * time.Second,
+	}
+	assert.Equal(expected, hub2.getFederationTimeouts())
+	// Federation timeouts don't affect the listeners.
+	assert.Equal(client.Timeouts{}.WithDefaults(), hub2.getTimeouts(false))
+	assert.Equal(client.Timeouts{}.WithDefaults(), hub2.getTimeouts(true))
+
+	client1 := NewTestClient(t, server1, hub1)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHelloV2(testDefaultUserId + "1"))
+
+	client2 := NewTestClient(t, server2, hub2)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloV2(testDefaultUserId + "2"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello1 := MustSucceed1(t, client1.RunUntilHello, ctx)
+	hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
+
+	roomId := "test-room"
+	federatedRoomId := roomId + "@federated"
+	room1 := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, room1.Room.RoomId)
+
+	client1.RunUntilJoined(ctx, hello1.Hello)
+
+	now := time.Now()
+	userdata := api.StringMap{
+		"displayname": "Federated user",
+		"actorType":   "federated_users",
+		"actorId":     "the-federated-user-id",
+	}
+	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
+	require.NoError(err)
+
+	msg := &api.ClientMessage{
+		Id:   "join-room-fed",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId:    federatedRoomId,
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
+				SignalingUrl: server1.URL,
+				NextcloudUrl: server1.URL,
+				RoomId:       roomId,
+				Token:        token,
+			},
+		},
+	}
+	require.NoError(client2.WriteJSON(msg))
+
+	if message, ok := client2.RunUntilMessage(ctx); ok {
+		assert.Equal(msg.Id, message.Id)
+		require.Equal("room", message.Type)
+		require.Equal(federatedRoomId, message.Room.RoomId)
+	}
+
+	if message, ok := client1.RunUntilMessage(ctx); ok {
+		client1.checkSingleMessageJoined(message)
+	}
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	session2, ok := hub2.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+	fed2 := session2.GetFederationClient()
+	require.NotNil(fed2)
+	assert.Equal(expected, fed2.timeouts)
+	localAddr := fed2.LocalAddr()
+	require.NotNil(localAddr)
+
+	// The remote server responds to pings, so the connection is kept open
+	// after the read timeout expired.
+	time.Sleep(2 * (expected.PingInterval + expected.ReadTimeout))
+	assert.False(fed2.closer.IsClosed())
+	assert.False(fed2.reconnecting.Load())
+	if addr := fed2.LocalAddr(); assert.NotNil(addr) {
+		assert.Equal(localAddr.String(), addr.String(), "federation connection was reconnected")
+	}
+
+	pendingCtx, pendingCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer pendingCancel()
+	if messages, err := client2.GetPendingMessages(pendingCtx); !assert.ErrorIs(err, context.DeadlineExceeded) {
+		assert.Fail("expected no messages", "received %+v", messages)
+	}
+
+	// Changing the timeouts only affects new federation connections.
+	config, err := getTestConfig(server2)
+	require.NoError(err)
+	config.AddOption("federation", "pinginterval", "30")
+	hub2.loadTimeouts(config)
+	assert.Equal(client.Timeouts{
+		PingInterval: 30 * time.Second,
+		ReadTimeout:  client.DefaultReadTimeout,
+		WriteTimeout: client.DefaultWriteTimeout,
+	}, hub2.getFederationTimeouts())
+	assert.Equal(expected, fed2.timeouts)
 }
 
 func Test_FederationRoomDeleted(t *testing.T) {

@@ -88,6 +88,19 @@ internalsecret = the-shared-secret-for-internal-clients
 # Timeout in seconds for requests to federation targets.
 #timeout = 10
 
+# Read timeout in seconds for websocket connections to federation targets. This
+# is the time federation targets have to respond to ping messages.
+#readtimeout = 30
+
+# Write timeout in seconds for websocket connections to federation targets.
+#writetimeout = 30
+
+# Interval in seconds in which ping messages are sent to federation targets.
+# Connections that don't respond within the read timeout are reconnected.
+# Reduce this if a proxy / firewall closes idle connections earlier.
+# Changes only affect new federation connections.
+#pinginterval = 45
+
 [backend]
 # Type of backend configuration.
 # Defaults to "static".
