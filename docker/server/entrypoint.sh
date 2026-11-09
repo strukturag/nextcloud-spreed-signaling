@@ -40,19 +40,25 @@ if [ ! -f "$CONFIG" ]; then
     sed -i "s|#listen = 127.0.0.1:8080|listen = $HTTP_LISTEN|" "$CONFIG"
   fi
   if [ -n "$HTTP_READ_TIMEOUT" ]; then
-    sed -i "/HTTP socket/,/HTTP socket/ s|#readtimeout =.*|readtimeout = $HTTP_READ_TIMEOUT|" "$CONFIG"
+    sed -i "/^\[http\]/,/^\[/ s|#readtimeout =.*|readtimeout = $HTTP_READ_TIMEOUT|" "$CONFIG"
   fi
   if [ -n "$HTTP_WRITE_TIMEOUT" ]; then
-    sed -i "/HTTP socket/,/HTTP socket/ s|#writetimeout =.*|writetimeout = $HTTP_WRITE_TIMEOUT|" "$CONFIG"
+    sed -i "/^\[http\]/,/^\[/ s|#writetimeout =.*|writetimeout = $HTTP_WRITE_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$HTTP_PING_INTERVAL" ]; then
+    sed -i "/^\[http\]/,/^\[/ s|#pinginterval =.*|pinginterval = $HTTP_PING_INTERVAL|" "$CONFIG"
   fi
 
   if [ -n "$HTTPS_LISTEN" ]; then
     sed -i "s|#listen = 127.0.0.1:8443|listen = $HTTPS_LISTEN|" "$CONFIG"
     if [ -n "$HTTPS_READ_TIMEOUT" ]; then
-      sed -i "/HTTPS socket/,/HTTPS socket/ s|#readtimeout =.*|readtimeout = $HTTPS_READ_TIMEOUT|" "$CONFIG"
+      sed -i "/^\[https\]/,/^\[/ s|#readtimeout =.*|readtimeout = $HTTPS_READ_TIMEOUT|" "$CONFIG"
     fi
     if [ -n "$HTTPS_WRITE_TIMEOUT" ]; then
-      sed -i "/HTTPS socket/,/HTTPS socket/ s|#writetimeout =.*|writetimeout = $HTTPS_WRITE_TIMEOUT|" "$CONFIG"
+      sed -i "/^\[https\]/,/^\[/ s|#writetimeout =.*|writetimeout = $HTTPS_WRITE_TIMEOUT|" "$CONFIG"
+    fi
+    if [ -n "$HTTPS_PING_INTERVAL" ]; then
+      sed -i "/^\[https\]/,/^\[/ s|#pinginterval =.*|pinginterval = $HTTPS_PING_INTERVAL|" "$CONFIG"
     fi
 
     if [ -n "$HTTPS_CERTIFICATE" ]; then
@@ -79,6 +85,15 @@ if [ ! -f "$CONFIG" ]; then
   fi
   if [ -n "$FEDERATION_TIMEOUT" ]; then
     sed -i "/federation/,/federation/ s|#timeout =.*|timeout = $FEDERATION_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$FEDERATION_READ_TIMEOUT" ]; then
+    sed -i "/^\[federation\]/,/^\[/ s|#readtimeout =.*|readtimeout = $FEDERATION_READ_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$FEDERATION_WRITE_TIMEOUT" ]; then
+    sed -i "/^\[federation\]/,/^\[/ s|#writetimeout =.*|writetimeout = $FEDERATION_WRITE_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$FEDERATION_PING_INTERVAL" ]; then
+    sed -i "/^\[federation\]/,/^\[/ s|#pinginterval =.*|pinginterval = $FEDERATION_PING_INTERVAL|" "$CONFIG"
   fi
 
   HAS_ETCD=
@@ -121,6 +136,15 @@ if [ ! -f "$CONFIG" ]; then
     fi
     if [ -n "$PROXY_TIMEOUT" ]; then
       sed -i "s|#proxytimeout =.*|proxytimeout = $PROXY_TIMEOUT|" "$CONFIG"
+    fi
+    if [ -n "$PROXY_READ_TIMEOUT" ]; then
+      sed -i "/^\[mcu\]/,/^\[/ s|#readtimeout =.*|readtimeout = $PROXY_READ_TIMEOUT|" "$CONFIG"
+    fi
+    if [ -n "$PROXY_WRITE_TIMEOUT" ]; then
+      sed -i "/^\[mcu\]/,/^\[/ s|#writetimeout =.*|writetimeout = $PROXY_WRITE_TIMEOUT|" "$CONFIG"
+    fi
+    if [ -n "$PROXY_PING_INTERVAL" ]; then
+      sed -i "/^\[mcu\]/,/^\[/ s|#pinginterval =.*|pinginterval = $PROXY_PING_INTERVAL|" "$CONFIG"
     fi
 
     if [ -n "$PROXY_ETCD" ]; then

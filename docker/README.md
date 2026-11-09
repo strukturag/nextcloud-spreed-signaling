@@ -15,11 +15,13 @@ The running container can be configured through different environment variables:
 
 - `CONFIG`: Optional name of configuration file to use.
 - `HTTP_LISTEN`: Address of HTTP listener.
-- `HTTP_READ_TIMEOUT`: HTTP socket read timeout in seconds.
+- `HTTP_READ_TIMEOUT`: HTTP socket read timeout in seconds (also the time websocket clients have to respond to pings).
 - `HTTP_WRITE_TIMEOUT`: HTTP socket write timeout in seconds.
+- `HTTP_PING_INTERVAL`: Interval in seconds in which ping messages are sent to HTTP websocket clients.
 - `HTTPS_LISTEN`: Address of HTTPS listener.
-- `HTTPS_READ_TIMEOUT`: HTTPS socket read timeout in seconds.
+- `HTTPS_READ_TIMEOUT`: HTTPS socket read timeout in seconds (also the time websocket clients have to respond to pings).
 - `HTTPS_WRITE_TIMEOUT`: HTTPS socket write timeout in seconds.
+- `HTTPS_PING_INTERVAL`: Interval in seconds in which ping messages are sent to HTTPS websocket clients.
 - `HTTPS_CERTIFICATE`: Name of certificate file for the HTTPS listener.
 - `HTTPS_KEY`: Name of private key file for the HTTPS listener.
 - `HASH_KEY`: Secret value used to generate checksums of sessions (32 or 64 bytes). A random value will be used if not set.
@@ -37,6 +39,9 @@ The running container can be configured through different environment variables:
 - `BACKEND_<ID>_MAX_STREAM_BITRATE`: Optional maximum bitrate for audio/video streams in backend `ID` (where `ID` is the uppercase backend id).
 - `BACKEND_<ID>_MAX_SCREEN_BITRATE`: Optional maximum bitrate for screensharing streams in backend `ID` (where `ID` is the uppercase backend id).
 - `FEDERATION_TIMEOUT`: Timeout for requests to federation targets in seconds.
+- `FEDERATION_READ_TIMEOUT`: Read timeout for websocket connections to federation targets in seconds (also the time federation targets have to respond to pings).
+- `FEDERATION_WRITE_TIMEOUT`: Write timeout for websocket connections to federation targets in seconds.
+- `FEDERATION_PING_INTERVAL`: Interval in seconds in which ping messages are sent to federation targets.
 - `NATS_URL`: Optional URL of NATS server.
 - `ETCD_ENDPOINTS`: Static list of etcd endpoints (if etcd should be used).
 - `ETCD_DISCOVERY_SRV`: Alternative domain to use for DNS SRV configuration of etcd endpoints (if etcd should be used).
@@ -50,6 +55,9 @@ The running container can be configured through different environment variables:
 - `PROXY_TOKEN_ID`: Id of the token to use when connecting to proxy servers.
 - `PROXY_TOKEN_KEY`: Private key for the configured token id.
 - `PROXY_TIMEOUT`: Timeout in seconds for requests to the proxy server.
+- `PROXY_READ_TIMEOUT`: Read timeout for websocket connections to proxy servers in seconds (also the time proxy servers have to respond to pings).
+- `PROXY_WRITE_TIMEOUT`: Write timeout for websocket connections to proxy servers in seconds.
+- `PROXY_PING_INTERVAL`: Interval in seconds in which ping messages are sent to proxy servers.
 - `PROXY_URLS`: Space-separated list of proxy URLs to connect to.
 - `PROXY_DNS_DISCOVERY`: Enable DNS discovery on hostnames of configured static URLs.
 - `PROXY_ETCD`: Set to `1` if etcd should be used to configure proxy connections.
@@ -111,10 +119,16 @@ The running container can be configured through different environment variables:
 
 - `CONFIG`: Optional name of configuration file to use.
 - `HTTP_LISTEN`: Address of HTTP listener.
+- `HTTP_READ_TIMEOUT`: HTTP socket read timeout in seconds (also the time websocket clients have to respond to pings).
+- `HTTP_WRITE_TIMEOUT`: HTTP socket write timeout in seconds.
+- `HTTP_PING_INTERVAL`: Interval in seconds in which ping messages are sent to websocket clients.
 - `COUNTRY`: Optional ISO 3166 country this proxy is located at.
 - `EXTERNAL_HOSTNAME`: The external hostname for remote streams. Will try to autodetect if omitted.
 - `TOKEN_ID`: Id of the token to use when connecting remote streams.
 - `TOKEN_KEY`: Private key for the configured token id.
+- `REMOTE_READ_TIMEOUT`: Read timeout for websocket connections to other proxy servers (for remote streams) in seconds (also the time remote proxy servers have to respond to pings).
+- `REMOTE_WRITE_TIMEOUT`: Write timeout for websocket connections to other proxy servers (for remote streams) in seconds.
+- `REMOTE_PING_INTERVAL`: Interval in seconds in which ping messages are sent to other proxy servers (for remote streams).
 - `BANDWIDTH_INCOMING`: Optional incoming target bandwidth (in megabits per second).
 - `BANDWIDTH_OUTGOING`: Optional outgoing target bandwidth (in megabits per second).
 - `JANUS_URL`: Url to Janus server.

@@ -90,7 +90,7 @@ func newTestClient(h *testHandler, r *http.Request, conn *websocket.Conn, id uin
 
 	logger := logtest.NewLoggerForTest(h.t)
 	ctx := log.NewLoggerContext(r.Context(), logger)
-	result.SetConn(ctx, conn, addr, r.Header.Get("User-Agent"), false, result)
+	result.SetConn(ctx, conn, addr, r.Header.Get("User-Agent"), false, h.timeouts, result)
 	return result
 }
 
@@ -174,6 +174,7 @@ type testHandler struct {
 	t *testing.T
 
 	upgrader websocket.Upgrader
+	timeouts Timeouts
 
 	id atomic.Uint64
 	// +checklocks:mu
@@ -340,4 +341,76 @@ func TestClient(t *testing.T) {
 		assert.True(clients[0].sessionClosed.Load())
 		assert.EqualValues(3, clients[0].received.Load())
 	}
+}
+
+func TestClientTimeouts(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+	assert := assert.New(t)
+
+	serverHandler := newTestHandler(t)
+	serverHandler.timeouts = Timeouts{
+		PingInterval: 100 * time.Millisecond,
+		ReadTimeout:  200 * time.Millisecond,
+		WriteTimeout: time.Second,
+	}
+
+	server := httptest.NewServer(serverHandler)
+	t.Cleanup(func() {
+		server.Close()
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	connect := func(respond bool) (*atomic.Uint32, chan error) {
+		client := newLocalClient(t, strings.ReplaceAll(server.URL, "http://", "ws://"))
+		t.Cleanup(func() {
+			assert.NoError(client.Close())
+		})
+
+		var pings atomic.Uint32
+		client.conn.SetPingHandler(func(msg string) error {
+			pings.Add(1)
+			if !respond {
+				return nil
+			}
+			return client.conn.WriteControl(websocket.PongMessage, []byte(msg), time.Now().Add(time.Second))
+		})
+		closed := make(chan error, 1)
+		go func() {
+			for {
+				if _, _, err := client.conn.NextReader(); err != nil {
+					closed <- err
+					return
+				}
+			}
+		}()
+		return &pings, closed
+	}
+
+	pings, closed := connect(true)
+	silentPings, silentClosed := connect(false)
+
+	// Clients that don't respond to pings are closed after the ping interval
+	// and read timeout expired.
+	start := time.Now()
+	select {
+	case err := <-silentClosed:
+		assert.Error(err)
+	case <-ctx.Done():
+		require.NoError(ctx.Err())
+	}
+	assert.GreaterOrEqual(time.Since(start), serverHandler.timeouts.ReadTimeout)
+	assert.NotZero(silentPings.Load())
+
+	// Clients that respond to pings are kept open.
+	time.Sleep(2 * (serverHandler.timeouts.PingInterval + serverHandler.timeouts.ReadTimeout))
+	select {
+	case err := <-closed:
+		assert.Fail("connection closed", "error: %s", err)
+	default:
+	}
+	assert.GreaterOrEqual(pings.Load(), uint32(5))
 }

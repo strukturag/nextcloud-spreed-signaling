@@ -42,6 +42,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
@@ -68,9 +69,6 @@ var (
 )
 
 const (
-	defaultReadTimeout  = 15
-	defaultWriteTimeout = 30
-
 	initialMcuRetry = time.Second
 	maxMcuRetry     = time.Second * 16
 
@@ -343,14 +341,7 @@ func main() {
 			logger.Fatal("Need a certificate and key for the HTTPS listener")
 		}
 
-		readTimeout, _ := cfg.GetInt("https", "readtimeout")
-		if readTimeout <= 0 {
-			readTimeout = defaultReadTimeout
-		}
-		writeTimeout, _ := cfg.GetInt("https", "writetimeout")
-		if writeTimeout <= 0 {
-			writeTimeout = defaultWriteTimeout
-		}
+		timeouts := client.LoadTimeouts(logger, cfg, "https", client.Timeouts{})
 		for address := range internal.SplitEntries(saddr, " ") {
 			go func(address string) {
 				logger.Println("Listening on", address)
@@ -361,8 +352,8 @@ func main() {
 				srv := &http.Server{
 					Handler: r,
 
-					ReadTimeout:  time.Duration(readTimeout) * time.Second,
-					WriteTimeout: time.Duration(writeTimeout) * time.Second,
+					ReadTimeout:  timeouts.ReadTimeout,
+					WriteTimeout: timeouts.WriteTimeout,
 				}
 				listeners.Add(listener)
 				if err := srv.Serve(listener); err != nil {
@@ -375,14 +366,7 @@ func main() {
 	}
 
 	if addr, _ := config.GetStringOptionWithEnv(cfg, "http", "listen"); addr != "" {
-		readTimeout, _ := cfg.GetInt("http", "readtimeout")
-		if readTimeout <= 0 {
-			readTimeout = defaultReadTimeout
-		}
-		writeTimeout, _ := cfg.GetInt("http", "writetimeout")
-		if writeTimeout <= 0 {
-			writeTimeout = defaultWriteTimeout
-		}
+		timeouts := client.LoadTimeouts(logger, cfg, "http", client.Timeouts{})
 
 		for address := range internal.SplitEntries(addr, " ") {
 			go func(address string) {
@@ -395,8 +379,8 @@ func main() {
 					Handler: r,
 					Addr:    addr,
 
-					ReadTimeout:  time.Duration(readTimeout) * time.Second,
-					WriteTimeout: time.Duration(writeTimeout) * time.Second,
+					ReadTimeout:  timeouts.ReadTimeout,
+					WriteTimeout: timeouts.WriteTimeout,
 				}
 				listeners.Add(listener)
 				if err := srv.Serve(listener); err != nil {

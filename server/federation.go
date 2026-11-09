@@ -38,20 +38,12 @@ import (
 	"github.com/mailru/easyjson"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
 const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
 	// Maximum message size allowed from peer.
 	maxMessageSize = 64 * 1024
 
@@ -100,6 +92,8 @@ type FederationClient struct {
 	remoteRoomId atomic.Value
 	changeRoomId atomic.Bool
 	federation   atomic.Pointer[api.RoomFederationMessage]
+
+	timeouts client.Timeouts
 
 	mu     sync.Mutex
 	dialer *websocket.Dialer
@@ -167,6 +161,8 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 		session: session,
 
 		reconnectDelay: initialFederationReconnectInterval,
+
+		timeouts: hub.getFederationTimeouts(),
 
 		dialer: dialer,
 		url:    url,
@@ -388,7 +384,7 @@ func (c *FederationClient) closeConnection(withBye bool) {
 	}
 
 	closeMessage := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
-	deadline := time.Now().Add(writeWait)
+	deadline := time.Now().Add(c.timeouts.WriteTimeout)
 	if err := c.conn.WriteControl(websocket.CloseMessage, closeMessage, deadline); err != nil && !isClosedError(err) {
 		c.logger.Printf("Error sending close message on federation connection to %s: %s", c.URL(), err)
 	}
@@ -468,12 +464,12 @@ func (c *FederationClient) readPump(conn *websocket.Conn) {
 	conn.SetReadLimit(maxMessageSize)
 	conn.SetPongHandler(func(msg string) error {
 		now := time.Now()
-		conn.SetReadDeadline(now.Add(pongWait)) // nolint
+		conn.SetReadDeadline(now.Add(c.timeouts.ReadWait())) // nolint
 		return nil
 	})
 
 	for {
-		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
+		conn.SetReadDeadline(time.Now().Add(c.timeouts.ReadWait())) // nolint
 		msgType, data, err := conn.ReadMessage()
 		if err != nil {
 			if c.closer.IsClosed() {
@@ -529,7 +525,7 @@ func (c *FederationClient) sendPing() {
 
 	now := time.Now().UnixNano()
 	msg := strconv.FormatInt(now, 10)
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(c.timeouts.WriteTimeout)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
 		c.logger.Printf("Could not send ping to federated client %s for %s: %v", c.URL(), c.session.PublicId(), err)
 		c.scheduleReconnectLocked()
@@ -537,7 +533,7 @@ func (c *FederationClient) sendPing() {
 }
 
 func (c *FederationClient) writePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.timeouts.PingInterval)
 	defer ticker.Stop()
 
 	for {
@@ -1169,7 +1165,7 @@ func (c *FederationClient) sendMessageLocked(message *api.ClientMessage) error {
 		return nil
 	}
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(c.timeouts.WriteTimeout)) // nolint
 	writer, err := c.conn.NextWriter(websocket.TextMessage)
 	if err == nil {
 		if m, ok := (any(message)).(easyjson.Marshaler); ok {
