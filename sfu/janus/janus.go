@@ -275,6 +275,10 @@ type janusSFU struct {
 	connectedSince time.Time
 	onConnected    atomic.Value
 	onDisconnected atomic.Value
+
+	// Pending asynchronous cleanups that must complete before the connection
+	// to Janus is closed.
+	pendingCloses sync.WaitGroup
 }
 
 func emptyOnConnected()    {}
@@ -600,6 +604,8 @@ loop:
 }
 
 func (m *janusSFU) Stop() {
+	// Wait for pending cleanups so they can still reach Janus.
+	m.pendingCloses.Wait()
 	m.disconnect()
 	m.reconnectTimer.Stop()
 }
@@ -1114,7 +1120,12 @@ func (m *janusSFU) getOrCreateRemotePublisher(ctx context.Context, controller sf
 		// cleaned up directly. Closing happens asynchronously, so the signaler is
 		// released immediately to not be used by a retry for the same stream.
 		pub.releaseSignaler()
-		go pub.closeLocal(context.Background())
+		m.pendingCloses.Go(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), m.settings.Timeout())
+			defer cancel()
+
+			pub.closeLocal(ctx)
+		})
 		return nil, err
 	}
 
