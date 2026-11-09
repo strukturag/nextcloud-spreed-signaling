@@ -161,7 +161,10 @@ func (p *janusPublisher) Close(ctx context.Context) {
 			p.logger.Printf("Room %d destroyed", p.roomId)
 		}
 		p.mcu.mu.Lock()
-		delete(p.mcu.publishers, sfu.GetStreamId(p.id, p.streamType))
+		key := sfu.GetStreamId(p.id, p.streamType)
+		if p.mcu.publishers[key] == p {
+			delete(p.mcu.publishers, key)
+		}
 		p.mcu.mu.Unlock()
 		p.roomId = 0
 		notify = true

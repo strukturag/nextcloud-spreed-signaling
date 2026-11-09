@@ -36,6 +36,18 @@ type RoomSessions interface {
 	SetRoomSession(session Session, roomSessionId api.RoomSessionId) error
 	DeleteRoomSession(session Session)
 
+	// StartJoin marks the room session id as currently joining a room. The
+	// returned function must be called once the join has finished (or failed).
+	StartJoin(roomSessionId api.RoomSessionId) func()
+
 	GetSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error)
+	// WaitForSessionId returns the session id for the room session id, waiting
+	// for a join of the room session id that is still in progress.
+	WaitForSessionId(ctx context.Context, roomSessionId api.RoomSessionId) (api.PublicSessionId, error)
+	// LookupSessionId returns the session id for the room session id from this
+	// or other servers. Lookups without a disconnect reason wait for joins of
+	// the room session id that are still in progress. Lookups with a disconnect
+	// reason never wait, they are performed while a session joins to disconnect
+	// previous sessions with the same room session id.
 	LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error)
 }

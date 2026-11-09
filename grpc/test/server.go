@@ -85,7 +85,7 @@ func (h *MockHub) GetSessionIdByResumeId(resumeId api.PrivateSessionId) api.Publ
 	return ""
 }
 
-func (h *MockHub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
+func (h *MockHub) GetSessionIdByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, wait bool) (api.PublicSessionId, error) {
 	return "", errors.New("not implemented")
 }
 

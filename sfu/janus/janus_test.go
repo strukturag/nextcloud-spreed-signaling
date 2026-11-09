@@ -24,6 +24,7 @@ package janus
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -120,6 +121,8 @@ func (t *TestMcuListener) SubscriberClosed(subscriber sfu.Subscriber) {
 
 type TestMcuController struct {
 	id api.PublicSessionId
+
+	startErr atomic.Pointer[error]
 }
 
 func (c *TestMcuController) PublisherId() api.PublicSessionId {
@@ -128,6 +131,9 @@ func (c *TestMcuController) PublisherId() api.PublicSessionId {
 
 func (c *TestMcuController) StartPublishing(ctx context.Context, publisher sfu.RemotePublisherProperties) error {
 	// TODO: Check parameters?
+	if err := c.startErr.Load(); err != nil {
+		return *err
+	}
 	return nil
 }
 
@@ -1004,6 +1010,107 @@ func Test_JanusRemotePublisher(t *testing.T) {
 
 	assert.EqualValues(1, added.Load())
 	assert.EqualValues(1, removed.Load())
+}
+
+func Test_JanusRemotePublisherStartFailed(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+
+	var added atomic.Int32
+	var removed atomic.Int32
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"add_remote_publisher": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			added.Add(1)
+			return &janus.SuccessMsg{
+				PluginData: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: api.StringMap{
+						"id":        12345,
+						"port":      10000,
+						"rtcp_port": 10001,
+					},
+				},
+			}, nil
+		},
+		"remove_remote_publisher": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			removed.Add(1)
+			return &janus.SuccessMsg{
+				PluginData: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data:   api.StringMap{},
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	listener := &TestMcuListener{
+		id: "publisher-id",
+	}
+
+	controller := &TestMcuController{
+		id: listener.id,
+	}
+	startErr := errors.New("start failed")
+	controller.startErr.Store(&startErr)
+
+	_, err := mcu.NewRemotePublisher(ctx, listener, controller, sfu.StreamTypeVideo)
+	assert.ErrorIs(err, startErr)
+
+	// The failed publisher is removed from Janus.
+	assert.Eventually(func() bool {
+		return removed.Load() == 1
+	}, testTimeout, time.Millisecond)
+
+	// Retrying for the same stream must work.
+	controller.startErr.Store(nil)
+	pub, err := mcu.NewRemotePublisher(ctx, listener, controller, sfu.StreamTypeVideo)
+	require.NoError(err)
+
+	assert.EqualValues(2, added.Load())
+	pub.Close(context.Background())
+	assert.EqualValues(2, removed.Load())
+}
+
+func Test_JanusPublisherDuplicate(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	mcu, gateway := newMcuJanusForTesting(t)
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener := &TestMcuListener{
+		id: pubId,
+	}
+	initiator := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	// Multiple publishers for the same stream can exist temporarily, e.g. if
+	// created concurrently or while the previous publisher is being closed.
+	pub1, err := mcu.NewPublisher(ctx, listener, pubId, "sid1", sfu.StreamTypeVideo, sfu.NewPublisherSettings{}, initiator)
+	require.NoError(err)
+	defer pub1.Close(context.Background())
+
+	pub2, err := mcu.NewPublisher(ctx, listener, pubId, "sid2", sfu.StreamTypeVideo, sfu.NewPublisherSettings{}, initiator)
+	require.NoError(err)
+
+	// Closing the previous publisher must not remove the new one.
+	pub1.Close(context.Background())
+	found, err := mcu.getPublisher(ctx, pubId, sfu.StreamTypeVideo)
+	require.NoError(err)
+	require.Same(pub2, found)
+
+	pub2.Close(context.Background())
 }
 
 type mockJanusStats struct {

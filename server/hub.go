@@ -768,7 +768,11 @@ func (h *Hub) GetSessionIdByResumeId(resumeId api.PrivateSessionId) api.PublicSe
 	return session.PublicId()
 }
 
-func (h *Hub) GetSessionIdByRoomSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
+func (h *Hub) GetSessionIdByRoomSessionId(ctx context.Context, roomSessionId api.RoomSessionId, wait bool) (api.PublicSessionId, error) {
+	if wait {
+		return h.roomSessions.WaitForSessionId(ctx, roomSessionId)
+	}
+
 	return h.roomSessions.GetSessionId(roomSessionId)
 }
 
@@ -932,6 +936,13 @@ func (h *Hub) removeSession(session Session) (removed bool) {
 	}
 	h.mu.Unlock()
 	return
+}
+
+func (h *Hub) removeFederatedSession(session *ClientSession) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	delete(h.federatedSessions, session)
 }
 
 func (h *Hub) removeFederationClient(client *FederationClient) {
@@ -1738,6 +1749,10 @@ func (h *Hub) disconnectSessionWithReason(session Session, reason string) {
 }
 
 func (h *Hub) sendRoom(session *ClientSession, message *api.ClientMessage, room *Room) bool {
+	return session.SendMessage(h.newRoomResponse(message, room))
+}
+
+func (h *Hub) newRoomResponse(message *api.ClientMessage, room *Room) *api.ServerMessage {
 	response := &api.ServerMessage{
 		Type: "room",
 	}
@@ -1791,7 +1806,7 @@ func (h *Hub) sendRoom(session *ClientSession, message *api.ClientMessage, room 
 			}
 		}
 	}
-	return session.SendMessage(response)
+	return response
 }
 
 func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
@@ -1800,11 +1815,27 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		return
 	}
 
+	roomId := message.Room.RoomId
+	roomSessionId := message.Room.SessionId
+	if roomId != "" && roomSessionId == "" {
+		// TODO(jojo): Better make the session id required in the request.
+		if session.ClientType() != api.HelloClientTypeInternal {
+			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
+		}
+		roomSessionId = api.RoomSessionId(session.PublicId())
+	}
+
 	// A new room request supersedes any pending one of the session.
-	requestCtx, finishRequest := session.StartRoomRequest()
+	var join roomJoin
+	if roomId != "" && message.Room.Federation == nil {
+		join = roomJoin{
+			roomId:        roomId,
+			roomSessionId: roomSessionId,
+		}
+	}
+	requestCtx, finishRequest := session.StartRoomRequest(join)
 	defer finishRequest()
 
-	roomId := message.Room.RoomId
 	if roomId == "" {
 		session.roomJoinLock.Lock()
 		defer session.roomJoinLock.Unlock()
@@ -1900,13 +1931,6 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		session.SetFederationClient(client)
 		client.signalReady()
 
-		roomSessionId := message.Room.SessionId
-		if roomSessionId == "" {
-			// TODO(jojo): Better make the session id required in the request.
-			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			roomSessionId = api.RoomSessionId(session.PublicId())
-		}
-
 		// Prefix room session id to allow using the same signaling server for two Nextcloud instances during development.
 		// Otherwise the same room session id will be detected and the other session will be kicked.
 		if err := session.UpdateRoomSessionId(api.FederatedRoomSessionIdPrefix + roomSessionId); err != nil {
@@ -1922,13 +1946,6 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 
 	if room := h.GetRoomForBackend(roomId, session.Backend()); room != nil && room.HasSession(session) {
 		// Session already is in that room, no action needed.
-		roomSessionId := message.Room.SessionId
-		if roomSessionId == "" {
-			// TODO(jojo): Better make the session id required in the request.
-			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			roomSessionId = api.RoomSessionId(session.PublicId())
-		}
-
 		if err := session.UpdateRoomSessionId(roomSessionId); err != nil {
 			h.logger.Printf("Error updating room session id for session %s: %s", session.PublicId(), err)
 		}
@@ -1958,17 +1975,18 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 			},
 		}
 	} else {
-		// Run in timeout context to prevent blocking too long.
-		ctx, cancel := context.WithTimeout(requestCtx, h.backendTimeout)
+		// Run in timeout context to prevent blocking too long. The request is not
+		// cancelled if it is superseded by a newer request, so it is known whether
+		// the backend registered the room session and it must be removed again.
+		ctx, cancel := context.WithTimeout(session.Context(), h.backendTimeout)
 		defer cancel()
 
-		sessionId := message.Room.SessionId
-		if sessionId == "" {
-			// TODO(jojo): Better make the session id required in the request.
-			h.logger.Printf("User did not send a room session id, assuming session %s", session.PublicId())
-			sessionId = api.RoomSessionId(session.PublicId())
+		if message.Room.SessionId != "" {
+			// Talk might send requests for the room session id while processing the
+			// join, so lookups wait until the join has finished.
+			defer h.roomSessions.StartJoin(roomSessionId)()
 		}
-		request := talk.NewBackendClientRoomRequest(roomId, session.UserId(), sessionId)
+		request := talk.NewBackendClientRoomRequest(roomId, session.UserId(), roomSessionId)
 		request.Room.UpdateFromSession(session)
 		if err := h.backend.PerformJSONRequest(ctx, session.ParsedBackendOcsUrl(), request, &room); err != nil {
 			if isRoomRequestSuperseded(requestCtx) {
@@ -1986,9 +2004,11 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		defer session.roomJoinLock.Unlock()
 		if isRoomRequestSuperseded(requestCtx) {
 			h.logger.Printf("Join of room %s by session %s superseded by newer request, ignoring response", roomId, session.PublicId())
-			if room.Type == "room" {
+			if room.Type == "room" && !session.isRoomJoinInUse(join) {
 				// The backend already registered the room session, remove it again.
-				session.notifyBackendRoomLeft(roomId, sessionId)
+				// This must not happen if a newer request joins (or joined) the same
+				// room with the same room session, the "leave" could remove its join.
+				session.notifyBackendRoomLeft(roomId, roomSessionId)
 			}
 			return
 		}
@@ -2100,21 +2120,35 @@ func (h *Hub) GetInternalSessions(roomId string, backend *talk.Backend) ([]*grpc
 	return room.GetInternalSessions()
 }
 
+// Time to wait for pending events before returning the state of a room to
+// other servers if the request has no deadline. Otherwise half of the remaining
+// time is used.
+const defaultWaitForPendingEvents = 500 * time.Millisecond
+
 // getRoomForInitialState returns the room if its state can be used as initial
 // state by other servers.
 func (h *Hub) getRoomForInitialState(ctx context.Context, roomId string, backend *talk.Backend) *Room {
 	room := h.GetRoomForBackend(roomId, backend)
 	if room == nil {
 		return nil
-	} else if !room.isSynced() {
-		// The room is still fetching its initial state from other servers.
-		return nil
 	}
 
 	// Make sure all events that were already received are included in the state.
-	if err := room.waitForPendingEvents(ctx); err != nil {
-		h.logger.Printf("Error waiting for pending events in room %s: %s", roomId, err)
+	// A room that is still fetching its initial state from other servers can
+	// still provide the changes from events that it received.
+	// The processing of events can be slow (e.g. if other servers need to be
+	// contacted), so only wait for part of the time the caller is waiting and
+	// return the current state otherwise.
+	timeout := defaultWaitForPendingEvents
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = time.Until(deadline) / 2
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := room.waitForPendingEvents(waitCtx); errors.Is(err, ErrRoomClosed) {
 		return nil
+	} else if err != nil {
+		h.logger.Printf("Error waiting for pending events in room %s, returning current state: %s", roomId, err)
 	}
 
 	return room
@@ -2190,12 +2224,15 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage
 	delete(h.federatedSessions, session)
 	h.mu.Unlock()
 
+	// Messages to the session are held back until the response was sent, so
+	// the client knows that the events of the room belong to the joined room.
 	roomId := room.Room.RoomId
+	session.HoldMessages(roomId)
+
 	internalRoomId := getRoomIdForBackend(roomId, session.Backend())
 	if err := session.SubscribeRoomEvents(roomId, message.Room.SessionId); err != nil {
-		session.SendMessage(message.NewWrappedErrorServerMessage(err))
 		// The session (implicitly) left the room due to an error.
-		h.sendRoom(session, nil, nil)
+		session.ReleaseMessages(false, message.NewWrappedErrorServerMessage(err), h.newRoomResponse(nil, nil))
 		return
 	}
 
@@ -2205,10 +2242,9 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage
 		var err error
 		if r, err = h.createRoomLocked(roomId, room.Room.Properties, session.Backend()); err != nil {
 			h.ru.Unlock()
-			session.SendMessage(message.NewWrappedErrorServerMessage(err))
 			// The session (implicitly) left the room due to an error.
 			session.UnsubscribeRoomEvents()
-			h.sendRoom(session, nil, nil)
+			session.ReleaseMessages(false, message.NewWrappedErrorServerMessage(err), h.newRoomResponse(nil, nil))
 			return
 		}
 	}
@@ -2229,15 +2265,20 @@ func (h *Hub) processJoinRoom(session *ClientSession, message *api.ClientMessage
 	if room.Room.Permissions != nil {
 		session.SetPermissions(*room.Room.Permissions)
 	}
-	h.sendRoom(session, message, r)
-	if err := r.addReservedSession(session, room.Room.Session); err != nil {
+	// The session must be added before the response is sent, so the response
+	// can tell whether joining failed.
+	join, err := r.startAddSession(session, room.Room.Session, true)
+	if err != nil {
 		// The room was deleted while the session was joining.
 		h.logger.Printf("Could not add session %s to room %s: %s", session.PublicId(), roomId, err)
 		session.SetPendingCloseRoom(roomId)
-		session.SendMessage(newRoomDeletedMessage(roomId))
 		session.LeaveRoom(true)
-		h.sendRoom(session, nil, nil)
+		session.ReleaseMessages(false, newRoomDeletedMessage(roomId), h.newRoomResponse(message, nil))
+		return
 	}
+
+	session.ReleaseMessages(true, h.newRoomResponse(message, r))
+	r.finishAddSession(join)
 }
 
 func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
@@ -3169,7 +3210,9 @@ func (h *Hub) processRoomDeleted(room *Room, message *talk.BackendServerRoomRequ
 	for _, session := range sessions {
 		session.SetPendingCloseRoom(roomId)
 		// The session is no longer in the room
-		session.SendMessage(msg)
+		if _, ok := session.(*VirtualSession); !ok {
+			session.SendMessage(msg)
+		}
 		session.LeaveRoom(true)
 		switch sess := session.(type) {
 		case *ClientSession:

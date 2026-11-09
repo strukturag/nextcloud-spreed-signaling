@@ -23,71 +23,38 @@ package async
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 )
 
-var (
-	ErrDuplicateSignaler = errors.New("duplicate signaler") // +checklocksignore: Global readonly variable.
-	ErrAlreadyReleased   = errors.New("already released")
-)
-
 type notifierEntry struct {
-	sync.Mutex
-
-	ref atomic.Int32
 	key string
 	ch  chan struct{}
+	// Set once "ch" is closed.
+	notified atomic.Bool
 
-	// +checklocks:Mutex
-	signaler *Signaler
-	// +checklocks:Mutex
-	waiter map[*Waiter]bool
+	// Signalers and number of waiters using the entry.
+	signalers map[*Signaler]bool // +checklocksignore: Only accessed while holding the lock of the notifier.
+	waiters   int                // +checklocksignore: Only accessed while holding the lock of the notifier.
 }
 
-func (w *notifierEntry) setSignaler(signaler *Signaler) {
-	w.Lock()
-	defer w.Unlock()
-
-	if w.signaler != nil {
-		panic(ErrDuplicateSignaler)
+func newNotifierEntry(key string) *notifierEntry {
+	return &notifierEntry{
+		key:       key,
+		ch:        make(chan struct{}),
+		signalers: make(map[*Signaler]bool),
 	}
-
-	w.signaler = signaler
 }
 
-func (w *notifierEntry) clearSignaler(signaler *Signaler) {
-	w.Lock()
-	defer w.Unlock()
-
-	if w.signaler != signaler {
-		panic("unknown signaler")
-	}
-
-	w.signaler = nil
+func (e *notifierEntry) isNotified() bool {
+	return e.notified.Load()
 }
 
-func (w *notifierEntry) addWaiter(waiter *Waiter) {
-	w.Lock()
-	defer w.Unlock()
-
-	w.waiter[waiter] = true
-}
-
-func (w *notifierEntry) removeWaiter(waiter *Waiter) {
-	w.Lock()
-	defer w.Unlock()
-
-	delete(w.waiter, waiter)
-}
-
-func (w *notifierEntry) notify() {
-	select {
-	case <-w.ch:
-		// Already closed
-	default:
-		close(w.ch)
+func (e *notifierEntry) notify() {
+	// Can be called concurrently (e.g. by multiple signalers), so make sure the
+	// channel is only closed once.
+	if e.notified.CompareAndSwap(false, true) {
+		close(e.ch)
 	}
 }
 
@@ -123,98 +90,133 @@ type Notifier struct {
 	sync.Mutex
 
 	// +checklocks:Mutex
-	waiters map[string]*notifierEntry
+	entries map[string]*notifierEntry
 }
 
 type ReleaseFunc func()
 
-func (n *Notifier) createEntry(key string) *notifierEntry {
+// +checklocks:n.Mutex
+func (n *Notifier) getEntryLocked(key string, forSignaler bool) *notifierEntry {
+	entry, found := n.entries[key]
+	if !found || (forSignaler && entry.isNotified()) {
+		// If the entry was notified already (e.g. by a previous signaler for the
+		// same key that is still being closed), a new entry is used so waiters
+		// for the new signaler don't get notified by the previous signaler.
+		// Waiters of the previous entry were notified already.
+		entry = newNotifierEntry(key)
+		if n.entries == nil {
+			n.entries = make(map[string]*notifierEntry)
+		}
+		n.entries[key] = entry
+	}
+	return entry
+}
+
+// NewSignaler creates a signaler for the given key. Multiple signalers can
+// exist for the same key, e.g. if a new publisher is created while a previous
+// one is still being closed.
+func (n *Notifier) NewSignaler(key string) (*Signaler, ReleaseFunc) {
 	n.Lock()
 	defer n.Unlock()
 
-	waiter, found := n.waiters[key]
-	if !found {
-		waiter = &notifierEntry{
-			key:    key,
-			ch:     make(chan struct{}),
-			waiter: make(map[*Waiter]bool),
-		}
-
-		if n.waiters == nil {
-			n.waiters = make(map[string]*notifierEntry)
-		}
-		n.waiters[key] = waiter
-	}
-
-	waiter.ref.Add(1)
-	return waiter
-}
-
-func (n *Notifier) NewSignaler(key string) (*Signaler, ReleaseFunc) {
-	entry := n.createEntry(key)
-
+	entry := n.getEntryLocked(key, true)
 	s := &Signaler{}
 	s.entry.Store(entry)
-	entry.setSignaler(s)
-	releaseFunc := func() {
+	entry.signalers[s] = true
+	return s, func() {
 		n.releaseSignaler(s)
 	}
-	return s, releaseFunc
 }
 
 func (n *Notifier) NewWaiter(key string) (*Waiter, ReleaseFunc) {
-	entry := n.createEntry(key)
+	n.Lock()
+	defer n.Unlock()
 
+	entry := n.getEntryLocked(key, false)
 	w := &Waiter{}
 	w.entry.Store(entry)
-	entry.addWaiter(w)
-	releaseFunc := func() {
+	entry.waiters++
+	return w, func() {
 		n.releaseWaiter(w)
 	}
-	return w, releaseFunc
 }
 
+// Reset notifies all current waiters. Existing signalers are kept and can
+// notify waiters that are created afterwards, e.g. if a publisher connects
+// again after the connection to the server was reset.
 func (n *Notifier) Reset() {
 	n.Lock()
 	defer n.Unlock()
 
-	for _, w := range n.waiters {
-		w.notify()
+	var entries map[string]*notifierEntry
+	for key, entry := range n.entries {
+		entry.notify()
+		if len(entry.signalers) == 0 {
+			continue
+		}
+
+		// The waiters of the previous entry keep it until they are released.
+		newEntry := newNotifierEntry(key)
+		for s := range entry.signalers {
+			s.entry.Store(newEntry)
+			newEntry.signalers[s] = true
+		}
+		clear(entry.signalers)
+
+		if entries == nil {
+			entries = make(map[string]*notifierEntry)
+		}
+		entries[key] = newEntry
 	}
-	n.waiters = nil
+	n.entries = entries
+}
+
+// releaseEntryLocked removes the entry from the notifier once it has no
+// signalers and either no waiters or was notified already. New waiters must
+// not use a notified entry without signalers, they would return immediately
+// although no signaler exists any more. The entry might have been replaced
+// (or removed by "Reset") in the meantime.
+//
+// +checklocks:n.Mutex
+func (n *Notifier) releaseEntryLocked(entry *notifierEntry) {
+	if len(entry.signalers) > 0 {
+		return
+	}
+
+	if entry.waiters == 0 {
+		entry.notify()
+	} else if !entry.isNotified() {
+		// The waiters wait for a new signaler.
+		return
+	}
+
+	if n.entries[entry.key] == entry {
+		delete(n.entries, entry.key)
+	}
 }
 
 func (n *Notifier) releaseSignaler(s *Signaler) {
+	n.Lock()
+	defer n.Unlock()
+
 	entry := s.entry.Swap(nil)
 	if entry == nil {
 		return
 	}
 
-	entry.clearSignaler(s)
-	if entry.ref.Add(-1) == 0 {
-		n.Lock()
-		defer n.Unlock()
-
-		if e, found := n.waiters[entry.key]; found {
-			e.notify()
-			delete(n.waiters, e.key)
-		}
-	}
+	delete(entry.signalers, s)
+	n.releaseEntryLocked(entry)
 }
+
 func (n *Notifier) releaseWaiter(w *Waiter) {
+	n.Lock()
+	defer n.Unlock()
+
 	entry := w.entry.Swap(nil)
 	if entry == nil {
 		return
 	}
 
-	entry.removeWaiter(w)
-	if entry.ref.Add(-1) == 0 {
-		n.Lock()
-		defer n.Unlock()
-
-		if e, found := n.waiters[entry.key]; found {
-			e.notify()
-			delete(n.waiters, e.key)
-		}
-	}
+	entry.waiters--
+	n.releaseEntryLocked(entry)
 }

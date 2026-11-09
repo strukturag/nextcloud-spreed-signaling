@@ -24,6 +24,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http/httptest"
 	"strconv"
 	"sync"
@@ -412,6 +413,53 @@ func TestRoom_OlderUsersListsAreIgnored(t *testing.T) {
 			assertParticipantsUpdate()
 			assertUsers()
 			assertNoMoreMessages(t, client1, client2)
+
+			// A list of users that was received before all sessions left the call
+			// is ignored.
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 5000,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall:  inCall,
+					Changed: api.UserDataList{user(sid1, FlagInCall)},
+					Users:   api.UserDataList{user(sid1, FlagInCall)}, // nolint
+				},
+			})
+			assertParticipantsUpdate()
+			assertUsers(sid1)
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 7000,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: json.RawMessage(strconv.Itoa(FlagDisconnected)),
+					All:    true,
+				},
+			})
+			for _, client := range []*TestClient{client1, client2} {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					checkMessageInCallAll(t, msg, roomId, FlagDisconnected)
+				}
+			}
+			assertUsers()
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: 6000,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall:  inCall,
+					Changed: api.UserDataList{user(sid2, FlagInCall)},
+					Users:   api.UserDataList{user(sid1, FlagInCall), user(sid2, FlagInCall)}, // nolint
+				},
+			})
+			publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+				Type:         "participants",
+				ReceivedTime: 6500,
+				Participants: &talk.BackendRoomParticipantsRequest{
+					Changed: api.UserDataList{user(sid2, FlagInCall)},
+					Users:   api.UserDataList{user(sid1, FlagInCall), user(sid2, FlagInCall)}, // nolint
+				},
+			})
+			assertNoMoreMessages(t, client1, client2)
+			assertUsers()
 		})
 	}
 }
@@ -878,7 +926,7 @@ func TestRoom_StoredUsersAreCopies(t *testing.T) {
 
 	// Modifying the stored data doesn't modify the data passed to the room
 	// (which could be referenced by messages being sent).
-	room.PublishUsersInCallChangedAll(FlagInCall | FlagWithAudio)
+	room.publishUsersInCallChangedAll(FlagInCall|FlagWithAudio, nil)
 	assert.Equal(FlagInCall, changed[0]["inCall"])
 	if users := room.getUsers(); assert.Len(users, 1) {
 		assert.Equal(FlagInCall|FlagWithAudio, users[0]["inCall"])
@@ -1070,4 +1118,740 @@ func TestRoom_InitialStateIncludesPendingEvents(t *testing.T) {
 	waitForRoomSynced(ctx, t, room2)
 	waitForRoomSynced(ctx, t, room1)
 	assertRoomUsers(t, roomId, []*Hub{hub1, hub2}, other)
+}
+
+func TestRoom_SyncingRoomProvidesEvents(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub1, hub2, server1, _ := CreateClusteredHubsForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub1.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	roomId := "test-room"
+	room2, err := hub2.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	defer room2.Close()
+	waitForRoomSynced(ctx, t, room2)
+
+	// The second server doesn't respond while the first server is syncing.
+	// Only non-fatal assertions are used while the lock is held.
+	other := api.PublicSessionId("the-other-session")
+	room2.mu.Lock()
+	room1, err := hub1.CreateRoom(roomId, nil, session.Backend())
+	if assert.NoError(err) {
+		// Events are processed while the room is syncing.
+		publishInCallChanged(t, hub1, room1, other, FlagInCall)
+		assert.Eventually(func() bool {
+			_, found := room1.getUsers().Map()[other]
+			return found
+		}, time.Second/2, time.Millisecond)
+
+		// The changes can be provided to other servers while still syncing.
+		select {
+		case <-room1.synced:
+			assert.Fail("room should still be syncing")
+		default:
+		}
+		users, found := hub1.GetRoomUsers(ctx, roomId, session.Backend())
+		if assert.True(found) && assert.Len(users, 1) {
+			sid, _ := users[0].SessionId()
+			assert.Equal(other, sid)
+		}
+	}
+	room2.mu.Unlock() // nolint
+	require.NoError(err)
+	defer room1.Close()
+
+	waitForRoomSynced(ctx, t, room1)
+	waitForRoomSynced(ctx, t, room2)
+	assertRoomUsers(t, roomId, []*Hub{hub1, hub2}, other)
+}
+
+func TestRoom_InitialStateWithBusyRoom(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	roomId := "test-room"
+	room, err := hub.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	defer room.Close()
+	waitForRoomSynced(ctx, t, room)
+
+	other := api.PublicSessionId("the-other-session")
+	room.addUser(other, api.UserData{
+		"sessionId": other,
+		"inCall":    FlagInCall,
+	})
+
+	// The processing of events is blocked (e.g. waiting for other servers).
+	release := make(chan struct{})
+	defer close(release)
+	room.asyncQueue.Execute(func() {
+		<-release
+	})
+
+	// The current state is returned before the request times out.
+	requestCtx, requestCancel := context.WithTimeout(ctx, time.Second)
+	defer requestCancel()
+	start := time.Now()
+	users, found := hub.GetRoomUsers(requestCtx, roomId, session.Backend())
+	assert.Less(time.Since(start), 900*time.Millisecond)
+	if assert.True(found) && assert.Len(users, 1) {
+		sid, _ := users[0].SessionId()
+		assert.Equal(other, sid)
+	}
+}
+
+func TestRoom_OutdatedInCallChanges(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			assert := assert.New(t)
+			hub1, hub2, server1, server2 := createHubsForClusteredTest(t)
+
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
+
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			session1, ok := hub1.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+			require.True(ok)
+			room1 := hub1.getRoom(roomId)
+			require.NotNil(room1)
+			backend := session1.Backend()
+			hubs := []*Hub{hub1, hub2}
+			clients := []*TestClient{client1, client2}
+			sid1 := hello1.Hello.SessionId
+			sid2 := hello2.Hello.SessionId
+
+			publish := func(received int64, request *talk.BackendServerRoomRequest) {
+				t.Helper()
+				request.ReceivedTime = received
+				publishBackendRoomRequest(t, hub1, roomId, backend, request)
+			}
+			inCallChanged := func(received int64, changed ...api.UserData) {
+				t.Helper()
+				publish(received, &talk.BackendServerRoomRequest{
+					Type: "incall",
+					InCall: &talk.BackendRoomInCallRequest{
+						InCall:  json.RawMessage(strconv.Itoa(FlagInCall)),
+						Changed: changed,
+					},
+				})
+			}
+			inCallAll := func(received int64, inCall int) {
+				t.Helper()
+				publish(received, &talk.BackendServerRoomRequest{
+					Type: "incall",
+					InCall: &talk.BackendRoomInCallRequest{
+						InCall: json.RawMessage(strconv.Itoa(inCall)),
+						All:    true,
+					},
+				})
+			}
+			user := func(sid api.PublicSessionId, inCall int) api.UserData {
+				return api.UserData{
+					"sessionId": sid,
+					"inCall":    inCall,
+				}
+			}
+			expectUpdate := func() {
+				t.Helper()
+				for _, client := range clients {
+					if msg, ok := client.RunUntilMessage(ctx); ok {
+						checkMessageParticipantsInCall(t, msg)
+					}
+				}
+			}
+
+			inCallChanged(1000, user(sid1, FlagInCall))
+			expectUpdate()
+			assertRoomUsers(t, roomId, hubs, sid1)
+			assert.True(room1.IsSessionInCall(session1))
+
+			inCallChanged(3000, user(sid1, FlagDisconnected))
+			expectUpdate()
+			assertRoomUsers(t, roomId, hubs)
+			assert.False(room1.IsSessionInCall(session1))
+
+			// A delayed request that joins the call is ignored for the session
+			// that left the call afterwards, but not for other sessions.
+			inCallChanged(2000, user(sid1, FlagInCall), user(sid2, FlagInCall))
+			expectUpdate()
+			assertRoomUsers(t, roomId, hubs, sid2)
+			assert.False(room1.IsSessionInCall(session1))
+
+			// The same applies to in-call changes in participant updates.
+			publish(2500, &talk.BackendServerRoomRequest{
+				Type: "participants",
+				Participants: &talk.BackendRoomParticipantsRequest{
+					Changed: api.UserDataList{user(sid1, FlagInCall)},
+				},
+			})
+			assertNoMoreMessages(t, clients...)
+			assertRoomUsers(t, roomId, hubs, sid2)
+
+			// Changes received before all sessions left the call are ignored.
+			inCallAll(5000, FlagDisconnected)
+			for _, client := range clients {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					checkMessageInCallAll(t, msg, roomId, FlagDisconnected)
+				}
+			}
+			assertRoomUsers(t, roomId, hubs)
+
+			inCallChanged(4000, user(sid2, FlagInCall))
+			inCallAll(4500, FlagInCall)
+			assertNoMoreMessages(t, clients...)
+			assertRoomUsers(t, roomId, hubs)
+		})
+	}
+}
+
+func TestRoom_OutdatedParticipantsChangesWithUsersList(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	roomId := "test-room"
+	MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	sid := hello.Hello.SessionId
+	publishBackendRoomRequest(t, hub, roomId, session.Backend(), &talk.BackendServerRoomRequest{
+		Type:         "incall",
+		ReceivedTime: 2000,
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall:  json.RawMessage(strconv.Itoa(FlagInCall)),
+			Changed: api.UserDataList{{"sessionId": sid, "inCall": FlagInCall}},
+		},
+	})
+	if msg, ok := client.RunUntilMessage(ctx); ok {
+		checkMessageParticipantsInCall(t, msg)
+	}
+
+	// Older versions of Talk send the complete list of users which must be
+	// published even if all changes are outdated.
+	publishBackendRoomRequest(t, hub, roomId, session.Backend(), &talk.BackendServerRoomRequest{
+		Type:         "participants",
+		ReceivedTime: 1000,
+		Participants: &talk.BackendRoomParticipantsRequest{
+			Changed: api.UserDataList{{"sessionId": sid, "inCall": FlagDisconnected}},
+			Users:   api.UserDataList{{"sessionId": sid, "inCall": FlagInCall}}, // nolint
+		},
+	})
+	if msg, ok := client.RunUntilMessage(ctx); ok {
+		if update, ok := checkMessageParticipantsInCall(t, msg); ok {
+			if assert.Len(t, update.Users, 1) {
+				assert.EqualValues(t, sid, update.Users[0]["sessionId"])
+				assert.EqualValues(t, FlagInCall, update.Users[0]["inCall"])
+			}
+		}
+	}
+	assertRoomUsers(t, roomId, []*Hub{hub}, sid)
+	assertNoMoreMessages(t, client)
+}
+
+func TestRoom_LateInCallAllKeepsNewerChanges(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			assert := assert.New(t)
+			hub1, hub2, server1, server2 := createHubsForClusteredTest(t)
+
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
+
+			roomId := "test-room"
+			MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			session1, ok := hub1.GetSessionByPublicId(hello1.Hello.SessionId).(*ClientSession)
+			require.True(ok)
+			session2, ok := hub2.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+			require.True(ok)
+			room1 := hub1.getRoom(roomId)
+			require.NotNil(room1)
+			room2 := hub2.getRoom(roomId)
+			require.NotNil(room2)
+			backend := session1.Backend()
+			hubs := []*Hub{hub1, hub2}
+			clients := []*TestClient{client1, client2}
+			sid1 := hello1.Hello.SessionId
+			sid2 := hello2.Hello.SessionId
+
+			publish := func(received int64, inCall int, all bool, changed ...api.UserData) {
+				t.Helper()
+				publishBackendRoomRequest(t, hub1, roomId, backend, &talk.BackendServerRoomRequest{
+					Type:         "incall",
+					ReceivedTime: received,
+					InCall: &talk.BackendRoomInCallRequest{
+						InCall:  json.RawMessage(strconv.Itoa(inCall)),
+						All:     all,
+						Changed: changed,
+					},
+				})
+			}
+			expectUpdate := func() {
+				t.Helper()
+				for _, client := range clients {
+					if msg, ok := client.RunUntilMessage(ctx); ok {
+						checkMessageParticipantsInCall(t, msg)
+					}
+				}
+			}
+
+			publish(1000, FlagInCall, false, api.UserData{"sessionId": sid2, "inCall": FlagInCall})
+			expectUpdate()
+			publish(3000, FlagInCall, false, api.UserData{"sessionId": sid1, "inCall": FlagInCall})
+			expectUpdate()
+			assertRoomUsers(t, roomId, hubs, sid1, sid2)
+
+			// A delayed request that all sessions left the call doesn't affect the
+			// session that joined the call afterwards. The session doesn't receive
+			// the event, so its client doesn't leave the call.
+			publish(2000, FlagDisconnected, true)
+			for _, client := range clients {
+				if client != client1 {
+					if msg, ok := client.RunUntilMessage(ctx); ok {
+						checkMessageInCallAll(t, msg, roomId, FlagDisconnected)
+					}
+				}
+				// The current state of the session that is still in the call.
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					if update, ok := checkMessageParticipantsInCall(t, msg); ok {
+						users := update.Users.Map()
+						if assert.Contains(users, sid1) {
+							assert.True(isUserInCall(users[sid1]), "users: %+v", users)
+						}
+					}
+				}
+			}
+			assertRoomUsers(t, roomId, hubs, sid1)
+			assert.True(room1.IsSessionInCall(session1))
+			assert.False(room2.IsSessionInCall(session2))
+
+			// A delayed request that all sessions joined the call doesn't affect the
+			// session that left the call afterwards.
+			publish(5000, FlagDisconnected, false, api.UserData{"sessionId": sid2, "inCall": FlagDisconnected})
+			expectUpdate()
+			publish(4000, FlagInCall, true)
+			// Nobody joined the call, so nobody is notified.
+			assertNoMoreMessages(t, clients...)
+			require.NoError(room1.waitForPendingEvents(ctx))
+			require.NoError(room2.waitForPendingEvents(ctx))
+			assert.False(room2.IsSessionInCall(session2))
+			assert.True(room1.IsSessionInCall(session1))
+			assertRoomUsers(t, roomId, hubs, sid1)
+
+			// A session that left the call after a delayed request that all
+			// sessions left the call was received is still notified that the
+			// others left.
+			publish(6000, FlagInCall, false, api.UserData{"sessionId": sid2, "inCall": FlagInCall})
+			expectUpdate()
+			publish(8000, FlagDisconnected, false, api.UserData{"sessionId": sid1, "inCall": FlagDisconnected})
+			expectUpdate()
+			assertRoomUsers(t, roomId, hubs, sid2)
+			publish(7000, FlagDisconnected, true)
+			for _, client := range clients {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					checkMessageInCallAll(t, msg, roomId, FlagDisconnected)
+				}
+			}
+			assertNoMoreMessages(t, clients...)
+			assertRoomUsers(t, roomId, hubs)
+			assert.False(room1.IsSessionInCall(session1))
+			assert.False(room2.IsSessionInCall(session2))
+		})
+	}
+}
+
+func TestRoom_InitialStateIncludesChangesWhileSyncing(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	createSyncingRoom := func(roomId string) *Room {
+		t.Helper()
+		room, err := hub.CreateRoom(roomId, nil, session.Backend())
+		require.NoError(err)
+		t.Cleanup(func() {
+			room.Close()
+		})
+		waitForRoomSynced(ctx, t, room)
+
+		// Simulate that the room is still fetching its initial state.
+		room.mu.Lock()
+		room.syncState = newRoomSyncState()
+		room.mu.Unlock() // nolint
+		return room
+	}
+	sid1 := api.PublicSessionId("session-1")
+	sid2 := api.PublicSessionId("session-2")
+	// The (outdated) initial state received from other servers.
+	initialUsers := func() api.UserDataMap {
+		return api.UserDataMap{
+			sid1: {"sessionId": sid1, "inCall": FlagInCall, "participantType": 1},
+			sid2: {"sessionId": sid2, "inCall": FlagInCall, "participantType": 1},
+		}
+	}
+
+	// Changes of users that are only known from the initial state.
+	room := createSyncingRoom("test-room-1")
+	room.PublishUsersChanged(api.UserDataList{
+		{"sessionId": sid1, "participantType": 3},
+	})
+	room.publishUsersInCallChangedAll(FlagInCall|FlagWithAudio, nil)
+	room.applyInitialState(nil, initialUsers(), true)
+	users := room.getUsers().Map()
+	if assert.Len(users, 2) {
+		assert.EqualValues(3, users[sid1]["participantType"])
+		assert.EqualValues(1, users[sid2]["participantType"])
+		for _, sid := range []api.PublicSessionId{sid1, sid2} {
+			assert.EqualValues(FlagInCall|FlagWithAudio, users[sid]["inCall"], "user %s: %+v", sid, users[sid])
+		}
+	}
+
+	// All users left the call, except one that changed its state afterwards.
+	room = createSyncingRoom("test-room-2")
+	sid3 := api.PublicSessionId("session-3")
+	room.addUser(sid3, api.UserData{"sessionId": sid3, "inCall": FlagInCall})
+	room.publishUsersInCallChangedAll(FlagDisconnected, map[api.PublicSessionId]bool{
+		sid3: true,
+	})
+	room.applyInitialState(nil, initialUsers(), true)
+	assertRoomUsers(t, "test-room-2", []*Hub{hub}, sid3)
+
+	// All users left the call before any users were stored.
+	room = createSyncingRoom("test-room-3")
+	room.publishUsersInCallChangedAll(FlagDisconnected, nil)
+	room.applyInitialState(nil, initialUsers(), true)
+	assertRoomUsers(t, "test-room-3", []*Hub{hub})
+}
+
+func TestRoom_UnsupportedInCallAllIgnored(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+	session, ok := hub.GetSessionByPublicId(hello.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	roomId := "test-room"
+	room, err := hub.CreateRoom(roomId, nil, session.Backend())
+	require.NoError(err)
+	defer room.Close()
+	waitForRoomSynced(ctx, t, room)
+
+	// A change of all sessions with unsupported flags doesn't cause changes
+	// that were received before to be ignored.
+	publishBackendRoomRequest(t, hub, roomId, session.Backend(), &talk.BackendServerRoomRequest{
+		Type:         "incall",
+		ReceivedTime: 2000,
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall: json.RawMessage(`"unsupported"`),
+			All:    true,
+		},
+	})
+	other := api.PublicSessionId("the-other-session")
+	publishBackendRoomRequest(t, hub, roomId, session.Backend(), &talk.BackendServerRoomRequest{
+		Type:         "incall",
+		ReceivedTime: 1000,
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall: json.RawMessage(strconv.Itoa(FlagInCall)),
+			Changed: api.UserDataList{
+				{"sessionId": other, "inCall": FlagInCall},
+			},
+		},
+	})
+	assert.Eventually(t, func() bool {
+		_, found := room.getUsers().Map()[other]
+		return found
+	}, time.Second, time.Millisecond)
+}
+
+// getLastInCallReceived returns a copy of the timestamps of the last in-call
+// changes, read from the goroutine processing the events.
+func getLastInCallReceived(ctx context.Context, t *testing.T, room *Room) map[api.PublicSessionId]int64 {
+	t.Helper()
+	ch := make(chan map[api.PublicSessionId]int64, 1)
+	room.asyncQueue.Execute(func() {
+		ch <- maps.Clone(room.lastInCallReceived)
+	})
+	select {
+	case result := <-ch:
+		return result
+	case <-ctx.Done():
+		require.NoError(t, ctx.Err())
+		return nil
+	}
+}
+
+func TestRoom_InCallChangesPruned(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	client1.RunUntilJoined(ctx, hello1.Hello)
+	MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	client1.RunUntilJoined(ctx, hello2.Hello)
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+	backend := room.Backend()
+	clients := []*TestClient{client1, client2}
+
+	publish := func(received int64, inCall int, all bool, changed ...api.UserData) {
+		t.Helper()
+		publishBackendRoomRequest(t, hub, roomId, backend, &talk.BackendServerRoomRequest{
+			Type:         "incall",
+			ReceivedTime: received,
+			InCall: &talk.BackendRoomInCallRequest{
+				InCall:  json.RawMessage(strconv.Itoa(inCall)),
+				All:     all,
+				Changed: changed,
+			},
+		})
+	}
+	expectUpdate := func() {
+		t.Helper()
+		for _, client := range clients {
+			if msg, ok := client.RunUntilMessage(ctx); ok {
+				checkMessageParticipantsInCall(t, msg)
+			}
+		}
+	}
+
+	sidA := api.PublicSessionId("session-a")
+	sidB := api.PublicSessionId("session-b")
+	publish(1000, FlagInCall, false, api.UserData{"sessionId": sidA, "inCall": FlagInCall})
+	expectUpdate()
+	publish(3000, FlagDisconnected, false, api.UserData{"sessionId": sidB, "inCall": FlagDisconnected})
+	expectUpdate()
+	assert.Len(getLastInCallReceived(ctx, t, room), 2)
+
+	// Timestamps older than a change of all sessions are no longer needed. The
+	// session that changed its state afterwards (and is not in the call) doesn't
+	// need to be sent to the clients.
+	publish(2000, FlagDisconnected, true)
+	for _, client := range clients {
+		if msg, ok := client.RunUntilMessage(ctx); ok {
+			checkMessageInCallAll(t, msg, roomId, FlagDisconnected)
+		}
+	}
+	assertNoMoreMessages(t, clients...)
+	assert.Equal(map[api.PublicSessionId]int64{sidB: 3000}, getLastInCallReceived(ctx, t, room))
+
+	// Timestamps older than the maximum age are removed (for all sessions,
+	// independent of the server they are connected to).
+	room.asyncQueue.Execute(func() {
+		room.inCallChangesMaxAge = 1000
+	})
+	sidX := api.PublicSessionId("session-x")
+	publish(9300, FlagInCall, false, api.UserData{"sessionId": sidX, "inCall": FlagInCall})
+	expectUpdate()
+	assert.Equal(map[api.PublicSessionId]int64{sidX: 9300}, getLastInCallReceived(ctx, t, room))
+
+	sid2 := hello2.Hello.SessionId
+	publish(10000, FlagInCall, false, api.UserData{"sessionId": sid2, "inCall": FlagInCall})
+	expectUpdate()
+	assert.Equal(map[api.PublicSessionId]int64{sidX: 9300, sid2: 10000}, getLastInCallReceived(ctx, t, room))
+
+	// The timestamps are only checked from time to time.
+	sidC := api.PublicSessionId("session-c")
+	publish(10400, FlagInCall, false, api.UserData{"sessionId": sidC, "inCall": FlagInCall})
+	expectUpdate()
+	assert.Contains(getLastInCallReceived(ctx, t, room), sidX)
+
+	publish(10600, FlagInCall, false, api.UserData{"sessionId": sidB, "inCall": FlagInCall})
+	expectUpdate()
+	assert.Equal(map[api.PublicSessionId]int64{sid2: 10000, sidC: 10400, sidB: 10600}, getLastInCallReceived(ctx, t, room))
+}
+
+func TestRoom_LeftSessionsRemovedOnAllServers(t *testing.T) {
+	t.Parallel()
+	for _, subtest := range clusteredTests {
+		t.Run(subtest, func(t *testing.T) {
+			t.Parallel()
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			require := require.New(t)
+			assert := assert.New(t)
+			hub1, hub2, server1, server2 := createHubsForClusteredTest(t)
+
+			ctx, cancel := context.WithTimeout(ctx, testTimeout)
+			defer cancel()
+
+			roomId := "test-room"
+			roomSessionId := api.RoomSessionId("room-session-id")
+			client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+			defer client1.CloseWithBye()
+			MustSucceed3(t, client1.JoinRoomWithRoomSession, ctx, roomId, roomSessionId)
+			client1.RunUntilJoined(ctx, hello1.Hello)
+			client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+			defer client2.CloseWithBye()
+			MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+			client1.RunUntilJoined(ctx, hello2.Hello)
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+			room2 := hub2.getRoom(roomId)
+			require.NotNil(room2)
+			sid1 := hello1.Hello.SessionId
+			publishInCallChanged(t, hub1, room2, sid1, FlagInCall)
+			for _, client := range []*TestClient{client1, client2} {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					checkMessageParticipantsInCall(t, msg)
+				}
+			}
+			assertRoomUsers(t, roomId, []*Hub{hub1, hub2}, sid1)
+
+			// A new session with the same room session id replaces the first one,
+			// Talk is not notified and doesn't send an in-call change.
+			beforeLeave := time.Now().UnixNano()
+			client3, hello3 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"3")
+			defer client3.CloseWithBye()
+			MustSucceed3(t, client3.JoinRoomWithRoomSession, ctx, roomId, roomSessionId)
+			if msg, ok := client1.RunUntilMessage(ctx); ok {
+				if assert.Equal("bye", msg.Type, "%+v", msg) && assert.NotNil(msg.Bye) {
+					assert.Equal("room_session_reconnected", msg.Bye.Reason)
+				}
+			}
+			client1.RunUntilClosed(ctx)
+			if _, ignored, ok := client2.RunUntilJoinedAndReturn(ctx, hello3.Hello); ok {
+				if len(ignored) == 0 {
+					client2.RunUntilLeft(ctx, hello1.Hello)
+				} else if assert.Len(ignored, 1) {
+					client2.checkMessageRoomLeave(ignored[0], hello1.Hello)
+				}
+			}
+			client3.RunUntilJoined(ctx, hello2.Hello, hello3.Hello)
+
+			// The session is removed from the users on all servers.
+			assert.Eventually(func() bool {
+				_, found := room2.getUsers().Map()[sid1]
+				return !found
+			}, time.Second, 10*time.Millisecond)
+
+			// In-call changes that were received before the session left are
+			// ignored.
+			publishBackendRoomRequest(t, hub1, roomId, room2.Backend(), &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: beforeLeave,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall:  json.RawMessage(strconv.Itoa(FlagInCall)),
+					Changed: api.UserDataList{{"sessionId": sid1, "inCall": FlagInCall}},
+				},
+			})
+			require.NoError(room2.waitForPendingEvents(ctx))
+			assertNoMoreMessages(t, client2, client3)
+			assertRoomUsers(t, roomId, []*Hub{hub2})
+
+			// A change of all sessions that was received before the session left
+			// doesn't notify about the state of the session that left.
+			publishBackendRoomRequest(t, hub1, roomId, room2.Backend(), &talk.BackendServerRoomRequest{
+				Type:         "incall",
+				ReceivedTime: beforeLeave,
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: json.RawMessage(strconv.Itoa(FlagInCall)),
+					All:    true,
+				},
+			})
+			for _, client := range []*TestClient{client2, client3} {
+				if msg, ok := client.RunUntilMessage(ctx); ok {
+					checkMessageInCallAll(t, msg, roomId, FlagInCall)
+				}
+			}
+			require.NoError(room2.waitForPendingEvents(ctx))
+			assertNoMoreMessages(t, client2, client3)
+
+			// The users are not copied to new rooms on other servers.
+			client4, hello4 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"4")
+			defer client4.CloseWithBye()
+			MustSucceed2(t, client4.JoinRoom, ctx, roomId)
+			client4.RunUntilJoined(ctx, hello2.Hello, hello3.Hello, hello4.Hello)
+			room1 := hub1.getRoom(roomId)
+			require.NotNil(room1)
+			waitForRoomSynced(ctx, t, room1)
+			assertRoomUsers(t, roomId, []*Hub{hub1, hub2})
+		})
+	}
 }

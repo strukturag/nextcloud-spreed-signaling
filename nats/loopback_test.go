@@ -51,6 +51,13 @@ func TestLoopbackClient_Subscribe(t *testing.T) {
 	testClient_Subscribe(t, client)
 }
 
+func TestLoopbackClient_SubscribeOrder(t *testing.T) {
+	t.Parallel()
+
+	client := CreateLoopbackClientForTest(t)
+	testClient_SubscribeOrder(t, client)
+}
+
 func TestLoopbackClient_PublishAfterClose(t *testing.T) {
 	t.Parallel()
 

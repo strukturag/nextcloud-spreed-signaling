@@ -23,6 +23,7 @@ package nats
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -114,6 +115,66 @@ func testClient_Subscribe(t *testing.T, client Client) {
 	<-ch
 
 	require.Equal(maxPublish, received.Load(), "Received wrong # of messages")
+}
+
+func testClient_SubscribeOrder(t *testing.T, client Client) {
+	require := require.New(t)
+	assert := assert.New(t)
+
+	// Messages for different subjects must be passed to the handlers in the
+	// order they were published.
+	subjects := []string{"foo", "bar", "baz"}
+	var mu sync.Mutex
+	var received []int
+	done := make(chan struct{})
+	count := 1000
+	for _, subject := range subjects {
+		sub, err := client.Subscribe(subject, func(msg *Msg) {
+			var value int
+			if !assert.NoError(Decode(msg, &value)) {
+				return
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			received = append(received, value)
+			if len(received) == count {
+				close(done)
+			}
+		})
+		require.NoError(err)
+		defer func() {
+			assert.NoError(sub.Unsubscribe())
+		}()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(client.FlushWithContext(ctx))
+
+	expected := make([]int, 0, count)
+	for i := range count {
+		require.NoError(client.Publish(subjects[i%len(subjects)], i))
+		expected = append(expected, i)
+	}
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		require.NoError(ctx.Err())
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(expected, received)
+}
+
+func TestClient_SubscribeOrder(t *testing.T) { // nolint:paralleltest
+	test.EnsureNoGoroutinesLeak(t, func(t *testing.T) {
+		_, _, client := CreateLocalClientForTest(t)
+
+		testClient_SubscribeOrder(t, client)
+	})
 }
 
 func TestClient_Subscribe(t *testing.T) { // nolint:paralleltest

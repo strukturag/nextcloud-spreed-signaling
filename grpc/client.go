@@ -280,11 +280,13 @@ func (c *Client) GetInternalSessions(ctx context.Context, roomId string, backend
 	if len(backendUrls) > 0 {
 		backendUrl = backendUrls[0]
 	}
+	// Fail immediately if the server is not reachable, it can't provide any
+	// sessions and the caller must not be blocked until the deadline.
 	response, err := c.impl.GetInternalSessions(ctx, &GetInternalSessionsRequest{
 		RoomId:      roomId,
 		BackendUrl:  backendUrl,
 		BackendUrls: backendUrls,
-	}, grpc.WaitForReady(true))
+	})
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return nil, nil, nil
 	} else if err != nil {
@@ -344,10 +346,12 @@ func (c *Client) GetTransientData(ctx context.Context, roomId string, backend *t
 	statsGrpcClientCalls.WithLabelValues("GetTransientData").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Get transient data for %s@%s on %s", roomId, backend.Id(), c.Target())
+	// Fail immediately if the server is not reachable, it can't provide any
+	// data and the caller must not be blocked until the deadline.
 	response, err := c.impl.GetTransientData(ctx, &GetTransientDataRequest{
 		RoomId:      roomId,
 		BackendUrls: backend.Urls(),
-	}, grpc.WaitForReady(true))
+	})
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return nil, nil
 	} else if err != nil {
@@ -378,10 +382,12 @@ func (c *Client) GetRoomUsers(ctx context.Context, roomId string, backend *talk.
 	statsGrpcClientCalls.WithLabelValues("GetRoomUsers").Inc()
 	// TODO: Remove debug logging
 	c.logger.Printf("Get room users for %s@%s on %s", roomId, backend.Id(), c.Target())
+	// Fail immediately if the server is not reachable, it can't provide any
+	// users and the caller must not be blocked until the deadline.
 	response, err := c.impl.GetRoomUsers(ctx, &GetRoomUsersRequest{
 		RoomId:      roomId,
 		BackendUrls: backend.Urls(),
-	}, grpc.WaitForReady(true))
+	})
 	if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return nil, nil
 	} else if err != nil {

@@ -28,6 +28,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -35,6 +36,7 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1268,6 +1270,11 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 
 	WaitForUsersJoined(ctx, t, client1, hello1, client2, hello2)
 
+	// The lookup of a session that is joining waits until the join has finished,
+	// simulate a join that doesn't finish before the request times out.
+	finishJoin := hub.roomSessions.StartJoin("joining-room-session-id")
+	defer finishJoin()
+
 	var wg sync.WaitGroup
 
 	wg.Go(func() {
@@ -1281,7 +1288,7 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 						"inCall":    7,
 					},
 					{
-						"sessionId": "unknown-room-session-id",
+						"sessionId": "joining-room-session-id",
 						"inCall":    3,
 					},
 				},
@@ -1343,17 +1350,17 @@ func TestBackendServer_ParticipantsUpdateTimeout(t *testing.T) {
 	}
 
 	// The first request is published after the second one (because of the
-	// timeout while looking up the unknown session), but must still be processed
-	// as it contains changes.
+	// timeout while looking up the joining session). Its in-call change of the
+	// first session is older than the one from the second request, so it is
+	// ignored.
 	for _, client := range []*TestClient{client1, client2} {
-		for range 2 {
-			if msg, ok := client.RunUntilMessage(ctx); ok {
-				if inCall, ok := checkMessageParticipantsInCall(t, msg); ok {
-					assert.Len(inCall.Users, 2)
-				}
+		if msg, ok := client.RunUntilMessage(ctx); ok {
+			if inCall, ok := checkMessageParticipantsInCall(t, msg); ok {
+				assert.Len(inCall.Users, 2)
 			}
 		}
 	}
+	assertRoomUsers(t, roomId, []*Hub{hub}, hello1.Hello.SessionId, hello2.Hello.SessionId)
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel2()
@@ -1446,9 +1453,220 @@ func TestBackendServer_InCallUsersList(t *testing.T) {
 				},
 			})
 			assertUsers(hello2.Hello.SessionId)
+
+			// The complete list of users is published even if the changed sessions
+			// are not connected.
+			sendRequest(&talk.BackendServerRoomRequest{
+				Type: "incall",
+				InCall: &talk.BackendRoomInCallRequest{
+					InCall: json.RawMessage("7"),
+					Changed: api.UserDataList{
+						{"sessionId": "unknown-room-session-id", "inCall": 7},
+					},
+					Users: api.UserDataList{ // nolint
+						{"sessionId": roomSessionId1, "inCall": 7},
+						{"sessionId": roomSessionId2, "inCall": 3},
+						{"sessionId": "unknown-room-session-id", "inCall": 7},
+					},
+				},
+			})
+			assertUsers(hello1.Hello.SessionId, hello2.Hello.SessionId)
 			assertNoMoreMessages(t, client1, client2)
 		})
 	}
+}
+
+// failingRoomSessions fails to lookup a given room session id.
+type failingRoomSessions struct {
+	RoomSessions
+
+	failing api.RoomSessionId
+}
+
+func (r *failingRoomSessions) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
+	if roomSessionId == r.failing {
+		return "", errors.New("lookup failed")
+	}
+
+	return r.RoomSessions.LookupSessionId(ctx, roomSessionId, disconnectReason)
+}
+
+// flakyRoomSessions fails a number of lookups before looking up the session.
+type flakyRoomSessions struct {
+	RoomSessions
+
+	failures atomic.Int32
+	calls    atomic.Int32
+}
+
+func (r *flakyRoomSessions) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
+	r.calls.Add(1)
+	if r.failures.Add(-1) >= 0 {
+		return "", errors.New("lookup failed")
+	}
+
+	return r.RoomSessions.LookupSessionId(ctx, roomSessionId, disconnectReason)
+}
+
+func TestBackendServer_LookupRetriesFailures(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	assert := assert.New(t)
+	_, b, _, hub, _, server := CreateBackendServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+	roomSessionId := api.RoomSessionId(fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId))
+
+	roomSessions := &flakyRoomSessions{
+		RoomSessions: b.roomSessions,
+	}
+	b.roomSessions = roomSessions
+
+	// Failed lookups are retried.
+	roomSessions.failures.Store(roomSessionLookupMaxRetries)
+	sid, err := b.lookupByRoomSessionId(ctx, roomSessionId)
+	if assert.NoError(err) {
+		assert.Equal(hello.Hello.SessionId, sid)
+	}
+	assert.EqualValues(roomSessionLookupMaxRetries+1, roomSessions.calls.Load())
+
+	// The error is returned if the lookup still fails after all retries.
+	roomSessions.calls.Store(0)
+	roomSessions.failures.Store(roomSessionLookupMaxRetries + 1)
+	_, err = b.lookupByRoomSessionId(ctx, roomSessionId)
+	assert.Error(err)
+	assert.EqualValues(roomSessionLookupMaxRetries+1, roomSessions.calls.Load())
+
+	// Unknown sessions are not found.
+	roomSessions.failures.Store(0)
+	sid, err = b.lookupByRoomSessionId(ctx, "unknown-room-session-id")
+	if assert.NoError(err) {
+		assert.Empty(sid)
+	}
+}
+
+func TestBackendServer_UsersListFailedLookup(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	_, b, _, hub, _, server := CreateBackendServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"1")
+	defer client1.CloseWithBye()
+	client2, hello2 := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId+"2")
+	defer client2.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	client1.RunUntilJoined(ctx, hello1.Hello)
+	MustSucceed2(t, client2.JoinRoom, ctx, roomId)
+	client1.RunUntilJoined(ctx, hello2.Hello)
+	client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+
+	roomSessionId1 := fmt.Sprintf("%s-%s", roomId, hello1.Hello.SessionId)
+	roomSessionId2 := fmt.Sprintf("%s-%s", roomId, hello2.Hello.SessionId)
+	b.roomSessions = &failingRoomSessions{
+		RoomSessions: b.roomSessions,
+		failing:      api.RoomSessionId(roomSessionId2),
+	}
+
+	room := hub.getRoom(roomId)
+	require.NotNil(room)
+	room.addUser(hello2.Hello.SessionId, api.UserData{
+		"sessionId": hello2.Hello.SessionId,
+		"inCall":    FlagInCall,
+	})
+
+	// The session of the second user could not be looked up, so the complete
+	// list of users is incomplete and must not remove the user. The changes are
+	// still processed.
+	msg := &talk.BackendServerRoomRequest{
+		Type: "incall",
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall: json.RawMessage(strconv.Itoa(FlagInCall)),
+			Changed: api.UserDataList{
+				{"sessionId": roomSessionId1, "inCall": FlagInCall},
+			},
+			Users: api.UserDataList{ // nolint
+				{"sessionId": roomSessionId1, "inCall": FlagInCall},
+				{"sessionId": roomSessionId2, "inCall": FlagInCall},
+			},
+		},
+	}
+	data, err := json.Marshal(msg)
+	require.NoError(err)
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	for _, client := range []*TestClient{client1, client2} {
+		if msg, ok := client.RunUntilMessage(ctx); ok {
+			checkMessageParticipantsInCall(t, msg)
+		}
+	}
+	assertRoomUsers(t, roomId, []*Hub{hub}, hello1.Hello.SessionId, hello2.Hello.SessionId)
+}
+
+func TestBackendServer_InCallAllUsersList(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+	_, _, _, hub, _, server := CreateBackendServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	client, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	defer client.CloseWithBye()
+
+	roomId := "test-room"
+	MustSucceed2(t, client.JoinRoom, ctx, roomId)
+	client.RunUntilJoined(ctx, hello.Hello)
+
+	// The complete list of users sent together with "all" also contains
+	// Nextcloud session ids that must be converted.
+	msg := &talk.BackendServerRoomRequest{
+		Type: "incall",
+		InCall: &talk.BackendRoomInCallRequest{
+			InCall: json.RawMessage(strconv.Itoa(FlagInCall)),
+			All:    true,
+			Users: api.UserDataList{ // nolint
+				{"sessionId": fmt.Sprintf("%s-%s", roomId, hello.Hello.SessionId), "inCall": FlagInCall},
+			},
+		},
+	}
+	data, err := json.Marshal(msg)
+	require.NoError(err)
+	res, err := performBackendRequest(server.URL+"/api/v1/room/"+roomId, data)
+	require.NoError(err)
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, res.StatusCode, "Expected successful request, got %s", string(body))
+
+	if msg, ok := client.RunUntilMessage(ctx); ok {
+		checkMessageInCallAll(t, msg, roomId, FlagInCall)
+	}
+	assertRoomUsers(t, roomId, []*Hub{hub}, hello.Hello.SessionId)
 }
 
 func TestBackendServer_InCallAll(t *testing.T) {
@@ -2338,105 +2556,95 @@ func TestBackendServer_DialoutFirstFailed(t *testing.T) {
 	}
 }
 
-// missingRoomSessionsLookup is a RoomSessions test double whose LookupSessionId
-// returns ErrNoSuchRoomSession the first "misses" times it is called, then
-// the configured result. It simulates a room session id that only becomes
-// resolvable a short time after it is first looked up.
-type missingRoomSessionsLookup struct {
-	mu sync.Mutex
-	// +checklocks:mu
-	misses int
-	// +checklocks:mu
-	calls int
+// countingRoomSessions counts the lookups of room session ids.
+type countingRoomSessions struct {
+	RoomSessions
 
-	sid api.PublicSessionId // +checklocksignore: Only written to from constructor
-	err error               // +checklocksignore: Only written to from constructor
+	calls atomic.Int32
 }
 
-func (f *missingRoomSessionsLookup) SetRoomSession(session Session, roomSessionId api.RoomSessionId) error {
-	return nil
+func (r *countingRoomSessions) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
+	r.calls.Add(1)
+	return r.RoomSessions.LookupSessionId(ctx, roomSessionId, disconnectReason)
 }
 
-func (f *missingRoomSessionsLookup) DeleteRoomSession(session Session) {
-}
+func TestBackendServer_LookupByRoomSessionIdUnknown(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
 
-func (f *missingRoomSessionsLookup) GetSessionId(roomSessionId api.RoomSessionId) (api.PublicSessionId, error) {
-	return "", ErrNoSuchRoomSession
-}
-
-func (f *missingRoomSessionsLookup) LookupSessionId(ctx context.Context, roomSessionId api.RoomSessionId, disconnectReason string) (api.PublicSessionId, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	f.calls++
-	if f.misses > 0 {
-		f.misses--
-		return "", ErrNoSuchRoomSession
+	roomSessions, err := NewBuiltinRoomSessions(nil)
+	require.NoError(err)
+	counting := &countingRoomSessions{
+		RoomSessions: roomSessions,
 	}
+	b := &BackendServer{roomSessions: counting}
 
-	return f.sid, f.err
+	// Unknown sessions are not retried.
+	start := time.Now()
+	if sid, err := b.lookupByRoomSessionId(t.Context(), "unknown"); assert.NoError(err) {
+		assert.Empty(sid)
+	}
+	assert.Less(time.Since(start), roomSessionLookupRetryDelay)
+	assert.EqualValues(1, counting.calls.Load())
 }
 
-func TestBackendServer_LookupByRoomSessionIdRetriesOnMiss(t *testing.T) {
+func TestBackendServer_LookupByRoomSessionIdWaitsForJoin(t *testing.T) {
 	t.Parallel()
 
-	synctest.Test(t, func(t *testing.T) {
-		assert := assert.New(t)
+	for _, failJoin := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failJoin=%t", failJoin), func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				assert := assert.New(t)
+				require := require.New(t)
 
-		fake := &missingRoomSessionsLookup{
-			misses: roomSessionLookupMaxRetries,
-			sid:    "session1",
-		}
-		b := &BackendServer{roomSessions: fake}
+				roomSessions, err := NewBuiltinRoomSessions(nil)
+				require.NoError(err)
+				b := &BackendServer{roomSessions: roomSessions}
 
-		if sid, err := b.lookupByRoomSessionId(t.Context(), "room1"); assert.NoError(err) {
-			assert.EqualValues("session1", sid)
-		}
-	})
-}
+				session := &DummySession{
+					publicId: "session1",
+				}
+				roomSessionId := api.RoomSessionId("room-session-1")
+				finished := roomSessions.StartJoin(roomSessionId)
 
-func TestBackendServer_LookupByRoomSessionIdGivesUpAfterMaxRetries(t *testing.T) {
-	t.Parallel()
+				var done atomic.Bool
+				var sid api.PublicSessionId
+				go func() {
+					defer done.Store(true)
+					var err error
+					sid, err = b.lookupByRoomSessionId(t.Context(), roomSessionId)
+					assert.NoError(err)
+				}()
 
-	synctest.Test(t, func(t *testing.T) {
-		assert := assert.New(t)
+				// The lookup waits while the session is joining.
+				time.Sleep(time.Second)
+				synctest.Wait()
+				assert.False(done.Load())
 
-		fake := &missingRoomSessionsLookup{
-			misses: roomSessionLookupMaxRetries + 10,
-		}
-		b := &BackendServer{roomSessions: fake}
+				// Lookups to disconnect previous sessions don't wait.
+				_, err = roomSessions.LookupSessionId(t.Context(), roomSessionId, "reason")
+				assert.ErrorIs(err, ErrNoSuchRoomSession)
 
-		if sid, err := b.lookupByRoomSessionId(t.Context(), "room1"); assert.NoError(err) {
-			assert.Empty(sid)
-			assert.Equal(roomSessionLookupMaxRetries+1, fake.calls)
-		}
-	})
-}
-
-func TestBackendServer_LookupByRoomSessionIdStopsOnContextCancel(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		assert := assert.New(t)
-
-		fake := &missingRoomSessionsLookup{
-			misses: roomSessionLookupMaxRetries + 1000,
-		}
-		b := &BackendServer{roomSessions: fake}
-
-		ctx, cancel := context.WithCancel(t.Context())
-		go func() {
-			time.Sleep(10 * time.Millisecond)
-			cancel()
-		}()
-
-		start := time.Now()
-		_, err := b.lookupByRoomSessionId(ctx, "room1")
-		elapsed := time.Since(start)
-
-		assert.ErrorIs(err, context.Canceled)
-		assert.Less(elapsed, roomSessionLookupMaxRetries*roomSessionLookupRetryDelay)
-	})
+				if failJoin {
+					finished()
+				} else {
+					// The lookup returns once the room session id was registered, even
+					// if the join didn't finish yet.
+					require.NoError(roomSessions.SetRoomSession(session, roomSessionId))
+				}
+				synctest.Wait()
+				assert.True(done.Load())
+				if failJoin {
+					assert.Empty(sid)
+				} else {
+					assert.Equal(session.PublicId(), sid)
+					finished()
+				}
+			})
+		})
+	}
 }
 
 func TestBackendServer_ParticipantsUpdateRaceAcrossCluster(t *testing.T) {

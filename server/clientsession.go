@@ -60,6 +60,14 @@ var (
 
 type pendingRoomRequest struct {
 	cancel context.CancelCauseFunc
+	join   roomJoin
+}
+
+// roomJoin identifies a request to join a room. It is empty for requests that
+// leave a room or join a federated room.
+type roomJoin struct {
+	roomId        string
+	roomSessionId api.RoomSessionId
 }
 
 // ResponseHandlerFunc will return "true" has been fully processed.
@@ -126,6 +134,16 @@ type ClientSession struct {
 
 	// +checklocks:mu
 	virtualSessions map[*VirtualSession]bool
+
+	// Messages are held back while joining a room, so the response to the join
+	// request is sent before any events of the room.
+	// +checklocks:mu
+	holdMessages bool
+	// +checklocks:mu
+	heldMessages []heldMessage
+	// Subject of events of the room that is being joined.
+	// +checklocks:mu
+	heldRoomSubject string
 
 	filterDuplicateLock sync.Mutex
 	// +checklocks:filterDuplicateLock
@@ -380,14 +398,66 @@ func (s *ClientSession) GetFederationClient() *FederationClient {
 
 func (s *ClientSession) SetFederationClient(federation *FederationClient) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.doLeaveRoom(true)
 	s.onRoomSet(federation != nil, time.Now())
+	prev := s.federation.Swap(federation)
+	s.mu.Unlock()
 
-	if prev := s.federation.Swap(federation); prev != nil && prev != federation {
+	// The previous client must be closed without holding the session lock, as
+	// the client might be sending a message to the session while holding its
+	// own lock.
+	if prev != nil && prev != federation {
 		prev.Close()
 	}
+}
+
+// resetFederationClient resets the room state of the session if it is still
+// connected through the given federation client. Returns "false" if the session
+// is using another (or no) federation client.
+func (s *ClientSession) resetFederationClient(federation *FederationClient) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.federation.Load() != federation {
+		return false
+	}
+
+	s.doLeaveRoom(true)
+	s.onRoomSet(true, time.Now())
+	return true
+}
+
+// isWithoutRoom checks if the session is neither in a local nor in a
+// federated room.
+func (s *ClientSession) isWithoutRoom() bool {
+	return s.GetFederationClient() == nil && s.GetRoom() == nil
+}
+
+// notifyFederationLeft notifies the session that it left the federated room
+// (in reply to the given message), unless it joined another room in the
+// meantime.
+func (s *ClientSession) notifyFederationLeft(message *api.ClientMessage) {
+	if !s.isWithoutRoom() {
+		return
+	}
+
+	s.hub.removeFederatedSession(s)
+	s.hub.sendRoom(s, message, nil)
+}
+
+// leaveFederation removes the federation client from the session if it is
+// still the current one. Returns "true" if the session was connected through
+// the federation client.
+func (s *ClientSession) leaveFederation(federation *FederationClient) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.federation.CompareAndSwap(federation, nil) {
+		return false
+	}
+
+	s.onRoomSet(false, time.Time{})
+	return true
 }
 
 func (s *ClientSession) getRoomJoinTime() time.Time {
@@ -566,6 +636,8 @@ func (s *ClientSession) LeaveRoomWithMessage(notify bool, message *api.ClientMes
 		if err := prev.Leave(message); err != nil {
 			s.logger.Printf("Error leaving room for session %s on federation client %s: %s", s.PublicId(), prev.URL(), err)
 			prev.Close()
+			// No response will be received from the remote server.
+			s.notifyFederationLeft(message)
 		}
 		return nil
 	}
@@ -631,11 +703,13 @@ func (s *ClientSession) notifyBackendRoomLeft(roomId string, sid api.RoomSession
 
 // StartRoomRequest cancels any pending room request of the session and
 // returns the context to use for a new one. The returned function must be
-// called once the request has been processed.
-func (s *ClientSession) StartRoomRequest() (context.Context, func()) {
+// called once the request has been processed. The join is empty for requests
+// that don't join a (local) room.
+func (s *ClientSession) StartRoomRequest(join roomJoin) (context.Context, func()) {
 	ctx, cancel := context.WithCancelCause(s.Context())
 	request := &pendingRoomRequest{
 		cancel: cancel,
+		join:   join,
 	}
 
 	if prev := s.pendingRoomRequest.Swap(request); prev != nil {
@@ -649,6 +723,25 @@ func (s *ClientSession) StartRoomRequest() (context.Context, func()) {
 
 func isRoomRequestSuperseded(ctx context.Context) bool {
 	return errors.Is(context.Cause(ctx), errRoomRequestSuperseded)
+}
+
+// isRoomJoinInUse checks if the session joined the given room with the same
+// room session id, or if the latest pending room request joins it. The
+// result of room requests must be applied while holding "roomJoinLock".
+func (s *ClientSession) isRoomJoinInUse(join roomJoin) bool {
+	if join.roomId == "" {
+		return false
+	}
+
+	if pending := s.pendingRoomRequest.Load(); pending != nil && pending.join == join {
+		return true
+	}
+
+	roomSessionId := s.RoomSessionId()
+	if roomSessionId == "" {
+		roomSessionId = api.RoomSessionId(s.PublicId())
+	}
+	return s.IsInRoom(join.roomId) && roomSessionId == join.roomSessionId
 }
 
 func (s *ClientSession) ClearClient(client ClientWithSession) {
@@ -768,6 +861,28 @@ func (s *ClientSession) sendCandidate(client sfu.Client, sender api.PublicSessio
 
 // +checklocks:s.mu
 func (s *ClientSession) sendMessageUnlocked(message *api.ServerMessage) {
+	s.sendMessageFromSubjectUnlocked(message, "")
+}
+
+type heldMessage struct {
+	message *api.ServerMessage
+	// The subject the message was received from (if any).
+	subject string
+}
+
+// sendMessageFromSubjectUnlocked sends a message that was received from the
+// given events subject (if any).
+//
+// +checklocks:s.mu
+func (s *ClientSession) sendMessageFromSubjectUnlocked(message *api.ServerMessage, subject string) {
+	if s.holdMessages {
+		s.heldMessages = append(s.heldMessages, heldMessage{
+			message: message,
+			subject: subject,
+		})
+		return
+	}
+
 	if c := s.getClientUnlocked(); c != nil {
 		if c.SendMessage(message) {
 			return
@@ -775,6 +890,40 @@ func (s *ClientSession) sendMessageUnlocked(message *api.ServerMessage) {
 	}
 
 	s.storePendingMessage(message)
+}
+
+// HoldMessages holds back all messages to the session until ReleaseMessages
+// is called while the session is joining the given room.
+func (s *ClientSession) HoldMessages(roomId string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.holdMessages = true
+	s.heldRoomSubject = events.GetSubjectForRoomId(roomId, s.backend)
+}
+
+// ReleaseMessages sends the given messages followed by the messages that were
+// held back since HoldMessages was called. If the room was not joined, held
+// events of the room are not sent.
+func (s *ClientSession) ReleaseMessages(joined bool, first ...*api.ServerMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.holdMessages = false
+	held := s.heldMessages
+	s.heldMessages = nil
+	roomSubject := s.heldRoomSubject
+	s.heldRoomSubject = ""
+	for _, message := range first {
+		s.sendMessageUnlocked(message)
+	}
+	for _, entry := range held {
+		if !joined && entry.subject == roomSubject {
+			continue
+		}
+
+		s.sendMessageUnlocked(entry.message)
+	}
 }
 
 func (s *ClientSession) SendError(e *api.Error) bool {
@@ -786,11 +935,11 @@ func (s *ClientSession) SendError(e *api.Error) bool {
 }
 
 func (s *ClientSession) SendMessage(message *api.ServerMessage) bool {
-	return s.sendMessage(message, time.Time{})
+	return s.sendMessage(message, time.Time{}, "")
 }
 
 // sendMessage sends a message that was published at the given time (if known).
-func (s *ClientSession) sendMessage(message *api.ServerMessage, sendTime time.Time) bool {
+func (s *ClientSession) sendMessage(message *api.ServerMessage, sendTime time.Time, subject string) bool {
 	message, messages := s.filterMessage(message, sendTime)
 	if message == nil && len(messages) == 0 {
 		return true
@@ -800,10 +949,10 @@ func (s *ClientSession) sendMessage(message *api.ServerMessage, sendTime time.Ti
 	defer s.mu.Unlock()
 
 	if message != nil {
-		s.sendMessageUnlocked(message)
+		s.sendMessageFromSubjectUnlocked(message, subject)
 	}
 	for _, msg := range messages {
-		s.sendMessageUnlocked(msg)
+		s.sendMessageFromSubjectUnlocked(msg, subject)
 	}
 	return true
 }
@@ -1173,10 +1322,16 @@ func (s *ClientSession) processAsyncNatsMessage(msg *nats.Msg) {
 		return
 	}
 
-	s.processAsyncMessage(&message)
+	s.processAsyncMessageFromSubject(&message, msg.Subject)
 }
 
 func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
+	s.processAsyncMessageFromSubject(message, "")
+}
+
+// processAsyncMessageFromSubject processes a message that was received from
+// the given events subject (if known).
+func (s *ClientSession) processAsyncMessageFromSubject(message *events.AsyncMessage, subject string) {
 	switch message.Type {
 	case "permissions":
 		s.SetPermissions(message.Permissions)
@@ -1284,7 +1439,7 @@ func (s *ClientSession) processAsyncMessage(message *events.AsyncMessage) {
 		return
 	}
 
-	s.sendMessage(serverMessage, message.SendTime)
+	s.sendMessage(serverMessage, message.SendTime, subject)
 }
 
 // +checklocks:s.mu

@@ -67,6 +67,19 @@ var (
 
 var ErrRoomClosed = errors.New("room closed") // +checklocksignore: Global readonly variable.
 
+// Time after which the timestamp of the last in-call change of a session is
+// removed. Requests that were received before can't be delayed that long.
+const defaultInCallChangesMaxAge = time.Minute
+
+const (
+	// Timeout for fetching the initial state of a room from other servers.
+	initialStateTimeout = time.Second
+	// Number of retries if the initial state could not be fetched from servers.
+	initialStateMaxRetries = 3
+	// Delay before the first retry, doubled for each further retry.
+	initialStateRetryDelay = time.Second
+)
+
 func init() {
 	RegisterRoomStats()
 }
@@ -84,19 +97,25 @@ type Room struct {
 	closer     *internal.Closer
 	mu         *sync.RWMutex
 	asyncQueue *events.AsyncQueue
-	// Closed once the initial state was fetched from other servers.
+	// Closed once the initial state was fetched from other servers (servers
+	// that failed are retried in the background).
 	synced chan struct{}
+	// Changes made while the initial state is fetched from other servers.
+	// +checklocks:mu
+	syncState *roomSyncState
 	// +checklocks:mu
 	closed bool
 	// Number of sessions that are about to join the room.
 	// +checklocks:mu
 	pendingJoins int
-	// Held while publishing the sessions in reply to a "sessionjoined" event
-	// and while removing sessions, so a session that is included in the reply
-	// can only leave after the reply was published.
+	// Held while publishing the sessions in reply to a "sessionjoined" event,
+	// while publishing the "join" event of a session and while removing
+	// sessions. This ensures that a session that is included in a reply can only
+	// leave after the reply was published, and that a "leave" event is only
+	// published if other sessions could know about the session.
 	membershipMu sync.Mutex
-	// Sessions that are currently being added, the value is "true" if the
-	// session was removed while it was being added.
+	// Sessions that are being added and whose "join" event was not published
+	// yet. They are not sent to other sessions in reply to "sessionjoined".
 	// +checklocks:mu
 	joiningSessions map[api.PublicSessionId]bool
 	// +checklocks:mu
@@ -129,8 +148,45 @@ type Room struct {
 	// from the goroutine processing the asynchronous messages.
 	lastUpdateReceived int64
 	lastUsersReceived  int64
+	// Timestamps of the last in-call changes of sessions and of all sessions.
+	// Only accessed from the goroutine processing the asynchronous messages.
+	lastInCallReceived    map[api.PublicSessionId]int64
+	lastInCallAllReceived int64
+	// Sessions that left the room, their timestamp in "lastInCallReceived" is
+	// the time they left. Only accessed from the goroutine processing the
+	// asynchronous messages.
+	leftSessions map[api.PublicSessionId]bool
+	// Time after which the timestamp of the last in-call change of a session is
+	// removed, and the time the timestamps were last pruned. Only accessed from
+	// the goroutine processing the asynchronous messages.
+	inCallChangesMaxAge   time.Duration
+	lastInCallChangePrune int64
+	// Delay before retrying to fetch the initial state from other servers.
+	initialStateRetryDelay time.Duration
 
 	transientData *api.TransientData
+}
+
+// roomSyncState contains the changes made by events while the initial state is
+// fetched from other servers, so they are not overwritten by the (possibly
+// outdated) initial state.
+type roomSyncState struct {
+	removedUsers map[api.PublicSessionId]bool
+	// All users were replaced, so the initial users are outdated.
+	usersReplaced bool
+	// Properties of users that are not stored yet, applied to the initial users.
+	updatedUsers map[api.PublicSessionId]api.UserData
+	// In-call flags of all users (if changed), applied to the initial users.
+	inCallAll            *int
+	removedTransientData map[string]bool
+}
+
+func newRoomSyncState() *roomSyncState {
+	return &roomSyncState{
+		removedUsers:         make(map[api.PublicSessionId]bool),
+		updatedUsers:         make(map[api.PublicSessionId]api.UserData),
+		removedTransientData: make(map[string]bool),
+	}
 }
 
 func getRoomIdForBackend(id string, backend *talk.Backend) string {
@@ -142,6 +198,11 @@ func getRoomIdForBackend(id string, backend *talk.Backend) string {
 }
 
 func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents events.AsyncEvents, backend *talk.Backend) (*Room, error) {
+	var syncState *roomSyncState
+	if hub.rpcClients != nil {
+		// The initial state will be fetched from other servers.
+		syncState = newRoomSyncState()
+	}
 	room := &Room{
 		id:      roomId,
 		logger:  hub.logger,
@@ -155,6 +216,7 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		mu:         &sync.RWMutex{},
 		asyncQueue: events.NewAsyncQueue(hub.logger, "room "+roomId),
 		synced:     make(chan struct{}),
+		syncState:  syncState,
 		sessions:   make(map[api.PublicSessionId]Session),
 
 		joiningSessions: make(map[api.PublicSessionId]bool),
@@ -178,6 +240,12 @@ func NewRoom(roomId string, properties json.RawMessage, hub *Hub, asyncEvents ev
 		}),
 		statsCallRoomsTotal: statsCallRoomsTotal.WithLabelValues(backend.Id()),
 		users:               make(api.UserDataMap),
+
+		lastInCallReceived:  make(map[api.PublicSessionId]int64),
+		leftSessions:        make(map[api.PublicSessionId]bool),
+		inCallChangesMaxAge: defaultInCallChangesMaxAge,
+
+		initialStateRetryDelay: initialStateRetryDelay,
 
 		transientData: api.NewTransientData(),
 	}
@@ -232,13 +300,8 @@ func (r *Room) AsyncEventReceived(msg *nats.Msg) {
 }
 
 func (r *Room) run() {
-	// Events are only processed once the initial state was fetched from other
-	// servers, events received in the meantime are queued and processed
-	// afterwards. This ensures that changes which are already included in the
-	// initial state but were processed locally before (e.g. removals) are not
-	// overwritten by the initial state.
-	r.syncInitialState()
 	go r.asyncQueue.Run(r.closer.C, r.processAsyncNatsMessage)
+	r.syncInitialState()
 
 	ticker := time.NewTicker(updateActiveSessionsInterval)
 	defer ticker.Stop()
@@ -254,34 +317,127 @@ loop:
 }
 
 // syncInitialState fetches the initial state of the room from other servers
-// in the cluster.
+// in the cluster. Events are processed in the meantime, so the room can provide
+// its state to other servers. Changes from these events are not overwritten by
+// the (possibly outdated) initial state. If the state could not be fetched from
+// some servers, they are retried in the background.
 func (r *Room) syncInitialState() {
 	defer close(r.synced)
 	if r.hub.rpcClients == nil {
 		return
 	}
 
+	ctx := log.NewLoggerContext(context.Background(), r.logger)
+	ctx, cancel := context.WithTimeout(ctx, initialStateTimeout)
+	defer cancel()
+
 	// Make sure the listener for backend room events is active before fetching
 	// the state, so all changes not included in the state are received as events.
-	ctx := log.NewLoggerContext(context.Background(), r.logger)
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
 	if err := r.events.Flush(ctx); err != nil {
 		r.logger.Printf("Error flushing events for room %s: %s", r.id, err)
 	}
 
-	var wg sync.WaitGroup
-	wg.Go(r.fetchInitialTransientData)
-	wg.Go(r.fetchInitialUsers)
-	wg.Wait()
+	failed := r.fetchAndApplyInitialState(ctx, r.hub.rpcClients.GetClients(), false)
+	if len(failed) > 0 {
+		go r.retryInitialState(failed)
+	}
 }
 
-func (r *Room) isSynced() bool {
+// retryInitialState fetches the initial state from servers that failed before.
+func (r *Room) retryInitialState(clients []*grpc.Client) {
+	delay := r.initialStateRetryDelay
+	for attempt := 1; attempt <= initialStateMaxRetries; attempt++ {
+		select {
+		case <-time.After(delay):
+		case <-r.closer.C:
+			return
+		}
+
+		ctx := log.NewLoggerContext(context.Background(), r.logger)
+		ctx, cancel := context.WithTimeout(ctx, initialStateTimeout)
+		clients = r.fetchAndApplyInitialState(ctx, clients, attempt == initialStateMaxRetries)
+		cancel()
+		if len(clients) == 0 {
+			return
+		}
+
+		delay *= 2
+	}
+
+	targets := make([]string, 0, len(clients))
+	for _, client := range clients {
+		targets = append(targets, client.Target())
+	}
+	r.logger.Printf("Could not fetch initial state of room %s from %v, giving up", r.id, targets)
+}
+
+// fetchAndApplyInitialState fetches the initial state from the given servers
+// and applies it. Returns the servers the state could not be fetched from. The
+// changes made by events are tracked until the state could be fetched from
+// all servers, or "final" is true.
+func (r *Room) fetchAndApplyInitialState(ctx context.Context, clients []*grpc.Client, final bool) []*grpc.Client {
+	transientData, users, failed := r.fetchInitialState(ctx, clients)
+
+	// Apply the state from the goroutine processing the events, so it is
+	// ordered with changes from events.
+	applied := make(chan struct{})
+	r.asyncQueue.Execute(func() {
+		defer close(applied)
+		r.applyInitialState(transientData, users, final || len(failed) == 0)
+	})
 	select {
-	case <-r.synced:
-		return true
-	default:
-		return false
+	case <-applied:
+	case <-r.closer.C:
+		return nil
+	}
+
+	return failed
+}
+
+// applyInitialState applies the state fetched from other servers. If "final"
+// is true, changes made by events are no longer tracked afterwards.
+func (r *Room) applyInitialState(transientData api.TransientDataEntries, users api.UserDataMap, final bool) {
+	r.mu.Lock()
+	state := r.syncState
+	if final {
+		r.syncState = nil
+	}
+	if state == nil || r.closed {
+		r.mu.Unlock()
+		return
+	}
+
+	if !state.usersReplaced {
+		for sid, u := range users {
+			if state.removedUsers[sid] {
+				continue
+			}
+
+			// Only store information on users that have not been updated through
+			// backend requests (or were received from other servers before).
+			if _, found := r.users[sid]; found {
+				continue
+			}
+
+			user := u.Clone()
+			// Apply changes that were made while the initial state was fetched.
+			if updated, found := state.updatedUsers[sid]; found {
+				maps.Copy(user, updated)
+			}
+			if state.inCallAll != nil {
+				user["inCall"] = *state.inCallAll
+			}
+			r.users[sid] = newStoredUser(user)
+		}
+	}
+	removedTransientData := slices.Collect(maps.Keys(state.removedTransientData))
+	r.mu.Unlock()
+
+	for _, key := range removedTransientData {
+		delete(transientData, key)
+	}
+	if len(transientData) > 0 {
+		r.transientData.SetInitial(transientData)
 	}
 }
 
@@ -439,13 +595,20 @@ func (r *Room) processBackendRoomRequestRoom(message *talk.BackendServerRoomRequ
 			return
 		}
 
-		r.processInCallRequest(message.InCall)
+		r.processInCallRequest(message.InCall, message.ReceivedTime)
 	case "participants":
 		if !r.processUsersList(message, message.Participants.Users) { // nolint
 			return
 		}
 
-		r.PublishUsersChanged(message.Participants.Changed)
+		hasChanges := len(message.Participants.Changed) > 0
+		changed := r.filterOutdatedInCallChanges(message.Participants.Changed, message.ReceivedTime)
+		if hasChanges && len(changed) == 0 && message.Participants.Users == nil { // nolint
+			// All changes are outdated and no (new) list of users was received.
+			return
+		}
+
+		r.PublishUsersChanged(changed)
 	case "message":
 		r.publishRoomMessage(message.Message)
 	case "switchto":
@@ -478,8 +641,9 @@ func (r *Room) logIgnoredRequest(message *talk.BackendServerRoomRequest) {
 
 // processUsersList stores the complete list of users if one was sent by older
 // versions of Talk in "incall" or "participants" requests. Returns "false" if
-// the request is older than the last request with a complete list and must not
-// be processed, as it could overwrite more recent data.
+// the request is older than the last request with a complete list (or a change
+// of all sessions) and must not be processed, as it could overwrite more recent
+// data.
 func (r *Room) processUsersList(message *talk.BackendServerRoomRequest, users api.UserDataList) bool {
 	if users == nil {
 		// Newer versions of Talk only send changes.
@@ -499,7 +663,10 @@ func (r *Room) processUsersList(message *talk.BackendServerRoomRequest, users ap
 func (r *Room) processBackendRoomRequestAsyncRoom(message *events.AsyncRoomMessage) {
 	switch message.Type {
 	case "sessionjoined":
+		delete(r.leftSessions, message.SessionId)
 		r.notifySessionJoined(message.SessionId)
+	case "sessionleft":
+		r.removeLeftUser(message.SessionId, message.LeftTime)
 	default:
 		r.logger.Printf("Unsupported async room request with type %s in %s: %+v", message.Type, r.Id(), message)
 	}
@@ -507,7 +674,7 @@ func (r *Room) processBackendRoomRequestAsyncRoom(message *events.AsyncRoomMessa
 
 // reserveJoin marks that a session is about to join the room. This prevents
 // the room from being closed if the last session leaves before the joining
-// session has been added. The reservation is consumed by "addReservedSession".
+// session has been added. The reservation is consumed by "startAddSession".
 //
 // The caller must hold the "ru" lock of the hub and the room must still be
 // registered in the hub.
@@ -527,16 +694,6 @@ type roomSessionJoin struct {
 
 func (r *Room) AddSession(session Session, sessionData json.RawMessage) error {
 	join, err := r.startAddSession(session, sessionData, false)
-	if err != nil {
-		return err
-	}
-
-	r.finishAddSession(join)
-	return nil
-}
-
-func (r *Room) addReservedSession(session Session, sessionData json.RawMessage) error {
-	join, err := r.startAddSession(session, sessionData, true)
 	if err != nil {
 		return err
 	}
@@ -594,7 +751,7 @@ func (r *Room) startAddSession(session Session, sessionData json.RawMessage, res
 		r.logger.Printf("Session %s sent room session data %+v", session.PublicId(), roomSessionData)
 	}
 	if !found {
-		r.joiningSessions[sid] = false
+		r.joiningSessions[sid] = true
 	}
 	return &roomSessionJoin{
 		session:             session,
@@ -610,30 +767,27 @@ func (r *Room) finishAddSession(join *roomSessionJoin) {
 	if join.isNew {
 		// The session should get the initial state from other servers.
 		<-r.synced
-		r.PublishSessionJoined(session, join.sessionData)
+
+		if !r.publishSessionJoining(session, join.sessionData) {
+			// The session was removed or the room was closed before the "join" event
+			// was published, so no other session knows about it.
+			return
+		}
+
 		if join.publishUsersChanged {
 			r.publishUsersChangedWithInternal()
 			if session, ok := session.(*VirtualSession); ok && session.Flags() != 0 {
 				r.publishSessionFlagsChanged(session)
 			}
 		}
-		clientSession, isClientSession := session.(*ClientSession)
-		if isClientSession {
+		if clientSession, ok := session.(*ClientSession); ok {
 			r.transientData.AddListener(clientSession)
-		}
-
-		r.mu.Lock()
-		left := r.joiningSessions[sid]
-		delete(r.joiningSessions, sid)
-		r.mu.Unlock()
-		if left {
-			// The session was removed while it was being added, publish the
-			// "leave" event now that the "join" event has been published.
-			if isClientSession {
+			if r.isSessionGone(session) {
+				// The session was removed (which published the "leave" event) or the
+				// room was closed in the meantime.
 				r.transientData.RemoveListener(clientSession)
+				return
 			}
-			r.PublishSessionLeft(session)
-			return
 		}
 	}
 
@@ -650,6 +804,39 @@ func (r *Room) finishAddSession(join *roomSessionJoin) {
 	}
 }
 
+// publishSessionJoining publishes the "join" event of a session that is being
+// added. Returns "false" if the session was removed or the room was closed in
+// the meantime, no event is published in this case.
+func (r *Room) publishSessionJoining(session Session, sessionData *talk.RoomSessionData) bool {
+	r.membershipMu.Lock()
+	defer r.membershipMu.Unlock()
+
+	r.mu.Lock()
+	sid := session.PublicId()
+	gone := r.isSessionGoneLocked(session)
+	delete(r.joiningSessions, sid)
+	r.mu.Unlock()
+	if gone {
+		return false
+	}
+
+	r.PublishSessionJoined(session, sessionData)
+	return true
+}
+
+// isSessionGone checks if a session was removed or the room was closed.
+func (r *Room) isSessionGone(session Session) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.isSessionGoneLocked(session)
+}
+
+// +checklocksread:r.mu
+func (r *Room) isSessionGoneLocked(session Session) bool {
+	return r.closed || r.sessions[session.PublicId()] != session
+}
+
 func (r *Room) getOtherSessions(ignoreSessionId api.PublicSessionId) (Session, []Session) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -657,6 +844,9 @@ func (r *Room) getOtherSessions(ignoreSessionId api.PublicSessionId) (Session, [
 	sessions := make([]Session, 0, len(r.sessions))
 	for _, s := range r.sessions {
 		if s.PublicId() == ignoreSessionId {
+			continue
+		} else if r.joiningSessions[s.PublicId()] {
+			// The session will publish its "join" event once it has been added.
 			continue
 		}
 
@@ -835,10 +1025,10 @@ func (r *Room) RemoveSession(session Session) bool {
 	r.removeSessionFromCallLocked(session)
 	delete(r.roomSessionData, sid)
 	publishLeft := true
-	if left, found := r.joiningSessions[sid]; found && !left {
-		// The "leave" event will be published once the "join" event has been
-		// published by the session that is still being added.
-		r.joiningSessions[sid] = true
+	if r.joiningSessions[sid] {
+		// The "join" event was not published yet, so no other session knows about
+		// the session.
+		delete(r.joiningSessions, sid)
 		publishLeft = false
 	}
 	isEmpty := len(r.sessions) == 0 && r.pendingJoins == 0
@@ -858,7 +1048,51 @@ func (r *Room) RemoveSession(session Session) bool {
 		// on other servers get notified.
 		r.PublishSessionLeft(session)
 	}
+	// Other servers might know the session from backend requests, even if no
+	// "join" event was published. Talk doesn't send an in-call change if the
+	// session left without notifying it (e.g. if replaced by a new session with
+	// the same room session id).
+	if err := r.events.PublishBackendRoomMessage(r.id, r.backend, &events.AsyncMessage{
+		Type: "asyncroom",
+		AsyncRoom: &events.AsyncRoomMessage{
+			Type:       "sessionleft",
+			SessionId:  sid,
+			ClientType: session.ClientType(),
+			LeftTime:   time.Now().UnixNano(),
+		},
+	}); err != nil {
+		r.logger.Printf("Error publishing left event for session %s: %s", sid, err)
+	}
 	return hasSessions
+}
+
+// removeLeftUser removes the stored user data of a session that left the room
+// on any server. In-call changes of the session that were received by the
+// backend server before the session left are ignored afterwards.
+func (r *Room) removeLeftUser(sessionId api.PublicSessionId, left int64) {
+	if left != 0 {
+		if r.lastInCallReceived[sessionId] > left {
+			// The session joined the room again and changed its in-call state
+			// after it left.
+			return
+		}
+
+		r.lastInCallReceived[sessionId] = left
+		r.pruneInCallChanges(left)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, found := r.sessions[sessionId]; found {
+		// The session joined the room again in the meantime.
+		return
+	}
+
+	if left != 0 {
+		r.leftSessions[sessionId] = true
+	}
+	r.removeUserLocked(sessionId)
 }
 
 func (r *Room) publish(message *api.ServerMessage) error {
@@ -868,15 +1102,27 @@ func (r *Room) publish(message *api.ServerMessage) error {
 	})
 }
 
-func (r *Room) getSessions() []Session {
+// getPublishSessions returns the sessions that should receive messages
+// published to the room. Virtual sessions are skipped, they forward messages
+// to their internal session which receives the messages itself (and virtual
+// sessions don't receive messages published to the room through NATS).
+func (r *Room) getPublishSessions() []Session {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return slices.Collect(maps.Values(r.sessions))
+	sessions := make([]Session, 0, len(r.sessions))
+	for _, session := range r.sessions {
+		if _, ok := session.(*VirtualSession); ok {
+			continue
+		}
+
+		sessions = append(sessions, session)
+	}
+	return sessions
 }
 
 func (r *Room) publishLocal(message *api.ServerMessage) (err error) {
-	sessions := r.getSessions()
+	sessions := r.getPublishSessions()
 	if len(sessions) == 0 {
 		return nil
 	}
@@ -1037,6 +1283,11 @@ func (r *Room) GetInternalSessions() ([]*grpc.InternalSessionData, []*grpc.Virtu
 	if l := len(r.internalSessions); l > 0 {
 		internalSessions = make([]*grpc.InternalSessionData, 0, l)
 		for session := range r.internalSessions {
+			if r.joiningSessions[session.PublicId()] {
+				// Will be visible once the "join" event has been published.
+				continue
+			}
+
 			internalSessions = append(internalSessions, &grpc.InternalSessionData{
 				SessionId: string(session.PublicId()),
 				InCall:    uint32(session.GetInCall()),
@@ -1049,6 +1300,11 @@ func (r *Room) GetInternalSessions() ([]*grpc.InternalSessionData, []*grpc.Virtu
 	if l := len(r.virtualSessions); l > 0 {
 		virtualSessions = make([]*grpc.VirtualSessionData, 0, l)
 		for session := range r.virtualSessions {
+			if r.joiningSessions[session.PublicId()] {
+				// Will be visible once the "join" event has been published.
+				continue
+			}
+
 			sd := &grpc.VirtualSessionData{
 				SessionId: string(session.PublicId()),
 				InCall:    uint32(session.GetInCall()),
@@ -1119,6 +1375,11 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap, includeClustered
 		}
 	}
 	for session := range r.internalSessions {
+		if r.joiningSessions[session.PublicId()] {
+			// Will be visible once the "join" event has been published.
+			continue
+		}
+
 		u := api.UserData{
 			"inCall":    session.GetInCall(),
 			"sessionId": session.PublicId(),
@@ -1145,6 +1406,9 @@ func (r *Room) addInternalSessionsLocked(users []api.StringMap, includeClustered
 	for session := range r.virtualSessions {
 		sid := session.PublicId()
 		if skipSession[sid] {
+			continue
+		} else if r.joiningSessions[sid] {
+			// Will be visible once the "join" event has been published.
 			continue
 		}
 		skipSession[sid] = true
@@ -1231,7 +1495,7 @@ func (r *Room) setUsers(users api.UserDataList) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	clear(r.users)
+	r.clearUsersLocked()
 	for _, user := range users {
 		sessionId, found := user.SessionId()
 		if !found || !isUserInCall(user) {
@@ -1249,6 +1513,15 @@ func (r *Room) updateUser(sessionId api.PublicSessionId, user api.UserData) {
 
 	existing, found := r.users[sessionId]
 	if !found {
+		if r.syncState != nil {
+			// The user might be included in the initial state from other servers.
+			pending := r.syncState.updatedUsers[sessionId]
+			if pending == nil {
+				pending = make(api.UserData)
+				r.syncState.updatedUsers[sessionId] = pending
+			}
+			maps.Copy(pending, user)
+		}
 		return
 	}
 
@@ -1273,6 +1546,17 @@ func (r *Room) removeUsers(sessionIds ...api.PublicSessionId) {
 // +checklocks:r.mu
 func (r *Room) removeUserLocked(sessionId api.PublicSessionId) {
 	delete(r.users, sessionId)
+	if r.syncState != nil {
+		r.syncState.removedUsers[sessionId] = true
+	}
+}
+
+// +checklocks:r.mu
+func (r *Room) clearUsersLocked() {
+	clear(r.users)
+	if r.syncState != nil {
+		r.syncState.usersReplaced = true
+	}
 }
 
 func (r *Room) setVirtualSessionData(sessionId api.PublicSessionId, data api.UserData) {
@@ -1301,9 +1585,66 @@ func (r *Room) isVirtualSessionId(sessionId api.PublicSessionId) bool {
 	return false
 }
 
-func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest) {
+// filterOutdatedInCallChanges removes changes of the in-call state of sessions
+// that were received before the last change of their in-call state, e.g. if a
+// request was delayed or received by a different server. Changes without
+// in-call state are not filtered.
+func (r *Room) filterOutdatedInCallChanges(changed api.UserDataList, received int64) api.UserDataList {
+	if received == 0 {
+		return changed
+	}
+
+	result := slices.DeleteFunc(changed, func(user api.UserData) bool {
+		if _, found := user["inCall"]; !found {
+			return false
+		}
+
+		sessionId, found := user.SessionId()
+		if !found {
+			return false
+		}
+
+		last := max(r.lastInCallReceived[sessionId], r.lastInCallAllReceived)
+		if last > received {
+			r.logger.Printf("Ignore outdated in-call change %+v in room %s", user, r.Id())
+			return true
+		}
+
+		r.lastInCallReceived[sessionId] = received
+		delete(r.leftSessions, sessionId)
+		return false
+	})
+	r.pruneInCallChanges(received)
+	return result
+}
+
+// pruneInCallChanges removes timestamps of in-call changes that are older than
+// the maximum age, relative to the given (newest) timestamp. The timestamps are
+// only checked from time to time.
+func (r *Room) pruneInCallChanges(received int64) {
+	maxAge := int64(r.inCallChangesMaxAge)
+	if received-r.lastInCallChangePrune < maxAge/2 {
+		return
+	}
+
+	r.lastInCallChangePrune = received
+	for sessionId, last := range r.lastInCallReceived {
+		if received-last > maxAge {
+			delete(r.lastInCallReceived, sessionId)
+			delete(r.leftSessions, sessionId)
+		}
+	}
+}
+
+func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest, received int64) {
 	if !request.All {
-		r.PublishUsersInCallChanged(request.Changed)
+		changed := r.filterOutdatedInCallChanges(request.Changed, received)
+		// Older versions of Talk send the complete list of users which must be
+		// published even if no changes are left (e.g. if the changed sessions are
+		// not connected).
+		if len(changed) > 0 || request.Users != nil { // nolint
+			r.PublishUsersInCallChanged(changed)
+		}
 		return
 	}
 
@@ -1320,19 +1661,49 @@ func (r *Room) processInCallRequest(request *talk.BackendRoomInCallRequest) {
 		}
 	}
 
-	r.PublishUsersInCallChangedAll(flags)
+	var keep map[api.PublicSessionId]bool
+	if received != 0 {
+		if r.lastInCallAllReceived > received {
+			r.logger.Printf("Ignore outdated in-call change of all sessions in room %s", r.Id())
+			return
+		}
+
+		r.lastInCallAllReceived = received
+		// A list of users that is older than the change of all sessions must not
+		// overwrite their in-call state.
+		r.lastUsersReceived = max(r.lastUsersReceived, received)
+		// Sessions that changed their in-call state after the request was
+		// received keep their state. Older changes are covered by the timestamp
+		// of the request from now on.
+		for sessionId, last := range r.lastInCallReceived {
+			if last > received {
+				if r.leftSessions[sessionId] {
+					// The session left the room after the request was received, it
+					// doesn't need to keep its state. The timestamp is kept to
+					// ignore older changes of the session.
+					continue
+				}
+
+				if keep == nil {
+					keep = make(map[api.PublicSessionId]bool)
+				}
+				keep[sessionId] = true
+			} else {
+				delete(r.lastInCallReceived, sessionId)
+				delete(r.leftSessions, sessionId)
+			}
+		}
+	}
+
+	r.publishUsersInCallChangedAll(flags, keep)
 }
 
 func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
 	var toRemove []api.PublicSessionId
 	for _, user := range changed {
-		sessionId, found := user.SessionId()
+		sessionId, found := getChangedSessionId(user)
 		if !found {
-			// TODO: Do we still need this fallback?
-			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
-			if !found {
-				continue
-			}
+			continue
 		}
 
 		inCallInterface, found := user["inCall"]
@@ -1385,7 +1756,22 @@ func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
 	// know about any sessions in the call.
 	users = r.addInternalSessions(users, true)
 	mergeVirtualSessionData(users, changed)
+	r.publishParticipantsUpdate(changed, users)
+}
 
+// getChangedSessionId returns the session id of a changed user.
+func getChangedSessionId(user api.UserData) (api.PublicSessionId, bool) {
+	if sessionId, found := user.SessionId(); found {
+		return sessionId, true
+	}
+
+	// TODO: Do we still need this fallback?
+	return api.GetStringMapString[api.PublicSessionId](user, "sessionid")
+}
+
+// publishParticipantsUpdate publishes the changed users and the users in the
+// call to the local sessions.
+func (r *Room) publishParticipantsUpdate(changed api.UserDataList, users api.UserDataList) {
 	message := &api.ServerMessage{
 		Type: "event",
 		Event: &api.EventServerMessage{
@@ -1399,7 +1785,7 @@ func (r *Room) PublishUsersInCallChanged(changed api.UserDataList) {
 		},
 	}
 	if err := r.publishLocal(message); err != nil {
-		r.logger.Printf("Could not publish incall message in room %s: %s", r.Id(), err)
+		r.logger.Printf("Could not publish participants update in room %s: %s", r.Id(), err)
 	}
 }
 
@@ -1446,52 +1832,80 @@ func mergeVirtualSessionData(users api.UserDataList, changed api.UserDataList) {
 	}
 }
 
-func (r *Room) PublishUsersInCallChangedAll(inCall int) {
-	notify, left := r.updateInCallAll(inCall)
-	if len(notify) == 0 {
-		return
-	}
+// publishUsersInCallChangedAll changes the in-call state of all sessions
+// except the ones that should keep their state.
+func (r *Room) publishUsersInCallChangedAll(inCall int, keep map[api.PublicSessionId]bool) {
+	notify, left, kept := r.updateInCallAll(inCall, keep)
+	if len(notify) > 0 {
+		inCallMsg := json.RawMessage(strconv.FormatInt(int64(inCall), 10))
 
-	inCallMsg := json.RawMessage(strconv.FormatInt(int64(inCall), 10))
-
-	message := &api.ServerMessage{
-		Type: "event",
-		Event: &api.EventServerMessage{
-			Target: "participants",
-			Type:   "update",
-			Update: &api.RoomEventServerMessage{
-				RoomId: r.id,
-				InCall: inCallMsg,
-				All:    true,
+		message := &api.ServerMessage{
+			Type: "event",
+			Event: &api.EventServerMessage{
+				Target: "participants",
+				Type:   "update",
+				Update: &api.RoomEventServerMessage{
+					RoomId: r.id,
+					InCall: inCallMsg,
+					All:    true,
+				},
 			},
-		},
-	}
+		}
 
-	// The sessions must not be accessed while holding the room lock, as the
-	// session lock must be acquired before the room lock.
-	for _, session := range notify {
-		if !session.SendMessage(message) {
-			r.logger.Printf("Could not send incall message from room %s to %s", r.Id(), session.PublicId())
+		// The sessions must not be accessed while holding the room lock, as the
+		// session lock must be acquired before the room lock.
+		for _, session := range notify {
+			if !session.SendMessage(message) {
+				r.logger.Printf("Could not send incall message from room %s to %s", r.Id(), session.PublicId())
+			}
 		}
 	}
 	for _, session := range left {
 		session.LeaveCall(r)
 	}
+
+	if len(kept) > 0 {
+		// The event for all sessions doesn't apply to sessions that kept their
+		// state, so notify about their current state.
+		r.PublishUsersChanged(kept)
+	}
 }
 
-// updateInCallAll updates the in-call state of all sessions and returns the
-// sessions to notify and the sessions that left the call.
-func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*ClientSession) {
+// updateInCallAll updates the in-call state of all sessions (except the ones
+// that should keep their state) and returns the sessions to notify, the
+// sessions that left the call and the current state of the kept sessions.
+func (r *Room) updateInCallAll(inCall int, keep map[api.PublicSessionId]bool) (notify []*ClientSession, left []*ClientSession, kept api.UserDataList) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	for sessionId := range keep {
+		if user, found := r.users[sessionId]; found {
+			kept = append(kept, user.Clone())
+		} else if inCall&FlagInCall != 0 {
+			// Clients must know that the session didn't join the call. If all
+			// sessions left the call, the session is not in the call anyway.
+			kept = append(kept, api.UserData{
+				"sessionId": sessionId,
+				"inCall":    FlagDisconnected,
+			})
+		}
+	}
 
 	if inCall&FlagInCall != 0 {
 		// The stored data must not be modified as it might be referenced by
 		// messages that are being sent.
 		for sessionId, user := range r.users {
+			if keep[sessionId] {
+				continue
+			}
+
 			updated := user.Clone()
 			updated["inCall"] = inCall
 			r.users[sessionId] = updated
+		}
+		if r.syncState != nil {
+			// Also update users from the initial state.
+			r.syncState.inCallAll = &inCall
 		}
 
 		// All connected sessions join the call.
@@ -1507,6 +1921,11 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 				continue
 			}
 
+			if keep[session.PublicId()] {
+				// The session must not join the call because of the event.
+				continue
+			}
+
 			if r.addSessionToCallLocked(session) {
 				joined = append(joined, session.PublicId())
 			}
@@ -1514,11 +1933,20 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 		}
 
 		if len(joined) == 0 {
-			return nil, nil
+			return nil, nil, nil
 		}
 
 		r.logger.Printf("Sessions %v joined call %s", joined, r.id)
-	} else if len(r.inCallSessions) > 0 || len(r.users) > 0 {
+	} else {
+		if r.syncState != nil {
+			// Users from the initial state might still be in the call.
+			r.syncState.usersReplaced = true
+		}
+		if len(r.inCallSessions) == 0 && len(r.users) == 0 {
+			// All sessions already left the call, no need to notify.
+			return nil, nil, nil
+		}
+
 		// Somebody was in the call. This could also be users connected to other
 		// servers, so the local sessions must be notified even if none of them
 		// was in the call.
@@ -1526,25 +1954,34 @@ func (r *Room) updateInCallAll(inCall int) (notify []*ClientSession, left []*Cli
 			clientSession, ok := session.(*ClientSession)
 			if !ok {
 				continue
+			} else if user, found := r.users[session.PublicId()]; found && keep[session.PublicId()] && isUserInCall(user) {
+				// The session must not leave the call because of the event. Kept
+				// sessions that are not in the call are notified that the others
+				// left.
+				continue
 			}
 
 			notify = append(notify, clientSession)
 		}
 
-		clear(r.users)
-
+		for sessionId := range r.users {
+			if !keep[sessionId] {
+				r.removeUserLocked(sessionId)
+			}
+		}
 		for session := range r.inCallSessions {
+			if keep[session.PublicId()] {
+				continue
+			}
+
+			r.removeSessionFromCallLocked(session)
 			if clientSession, ok := session.(*ClientSession); ok {
 				left = append(left, clientSession)
 			}
 		}
-		r.inCallSessions = make(map[Session]bool)
-
-		r.clearInCallStats()
 	}
-	// Otherwise all sessions already left the call, no need to notify.
 
-	return notify, left
+	return notify, left, kept
 }
 
 func isUserInCall(user api.UserData) bool {
@@ -1564,13 +2001,9 @@ func isUserInCall(user api.UserData) bool {
 func (r *Room) PublishUsersChanged(changed api.UserDataList) {
 	var toRemove []api.PublicSessionId
 	for _, user := range changed {
-		sessionId, found := user.SessionId()
+		sessionId, found := getChangedSessionId(user)
 		if !found {
-			// TODO: Do we still need this fallback?
-			sessionId, found = api.GetStringMapString[api.PublicSessionId](user, "sessionid")
-			if !found {
-				continue
-			}
+			continue
 		}
 
 		inCallInterface, found := user["inCall"]
@@ -1597,22 +2030,7 @@ func (r *Room) PublishUsersChanged(changed api.UserDataList) {
 	changed = r.filterPermissions(changed)
 	// TODO: Do we still need the whole list of users to send to all participants?
 	users := r.filterPermissions(r.getUsers())
-
-	message := &api.ServerMessage{
-		Type: "event",
-		Event: &api.EventServerMessage{
-			Target: "participants",
-			Type:   "update",
-			Update: &api.RoomEventServerMessage{
-				RoomId:  r.id,
-				Changed: changed,
-				Users:   r.addInternalSessions(users, len(changed) > 0),
-			},
-		},
-	}
-	if err := r.publishLocal(message); err != nil {
-		r.logger.Printf("Could not publish users changed message in room %s: %s", r.Id(), err)
-	}
+	r.publishParticipantsUpdate(changed, r.addInternalSessions(users, len(changed) > 0))
 }
 
 func (r *Room) getUsers() api.UserDataList {
@@ -1961,27 +2379,38 @@ func (r *Room) RemoveTransientData(key string) error {
 }
 
 func (r *Room) doRemoveTransientData(key string) {
+	r.mu.Lock()
+	if r.syncState != nil {
+		r.syncState.removedTransientData[key] = true
+	}
+	r.mu.Unlock()
+
 	r.transientData.Remove(key)
 }
 
-func (r *Room) fetchInitialTransientData() {
-	if r.hub.rpcClients == nil {
-		return
-	}
-
-	ctx := log.NewLoggerContext(context.Background(), r.logger)
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-
+// fetchInitialState fetches the transient data and the users of the room from
+// the given servers. Returns the servers the state could not (completely) be
+// fetched from.
+func (r *Room) fetchInitialState(ctx context.Context, clients []*grpc.Client) (api.TransientDataEntries, api.UserDataMap, []*grpc.Client) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	// +checklocks:mu
-	var initial api.TransientDataEntries
-	for _, client := range r.hub.rpcClients.GetClients() {
+	var transientData api.TransientDataEntries
+	// +checklocks:mu
+	var users api.UserDataMap
+	// +checklocks:mu
+	failed := make(map[*grpc.Client]bool)
+	fail := func(client *grpc.Client, what string, err error) {
+		r.logger.Printf("Received error while getting %s for %s@%s from %s: %s", what, r.Id(), r.Backend().Id(), client.Target(), err)
+		mu.Lock()
+		defer mu.Unlock()
+		failed[client] = true
+	}
+	for _, client := range clients {
 		wg.Go(func() {
 			data, err := client.GetTransientData(ctx, r.Id(), r.Backend())
 			if err != nil {
-				r.logger.Printf("Received error while getting transient data for %s@%s from %s: %s", r.Id(), r.Backend().Id(), client.Target(), err)
+				fail(client, "transient data", err)
 				return
 			} else if len(data) == 0 {
 				return
@@ -1990,39 +2419,15 @@ func (r *Room) fetchInitialTransientData() {
 			r.logger.Printf("Received initial transient data %+v from %s", data, client.Target())
 			mu.Lock()
 			defer mu.Unlock()
-			if initial == nil {
-				initial = make(api.TransientDataEntries)
+			if transientData == nil {
+				transientData = make(api.TransientDataEntries)
 			}
-			maps.Copy(initial, data)
+			maps.Copy(transientData, data)
 		})
-	}
-	wg.Wait()
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(initial) > 0 {
-		r.transientData.SetInitial(initial)
-	}
-}
-
-func (r *Room) fetchInitialUsers() {
-	if r.hub.rpcClients == nil {
-		return
-	}
-
-	ctx := log.NewLoggerContext(context.Background(), r.logger)
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	// +checklocks:mu
-	var initial api.UserDataMap
-	for _, client := range r.hub.rpcClients.GetClients() {
 		wg.Go(func() {
 			data, err := client.GetRoomUsers(ctx, r.Id(), r.Backend())
 			if err != nil {
-				r.logger.Printf("Received error while getting initial users for %s@%s from %s: %s", r.Id(), r.Backend().Id(), client.Target(), err)
+				fail(client, "initial users", err)
 				return
 			} else if len(data) == 0 {
 				return
@@ -2033,10 +2438,10 @@ func (r *Room) fetchInitialUsers() {
 			defer mu.Unlock()
 			for _, u := range data {
 				if sid, found := u.SessionId(); found {
-					if initial == nil {
-						initial = make(api.UserDataMap)
+					if users == nil {
+						users = make(api.UserDataMap)
 					}
-					initial[sid] = u
+					users[sid] = u
 				}
 			}
 		})
@@ -2045,18 +2450,6 @@ func (r *Room) fetchInitialUsers() {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(initial) > 0 {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if r.closed {
-			return
-		}
-
-		for sid, u := range initial {
-			// Only store information on users that have not been updated through backend requests.
-			if _, found := r.users[sid]; !found {
-				r.users[sid] = newStoredUser(u)
-			}
-		}
-	}
+	// Both parts of the state are fetched again from servers that failed.
+	return transientData, users, slices.Collect(maps.Keys(failed))
 }

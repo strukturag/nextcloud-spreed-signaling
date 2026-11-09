@@ -156,6 +156,12 @@ func easyjsonC1cedd36DecodeGithubComStrukturagNextcloudSpreedSignalingV2AsyncEve
 			} else {
 				out.ClientType = api.ClientType(in.String())
 			}
+		case "lefttime":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.LeftTime = int64(in.Int64())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -184,6 +190,11 @@ func easyjsonC1cedd36EncodeGithubComStrukturagNextcloudSpreedSignalingV2AsyncEve
 		const prefix string = ",\"clienttype\":"
 		out.RawString(prefix)
 		out.String(string(in.ClientType))
+	}
+	if in.LeftTime != 0 {
+		const prefix string = ",\"lefttime\":"
+		out.RawString(prefix)
+		out.Int64(int64(in.LeftTime))
 	}
 	out.RawByte('}')
 }

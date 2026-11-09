@@ -25,16 +25,60 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"sync"
 
 	"github.com/nats-io/nats.go"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 )
 
+const (
+	// Number of received messages that can be pending before they are
+	// dispatched to the handlers. Further messages are dropped by the NATS
+	// client (slow consumer).
+	nativeClientPendingMessages = 65536
+)
+
 type NativeClient struct {
 	logger log.Logger
 	conn   *nats.Conn
 	closed chan struct{}
+
+	// Messages of all subscriptions are received through a single channel and
+	// dispatched from a single goroutine, so they are processed in the order
+	// they were received from the server, even across different subjects.
+	messages chan *nats.Msg
+
+	mu sync.RWMutex
+	// +checklocks:mu
+	handlers map[*nats.Subscription]MsgHandler
+}
+
+func newNativeClient(logger log.Logger) *NativeClient {
+	return &NativeClient{
+		logger:   logger,
+		closed:   make(chan struct{}),
+		messages: make(chan *nats.Msg, nativeClientPendingMessages),
+		handlers: make(map[*nats.Subscription]MsgHandler),
+	}
+}
+
+func (c *NativeClient) dispatchMessages() {
+	for {
+		select {
+		case <-c.closed:
+			return
+		case msg := <-c.messages:
+			c.mu.RLock()
+			handler := c.handlers[msg.Sub]
+			c.mu.RUnlock()
+
+			// The handler is not found if the subscription was closed in the meantime.
+			if handler != nil {
+				handler(msg)
+			}
+		}
+	}
 }
 
 func (c *NativeClient) URLs() []string {
@@ -92,8 +136,43 @@ func (c *NativeClient) onReconnected(conn *nats.Conn) {
 	c.logger.Printf("NATS client reconnected to %s (%s)", conn.ConnectedUrl(), conn.ConnectedServerId())
 }
 
+type nativeSubscription struct {
+	client *NativeClient
+	sub    *nats.Subscription
+}
+
+func (s *nativeSubscription) Unsubscribe() error {
+	s.client.mu.Lock()
+	delete(s.client.handlers, s.sub)
+	s.client.mu.Unlock()
+
+	return s.sub.Unsubscribe()
+}
+
 func (c *NativeClient) Subscribe(subject string, cb MsgHandler) (Subscription, error) {
-	return c.conn.Subscribe(subject, nats.MsgHandler(cb))
+	// The lock is held until the handler has been registered, so messages that
+	// are received before can't be dispatched yet.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	sub, err := c.conn.ChanSubscribe(subject, c.messages)
+	if err != nil {
+		return nil, err
+	}
+
+	c.handlers[sub] = cb
+	return &nativeSubscription{
+		client: c,
+		sub:    sub,
+	}, nil
+}
+
+func (c *NativeClient) onError(conn *nats.Conn, sub *nats.Subscription, err error) {
+	if sub != nil {
+		c.logger.Printf("NATS error for subscription %s: %s", sub.Subject, err)
+	} else {
+		c.logger.Printf("NATS error: %s", err)
+	}
 }
 
 func (c *NativeClient) Publish(subject string, message any) error {

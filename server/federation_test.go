@@ -24,6 +24,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -33,8 +34,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/mock"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/talk"
 )
 
 func Test_FederationInvalidToken(t *testing.T) {
@@ -597,6 +600,426 @@ func Test_FederationCloseOnSessionTeardown(t *testing.T) {
 	assert.True(fed2.closer.IsClosed(), "federation client must be closed synchronously when the session is torn down")
 }
 
+func Test_FederationRoomDeleted(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+
+	hub1, hub2, server1, server2 := CreateClusteredHubsForTest(t)
+
+	client1 := NewTestClient(t, server1, hub1)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHelloV2(testDefaultUserId + "1"))
+
+	client2 := NewTestClient(t, server2, hub2)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloV2(testDefaultUserId + "2"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	hello1 := MustSucceed1(t, client1.RunUntilHello, ctx)
+	hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
+
+	roomId := "test-room"
+	federatedRoomId := roomId + "@federated"
+	room1 := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	require.Equal(roomId, room1.Room.RoomId)
+
+	client1.RunUntilJoined(ctx, hello1.Hello)
+
+	now := time.Now()
+	userdata := api.StringMap{
+		"displayname": "Federated user",
+		"actorType":   "federated_users",
+		"actorId":     "the-federated-user-id",
+	}
+	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
+	require.NoError(err)
+
+	msg := &api.ClientMessage{
+		Id:   "join-room-fed",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId:    federatedRoomId,
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
+				SignalingUrl: server1.URL,
+				NextcloudUrl: server1.URL,
+				RoomId:       roomId,
+				Token:        token,
+			},
+		},
+	}
+	require.NoError(client2.WriteJSON(msg))
+
+	if message, ok := client2.RunUntilMessage(ctx); ok {
+		assert.Equal(msg.Id, message.Id)
+		require.Equal("room", message.Type)
+		require.Equal(federatedRoomId, message.Room.RoomId)
+	}
+
+	if message, ok := client1.RunUntilMessage(ctx); ok {
+		client1.checkSingleMessageJoined(message)
+	}
+
+	session2, ok := hub2.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+	fed2 := session2.GetFederationClient()
+	require.NotNil(fed2)
+
+	// Simulate request from the backend that the room was deleted.
+	room := hub1.getRoom(roomId)
+	require.NotNil(room)
+	room.processAsyncMessage(&events.AsyncMessage{
+		Type: "room",
+		Room: &talk.BackendServerRoomRequest{
+			Type:   "delete",
+			Delete: &talk.BackendRoomDeleteRequest{},
+		},
+	})
+
+	// The federated session is notified about the deletion (with the local
+	// room id) and that it is no longer in the room.
+	message, ok := client2.RunUntilMessage(ctx)
+	for ok && message.Type == "event" && message.Event.Target == "room" && message.Event.Type == "join" {
+		// Ignore "join" events of the sessions in the room.
+		message, ok = client2.RunUntilMessage(ctx)
+	}
+	if ok && assert.Equal("event", message.Type, "%+v", message) {
+		assert.Equal("roomlist", message.Event.Target)
+		assert.Equal("disinvite", message.Event.Type)
+		if assert.NotNil(message.Event.Disinvite) {
+			assert.Equal(federatedRoomId, message.Event.Disinvite.RoomId)
+			assert.Equal(api.DisinviteReasonDeleted, message.Event.Disinvite.Reason)
+		}
+	}
+	if message, ok := client2.RunUntilMessage(ctx); ok && assert.Equal("room", message.Type, "%+v", message) {
+		assert.Empty(message.Room.RoomId)
+	}
+
+	// The federation client is closed and doesn't try to reconnect.
+	assert.Eventually(fed2.closer.IsClosed, time.Second, time.Millisecond)
+	assert.Nil(session2.GetFederationClient())
+	assert.False(fed2.reconnecting.Load())
+
+	// No further messages (e.g. "federation_interrupted") are sent.
+	ctx2, cancel2 := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel2()
+	client2.RunUntilErrorIs(ctx2, context.DeadlineExceeded)
+}
+
+func Test_FederationClosedClientNotReused(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	// The client was closed but not detached from the session yet, e.g. while
+	// processing a "disinvite" event. Joining a room on the same remote server
+	// uses a new client.
+	fed1 := s.joinFederated(t, "join-room-fed")
+	fed1.Close()
+	assert.ErrorIs(fed1.SendMessage(&api.ClientMessage{Type: "room"}), ErrNotConnected)
+	fed2 := s.joinFederated(t, "join-room-fed-2")
+	assert.NotSame(fed1, fed2)
+}
+
+func Test_FederationLeaveThroughClosedClient(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	// Leaving the room through a closed client gets a response.
+	fed := s.joinFederated(t, "join-room-fed")
+	fed.Close()
+	leaveMsg := &api.ClientMessage{
+		Id:   "leave-room-fed",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId: "",
+		},
+	}
+	require.NoError(s.client2.WriteJSON(leaveMsg))
+	message, ok := s.client2.RunUntilMessage(ctx)
+	for ok && message.Type == "event" {
+		message, ok = s.client2.RunUntilMessage(ctx)
+	}
+	if ok && assert.Equal("room", message.Type, "%+v", message) {
+		assert.Equal(leaveMsg.Id, message.Id)
+		assert.Empty(message.Room.RoomId)
+	}
+	assert.Nil(s.session2.GetFederationClient())
+}
+
+func Test_FederationDisinviteWhileSwitchingRooms(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	s.client2.RunUntilJoined(ctx, s.hello1.Hello, s.hello2.Hello)
+	otherJoin := s.otherRoomMessage(t, "join-other-room-fed")
+	previous := simulatePendingJoin(fed, otherJoin)
+	disinvite := func() {
+		t.Helper()
+		fed.processMessage(&api.ServerMessage{
+			Type: "event",
+			Event: &api.EventServerMessage{
+				Target: "roomlist",
+				Type:   "disinvite",
+				Disinvite: &api.RoomDisinviteEventServerMessage{
+					RoomEventServerMessage: api.RoomEventServerMessage{
+						RoomId: s.roomId,
+					},
+					Reason: api.DisinviteReasonDisinvited,
+				},
+			},
+		})
+		if message, ok := s.client2.RunUntilMessage(ctx); ok && assert.Equal("event", message.Type, "%+v", message) {
+			assert.Equal("disinvite", message.Event.Type)
+			if assert.NotNil(message.Event.Disinvite) {
+				assert.Equal(s.federatedRoomId, message.Event.Disinvite.RoomId)
+			}
+		}
+	}
+
+	// A "disinvite" for the previous room while switching to another room on
+	// the same remote server doesn't close the client.
+	disinvite()
+	assert.False(fed.closer.IsClosed())
+	assert.Same(fed, s.session2.GetFederationClient())
+	assertNoMoreMessages(t, s.client2)
+
+	// The join of the other room fails, so the remote session is still in the
+	// previous room and a "disinvite" for it closes the client.
+	fed.processMessage(&api.ServerMessage{
+		Id:    otherJoin.Id,
+		Type:  "error",
+		Error: api.NewError("not_allowed", "Not allowed to join."),
+	})
+	if message, ok := s.client2.RunUntilMessage(ctx); ok && assert.Equal("error", message.Type, "%+v", message) {
+		assert.Equal(otherJoin.Id, message.Id)
+	}
+	assert.Nil(fed.pendingJoin.Load())
+	assert.Same(previous, fed.message.Load())
+
+	disinvite()
+	if message, ok := s.client2.RunUntilMessage(ctx); ok && assert.Equal("room", message.Type, "%+v", message) {
+		assert.Empty(message.Room.RoomId)
+	}
+	assert.True(fed.closer.IsClosed())
+	assert.Nil(s.session2.GetFederationClient())
+}
+
+func Test_FederationAlreadyJoinedWhileSwitchingRooms(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	s.client2.RunUntilJoined(ctx, s.hello1.Hello, s.hello2.Hello)
+	otherJoin := s.otherRoomMessage(t, "join-other-room-fed")
+	simulatePendingJoin(fed, otherJoin)
+
+	// An "already_joined" error for the join of another room means the remote
+	// session is in the requested room.
+	fed.processMessage(&api.ServerMessage{
+		Id:    otherJoin.Id,
+		Type:  "error",
+		Error: api.NewError("already_joined", "Already joined this room."),
+	})
+	if message, ok := s.client2.RunUntilMessage(ctx); ok && assert.Equal("error", message.Type, "%+v", message) {
+		assert.Equal(otherJoin.Id, message.Id)
+	}
+	assert.Nil(fed.pendingJoin.Load())
+	assert.Same(otherJoin, fed.message.Load())
+	assert.Equal("other-room", fed.RemoteRoomId())
+	assert.Equal("other-room@federated", fed.RoomId())
+}
+
+func Test_FederationJoinWhileProcessingHelloAfterReset(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	s.client2.RunUntilJoined(ctx, s.hello1.Hello, s.hello2.Hello)
+	otherJoin := s.otherRoomMessage(t, "join-other-room-fed")
+	fed.message.Store(otherJoin)
+
+	// Sending a join request while processing the hello response and the
+	// connection was reset in the meantime doesn't deadlock.
+	fed.helloMu.Lock()
+	interruptFederationConnection(t, fed)
+	joined := make(chan error, 1)
+	go func() {
+		joined <- fed.joinRoom()
+	}()
+	select {
+	case err := <-joined:
+		assert.NoError(err)
+	case <-time.After(time.Second):
+		assert.Fail("joining blocked")
+	}
+	fed.helloMu.Unlock()
+	fed.mu.Lock()
+	if assert.Len(fed.pendingMessages, 1) {
+		assert.Equal("room", fed.pendingMessages[0].Type)
+	}
+	fed.mu.Unlock()
+
+	// The join request is sent after the session was resumed.
+	fed.reconnect()
+	message, ok := s.client2.RunUntilMessage(ctx)
+	for ok && message.Type == "event" {
+		message, ok = s.client2.RunUntilMessage(ctx)
+	}
+	if ok && assert.Equal("room", message.Type, "%+v", message) {
+		// The id of the join request is cleared once it was answered.
+		assert.Equal("join-other-room-fed", message.Id)
+		assert.Equal(otherJoin.Room.RoomId, message.Room.RoomId)
+	}
+}
+
+func Test_FederationReplaceClientWhileSending(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+
+	// The session can receive messages from the client (e.g. if its connection
+	// was interrupted) while the client is replaced.
+	fed.mu.Lock()
+	replaced := make(chan struct{})
+	go func() {
+		defer close(replaced)
+		s.session2.SetFederationClient(nil)
+	}()
+	// Wait until the client is being closed.
+	assert.Eventually(fed.closer.IsClosed, time.Second, time.Millisecond)
+	sent := make(chan struct{})
+	go func() {
+		defer close(sent)
+		s.session2.SendMessage(&api.ServerMessage{
+			Type: "event",
+			Event: &api.EventServerMessage{
+				Target: "room",
+				Type:   "federation_interrupted",
+			},
+		})
+	}()
+	select {
+	case <-sent:
+	case <-time.After(time.Second):
+		assert.Fail("sending message blocked")
+	}
+	fed.mu.Unlock()
+	<-replaced
+	<-sent
+	assert.True(fed.closer.IsClosed())
+	assert.Nil(s.session2.GetFederationClient())
+}
+
+func Test_FederationReplacedClientReconnected(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	s.client2.RunUntilJoined(ctx, s.hello1.Hello, s.hello2.Hello)
+
+	// A client that reconnected with a new session after the session switched
+	// to another client doesn't replace the current client.
+	other := &FederationClient{}
+	s.session2.federation.Store(other)
+	defer s.session2.federation.Store(nil)
+	fed.reconnecting.Store(true)
+	fed.helloMu.Lock()
+	fed.helloMsgId = "the-hello-id"
+	fed.helloMu.Unlock()
+	fed.mu.Lock()
+	fed.resumeId = ""
+	fed.mu.Unlock()
+	fed.processHello(&api.ServerMessage{
+		Id:   "the-hello-id",
+		Type: "hello",
+		Hello: &api.HelloServerMessage{
+			Version:   api.HelloVersionV2,
+			SessionId: "the-new-session-id",
+			ResumeId:  "the-resume-id",
+		},
+	})
+	assert.Same(other, s.session2.GetFederationClient())
+	assert.True(fed.closer.IsClosed())
+	assertNoMoreMessages(t, s.client2)
+}
+
+func Test_FederationLeaveWhileInterruptedNotResumed(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	s.client2.RunUntilJoined(ctx, s.hello1.Hello, s.hello2.Hello)
+	remoteSession, ok := s.hub1.GetSessionByPublicId(fed.hello.Load().SessionId).(*ClientSession)
+	require.True(ok)
+	fed.mu.Lock()
+	fed.reconnectDelay = 500 * time.Millisecond
+	fed.mu.Unlock()
+	// Simulate disconnected federated client with an expired session.
+	if client := remoteSession.GetClient(); client != nil {
+		remoteSession.ClearClient(client)
+		client.Close()
+	}
+	remoteSession.Close()
+	message, ok := s.client2.RunUntilMessage(ctx)
+	for ok && (message.Type != "event" || message.Event.Type != "federation_interrupted") {
+		message, ok = s.client2.RunUntilMessage(ctx)
+	}
+	require.True(ok)
+
+	// Leaving the room while the connection is interrupted closes the client
+	// and answers the request if the session could not be resumed.
+	leaveMsg := &api.ClientMessage{
+		Id:   "leave-room-fed",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId: "",
+		},
+	}
+	require.NoError(s.client2.WriteJSON(leaveMsg))
+	if message, ok := s.client2.RunUntilMessage(ctx); ok && assert.Equal("room", message.Type, "%+v", message) {
+		assert.Equal(leaveMsg.Id, message.Id)
+		assert.Empty(message.Room.RoomId)
+	}
+	assert.True(fed.closer.IsClosed())
+	assert.Nil(s.session2.GetFederationClient())
+	s.hub2.mu.RLock()
+	_, found := s.hub2.federatedSessions[s.session2]
+	s.hub2.mu.RUnlock()
+	assert.False(found)
+	assertNoMoreMessages(t, s.client2)
+}
+
 func Test_FederationCloseOnSwitchToLocalRoom(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
@@ -894,6 +1317,54 @@ func Test_FederationChangeRoom(t *testing.T) {
 	require.NotNil(fed2)
 	localAddr2 := fed2.LocalAddr()
 	assert.Equal(localAddr, localAddr2)
+	// The join was answered.
+	assert.Nil(fed2.pendingJoin.Load())
+	assert.Equal(roomId2, fed2.RemoteRoomId())
+
+	// Switching rooms while the connection is interrupted sends the join after
+	// the session was resumed.
+	fed2.mu.Lock()
+	fed2.reconnectDelay = 100 * time.Millisecond
+	fed2.scheduleReconnectLocked()
+	fed2.mu.Unlock()
+
+	roomId3 := roomId + "-3"
+	federatedRoomId3 := roomId3 + "@federated"
+	msg3 := &api.ClientMessage{
+		Id:   "join-room-fed-3",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId:    federatedRoomId3,
+			SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId3, hello2.Hello.SessionId)),
+			Federation: &api.RoomFederationMessage{
+				SignalingUrl: server1.URL,
+				NextcloudUrl: server1.URL,
+				RoomId:       roomId3,
+				Token:        token,
+			},
+		},
+	}
+	require.NoError(client2.WriteJSON(msg3))
+
+	var resumed bool
+	message, ok := client2.RunUntilMessage(ctx)
+	for ok && message.Type == "event" {
+		if message.Event.Target == "room" && message.Event.Type == "federation_resumed" {
+			if assert.NotNil(message.Event.Resumed) {
+				assert.True(*message.Event.Resumed)
+			}
+			resumed = true
+		}
+		message, ok = client2.RunUntilMessage(ctx)
+	}
+	if ok && assert.Equal("room", message.Type, "%+v", message) {
+		assert.Equal(msg3.Id, message.Id)
+		assert.Equal(federatedRoomId3, message.Room.RoomId)
+	}
+	assert.True(resumed)
+	assert.Same(fed2, session2.GetFederationClient())
+	assert.Nil(fed2.pendingJoin.Load())
+	assert.Equal(roomId3, fed2.RemoteRoomId())
 }
 
 func Test_FederationMedia(t *testing.T) {
@@ -1351,4 +1822,250 @@ func Test_FederationTransientData(t *testing.T) {
 	if msg, ok := client2.RunUntilMessage(ctx); ok {
 		checkMessageTransientSet(t, msg, sessionKey2, "54321", nil)
 	}
+}
+
+// federationTestSetup contains a session on the second hub that can join a
+// room on the first hub through federation.
+type federationTestSetup struct {
+	ctx             context.Context
+	hub1            *Hub
+	hub2            *Hub
+	client2         *TestClient
+	hello1          *api.ServerMessage
+	hello2          *api.ServerMessage
+	session2        *ClientSession
+	roomId          string
+	federatedRoomId string
+	message         func(id string) *api.ClientMessage
+}
+
+func newFederationTestSetup(ctx context.Context, t *testing.T) *federationTestSetup {
+	t.Helper()
+	require := require.New(t)
+
+	hub1, hub2, server1, server2 := CreateClusteredHubsForTest(t)
+
+	client1, hello1 := NewTestClientWithHello(ctx, t, server1, hub1, testDefaultUserId+"1")
+	t.Cleanup(func() {
+		client1.CloseWithBye()
+	})
+	client2, hello2 := NewTestClientWithHello(ctx, t, server2, hub2, testDefaultUserId+"2")
+	t.Cleanup(func() {
+		client2.CloseWithBye()
+	})
+
+	roomId := "test-room"
+	federatedRoomId := roomId + "@federated"
+	MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+	client1.RunUntilJoined(ctx, hello1.Hello)
+
+	now := time.Now()
+	userdata := api.StringMap{
+		"displayname": "Federated user",
+		"actorType":   "federated_users",
+		"actorId":     "the-federated-user-id",
+	}
+	token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
+	require.NoError(err)
+
+	session2, ok := hub2.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+	require.True(ok)
+
+	return &federationTestSetup{
+		ctx:             ctx,
+		hub1:            hub1,
+		hub2:            hub2,
+		client2:         client2,
+		hello1:          hello1,
+		hello2:          hello2,
+		session2:        session2,
+		roomId:          roomId,
+		federatedRoomId: federatedRoomId,
+		message: func(id string) *api.ClientMessage {
+			return &api.ClientMessage{
+				Id:   id,
+				Type: "room",
+				Room: &api.RoomClientMessage{
+					RoomId:    federatedRoomId,
+					SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+					Federation: &api.RoomFederationMessage{
+						SignalingUrl: server1.URL,
+						NextcloudUrl: server1.URL,
+						RoomId:       roomId,
+						Token:        token,
+					},
+				},
+			}
+		},
+	}
+}
+
+// joinFederated joins the federated room and returns the federation client.
+func (s *federationTestSetup) joinFederated(t *testing.T, id string) *FederationClient {
+	t.Helper()
+	require := require.New(t)
+	msg := s.message(id)
+	require.NoError(s.client2.WriteJSON(msg))
+
+	message, ok := s.client2.RunUntilMessage(s.ctx)
+	for ok && message.Type == "event" {
+		message, ok = s.client2.RunUntilMessage(s.ctx)
+	}
+	require.True(ok)
+	require.Equal("room", message.Type, "%+v", message)
+	require.Equal(msg.Id, message.Id)
+	require.Equal(s.federatedRoomId, message.Room.RoomId)
+
+	fed := s.session2.GetFederationClient()
+	require.NotNil(fed)
+	return fed
+}
+
+// otherRoomMessage returns a request to join another room on the same remote
+// server.
+func (s *federationTestSetup) otherRoomMessage(t *testing.T, id string) *api.ClientMessage {
+	t.Helper()
+	msg := s.message(id)
+	msg.Room.RoomId = "other-room@federated"
+	msg.Room.SessionId = api.RoomSessionId(fmt.Sprintf("other-room@federated-%s", s.hello2.Hello.SessionId))
+	msg.Room.Federation.RoomId = "other-room"
+	require.NoError(t, msg.Room.Federation.CheckValid())
+	return msg
+}
+
+// simulatePendingJoin simulates that a request to join another room was sent
+// but not answered yet. Returns the previous join request.
+func simulatePendingJoin(fed *FederationClient, message *api.ClientMessage) *api.ClientMessage {
+	previous := fed.message.Load()
+	fed.message.Store(message)
+	fed.pendingJoin.Store(&federationPendingJoin{
+		id:       message.Id,
+		message:  message,
+		previous: previous,
+	})
+	return previous
+}
+
+// interruptFederationConnection resets the connection of the federation client without
+// reconnecting automatically.
+func interruptFederationConnection(t *testing.T, fed *FederationClient) {
+	t.Helper()
+	fed.mu.Lock()
+	fed.reconnectDelay = time.Hour
+	fed.scheduleReconnectLocked()
+	// The reading goroutine also schedules a reconnect once it notices the
+	// closed connection, wait for it so it doesn't interfere.
+	fed.reconnectDelay = time.Hour
+	fed.mu.Unlock()
+	assert.Eventually(t, func() bool {
+		fed.mu.Lock()
+		defer fed.mu.Unlock()
+		return fed.reconnectDelay != time.Hour
+	}, time.Second, time.Millisecond)
+}
+
+func Test_FederationNoErrorAfterClose(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	s.client2.RunUntilJoined(ctx, s.hello1.Hello, s.hello2.Hello)
+
+	// Errors of clients that are closed don't belong to any current request of
+	// the session.
+	fed.Close()
+	fed.closeWithError(errors.New("the error"))
+	assertNoMoreMessages(t, s.client2)
+}
+
+func Test_FederationOutdatedLeaveResponse(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	s.client2.RunUntilJoined(ctx, s.hello1.Hello, s.hello2.Hello)
+
+	// Leave the room while the connection is interrupted.
+	interruptFederationConnection(t, fed)
+	if msg, ok := s.client2.RunUntilMessage(ctx); ok {
+		assert.Equal("federation_interrupted", msg.Event.Type, "%+v", msg)
+	}
+	require.NoError(s.client2.WriteJSON(&api.ClientMessage{
+		Id:   "leave-room-fed",
+		Type: "room",
+		Room: &api.RoomClientMessage{
+			RoomId: "",
+		},
+	}))
+	assert.Eventually(func() bool {
+		return s.session2.GetFederationClient() == nil
+	}, time.Second, time.Millisecond)
+
+	// Join a local room before the request to leave was answered.
+	localRoomId := "test-room-local"
+	roomMsg := MustSucceed2(t, s.client2.JoinRoom, ctx, localRoomId)
+	require.Equal(localRoomId, roomMsg.Room.RoomId)
+	s.client2.RunUntilJoined(ctx, s.hello2.Hello)
+
+	// The request to leave is sent after the session was resumed, but the
+	// (outdated) response is not forwarded to the session.
+	fed.reconnect()
+	assert.Eventually(fed.closer.IsClosed, time.Second, time.Millisecond)
+	assertNoMoreMessages(t, s.client2)
+	if room := s.session2.GetRoom(); assert.NotNil(room) {
+		assert.Equal(localRoomId, room.Id())
+	}
+}
+
+func Test_FederationConnectAfterClose(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+
+	// A connection that was established after the client was closed is not
+	// used.
+	fed.Close()
+	require.ErrorIs(fed.connect(ctx), ErrNotConnected)
+	fed.mu.Lock()
+	defer fed.mu.Unlock()
+	require.Nil(fed.conn)
+}
+
+func Test_FederationCloseWithBrokenConnection(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	s := newFederationTestSetup(ctx, t)
+
+	fed := s.joinFederated(t, "join-room-fed")
+	remoteSession, ok := s.hub1.GetSessionByPublicId(fed.hello.Load().SessionId).(*ClientSession)
+	require.True(ok)
+
+	// Sending the "bye" message fails while closing the client, this must not
+	// schedule a reconnect (which resets the connection).
+	fed.closer.Close()
+	fed.mu.Lock()
+	require.NotNil(fed.conn)
+	require.NoError(fed.conn.UnderlyingConn().Close())
+	fed.closeConnection(true)
+	assert.Nil(fed.conn)
+	assert.Nil(fed.reconnectFunc)
+	assert.False(fed.reconnecting.Load())
+	fed.mu.Unlock()
+
+	// Finish closing the client. The remote session didn't receive the "bye".
+	fed.Close()
+	remoteSession.Close()
 }
