@@ -97,6 +97,10 @@ func NewServer(ctx context.Context, cfg *goconf.ConfigFile, version string) (*Se
 		return nil, err
 	}
 
+	if listener != nil && isInsecureCredentials(creds) {
+		logger.Printf("WARNING: No GRPC server certificate and/or key configured, running unencrypted")
+	}
+
 	conn := grpc.NewServer(grpc.Creds(creds))
 	result := &Server{
 		logger:   logger,
