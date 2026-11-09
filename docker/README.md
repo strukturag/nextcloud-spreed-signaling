@@ -55,6 +55,9 @@ The running container can be configured through different environment variables:
 - `PROXY_TOKEN_ID`: Id of the token to use when connecting to proxy servers.
 - `PROXY_TOKEN_KEY`: Private key for the configured token id.
 - `PROXY_TIMEOUT`: Timeout in seconds for requests to the proxy server.
+- `PROXY_READ_TIMEOUT`: Read timeout for websocket connections to proxy servers in seconds (also the time proxy servers have to respond to pings).
+- `PROXY_WRITE_TIMEOUT`: Write timeout for websocket connections to proxy servers in seconds.
+- `PROXY_PING_INTERVAL`: Interval in seconds in which ping messages are sent to proxy servers.
 - `PROXY_URLS`: Space-separated list of proxy URLs to connect to.
 - `PROXY_DNS_DISCOVERY`: Enable DNS discovery on hostnames of configured static URLs.
 - `PROXY_ETCD`: Set to `1` if etcd should be used to configure proxy connections.
@@ -123,6 +126,9 @@ The running container can be configured through different environment variables:
 - `EXTERNAL_HOSTNAME`: The external hostname for remote streams. Will try to autodetect if omitted.
 - `TOKEN_ID`: Id of the token to use when connecting remote streams.
 - `TOKEN_KEY`: Private key for the configured token id.
+- `REMOTE_READ_TIMEOUT`: Read timeout for websocket connections to other proxy servers (for remote streams) in seconds (also the time remote proxy servers have to respond to pings).
+- `REMOTE_WRITE_TIMEOUT`: Write timeout for websocket connections to other proxy servers (for remote streams) in seconds.
+- `REMOTE_PING_INTERVAL`: Interval in seconds in which ping messages are sent to other proxy servers (for remote streams).
 - `BANDWIDTH_INCOMING`: Optional incoming target bandwidth (in megabits per second).
 - `BANDWIDTH_OUTGOING`: Optional outgoing target bandwidth (in megabits per second).
 - `JANUS_URL`: Url to Janus server.

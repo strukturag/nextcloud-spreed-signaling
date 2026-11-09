@@ -137,6 +137,15 @@ if [ ! -f "$CONFIG" ]; then
     if [ -n "$PROXY_TIMEOUT" ]; then
       sed -i "s|#proxytimeout =.*|proxytimeout = $PROXY_TIMEOUT|" "$CONFIG"
     fi
+    if [ -n "$PROXY_READ_TIMEOUT" ]; then
+      sed -i "/^\[mcu\]/,/^\[/ s|#readtimeout =.*|readtimeout = $PROXY_READ_TIMEOUT|" "$CONFIG"
+    fi
+    if [ -n "$PROXY_WRITE_TIMEOUT" ]; then
+      sed -i "/^\[mcu\]/,/^\[/ s|#writetimeout =.*|writetimeout = $PROXY_WRITE_TIMEOUT|" "$CONFIG"
+    fi
+    if [ -n "$PROXY_PING_INTERVAL" ]; then
+      sed -i "/^\[mcu\]/,/^\[/ s|#pinginterval =.*|pinginterval = $PROXY_PING_INTERVAL|" "$CONFIG"
+    fi
 
     if [ -n "$PROXY_ETCD" ]; then
       if [ -z "$HAS_ETCD" ]; then

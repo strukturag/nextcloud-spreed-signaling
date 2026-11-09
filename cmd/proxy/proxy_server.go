@@ -147,6 +147,7 @@ type ProxyServer struct {
 	statsAllowedIps atomic.Pointer[container.IPList]
 	trustedProxies  atomic.Pointer[container.IPList]
 	timeouts        atomic.Pointer[client.Timeouts]
+	remoteTimeouts  atomic.Pointer[client.Timeouts]
 
 	sid          atomic.Uint64
 	cookie       *session.SessionIdCodec
@@ -639,6 +640,11 @@ func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) err
 		s.logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for websocket connections", timeouts.PingInterval, timeouts.ReadTimeout, timeouts.WriteTimeout)
 	}
 
+	remoteTimeouts := client.LoadTimeouts(s.logger, config, "mcu", client.Timeouts{})
+	if prev := s.remoteTimeouts.Swap(&remoteTimeouts); prev == nil || *prev != remoteTimeouts {
+		s.logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for connections to remote proxies", remoteTimeouts.PingInterval, remoteTimeouts.ReadTimeout, remoteTimeouts.WriteTimeout)
+	}
+
 	maxIncoming, maxOutgoing := getTargetBandwidths(s.logger, config)
 	oldIncoming := s.maxIncoming.Swap(maxIncoming)
 	oldOutgoing := s.maxOutgoing.Swap(maxOutgoing)
@@ -652,6 +658,10 @@ func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) err
 
 func (s *ProxyServer) getTimeouts() client.Timeouts {
 	return *s.timeouts.Load()
+}
+
+func (s *ProxyServer) getRemoteTimeouts() client.Timeouts {
+	return *s.remoteTimeouts.Load()
 }
 
 func (s *ProxyServer) Reload(config *goconf.ConfigFile) {

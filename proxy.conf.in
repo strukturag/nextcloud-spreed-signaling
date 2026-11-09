@@ -104,6 +104,22 @@ url = ws://localhost:8188/
 # List of IP addresses / subnets to filter from candidates received by clients.
 #blockedcandidates = 1.2.3.0/24
 
+# Read timeout in seconds for websocket connections to other proxy servers
+# (for remote streams). This is the time remote proxy servers have to respond
+# to ping messages.
+#readtimeout = 30
+
+# Write timeout in seconds for websocket connections to other proxy servers
+# (for remote streams).
+#writetimeout = 30
+
+# Interval in seconds in which ping messages are sent to other proxy servers
+# (for remote streams). Connections that don't respond within the read timeout
+# are reconnected. Reduce this if a proxy / firewall closes idle connections
+# earlier.
+# Changes only affect new connections to remote proxy servers.
+#pinginterval = 45
+
 [stats]
 # Comma-separated list of IP addresses that are allowed to access the debug,
 # stats and metrics endpoints.

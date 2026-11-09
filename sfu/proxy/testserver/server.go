@@ -37,6 +37,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dlintw/goconf"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -64,6 +65,9 @@ type ProxyTestServer interface {
 type ProxyTestOptions struct {
 	Etcd    *etcdtest.EtcdServer
 	Servers []ProxyTestServer
+	// UpdateConfig can be used to modify the configuration before the proxy
+	// SFU is created.
+	UpdateConfig func(cfg *goconf.ConfigFile)
 }
 
 type proxyServerClientHandler func(msg *proxy.ClientMessage) (*proxy.ServerMessage, error)

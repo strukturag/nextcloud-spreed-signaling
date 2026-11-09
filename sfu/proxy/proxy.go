@@ -46,6 +46,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/dns"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
@@ -76,15 +77,6 @@ const (
 
 	initialReconnectInterval = 1 * time.Second
 	maxReconnectInterval     = 16 * time.Second
-
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
 
 	defaultProxyTimeoutSeconds = 2
 
@@ -379,6 +371,7 @@ type proxyConnection struct {
 	url          *url.URL
 	ip           net.IP
 	connectToken string
+	timeouts     client.Timeouts
 
 	load       atomic.Uint64
 	bandwidth  atomic.Pointer[proxy.EventServerBandwidth]
@@ -437,6 +430,7 @@ func newProxyConnection(proxy *proxySFU, baseUrl string, ip net.IP, token string
 		url:          parsed,
 		ip:           ip,
 		connectToken: token,
+		timeouts:     proxy.getTimeouts(),
 		closer:       internal.NewCloser(),
 		closedDone:   internal.NewCloser(),
 		callbacks:    make(map[string]mcuProxyCallback),
@@ -628,7 +622,7 @@ func (c *proxyConnection) readPump() {
 
 	conn.SetPongHandler(func(msg string) error {
 		now := time.Now()
-		conn.SetReadDeadline(now.Add(pongWait)) // nolint
+		conn.SetReadDeadline(now.Add(c.timeouts.ReadWait())) // nolint
 		if msg == "" {
 			return nil
 		}
@@ -643,7 +637,7 @@ func (c *proxyConnection) readPump() {
 	})
 
 	for {
-		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
+		conn.SetReadDeadline(time.Now().Add(c.timeouts.ReadWait())) // nolint
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if errors.Is(err, websocket.ErrCloseSent) {
@@ -676,7 +670,7 @@ func (c *proxyConnection) sendPing() bool {
 
 	now := time.Now()
 	msg := strconv.FormatInt(now.UnixNano(), 10)
-	c.conn.SetWriteDeadline(now.Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(now.Add(c.timeouts.WriteTimeout)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
 		c.logger.Printf("Could not send ping to proxy at %s: %v", c, err)
 		go c.scheduleReconnect()
@@ -687,7 +681,7 @@ func (c *proxyConnection) sendPing() bool {
 }
 
 func (c *proxyConnection) writePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.timeouts.PingInterval)
 	defer func() {
 		ticker.Stop()
 	}()
@@ -718,7 +712,7 @@ func (c *proxyConnection) sendClose() error {
 		return sfu.ErrNotConnected
 	}
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(c.timeouts.WriteTimeout)) // nolint
 	return c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 }
 
@@ -1236,7 +1230,7 @@ func (c *proxyConnection) sendMessageLocked(msg *proxy.ClientMessage) error {
 	if c.conn == nil {
 		return sfu.ErrNotConnected
 	}
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(c.timeouts.WriteTimeout)) // nolint
 	return c.conn.WriteJSON(msg)
 }
 
@@ -1544,6 +1538,9 @@ type proxySFU struct {
 
 	continentsMap atomic.Value
 
+	// Timeouts for connections to proxy servers.
+	timeouts atomic.Pointer[client.Timeouts]
+
 	rpcClients *grpc.Clients
 }
 
@@ -1594,6 +1591,7 @@ func NewProxySFU(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd
 		rpcClients: rpcClients,
 	}
 	mcu.publishersCond.L = &mcu.mu
+	mcu.loadTimeouts(config)
 
 	if err := mcu.loadContinentsMap(config); err != nil {
 		return nil, err
@@ -1871,8 +1869,20 @@ func (m *proxySFU) KeepConnection(url string, ips ...net.IP) {
 	}
 }
 
+func (m *proxySFU) getTimeouts() client.Timeouts {
+	return *m.timeouts.Load()
+}
+
+func (m *proxySFU) loadTimeouts(config *goconf.ConfigFile) {
+	timeouts := client.LoadTimeouts(m.logger, config, "mcu", client.Timeouts{})
+	if prev := m.timeouts.Swap(&timeouts); prev == nil || *prev != timeouts {
+		m.logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for proxy connections", timeouts.PingInterval, timeouts.ReadTimeout, timeouts.WriteTimeout)
+	}
+}
+
 func (m *proxySFU) Reload(config *goconf.ConfigFile) {
 	m.settings.Reload(config)
+	m.loadTimeouts(config)
 
 	if m.settings.Timeout() != m.dialer.HandshakeTimeout {
 		m.dialer.HandshakeTimeout = m.settings.Timeout()

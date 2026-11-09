@@ -227,6 +227,21 @@ connectionsperhost = 8
 # For type "proxy": timeout in seconds for requests to the proxy server.
 #proxytimeout = 2
 
+# For type "proxy": read timeout in seconds for websocket connections to proxy
+# servers. This is the time proxy servers have to respond to ping messages.
+#readtimeout = 30
+
+# For type "proxy": write timeout in seconds for websocket connections to proxy
+# servers.
+#writetimeout = 30
+
+# For type "proxy": interval in seconds in which ping messages are sent to proxy
+# servers. Connections that don't respond within the read timeout are
+# reconnected. Reduce this if a proxy / firewall closes idle connections
+# earlier.
+# Changes only affect new connections to proxy servers.
+#pinginterval = 45
+
 # For type "proxy": type of URL configuration for proxy servers.
 # Defaults to "static".
 #

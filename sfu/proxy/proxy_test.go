@@ -42,6 +42,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	dnstest "github.com/strukturag/nextcloud-spreed-signaling/v2/dns/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/etcd"
 	etcdtest "github.com/strukturag/nextcloud-spreed-signaling/v2/etcd/test"
@@ -240,6 +241,9 @@ func newMcuProxyForTestWithOptions(t *testing.T, options testserver.ProxyTestOpt
 	cfg.AddOption("mcu", "url", strings.Join(urls, " "))
 	cfg.AddOption("mcu", "token_id", tokenId)
 	cfg.AddOption("mcu", "token_key", privkeyFile)
+	if options.UpdateConfig != nil {
+		options.UpdateConfig(cfg)
+	}
 
 	etcdConfig := goconf.NewConfigFile()
 	etcdConfig.AddOption("etcd", "endpoints", options.Etcd.URL().String())
@@ -1135,6 +1139,58 @@ func Test_ProxyReconnectAfter(t *testing.T) {
 				assert.NotEqual(sessionId, connections[0].SessionId())
 			}
 		})
+	}
+}
+
+func Test_ProxyTimeouts(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	server := testserver.NewProxyServerForTest(t, "DE")
+	mcu, cfg := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{
+		Servers: []testserver.ProxyTestServer{server},
+		UpdateConfig: func(cfg *goconf.ConfigFile) {
+			cfg.AddOption("mcu", "pinginterval", "1")
+			cfg.AddOption("mcu", "readtimeout", "1")
+			cfg.AddOption("mcu", "writetimeout", "2")
+		},
+	}, 0, nil)
+
+	expected := client.Timeouts{
+		PingInterval: time.Second,
+		ReadTimeout:  time.Second,
+		WriteTimeout: 2 * time.Second,
+	}
+	assert.Equal(expected, mcu.getTimeouts())
+
+	connections := mcu.getSortedConnections(nil)
+	require.Len(connections, 1)
+	conn := connections[0]
+	assert.Equal(expected, conn.timeouts)
+	sessionId := conn.SessionId()
+	connectedSince := conn.connectedSince.Load()
+
+	// The proxy responds to pings, so the connection is kept open after the
+	// read timeout expired.
+	time.Sleep(2 * (expected.PingInterval + expected.ReadTimeout))
+	assert.True(conn.IsConnected())
+	assert.Equal(sessionId, conn.SessionId())
+	assert.Equal(connectedSince, conn.connectedSince.Load(), "proxy connection was reconnected")
+
+	// Changing the timeouts only affects new connections.
+	cfg.AddOption("mcu", "pinginterval", "30")
+	cfg.RemoveOption("mcu", "readtimeout")
+	cfg.RemoveOption("mcu", "writetimeout")
+	mcu.Reload(cfg)
+	assert.Equal(client.Timeouts{
+		PingInterval: 30 * time.Second,
+		ReadTimeout:  client.DefaultReadTimeout,
+		WriteTimeout: client.DefaultWriteTimeout,
+	}, mcu.getTimeouts())
+	if connections := mcu.getSortedConnections(nil); assert.Len(connections, 1) {
+		assert.Same(conn, connections[0])
+		assert.Equal(expected, connections[0].timeouts)
 	}
 }
 

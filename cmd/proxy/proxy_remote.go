@@ -40,6 +40,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/proxy"
@@ -48,15 +49,6 @@ import (
 const (
 	initialReconnectInterval = 1 * time.Second
 	maxReconnectInterval     = 16 * time.Second
-
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
 )
 
 var (
@@ -76,6 +68,7 @@ type RemoteConnection struct {
 	tokenId   string
 	tokenKey  *rsa.PrivateKey
 	tlsConfig *tls.Config
+	timeouts  client.Timeouts
 
 	// +checklocks:mu
 	connectedSince    time.Time
@@ -114,6 +107,7 @@ func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenK
 		tokenId:   tokenId,
 		tokenKey:  tokenKey,
 		tlsConfig: tlsConfig,
+		timeouts:  p.getRemoteTimeouts(),
 
 		reconnectTimer: time.NewTimer(0),
 
@@ -253,7 +247,7 @@ func (c *RemoteConnection) sendCloseLocked() error {
 		return ErrNotConnected
 	}
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(c.timeouts.WriteTimeout)) // nolint
 	return c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 }
 
@@ -357,7 +351,7 @@ func (c *RemoteConnection) sendMessageLocked(ctx context.Context, msg *proxy.Cli
 		return nil
 	}
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(c.timeouts.WriteTimeout)) // nolint
 	return c.conn.WriteJSON(msg)
 }
 
@@ -369,7 +363,13 @@ func (c *RemoteConnection) readPump(conn *websocket.Conn) {
 	}()
 	defer c.close()
 
+	conn.SetPongHandler(func(msg string) error {
+		conn.SetReadDeadline(time.Now().Add(c.timeouts.ReadWait())) // nolint
+		return nil
+	})
+
 	for {
+		conn.SetReadDeadline(time.Now().Add(c.timeouts.ReadWait())) // nolint
 		msgType, msg, err := conn.ReadMessage()
 		if err != nil {
 			if errors.Is(err, websocket.ErrCloseSent) {
@@ -417,7 +417,7 @@ func (c *RemoteConnection) sendPing() bool {
 
 	now := time.Now()
 	msg := strconv.FormatInt(now.UnixNano(), 10)
-	c.conn.SetWriteDeadline(now.Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(now.Add(c.timeouts.WriteTimeout)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
 		c.logger.Printf("Could not send ping to proxy at %s: %v", c, err)
 		go c.scheduleReconnect()
@@ -428,7 +428,7 @@ func (c *RemoteConnection) sendPing() bool {
 }
 
 func (c *RemoteConnection) writePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.timeouts.PingInterval)
 	defer func() {
 		ticker.Stop()
 	}()

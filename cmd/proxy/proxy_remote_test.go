@@ -24,12 +24,18 @@ package main
 import (
 	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/dlintw/goconf"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/proxy"
 )
 
@@ -99,6 +105,111 @@ func Test_ProxyRemoteConnectionReconnect(t *testing.T) {
 	assert.NoError(c.Close())
 	assert.NoError(conn.WaitForDisconnect(ctx))
 	assert.NoError(conn.WaitForConnection(ctx))
+}
+
+func getRemoteTimeoutsConfigForTest() (*goconf.ConfigFile, client.Timeouts) {
+	config := goconf.NewConfigFile()
+	config.AddOption("mcu", "pinginterval", "1")
+	config.AddOption("mcu", "readtimeout", "1")
+	config.AddOption("mcu", "writetimeout", "2")
+	return config, client.Timeouts{
+		PingInterval: time.Second,
+		ReadTimeout:  time.Second,
+		WriteTimeout: 2 * time.Second,
+	}
+}
+
+func Test_ProxyRemoteConnectionTimeouts(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+
+	server, key, httpserver := newProxyServerForTest(t)
+	assert.Equal(client.Timeouts{}.WithDefaults(), server.getRemoteTimeouts())
+
+	config, expected := getRemoteTimeoutsConfigForTest()
+	require.NoError(server.loadConfig(config, true))
+	assert.Equal(expected, server.getRemoteTimeouts())
+	// Timeouts for remote connections don't affect the listener.
+	assert.Equal(client.Timeouts{}.WithDefaults(), server.getTimeouts())
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	conn, err := NewRemoteConnection(server, httpserver.URL, TokenIdForTest, key, nil)
+	require.NoError(err)
+	t.Cleanup(func() {
+		assert.NoError(conn.SendBye())
+		assert.NoError(conn.Close())
+	})
+	assert.Equal(expected, conn.timeouts)
+
+	require.NoError(conn.WaitForConnection(ctx))
+	conn.mu.Lock()
+	initial := conn.conn
+	conn.mu.Unlock()
+
+	// The remote proxy responds to pings, so the connection is kept open
+	// after the read timeout expired.
+	time.Sleep(2 * (expected.PingInterval + expected.ReadTimeout))
+	conn.mu.Lock()
+	current := conn.conn
+	conn.mu.Unlock()
+	assert.Same(initial, current, "remote connection was reconnected")
+
+	// Changing the timeouts only affects new connections.
+	require.NoError(server.loadConfig(goconf.NewConfigFile(), true))
+	assert.Equal(client.Timeouts{}.WithDefaults(), server.getRemoteTimeouts())
+	assert.Equal(expected, conn.timeouts)
+}
+
+func Test_ProxyRemoteConnectionReadTimeout(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+
+	server, key, _ := newProxyServerForTest(t)
+	config, expected := getRemoteTimeoutsConfigForTest()
+	require.NoError(server.loadConfig(config, true))
+
+	// Remote proxy that never responds to pings.
+	var connections atomic.Int32
+	upgrader := websocket.Upgrader{}
+	silent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if !assert.NoError(err) {
+			return
+		}
+		defer ws.Close()
+
+		connections.Add(1)
+		ws.SetPingHandler(func(string) error {
+			return nil
+		})
+		for {
+			if _, _, err := ws.NextReader(); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(silent.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	conn, err := NewRemoteConnection(server, silent.URL, TokenIdForTest, key, nil)
+	require.NoError(err)
+	t.Cleanup(func() {
+		assert.NoError(conn.Close())
+	})
+
+	// The connection is closed after the read timeout and reconnected.
+	start := time.Now()
+	for connections.Load() < 2 {
+		require.NoError(ctx.Err())
+		time.Sleep(10 * time.Millisecond)
+	}
+	assert.GreaterOrEqual(time.Since(start), expected.PingInterval+expected.ReadTimeout)
 }
 
 func Test_ProxyRemoteConnectionReconnectUnknownSession(t *testing.T) {
