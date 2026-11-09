@@ -784,6 +784,10 @@ func (c *Clients) loadTargetsStatic(config *goconf.ConfigFile, fromReload bool, 
 		}
 	}
 
+	if len(clients) > 0 && isInsecureCredentials(c.creds) {
+		c.logger.Printf("WARNING: No GRPC CA configured, expecting unencrypted connections")
+	}
+
 	c.clients = clients
 	c.clientsMap = clientsMap
 	c.initializedFunc()

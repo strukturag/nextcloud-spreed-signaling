@@ -37,6 +37,11 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/security"
 )
 
+var (
+	insecureCredentials = insecure.NewCredentials()
+	insecureProtocol    = insecureCredentials.Info().SecurityProtocol
+)
+
 type reloadableCredentials struct {
 	config *tls.Config
 
@@ -203,12 +208,7 @@ func NewReloadableCredentials(logger log.Logger, config *goconf.ConfigFile, serv
 	}
 
 	if loader == nil && pool == nil {
-		if server {
-			logger.Printf("WARNING: No GRPC server certificate and/or key configured, running unencrypted")
-		} else {
-			logger.Printf("WARNING: No GRPC CA configured, expecting unencrypted connections")
-		}
-		return insecure.NewCredentials(), nil
+		return insecureCredentials, nil
 	}
 
 	creds := &reloadableCredentials{
@@ -217,4 +217,13 @@ func NewReloadableCredentials(logger log.Logger, config *goconf.ConfigFile, serv
 		pool:   pool,
 	}
 	return creds, nil
+}
+
+func isInsecureCredentials(creds credentials.TransportCredentials) bool {
+	if creds == nil {
+		return true
+	}
+
+	protocol := creds.Info().SecurityProtocol
+	return protocol != insecureProtocol
 }
