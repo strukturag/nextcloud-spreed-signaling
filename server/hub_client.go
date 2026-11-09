@@ -49,7 +49,7 @@ type HubClient struct {
 	session atomic.Pointer[Session]
 }
 
-func NewHubClient(ctx context.Context, conn *websocket.Conn, remoteAddress string, agent string, hub *Hub) (*HubClient, error) {
+func NewHubClient(ctx context.Context, conn *websocket.Conn, remoteAddress string, agent string, timeouts client.Timeouts, hub *Hub) (*HubClient, error) {
 	remoteAddress = strings.TrimSpace(remoteAddress)
 	if remoteAddress == "" {
 		remoteAddress = "unknown remote address"
@@ -62,7 +62,7 @@ func NewHubClient(ctx context.Context, conn *websocket.Conn, remoteAddress strin
 	client := &HubClient{
 		hub: hub,
 	}
-	client.SetConn(ctx, conn, remoteAddress, agent, true, client)
+	client.SetConn(ctx, conn, remoteAddress, agent, true, timeouts, client)
 	return client, nil
 }
 

@@ -47,6 +47,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
@@ -341,6 +342,63 @@ func TestWebsocketFeatures(t *testing.T) {
 	}
 
 	assert.NoError(conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}))
+}
+
+func TestProxyWebsocketTimeouts(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	proxy, _, server := newProxyServerForTest(t)
+
+	assert.Equal(client.Timeouts{}.WithDefaults(), proxy.getTimeouts())
+
+	config := goconf.NewConfigFile()
+	config.AddOption("http", "pinginterval", "1")
+	config.AddOption("http", "readtimeout", "2")
+	config.AddOption("http", "writetimeout", "3")
+	require.NoError(proxy.loadConfig(config, true))
+	assert.Equal(client.Timeouts{
+		PingInterval: time.Second,
+		ReadTimeout:  2 * time.Second,
+		WriteTimeout: 3 * time.Second,
+	}, proxy.getTimeouts())
+
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, getWebsocketUrl(server.URL), nil)
+	require.NoError(err)
+	defer conn.Close() // nolint
+
+	pings := make(chan struct{}, 8)
+	conn.SetPingHandler(func(msg string) error {
+		select {
+		case pings <- struct{}{}:
+		default:
+		}
+		return conn.WriteControl(websocket.PongMessage, []byte(msg), time.Now().Add(time.Second))
+	})
+	go func() {
+		for {
+			if _, _, err := conn.NextReader(); err != nil {
+				return
+			}
+		}
+	}()
+
+	// The initial ping is sent immediately, the next one after the interval.
+	start := time.Now()
+	for range 3 {
+		select {
+		case <-pings:
+		case <-ctx.Done():
+			require.NoError(ctx.Err())
+		}
+	}
+	assert.Less(time.Since(start), 5*time.Second)
+
+	require.NoError(proxy.loadConfig(goconf.NewConfigFile(), true))
+	assert.Equal(client.Timeouts{}.WithDefaults(), proxy.getTimeouts())
 }
 
 func TestProxyCreateSession(t *testing.T) {

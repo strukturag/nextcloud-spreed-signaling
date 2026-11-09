@@ -44,7 +44,7 @@ func NewProxyClient(ctx context.Context, proxy *ProxyServer, conn *websocket.Con
 	client := &ProxyClient{
 		proxy: proxy,
 	}
-	client.SetConn(ctx, conn, addr, agent, false, client)
+	client.SetConn(ctx, conn, addr, agent, false, proxy.getTimeouts(), client)
 	return client, nil
 }
 

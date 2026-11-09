@@ -15,11 +15,13 @@ The running container can be configured through different environment variables:
 
 - `CONFIG`: Optional name of configuration file to use.
 - `HTTP_LISTEN`: Address of HTTP listener.
-- `HTTP_READ_TIMEOUT`: HTTP socket read timeout in seconds.
+- `HTTP_READ_TIMEOUT`: HTTP socket read timeout in seconds (also the time websocket clients have to respond to pings).
 - `HTTP_WRITE_TIMEOUT`: HTTP socket write timeout in seconds.
+- `HTTP_PING_INTERVAL`: Interval in seconds in which ping messages are sent to HTTP websocket clients.
 - `HTTPS_LISTEN`: Address of HTTPS listener.
-- `HTTPS_READ_TIMEOUT`: HTTPS socket read timeout in seconds.
+- `HTTPS_READ_TIMEOUT`: HTTPS socket read timeout in seconds (also the time websocket clients have to respond to pings).
 - `HTTPS_WRITE_TIMEOUT`: HTTPS socket write timeout in seconds.
+- `HTTPS_PING_INTERVAL`: Interval in seconds in which ping messages are sent to HTTPS websocket clients.
 - `HTTPS_CERTIFICATE`: Name of certificate file for the HTTPS listener.
 - `HTTPS_KEY`: Name of private key file for the HTTPS listener.
 - `HASH_KEY`: Secret value used to generate checksums of sessions (32 or 64 bytes). A random value will be used if not set.
@@ -111,6 +113,9 @@ The running container can be configured through different environment variables:
 
 - `CONFIG`: Optional name of configuration file to use.
 - `HTTP_LISTEN`: Address of HTTP listener.
+- `HTTP_READ_TIMEOUT`: HTTP socket read timeout in seconds (also the time websocket clients have to respond to pings).
+- `HTTP_WRITE_TIMEOUT`: HTTP socket write timeout in seconds.
+- `HTTP_PING_INTERVAL`: Interval in seconds in which ping messages are sent to websocket clients.
 - `COUNTRY`: Optional ISO 3166 country this proxy is located at.
 - `EXTERNAL_HOSTNAME`: The external hostname for remote streams. Will try to autodetect if omitted.
 - `TOKEN_ID`: Id of the token to use when connecting remote streams.

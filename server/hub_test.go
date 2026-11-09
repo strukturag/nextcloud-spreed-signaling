@@ -58,6 +58,7 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/async"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/async/events"
 	eventstest "github.com/strukturag/nextcloud-spreed-signaling/v2/async/events/test"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/container"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/grpc"
@@ -903,6 +904,62 @@ func Benchmark_DecodePublicSessionIdCached(b *testing.B) {
 	for b.Loop() {
 		hub.decodePublicSessionId(sid)
 	}
+}
+
+func TestHubWebsocketTimeouts(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	hub, _, _, server := CreateHubForTestWithConfig(t, func(server *httptest.Server) (*goconf.ConfigFile, error) {
+		config, err := getTestConfig(server)
+		if err != nil {
+			return nil, err
+		}
+
+		config.AddOption("http", "pinginterval", "1")
+		config.AddOption("http", "readtimeout", "1")
+		config.AddOption("http", "writetimeout", "2")
+		return config, nil
+	})
+	assert.Equal(client.Timeouts{
+		PingInterval: time.Second,
+		ReadTimeout:  time.Second,
+		WriteTimeout: 2 * time.Second,
+	}, hub.getTimeouts(false))
+	assert.Equal(client.Timeouts{}.WithDefaults(), hub.getTimeouts(true))
+
+	logger := logtest.NewLoggerForTest(t)
+	ctx, cancel := context.WithTimeout(log.NewLoggerContext(t.Context(), logger), testTimeout)
+	defer cancel()
+
+	// Clients respond to pings and are kept open after the read timeout expired.
+	testClient, hello := NewTestClientWithHello(ctx, t, server, hub, testDefaultUserId)
+	time.Sleep(3 * time.Second)
+	assert.NotNil(hub.GetSessionByPublicId(hello.Hello.SessionId))
+	select {
+	case err := <-testClient.readErrorChan:
+		assert.NoError(err, "connection closed")
+	default:
+	}
+
+	// Changing the timeouts only affects new connections.
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	config.AddOption("http", "pinginterval", "30")
+	config.AddOption("https", "pinginterval", "10")
+	config.AddOption("https", "readtimeout", "20")
+	hub.loadTimeouts(config)
+	assert.Equal(client.Timeouts{
+		PingInterval: 30 * time.Second,
+		ReadTimeout:  client.DefaultReadTimeout,
+		WriteTimeout: client.DefaultWriteTimeout,
+	}, hub.getTimeouts(false))
+	assert.Equal(client.Timeouts{
+		PingInterval: 10 * time.Second,
+		ReadTimeout:  20 * time.Second,
+		WriteTimeout: client.DefaultWriteTimeout,
+	}, hub.getTimeouts(true))
 }
 
 func TestHubDefaultSecretsMatchConfig(t *testing.T) {

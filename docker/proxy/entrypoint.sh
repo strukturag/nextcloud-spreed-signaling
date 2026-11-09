@@ -39,6 +39,15 @@ if [ ! -f "$CONFIG" ]; then
   if [ -n "$HTTP_LISTEN" ]; then
     sed -i "s|#listen = 127.0.0.1:9090|listen = $HTTP_LISTEN|" "$CONFIG"
   fi
+  if [ -n "$HTTP_READ_TIMEOUT" ]; then
+    sed -i "/^\[http\]/,/^\[/ s|#readtimeout =.*|readtimeout = $HTTP_READ_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$HTTP_WRITE_TIMEOUT" ]; then
+    sed -i "/^\[http\]/,/^\[/ s|#writetimeout =.*|writetimeout = $HTTP_WRITE_TIMEOUT|" "$CONFIG"
+  fi
+  if [ -n "$HTTP_PING_INTERVAL" ]; then
+    sed -i "/^\[http\]/,/^\[/ s|#pinginterval =.*|pinginterval = $HTTP_PING_INTERVAL|" "$CONFIG"
+  fi
 
   if [ -n "$COUNTRY" ]; then
     sed -i "s|#country =.*|country = $COUNTRY|" "$CONFIG"

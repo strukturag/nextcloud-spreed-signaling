@@ -45,15 +45,6 @@ import (
 )
 
 const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
 	// Maximum message size allowed from peer.
 	maxMessageSize = 64 * 1024
 )
@@ -121,6 +112,8 @@ type Client struct {
 	country *geoip.Country
 	logRTT  bool
 
+	timeouts Timeouts
+
 	handlerMu sync.RWMutex
 	// +checklocks:handlerMu
 	handler Handler
@@ -135,7 +128,9 @@ type Client struct {
 	messageChan  chan *bytes.Buffer
 }
 
-func (c *Client) SetConn(ctx context.Context, conn *websocket.Conn, remoteAddress string, agent string, logRTT bool, handler Handler) {
+// SetConn initializes the client with the given connection. Timeouts that are
+// not set will use the package defaults.
+func (c *Client) SetConn(ctx context.Context, conn *websocket.Conn, remoteAddress string, agent string, logRTT bool, timeouts Timeouts, handler Handler) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -145,6 +140,7 @@ func (c *Client) SetConn(ctx context.Context, conn *websocket.Conn, remoteAddres
 	c.addr = remoteAddress
 	c.agent = agent
 	c.logRTT = logRTT
+	c.timeouts = timeouts.WithDefaults()
 	c.SetHandler(handler)
 	c.closer = internal.NewCloser()
 	c.messageChan = make(chan *bytes.Buffer, 16)
@@ -319,7 +315,7 @@ func (c *Client) ReadPump() {
 	conn.SetReadLimit(maxMessageSize)
 	conn.SetPongHandler(func(msg string) error {
 		now := time.Now()
-		conn.SetReadDeadline(now.Add(pongWait)) // nolint
+		conn.SetReadDeadline(now.Add(c.timeouts.ReadWait())) // nolint
 		if msg == "" {
 			return nil
 		}
@@ -341,7 +337,7 @@ func (c *Client) ReadPump() {
 	})
 
 	for {
-		conn.SetReadDeadline(time.Now().Add(pongWait)) // nolint
+		conn.SetReadDeadline(time.Now().Add(c.timeouts.ReadWait())) // nolint
 		messageType, reader, err := conn.NextReader()
 		if err != nil {
 			// Gorilla websocket hides the original net.Error, so also compare error messages
@@ -424,7 +420,7 @@ func (w *counterWriter) Write(p []byte) (int, error) {
 func (c *Client) writeInternal(message json.Marshaler) bool {
 	var closeData []byte
 
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(c.timeouts.WriteTimeout)) // nolint
 	writer, err := c.conn.NextWriter(websocket.TextMessage)
 	var written int
 	if err == nil {
@@ -460,7 +456,7 @@ func (c *Client) writeInternal(message json.Marshaler) bool {
 	return true
 
 close:
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(c.timeouts.WriteTimeout)) // nolint
 	if err := c.conn.WriteMessage(websocket.CloseMessage, closeData); err != nil {
 		if sessionId := c.GetSessionId(); sessionId != "" {
 			c.logger.Printf("Could not send close message to client %s: %v", sessionId, err)
@@ -508,7 +504,7 @@ func (c *Client) sendPing() bool {
 
 	now := time.Now().UnixNano()
 	msg := strconv.FormatInt(now, 10)
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait)) // nolint
+	c.conn.SetWriteDeadline(time.Now().Add(c.timeouts.WriteTimeout)) // nolint
 	if err := c.conn.WriteMessage(websocket.PingMessage, []byte(msg)); err != nil {
 		if sessionId := c.GetSessionId(); sessionId != "" {
 			c.logger.Printf("Could not send ping to client %s: %v", sessionId, err)
@@ -523,7 +519,7 @@ func (c *Client) sendPing() bool {
 }
 
 func (c *Client) WritePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.timeouts.PingInterval)
 	defer func() {
 		ticker.Stop()
 	}()

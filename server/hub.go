@@ -200,6 +200,10 @@ type Hub struct {
 
 	allowSubscribeAnyStream bool
 
+	// Timeouts for websocket connections on the HTTP / HTTPS listeners.
+	httpTimeouts  atomic.Pointer[client.Timeouts]
+	httpsTimeouts atomic.Pointer[client.Timeouts]
+
 	// +checklocks:mu
 	expiredSessions map[Session]time.Time
 	// +checklocks:mu
@@ -247,6 +251,26 @@ const (
 	randomSessionsBlockKeyLength      = 32
 	randomInternalClientsSecretLength = 32
 )
+
+func (h *Hub) getTimeouts(tls bool) client.Timeouts {
+	if tls {
+		return *h.httpsTimeouts.Load()
+	}
+
+	return *h.httpTimeouts.Load()
+}
+
+func storeTimeouts(logger log.Logger, cfg *goconf.ConfigFile, section string, target *atomic.Pointer[client.Timeouts]) {
+	timeouts := client.LoadTimeouts(logger, cfg, section, client.Timeouts{})
+	if prev := target.Swap(&timeouts); prev == nil || *prev != timeouts {
+		logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for websocket connections on %s listeners", timeouts.PingInterval, timeouts.ReadTimeout, timeouts.WriteTimeout, section)
+	}
+}
+
+func (h *Hub) loadTimeouts(cfg *goconf.ConfigFile) {
+	storeTimeouts(h.logger, cfg, "http", &h.httpTimeouts)
+	storeTimeouts(h.logger, cfg, "https", &h.httpsTimeouts)
+}
 
 func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *grpc.Server, rpcClients *grpc.Clients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
 	logger := log.LoggerFromContext(ctx)
@@ -476,6 +500,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 
 	hub.trustedProxies.Store(trustedProxiesIps)
 	hub.geoipOverrides.Store(geoipOverrides)
+	hub.loadTimeouts(cfg)
 
 	hub.setWelcomeMessage(&api.ServerMessage{
 		Type:    "welcome",
@@ -599,6 +624,8 @@ func (h *Hub) Stop() {
 }
 
 func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
+	h.loadTimeouts(config)
+
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
 	if trustedProxiesIps, err := container.ParseIPList(trustedProxies); err == nil {
 		if !trustedProxiesIps.Empty() {
@@ -3296,7 +3323,7 @@ func (h *Hub) serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := NewHubClient(ctx, conn, addr, agent, h)
+	client, err := NewHubClient(ctx, conn, addr, agent, h.getTimeouts(r.TLS != nil), h)
 	if err != nil {
 		h.logger.Printf("Could not create client for %s: %s", addr, err)
 		return

@@ -32,11 +32,11 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
-	"time"
 
 	"github.com/dlintw/goconf"
 	"github.com/gorilla/mux"
 
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	signalinglog "github.com/strukturag/nextcloud-spreed-signaling/v2/log"
@@ -51,9 +51,6 @@ var (
 )
 
 const (
-	defaultReadTimeout  = 15
-	defaultWriteTimeout = 15
-
 	proxyDebugMessages = false
 )
 
@@ -98,14 +95,7 @@ func main() {
 	defer proxy.Stop()
 
 	if addr, _ := config.GetStringOptionWithEnv(cfg, "http", "listen"); addr != "" {
-		readTimeout, _ := cfg.GetInt("http", "readtimeout")
-		if readTimeout <= 0 {
-			readTimeout = defaultReadTimeout
-		}
-		writeTimeout, _ := cfg.GetInt("http", "writetimeout")
-		if writeTimeout <= 0 {
-			writeTimeout = defaultWriteTimeout
-		}
+		timeouts := client.LoadTimeouts(logger, cfg, "http", client.Timeouts{})
 
 		for address := range internal.SplitEntries(addr, " ") {
 			go func(address string) {
@@ -118,8 +108,8 @@ func main() {
 					Handler: r,
 					Addr:    addr,
 
-					ReadTimeout:  time.Duration(readTimeout) * time.Second,
-					WriteTimeout: time.Duration(writeTimeout) * time.Second,
+					ReadTimeout:  timeouts.ReadTimeout,
+					WriteTimeout: timeouts.WriteTimeout,
 				}
 				if err := srv.Serve(listener); err != nil {
 					logger.Fatal("Could not start server: ", err)
