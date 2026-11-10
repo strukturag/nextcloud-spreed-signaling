@@ -23,6 +23,12 @@ package talk
 
 import (
 	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -30,6 +36,7 @@ import (
 	"sync"
 
 	"github.com/dlintw/goconf"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/config"
@@ -311,4 +318,65 @@ func (b *Backend) UpdateStats() {
 
 func (b *Backend) DeleteStats() {
 	statsBackendLimit.DeleteLabelValues(b.id)
+}
+
+func (b *Backend) LoadTokenKey(ctx context.Context, token *jwt.Token, url *url.URL, client *BackendClient) (any, error) {
+	// Only public-private-key algorithms are supported.
+	var loadKeyFunc func([]byte) (any, error)
+	switch token.Method.(type) {
+	case *jwt.SigningMethodRSA:
+		loadKeyFunc = func(data []byte) (any, error) {
+			return jwt.ParseRSAPublicKeyFromPEM(data)
+		}
+	case *jwt.SigningMethodECDSA:
+		loadKeyFunc = func(data []byte) (any, error) {
+			return jwt.ParseECPublicKeyFromPEM(data)
+		}
+	case *jwt.SigningMethodEd25519:
+		loadKeyFunc = func(data []byte) (any, error) {
+			if !bytes.HasPrefix(data, []byte("-----BEGIN ")) {
+				// Nextcloud sends the Ed25519 key as base64-encoded public key data.
+				decoded, err := base64.StdEncoding.DecodeString(string(data))
+				if err != nil {
+					return nil, err
+				}
+
+				key := ed25519.PublicKey(decoded)
+				data, err = x509.MarshalPKIXPublicKey(key)
+				if err != nil {
+					return nil, err
+				}
+
+				data = pem.EncodeToMemory(&pem.Block{
+					Type:  "PUBLIC KEY",
+					Bytes: data,
+				})
+			}
+			return jwt.ParseEdPublicKeyFromPEM(data)
+		}
+	default:
+		return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+	}
+
+	// Run in timeout context to prevent blocking too long.
+	keyData, cached, found := client.GetStringConfig(ctx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+	if !found {
+		if cached {
+			// The Nextcloud instance might just have enabled JWT but we probably use
+			// the cached capabilities without the public key. Make sure to re-fetch.
+			client.InvalidateCapabilities(url)
+			keyData, _, found = client.GetStringConfig(ctx, url, ConfigGroupSignaling, ConfigKeyHelloV2TokenKey)
+		}
+		if !found {
+			return nil, errors.New("no key found for issuer")
+		}
+	}
+
+	key, err := loadKeyFunc([]byte(keyData))
+	if err != nil {
+		return nil, fmt.Errorf("could not parse token key: %w", err)
+	}
+
+	return key, nil
+
 }
