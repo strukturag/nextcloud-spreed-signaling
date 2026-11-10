@@ -450,6 +450,9 @@ type TestProxyServerHandler struct {
 	subscribers map[string]*testProxyServerSubscriber
 
 	wakeupChan chan struct{}
+
+	// wg tracks running clients, the server doesn't wait for hijacked connections.
+	wg sync.WaitGroup
 }
 
 func (h *TestProxyServerHandler) Start() {
@@ -666,7 +669,7 @@ func (h *TestProxyServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	h.setClient(client.sessionId, client)
 
-	go client.run()
+	h.wg.Go(client.run)
 }
 
 func (h *TestProxyServerHandler) getClient(sessionId api.PublicSessionId) *testProxyServerClient {
@@ -747,10 +750,12 @@ func NewProxyServerForTest(t *testing.T, country geoip.Country) *TestProxyServer
 	t.Cleanup(func() {
 		server.Close()
 		proxyHandler.mu.Lock()
-		defer proxyHandler.mu.Unlock()
 		for _, c := range proxyHandler.clients {
 			c.Close()
 		}
+		proxyHandler.mu.Unlock()
+		// Wait for clients to finish so they don't access the test after it completed.
+		proxyHandler.wg.Wait()
 	})
 
 	return proxyHandler

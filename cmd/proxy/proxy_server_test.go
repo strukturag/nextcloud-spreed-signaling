@@ -88,9 +88,11 @@ func WaitForProxyServer(ctx context.Context, t *testing.T, proxy *ProxyServer) {
 		proxy.remoteConnectionsLock.Lock()
 		remoteConnections := len(proxy.remoteConnections)
 		proxy.remoteConnectionsLock.Unlock()
+		handlers := proxy.handlersActive.Load()
 		if clients == 0 &&
 			sessions == 0 &&
-			remoteConnections == 0 {
+			remoteConnections == 0 &&
+			handlers == 0 {
 			break
 		}
 
@@ -98,7 +100,7 @@ func WaitForProxyServer(ctx context.Context, t *testing.T, proxy *ProxyServer) {
 		case <-ctx.Done():
 			proxy.clientsLock.Lock()
 			proxy.remoteConnectionsLock.Lock()
-			assert.Fail(t, "Error waiting for proxy to terminate", "clients %+v / sessions %+v / remoteConnections %+v: %+v", clients, sessions, remoteConnections, ctx.Err())
+			assert.Fail(t, "Error waiting for proxy to terminate", "clients %+v / sessions %+v / remoteConnections %+v / handlers %d: %+v", clients, sessions, remoteConnections, handlers, ctx.Err())
 			proxy.remoteConnectionsLock.Unlock()
 			proxy.clientsLock.Unlock()
 			return

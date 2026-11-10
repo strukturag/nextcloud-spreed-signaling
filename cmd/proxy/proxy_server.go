@@ -133,6 +133,9 @@ type ProxyServer struct {
 	stopped atomic.Bool
 	load    atomic.Uint64
 
+	// handlersActive counts running websocket handlers and write pumps.
+	handlersActive atomic.Int32
+
 	maxIncoming     api.AtomicBandwidth
 	currentIncoming api.AtomicBandwidth
 	maxOutgoing     api.AtomicBandwidth
@@ -688,6 +691,9 @@ func (s *ProxyServer) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
+	s.handlersActive.Add(1)
+	defer s.handlersActive.Add(-1)
+
 	addr := client.GetRealUserIP(r, s.trustedProxies.Load())
 	header := http.Header{}
 	header.Set("Server", "nextcloud-spreed-signaling-proxy/"+s.version)
@@ -711,7 +717,11 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go client.WritePump()
+	s.handlersActive.Add(1)
+	go func() {
+		defer s.handlersActive.Add(-1)
+		client.WritePump()
+	}()
 	client.ReadPump()
 }
 
