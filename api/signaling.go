@@ -687,6 +687,21 @@ func (m *RoomClientMessage) CheckValid() error {
 	return nil
 }
 
+type RoomFederationAuthClaimsV1 struct {
+	jwt.RegisteredClaims
+
+	NextcloudUrl string `json:"nc"`
+}
+
+const RoomFederationAuthVersion10 = "1.0"
+
+type RoomFederationAuthMessage struct {
+	Version string `json:"version"`
+
+	// Token is a JWT token containing RoomFederationAuthClaimsV1.
+	Token string `json:"token"`
+}
+
 type RoomFederationMessage struct {
 	SignalingUrl       string   `json:"signaling"`
 	ParsedSignalingUrl *url.URL `json:"-"`
@@ -696,6 +711,9 @@ type RoomFederationMessage struct {
 
 	RoomId string `json:"roomid,omitempty"`
 	Token  string `json:"token"`
+
+	// Auth will be set and must be checked if the server has capability "federation-signaling-auth".
+	Auth *RoomFederationAuthMessage `json:"auth,omitempty"`
 }
 
 func (m *RoomFederationMessage) CheckValid() error {

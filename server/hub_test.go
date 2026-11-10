@@ -775,6 +775,9 @@ func registerBackendHandlerUrl(t *testing.T, router *mux.Router, url string) {
 		if strings.Contains(t.Name(), "Federation") {
 			features = append(features, "federation-v2")
 		}
+		if strings.Contains(t.Name(), "FederationSignalingAuth") {
+			features = append(features, talk.FeatureFederationSignalingAuth)
+		}
 		signaling := api.StringMap{
 			"foo": "bar",
 			"baz": 42,
