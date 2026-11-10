@@ -48,6 +48,9 @@ const (
 	// Name of capability that is set if the server supports Federation V2.
 	FeatureFederationV2 = "federation-v2"
 
+	// Name of capability that is set if server requires federation signaling auth.
+	FeatureFederationSignalingAuth = "federation-signaling-auth"
+
 	// minCapabilitiesCacheDuration specifies the minimum duration to cache
 	// capabilities.
 	// This could overwrite the "max-age" from a "Cache-Control" header.

@@ -571,13 +571,22 @@ Message format (Client -> Server):
           "signaling": "wss://remote.domain.invalid/path/to/signaling/",
           "url": "https://remote.domain.invalid/path/to/nextcloud/",
           "roomid": "the-remote-room-id",
-          "token": "hello-v2-auth-token-for-remote-signaling-server"
+          "token": "hello-v2-auth-token-for-remote-signaling-server",
+          "auth": {
+            "version": "1.0",
+            "token": "authentication-token-for-federated-join"
+          }
         }
       }
     }
 
 - The remote room id is optional. If omitted, the local room id will be used.
 - If a session joins a federated room, any local room will be left.
+- If Nextcloud supports the capability `federation-signaling-auth`, the `auth`
+  field must be provided inside `federation`. The token must be issued (`iss`)
+  by the Nextcloud Talk instance, subject (`sub`) must be the URL of the
+  signaling server to connect to and `nc` the URL of the federated Nextcloud
+  URL.
 
 Message format (Server -> Client):
 

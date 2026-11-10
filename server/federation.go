@@ -391,6 +391,8 @@ func (c *FederationClient) closeConnection(withBye bool) {
 
 	if err := c.conn.Close(); err != nil && !isClosedError(err) {
 		c.logger.Printf("Error closing federation connection to %s: %s", c.URL(), err)
+	} else {
+		c.logger.Printf("Closed federation connection to %s for %s", c.URL(), c.session.PublicId())
 	}
 
 	c.conn = nil
