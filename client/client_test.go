@@ -74,6 +74,8 @@ type serverClient struct {
 	id            string
 	received      atomic.Uint32
 	sessionClosed atomic.Bool
+	// cancel will cancel the client context once it is closed.
+	cancel context.CancelFunc
 }
 
 func newTestClient(h *testHandler, r *http.Request, conn *websocket.Conn, id uint64) *serverClient {
@@ -89,7 +91,8 @@ func newTestClient(h *testHandler, r *http.Request, conn *websocket.Conn, id uin
 	}
 
 	logger := logtest.NewLoggerForTest(h.t)
-	ctx := log.NewLoggerContext(r.Context(), logger)
+	ctx, cancel := context.WithCancel(log.NewLoggerContext(r.Context(), logger))
+	result.cancel = cancel
 	result.SetConn(ctx, conn, addr, r.Header.Get("User-Agent"), false, h.timeouts, result)
 	return result
 }
@@ -113,6 +116,7 @@ func (c *serverClient) GetSessionId() api.PublicSessionId {
 func (c *serverClient) OnClosed() {
 	c.Close()
 	c.handler.removeClient(c)
+	c.cancel()
 }
 
 func (c *serverClient) OnMessageReceived(message []byte) {
@@ -177,6 +181,8 @@ type testHandler struct {
 	timeouts Timeouts
 
 	id atomic.Uint64
+	// wg tracks running handlers, the server doesn't wait for hijacked connections.
+	wg sync.WaitGroup
 	// +checklocks:mu
 	activeClients map[string]*serverClient
 	// +checklocks:mu
@@ -184,10 +190,13 @@ type testHandler struct {
 }
 
 func newTestHandler(t *testing.T) *testHandler {
-	return &testHandler{
+	h := &testHandler{
 		t:             t,
 		activeClients: make(map[string]*serverClient),
 	}
+	// Wait for handlers to finish so they don't log after the test completed.
+	t.Cleanup(h.wg.Wait)
+	return h
 }
 
 func (h *testHandler) addClient(client *serverClient) {
@@ -213,6 +222,9 @@ func (h *testHandler) getClients() []*serverClient {
 }
 
 func (h *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.wg.Add(1)
+	defer h.wg.Done()
+
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if !assert.NoError(h.t, err) {
 		return
@@ -222,14 +234,11 @@ func (h *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	client := newTestClient(h, r, conn, id)
 	h.addClient(client)
 
-	closed := make(chan struct{})
-	context.AfterFunc(client.Context(), func() {
-		close(closed)
-	})
-
-	go client.WritePump()
+	h.wg.Go(client.WritePump)
 	client.ReadPump()
-	<-closed
+	// The request context is not cancelled for hijacked connections, so wait
+	// for the client to be closed.
+	<-client.Context().Done()
 }
 
 type localClient struct {
