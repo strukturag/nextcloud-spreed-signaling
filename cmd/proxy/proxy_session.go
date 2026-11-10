@@ -484,3 +484,77 @@ func (s *ProxySession) OnRemotePublisherDeleted(publisherId api.PublicSessionId)
 		}
 	}
 }
+
+func cloneLoadMessageWithoutClientBandwidths(msg *proxy.ServerMessage) *proxy.ServerMessage {
+	return &proxy.ServerMessage{
+		Id:   msg.Id,
+		Type: msg.Type,
+		Event: &proxy.EventServerMessage{
+			Type:      msg.Event.Type,
+			ClientId:  msg.Event.ClientId,
+			Load:      msg.Event.Load,
+			Sid:       msg.Event.Sid,
+			Bandwidth: msg.Event.Bandwidth,
+		},
+	}
+}
+
+func (s *ProxySession) updateLoadEventPublishers(msg *proxy.ServerMessage, bandwidths map[string]*sfu.ClientBandwidthInfo, needClone bool) (result *proxy.ServerMessage, cloned bool) {
+	s.publishersLock.Lock()
+	defer s.publishersLock.Unlock()
+
+	result = msg
+	for id := range s.publishers {
+		if bw, found := bandwidths[id]; found {
+			if needClone {
+				result = cloneLoadMessageWithoutClientBandwidths(msg)
+				needClone = false
+				cloned = true
+			}
+
+			if result.Event.ClientBandwidths == nil {
+				result.Event.ClientBandwidths = make(map[string]proxy.EventServerBandwidth)
+			}
+			result.Event.ClientBandwidths[id] = proxy.EventServerBandwidth{
+				Received: bw.Received,
+				Sent:     bw.Sent,
+			}
+		}
+	}
+	return
+}
+
+func (s *ProxySession) updateLoadEventSubscribers(msg *proxy.ServerMessage, bandwidths map[string]*sfu.ClientBandwidthInfo, needClone bool) (result *proxy.ServerMessage, cloned bool) {
+	s.subscribersLock.Lock()
+	defer s.subscribersLock.Unlock()
+
+	result = msg
+	for id := range s.subscribers {
+		if bw, found := bandwidths[id]; found {
+			if needClone {
+				result = cloneLoadMessageWithoutClientBandwidths(msg)
+				needClone = false
+				cloned = true
+			}
+
+			if result.Event.ClientBandwidths == nil {
+				result.Event.ClientBandwidths = make(map[string]proxy.EventServerBandwidth)
+			}
+			result.Event.ClientBandwidths[id] = proxy.EventServerBandwidth{
+				Received: bw.Received,
+				Sent:     bw.Sent,
+			}
+		}
+	}
+	return
+}
+
+func (s *ProxySession) updateLoadEvent(msg *proxy.ServerMessage, bandwidths map[string]*sfu.ClientBandwidthInfo) *proxy.ServerMessage {
+	if len(bandwidths) == 0 {
+		return msg
+	}
+
+	msg, cloned := s.updateLoadEventPublishers(msg, bandwidths, true)
+	msg, _ = s.updateLoadEventSubscribers(msg, bandwidths, !cloned)
+	return msg
+}
