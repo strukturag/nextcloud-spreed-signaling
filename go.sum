@@ -78,8 +78,8 @@ github.com/pandatix/go-abnf v0.5.5 h1:EXex5KkRQx4Dm6GnpAcQnIMBs9KiK0uf8p/wq+4t9P
 github.com/pandatix/go-abnf v0.5.5/go.mod h1:AE0KD3/VNoCjGzc1gqetRKshbI4SYErXQ/8kPenR5mc=
 github.com/pion/dtls/v3 v3.1.15 h1:okWk5LNwU21DfhvG8z4wm45knHVSPEdkihwp6BxfQcc=
 github.com/pion/dtls/v3 v3.1.15/go.mod h1:iKFQNYrjsN2TiA2YKKMqB9MOZaFpjFULBI/A4sW0eyc=
-github.com/pion/ice/v4 v4.4.8 h1:NB22Ze5WrgMjcf9L+O+1B29bl6anq+sbyvddImDLdhc=
-github.com/pion/ice/v4 v4.4.8/go.mod h1:zCRRg4Mkpdbx9B+75fd4z2APvIXeIraeUOB7IMPt8mU=
+github.com/pion/ice/v4 v4.4.9 h1:lZH1vq+mdXfxuZhcbarK6kcLkBbijgILFN+/CdDi3Ws=
+github.com/pion/ice/v4 v4.4.9/go.mod h1:zCRRg4Mkpdbx9B+75fd4z2APvIXeIraeUOB7IMPt8mU=
 github.com/pion/logging v0.2.4 h1:tTew+7cmQ+Mc1pTBLKH2puKsOvhm32dROumOZ655zB8=
 github.com/pion/logging v0.2.4/go.mod h1:DffhXTKYdNZU+KtJ5pyQDjvOAh/GsNSyv1lbkFbe3so=
 github.com/pion/mdns/v2 v2.2.2 h1:qq9Kj3PnjF0mfSwd8Icu0CXy5aoYdQKnNUIsGPeUpgk=
