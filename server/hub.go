@@ -39,6 +39,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -1502,30 +1503,8 @@ func (h *Hub) processHelloV1(ctx context.Context, client ClientWithSession, mess
 	return backend, &auth, nil
 }
 
-func (h *Hub) processHelloV2(ctx context.Context, client ClientWithSession, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
-	url := message.Hello.Auth.ParsedUrl
-	backend := h.backend.GetBackend(url)
-	if backend == nil {
-		return nil, nil, InvalidBackendUrl
-	}
-
-	var tokenString string
-	var tokenClaims jwt.Claims
-	switch message.Hello.Auth.Type {
-	case api.HelloClientTypeClient:
-		tokenString = message.Hello.Auth.HelloV2Params.Token
-		tokenClaims = &api.HelloV2TokenClaims{}
-	case api.HelloClientTypeFederation:
-		if !h.backend.HasCapabilityFeature(ctx, url, talk.FeatureFederationV2) {
-			return nil, nil, ErrFederationNotSupported
-		}
-
-		tokenString = message.Hello.Auth.FederationParams.Token
-		tokenClaims = &api.FederationTokenClaims{}
-	default:
-		return nil, nil, InvalidClientType
-	}
-	token, err := jwt.ParseWithClaims(tokenString, tokenClaims, func(token *jwt.Token) (any, error) {
+func (h *Hub) parseBackendToken(ctx context.Context, token string, claims jwt.Claims, url *url.URL) (*jwt.Token, error) {
+	t, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (any, error) {
 		// Only public-private-key algorithms are supported.
 		var loadKeyFunc func([]byte) (any, error)
 		switch token.Method.(type) {
@@ -1598,45 +1577,80 @@ func (h *Hub) processHelloV2(ctx context.Context, client ClientWithSession, mess
 	}), jwt.WithIssuedAt(), jwt.WithLeeway(tokenLeeway))
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenNotValidYet) || errors.Is(err, jwt.ErrTokenUsedBeforeIssued) {
-			return nil, nil, TokenNotValidYet
+			return nil, TokenNotValidYet
 		} else if errors.Is(err, jwt.ErrTokenExpired) {
-			return nil, nil, TokenExpired
+			return nil, TokenExpired
 		}
 
-		return nil, nil, InvalidToken
+		return nil, InvalidToken
+	}
+
+	if !t.Valid {
+		return nil, InvalidToken
+	}
+
+	issuedAt, err := claims.GetIssuedAt()
+	if err != nil {
+		return nil, InvalidToken
+	}
+	expiresAt, err := claims.GetExpirationTime()
+	if err != nil {
+		return nil, InvalidToken
+	}
+	now := time.Now()
+	if issuedAt != nil && expiresAt != nil && expiresAt.Before(issuedAt.Time) {
+		return nil, TokenExpired
+	} else if issuedAt == nil {
+		return nil, TokenNotValidYet
+	} else if minExpiresAt := now.Add(-tokenLeeway); expiresAt == nil || expiresAt.Before(minExpiresAt) {
+		return nil, TokenExpired
+	}
+
+	return t, nil
+}
+
+func (h *Hub) processHelloV2(ctx context.Context, client ClientWithSession, message *api.ClientMessage) (*talk.Backend, *talk.BackendClientResponse, error) {
+	url := message.Hello.Auth.ParsedUrl
+	backend := h.backend.GetBackend(url)
+	if backend == nil {
+		return nil, nil, InvalidBackendUrl
+	}
+
+	var tokenString string
+	var tokenClaims jwt.Claims
+	switch message.Hello.Auth.Type {
+	case api.HelloClientTypeClient:
+		tokenString = message.Hello.Auth.HelloV2Params.Token
+		tokenClaims = &api.HelloV2TokenClaims{}
+	case api.HelloClientTypeFederation:
+		if !h.backend.HasCapabilityFeature(ctx, url, talk.FeatureFederationV2) {
+			return nil, nil, ErrFederationNotSupported
+		}
+
+		tokenString = message.Hello.Auth.FederationParams.Token
+		tokenClaims = &api.FederationTokenClaims{}
+	default:
+		return nil, nil, InvalidClientType
+	}
+	token, err := h.parseBackendToken(ctx, tokenString, tokenClaims, url)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	var authTokenClaims api.AuthTokenClaims
 	switch message.Hello.Auth.Type {
 	case api.HelloClientTypeClient:
 		claims, ok := token.Claims.(*api.HelloV2TokenClaims)
-		if !ok || !token.Valid {
+		if !ok {
 			return nil, nil, InvalidToken
 		}
 		authTokenClaims = claims
 	case api.HelloClientTypeFederation:
 		claims, ok := token.Claims.(*api.FederationTokenClaims)
-		if !ok || !token.Valid {
+		if !ok {
 			return nil, nil, InvalidToken
 		}
 		authTokenClaims = claims
-	}
-
-	issuedAt, err := authTokenClaims.GetIssuedAt()
-	if err != nil {
-		return nil, nil, InvalidToken
-	}
-	expiresAt, err := authTokenClaims.GetExpirationTime()
-	if err != nil {
-		return nil, nil, InvalidToken
-	}
-	now := time.Now()
-	if issuedAt != nil && expiresAt != nil && expiresAt.Before(issuedAt.Time) {
-		return nil, nil, TokenExpired
-	} else if issuedAt == nil {
-		return nil, nil, TokenNotValidYet
-	} else if minExpiresAt := now.Add(-tokenLeeway); expiresAt == nil || expiresAt.Before(minExpiresAt) {
-		return nil, nil, TokenExpired
 	}
 
 	subject, err := authTokenClaims.GetSubject()
@@ -1843,6 +1857,109 @@ func (h *Hub) newRoomResponse(message *api.ClientMessage, room *Room) *api.Serve
 	return response
 }
 
+func (h *Hub) processFederationSignalingAuthV1(ctx context.Context, session Session, federation *api.RoomFederationMessage) error {
+	token, err := h.parseBackendToken(ctx, federation.Auth.Token, &api.RoomFederationAuthClaimsV1{}, session.ParsedBackendUrl())
+	if err != nil {
+		return err
+	}
+
+	claims, ok := token.Claims.(*api.RoomFederationAuthClaimsV1)
+	if !ok {
+		return InvalidToken
+	}
+
+	if !isFederationUrlAllowed(claims.Subject, federation.ParsedSignalingUrl, true) {
+		return api.NewError("forbidden", "Not allowed to connect to this signaling server.")
+	}
+	if !isFederationUrlAllowed(claims.NextcloudUrl, federation.ParsedNextcloudUrl, false) {
+		return api.NewError("forbidden", "Not allowed to connect to this Nextcloud url.")
+	}
+	return nil
+}
+
+// canonicalFederationUrlScheme returns the lowercase scheme of the url. If
+// "websocket" is true, the websocket schemes are mapped to their http
+// equivalent.
+func canonicalFederationUrlScheme(u *url.URL, websocket bool) string {
+	scheme := strings.ToLower(u.Scheme)
+	if websocket {
+		switch scheme {
+		case "ws":
+			scheme = "http"
+		case "wss":
+			scheme = "https"
+		}
+	}
+	return scheme
+}
+
+// canonicalFederationUrlPort returns the port of the url, falling back to the
+// default port for known schemes.
+func canonicalFederationUrlPort(u *url.URL, scheme string) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+
+	switch scheme {
+	case "http", "ws":
+		return "80"
+	case "https", "wss":
+		return "443"
+	default:
+		return ""
+	}
+}
+
+// isFederationUrlAllowed checks if the target url has the same scheme, host
+// and port as the allowed url and its path is the same or below the allowed
+// path. If "websocket" is true, websocket schemes are treated as equal to
+// their http counterparts.
+func isFederationUrlAllowed(allowed string, target *url.URL, websocket bool) bool {
+	if allowed == "" || target == nil {
+		return false
+	}
+
+	u, err := url.Parse(allowed)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+
+	allowedScheme := canonicalFederationUrlScheme(u, websocket)
+	targetScheme := canonicalFederationUrlScheme(target, websocket)
+	if allowedScheme != targetScheme ||
+		!strings.EqualFold(u.Hostname(), target.Hostname()) ||
+		canonicalFederationUrlPort(u, allowedScheme) != canonicalFederationUrlPort(target, targetScheme) {
+		return false
+	}
+
+	return strings.HasPrefix(cleanFederationUrlPath(target.Path), cleanFederationUrlPath(u.Path))
+}
+
+func cleanFederationUrlPath(p string) string {
+	p = path.Clean("/" + p)
+	if !strings.HasSuffix(p, "/") {
+		p += "/"
+	}
+	return p
+}
+
+func (h *Hub) processFederationSignalingAuth(ctx context.Context, session Session, federation *api.RoomFederationMessage) error {
+	if !h.backend.HasCapabilityFeature(ctx, session.ParsedBackendUrl(), talk.FeatureFederationSignalingAuth) {
+		return nil
+	}
+
+	if federation.Auth == nil {
+		return api.NewError("auth_missing", "federation signaling auth is missing")
+	}
+
+	switch federation.Auth.Version {
+	case api.RoomFederationAuthVersion10:
+		return h.processFederationSignalingAuthV1(ctx, session, federation)
+	default:
+		return api.NewError("unknown_version", "unknown federation signaling auth version")
+	}
+}
+
 func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 	session, ok := sess.(*ClientSession)
 	if !ok {
@@ -1887,6 +2004,11 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 	}
 
 	if federation := message.Room.Federation; federation != nil {
+		if err := h.processFederationSignalingAuth(requestCtx, session, federation); err != nil {
+			session.SendMessage(message.NewWrappedErrorServerMessage(err))
+			return
+		}
+
 		h.mu.Lock()
 		// The session will join a room, make sure it doesn't expire while connecting.
 		delete(h.anonymousSessions, session)

@@ -23,15 +23,19 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -2191,4 +2195,359 @@ func Test_FederationCloseWithBrokenConnection(t *testing.T) {
 	// Finish closing the client. The remote session didn't receive the "bye".
 	fed.Close()
 	remoteSession.Close()
+}
+
+func createFederationSignalingAuthTokenForTest(t *testing.T, key any, issuedAt time.Time, expiresAt time.Time, signalingUrl string, nextcloudUrl string) string {
+	t.Helper()
+	claims := &api.RoomFederationAuthClaimsV1{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: signalingUrl,
+		},
+		NextcloudUrl: nextcloudUrl,
+	}
+	if !issuedAt.IsZero() {
+		claims.IssuedAt = jwt.NewNumericDate(issuedAt)
+	}
+	if !expiresAt.IsZero() {
+		claims.ExpiresAt = jwt.NewNumericDate(expiresAt)
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tokenString, err := token.SignedString(key)
+	require.NoError(t, err)
+	return tokenString
+}
+
+func Test_FederationSignalingAuth(t *testing.T) {
+	t.Parallel()
+
+	type authFunc func(t *testing.T, server1 *httptest.Server) *api.RoomFederationAuthMessage
+
+	validToken := func(signalingUrl func(*httptest.Server) string, nextcloudUrl func(*httptest.Server) string, issuedAt time.Duration, expiresAt time.Duration) authFunc {
+		return func(t *testing.T, server1 *httptest.Server) *api.RoomFederationAuthMessage {
+			t.Helper()
+			now := time.Now()
+			return &api.RoomFederationAuthMessage{
+				Version: api.RoomFederationAuthVersion10,
+				Token:   createFederationSignalingAuthTokenForTest(t, getPrivateAuthToken(t), now.Add(issuedAt), now.Add(expiresAt), signalingUrl(server1), nextcloudUrl(server1)),
+			}
+		}
+	}
+	serverUrl := func(server *httptest.Server) string {
+		return server.URL
+	}
+	serverSubUrl := func(server *httptest.Server) string {
+		return server.URL + "/sub"
+	}
+	otherUrl := func(server *httptest.Server) string {
+		return "https://other.domain.invalid"
+	}
+	portPrefixUrl := func(server *httptest.Server) string {
+		return server.URL[:len(server.URL)-1]
+	}
+	emptyUrl := func(server *httptest.Server) string {
+		return ""
+	}
+
+	testcases := []struct {
+		name  string
+		auth  authFunc
+		error string
+	}{
+		{
+			name: "valid",
+			auth: validToken(serverUrl, serverUrl, 0, time.Minute),
+		},
+		{
+			name: "valid_trailing_slash",
+			// The signaling url in the join request will be normalized to have a trailing slash.
+			auth: validToken(func(s *httptest.Server) string {
+				return s.URL + "/"
+			}, serverUrl, 0, time.Minute),
+		},
+		{
+			name: "valid_websocket_scheme",
+			auth: validToken(func(s *httptest.Server) string {
+				return "ws" + strings.TrimPrefix(s.URL, "http")
+			}, serverUrl, 0, time.Minute),
+		},
+		{
+			name: "websocket_scheme_nextcloud_url",
+			auth: validToken(serverUrl, func(s *httptest.Server) string {
+				return "ws" + strings.TrimPrefix(s.URL, "http")
+			}, 0, time.Minute),
+			error: "forbidden",
+		},
+		{
+			name:  "missing",
+			auth:  func(t *testing.T, server1 *httptest.Server) *api.RoomFederationAuthMessage { return nil },
+			error: "auth_missing",
+		},
+		{
+			name: "unknown_version",
+			auth: func(t *testing.T, server1 *httptest.Server) *api.RoomFederationAuthMessage {
+				auth := validToken(serverUrl, serverUrl, 0, time.Minute)(t, server1)
+				auth.Version = "0.1"
+				return auth
+			},
+			error: "unknown_version",
+		},
+		{
+			name: "invalid_token",
+			auth: func(t *testing.T, server1 *httptest.Server) *api.RoomFederationAuthMessage {
+				return &api.RoomFederationAuthMessage{
+					Version: api.RoomFederationAuthVersion10,
+					Token:   "invalid-token",
+				}
+			},
+			error: "invalid_token",
+		},
+		{
+			name: "wrong_key",
+			auth: func(t *testing.T, server1 *httptest.Server) *api.RoomFederationAuthMessage {
+				key, err := rsa.GenerateKey(rand.Reader, 1024)
+				require.NoError(t, err)
+				now := time.Now()
+				return &api.RoomFederationAuthMessage{
+					Version: api.RoomFederationAuthVersion10,
+					Token:   createFederationSignalingAuthTokenForTest(t, key, now, now.Add(time.Minute), server1.URL, server1.URL),
+				}
+			},
+			error: "invalid_token",
+		},
+		{
+			name:  "expired",
+			auth:  validToken(serverUrl, serverUrl, -2*time.Minute, -time.Minute),
+			error: "token_expired",
+		},
+		{
+			name:  "expires_before_issued",
+			auth:  validToken(serverUrl, serverUrl, 0, -time.Second),
+			error: "token_expired",
+		},
+		{
+			name: "no_expiration",
+			auth: func(t *testing.T, server1 *httptest.Server) *api.RoomFederationAuthMessage {
+				return &api.RoomFederationAuthMessage{
+					Version: api.RoomFederationAuthVersion10,
+					Token:   createFederationSignalingAuthTokenForTest(t, getPrivateAuthToken(t), time.Now(), time.Time{}, server1.URL, server1.URL),
+				}
+			},
+			error: "token_expired",
+		},
+		{
+			name:  "not_valid_yet",
+			auth:  validToken(serverUrl, serverUrl, time.Hour, 2*time.Hour),
+			error: "token_not_valid_yet",
+		},
+		{
+			name: "no_issued_at",
+			auth: func(t *testing.T, server1 *httptest.Server) *api.RoomFederationAuthMessage {
+				return &api.RoomFederationAuthMessage{
+					Version: api.RoomFederationAuthVersion10,
+					Token:   createFederationSignalingAuthTokenForTest(t, getPrivateAuthToken(t), time.Time{}, time.Now().Add(time.Minute), server1.URL, server1.URL),
+				}
+			},
+			error: "token_not_valid_yet",
+		},
+		{
+			name:  "other_signaling_url",
+			auth:  validToken(otherUrl, serverUrl, 0, time.Minute),
+			error: "forbidden",
+		},
+		{
+			name:  "longer_signaling_url",
+			auth:  validToken(serverSubUrl, serverUrl, 0, time.Minute),
+			error: "forbidden",
+		},
+		{
+			name:  "port_prefix_signaling_url",
+			auth:  validToken(portPrefixUrl, serverUrl, 0, time.Minute),
+			error: "forbidden",
+		},
+		{
+			name:  "empty_signaling_url",
+			auth:  validToken(emptyUrl, serverUrl, 0, time.Minute),
+			error: "forbidden",
+		},
+		{
+			name:  "port_prefix_nextcloud_url",
+			auth:  validToken(serverUrl, portPrefixUrl, 0, time.Minute),
+			error: "forbidden",
+		},
+		{
+			name:  "empty_nextcloud_url",
+			auth:  validToken(serverUrl, emptyUrl, 0, time.Minute),
+			error: "forbidden",
+		},
+		{
+			name:  "other_nextcloud_url",
+			auth:  validToken(serverUrl, otherUrl, 0, time.Minute),
+			error: "forbidden",
+		},
+		{
+			name:  "longer_nextcloud_url",
+			auth:  validToken(serverUrl, serverSubUrl, 0, time.Minute),
+			error: "forbidden",
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert := assert.New(t)
+			require := require.New(t)
+
+			hub1, hub2, server1, server2 := CreateClusteredHubsForTest(t)
+
+			client1 := NewTestClient(t, server1, hub1)
+			defer client1.CloseWithBye()
+			require.NoError(client1.SendHelloV2(testDefaultUserId + "1"))
+
+			client2 := NewTestClient(t, server2, hub2)
+			defer client2.CloseWithBye()
+			require.NoError(client2.SendHelloV2(testDefaultUserId + "2"))
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			hello1 := MustSucceed1(t, client1.RunUntilHello, ctx)
+			hello2 := MustSucceed1(t, client2.RunUntilHello, ctx)
+
+			roomId := "test-room"
+			federatedRoomId := roomId + "@federated"
+			room1 := MustSucceed2(t, client1.JoinRoom, ctx, roomId)
+			require.Equal(roomId, room1.Room.RoomId)
+
+			client1.RunUntilJoined(ctx, hello1.Hello)
+
+			now := time.Now()
+			userdata := api.StringMap{
+				"displayname": "Federated user",
+				"actorType":   "federated_users",
+				"actorId":     "the-federated-user-id",
+			}
+			token, err := client1.CreateHelloV2TokenWithUserdata(testDefaultUserId+"2", now, now.Add(time.Minute), userdata)
+			require.NoError(err)
+
+			msg := &api.ClientMessage{
+				Id:   "join-room-fed",
+				Type: "room",
+				Room: &api.RoomClientMessage{
+					RoomId:    federatedRoomId,
+					SessionId: api.RoomSessionId(fmt.Sprintf("%s-%s", federatedRoomId, hello2.Hello.SessionId)),
+					Federation: &api.RoomFederationMessage{
+						SignalingUrl: server1.URL,
+						NextcloudUrl: server1.URL,
+						RoomId:       roomId,
+						Token:        token,
+						Auth:         tc.auth(t, server1),
+					},
+				},
+			}
+			require.NoError(client2.WriteJSON(msg))
+
+			session2, ok := hub2.GetSessionByPublicId(hello2.Hello.SessionId).(*ClientSession)
+			require.True(ok)
+
+			if tc.error != "" {
+				if err, ok := client2.RunUntilError(ctx, tc.error); ok {
+					assert.NotEmpty(err.Message)
+				}
+				assert.Nil(session2.GetFederationClient())
+
+				ctx2, cancel2 := context.WithTimeout(ctx, 100*time.Millisecond)
+				defer cancel2()
+				client1.RunUntilErrorIs(ctx2, ErrNoMessageReceived, context.DeadlineExceeded)
+				return
+			}
+
+			if message, ok := client2.RunUntilMessage(ctx); ok {
+				assert.Equal(msg.Id, message.Id)
+				require.Equal("room", message.Type)
+				require.Equal(federatedRoomId, message.Room.RoomId)
+			}
+
+			if message, ok := client1.RunUntilMessage(ctx); ok {
+				client1.checkSingleMessageJoined(message)
+				evt := message.Event.Join[0]
+				assert.Equal(testDefaultUserId+"2", evt.UserId)
+				assert.True(evt.Federated)
+			}
+
+			client2.RunUntilJoined(ctx, hello1.Hello, hello2.Hello)
+			assert.NotNil(session2.GetFederationClient())
+		})
+	}
+}
+
+func TestIsFederationUrlAllowed(t *testing.T) {
+	t.Parallel()
+
+	testcases := []struct {
+		allowed   string
+		target    string
+		websocket bool
+		expect    bool
+	}{
+		{"https://domain.invalid", "https://domain.invalid", false, true},
+		{"https://domain.invalid", "https://domain.invalid/", false, true},
+		{"https://domain.invalid/", "https://domain.invalid", false, true},
+		{"https://domain.invalid", "https://domain.invalid/path/", false, true},
+		{"https://domain.invalid/path", "https://domain.invalid/path/", false, true},
+		{"https://domain.invalid/path/", "https://domain.invalid/path", false, true},
+		{"https://domain.invalid/path", "https://domain.invalid/path/sub/", false, true},
+		{"https://Domain.Invalid", "HTTPS://domain.invalid/", false, true},
+		{"https://domain.invalid:8443", "https://domain.invalid:8443/", false, true},
+		{"", "https://domain.invalid/", false, false},
+		{"/path", "https://domain.invalid/path/", false, false},
+		{"domain.invalid", "https://domain.invalid/", false, false},
+		{"https://domain.invalid", "http://domain.invalid/", false, false},
+		{"https://domain.invalid", "https://domain.invalid.evil.invalid/", false, false},
+		{"https://domain.invalid", "https://domain.invalid:8443/", false, false},
+		{"https://domain.invalid:8443", "https://domain.invalid/", false, false},
+		{"https://domain.invalid:844", "https://domain.invalid:8443/", false, false},
+		{"https://domain.invalid", "https://user@domain.invalid.evil.invalid/", false, false},
+		{"https://domain.invalid/path", "https://domain.invalid/", false, false},
+		{"https://domain.invalid/path", "https://domain.invalid/path2/", false, false},
+		{"https://domain.invalid/path", "https://domain.invalid/path/../other/", false, false},
+		{"https://domain.invalid/path", "https://domain.invalid/path/%2e%2e/other/", false, false},
+		{"https://domain.invalid/path", "https://domain.invalid/other/../path/sub/", false, true},
+		// Default ports.
+		{"https://domain.invalid", "https://domain.invalid:443/", false, true},
+		{"https://domain.invalid:443", "https://domain.invalid/", false, true},
+		{"http://domain.invalid", "http://domain.invalid:80/", false, true},
+		{"http://domain.invalid:80", "http://domain.invalid/", false, true},
+		{"https://domain.invalid", "https://domain.invalid:80/", false, false},
+		{"http://domain.invalid", "http://domain.invalid:443/", false, false},
+		{"https://[::1]", "https://[::1]:443/", false, true},
+		{"https://[::1]", "https://[::1]:8443/", false, false},
+		// Websocket schemes are only canonicalized for signaling urls.
+		{"https://domain.invalid", "wss://domain.invalid/", false, false},
+		{"wss://domain.invalid", "https://domain.invalid/", false, false},
+		{"https://domain.invalid", "wss://domain.invalid/", true, true},
+		{"wss://domain.invalid", "https://domain.invalid/", true, true},
+		{"WSS://domain.invalid", "https://domain.invalid/", true, true},
+		{"http://domain.invalid", "ws://domain.invalid/", true, true},
+		{"ws://domain.invalid", "http://domain.invalid/", true, true},
+		{"https://domain.invalid", "wss://domain.invalid:443/", true, true},
+		{"wss://domain.invalid:443", "https://domain.invalid/", true, true},
+		{"http://domain.invalid", "ws://domain.invalid:80/", true, true},
+		{"https://domain.invalid", "ws://domain.invalid/", true, false},
+		{"http://domain.invalid", "wss://domain.invalid/", true, false},
+		{"https://domain.invalid", "wss://domain.invalid:80/", true, false},
+		{"wss://domain.invalid", "wss://domain.invalid.evil.invalid/", true, false},
+	}
+
+	for _, tc := range testcases {
+		t.Run(fmt.Sprintf("%s %s %t", tc.allowed, tc.target, tc.websocket), func(t *testing.T) {
+			t.Parallel()
+			target, err := url.Parse(tc.target)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expect, isFederationUrlAllowed(tc.allowed, target, tc.websocket))
+		})
+	}
+
+	assert.False(t, isFederationUrlAllowed("https://domain.invalid", nil, false))
+	assert.False(t, isFederationUrlAllowed("https://domain.invalid", nil, true))
 }
