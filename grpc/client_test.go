@@ -167,6 +167,9 @@ func Test_GrpcClients_DnsDiscoveryInitialFailed(t *testing.T) {
 	defer cancel()
 	require.NoError(t, client.WaitForInitialized(ctx))
 
+	// Wait for initial check to be done to make sure internal dnsmonitor goroutine is waiting.
+	require.NoError(t, dnsMonitor.WaitForTicker(testCtx))
+
 	assert.Empty(client.GetClients())
 
 	lookup.Set("testgrpc", []net.IP{ip1})

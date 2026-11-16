@@ -22,6 +22,7 @@
 package proxy
 
 import (
+	"context"
 	"net"
 	"strings"
 	"testing"
@@ -84,7 +85,10 @@ func TestProxyConfigStaticDNS(t *testing.T) {
 	config, dnsMonitor := newProxyConfigStatic(t, proxy, true, lookup, "https://foo/")
 	require.NoError(t, config.Start())
 
-	time.Sleep(time.Millisecond)
+	// Wait for initial check to be done to make sure internal dnsmonitor goroutine is waiting.
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+	require.NoError(t, dnsMonitor.WaitForTicker(ctx))
 
 	lookup.Set("foo", []net.IP{
 		net.ParseIP("192.168.0.1"),
