@@ -55,7 +55,7 @@ require (
 	github.com/nats-io/nkeys v0.4.17 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pandatix/go-abnf v0.5.5 // indirect
-	github.com/pion/dtls/v3 v3.1.15 // indirect
+	github.com/pion/dtls/v3 v3.1.16 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/mdns/v2 v2.2.2 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
