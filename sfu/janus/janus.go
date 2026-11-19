@@ -59,6 +59,8 @@ const (
 
 	// MCU requests will be cancelled if they take too long.
 	defaultMcuTimeoutSeconds = 10
+
+	defaultSimulcastHold = 10 * time.Second
 )
 
 var (
@@ -154,6 +156,12 @@ type Settings struct {
 
 	allowedCandidates atomic.Pointer[container.IPList]
 	blockedCandidates atomic.Pointer[container.IPList]
+
+	simulcastHold atomic.Int64
+}
+
+func (s *Settings) SimulcastHold() time.Duration {
+	return time.Duration(s.simulcastHold.Load())
 }
 
 func newJanusSettings(ctx context.Context, config *goconf.ConfigFile) (*Settings, error) {
@@ -206,6 +214,21 @@ func (s *Settings) load(config *goconf.ConfigFile) error {
 		s.Logger.Printf("No candidates blocklist")
 		s.blockedCandidates.Store(nil)
 	}
+
+	simulcastHold := defaultSimulcastHold
+	if value, _ := config.GetString("mcu", "simulcasthold"); value != "" {
+		if seconds, err := strconv.Atoi(value); err != nil || seconds < 0 {
+			s.Logger.Printf("Invalid value \"%s\" for \"simulcasthold\" in section \"mcu\", using default of %s", value, simulcastHold)
+		} else {
+			simulcastHold = time.Duration(seconds) * time.Second
+		}
+	}
+	if simulcastHold > 0 {
+		s.Logger.Printf("Keeping subscribers on a lower simulcast substream for %s after a fallback", simulcastHold)
+	} else {
+		s.Logger.Printf("Not keeping subscribers on a lower simulcast substream after a fallback")
+	}
+	s.simulcastHold.Store(simulcastHold.Nanoseconds())
 
 	return nil
 }
@@ -1006,6 +1029,9 @@ func (m *janusSFU) NewSubscriber(ctx context.Context, listener sfu.Listener, pub
 			deferred:  make(chan func(), 64),
 		},
 		publisher: publisher,
+
+		requestedSubstream: noSubstream,
+		heldSubstream:      noSubstream,
 	}
 	client.handle.Store(handle)
 	client.handleId.Store(handle.Id)
@@ -1187,6 +1213,9 @@ func (m *janusSFU) NewRemoteSubscriber(ctx context.Context, listener sfu.Listene
 				deferred:  make(chan func(), 64),
 			},
 			publisher: pub.id,
+
+			requestedSubstream: noSubstream,
+			heldSubstream:      noSubstream,
 		},
 	}
 	client.remote.Store(pub)

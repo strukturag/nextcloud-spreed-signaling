@@ -180,6 +180,9 @@ if [ ! -f "$CONFIG" ]; then
   if [ -n "$BLOCKED_CANDIDATES" ]; then
     sed -i "s|#blockedcandidates =.*|blockedcandidates = $BLOCKED_CANDIDATES|" "$CONFIG"
   fi
+  if [ -n "$SIMULCAST_HOLD" ]; then
+    sed -i "s|#simulcasthold =.*|simulcasthold = $SIMULCAST_HOLD|" "$CONFIG"
+  fi
 
   if [ -n "$SKIP_VERIFY" ]; then
     sed -i "s|#skipverify =.*|skipverify = $SKIP_VERIFY|" "$CONFIG"
