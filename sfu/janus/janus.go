@@ -154,6 +154,12 @@ type Settings struct {
 
 	allowedCandidates atomic.Pointer[container.IPList]
 	blockedCandidates atomic.Pointer[container.IPList]
+
+	simulcastHold atomic.Int64
+}
+
+func (s *Settings) SimulcastHold() time.Duration {
+	return time.Duration(s.simulcastHold.Load())
 }
 
 func newJanusSettings(ctx context.Context, config *goconf.ConfigFile) (*Settings, error) {
@@ -205,6 +211,15 @@ func (s *Settings) load(config *goconf.ConfigFile) error {
 	} else {
 		s.Logger.Printf("No candidates blocklist")
 		s.blockedCandidates.Store(nil)
+	}
+
+	simulcastHoldSeconds, _ := config.GetInt("mcu", "simulcasthold")
+	if simulcastHoldSeconds > 0 {
+		simulcastHold := time.Duration(simulcastHoldSeconds) * time.Second
+		s.Logger.Printf("Keeping subscribers on a lower simulcast substream for %s after a fallback", simulcastHold)
+		s.simulcastHold.Store(simulcastHold.Nanoseconds())
+	} else {
+		s.simulcastHold.Store(0)
 	}
 
 	return nil
@@ -1006,6 +1021,9 @@ func (m *janusSFU) NewSubscriber(ctx context.Context, listener sfu.Listener, pub
 			deferred:  make(chan func(), 64),
 		},
 		publisher: publisher,
+
+		requestedSubstream: noSubstream,
+		heldSubstream:      noSubstream,
 	}
 	client.handle.Store(handle)
 	client.handleId.Store(handle.Id)
@@ -1187,6 +1205,9 @@ func (m *janusSFU) NewRemoteSubscriber(ctx context.Context, listener sfu.Listene
 				deferred:  make(chan func(), 64),
 			},
 			publisher: pub.id,
+
+			requestedSubstream: noSubstream,
+			heldSubstream:      noSubstream,
 		},
 	}
 	client.remote.Store(pub)

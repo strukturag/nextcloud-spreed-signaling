@@ -44,11 +44,13 @@ func (p *janusRemoteSubscriber) handleEvent(event *janus.EventMsg) {
 			p.logger.Printf("Remote subscriber %d: associated room has been destroyed, closing", p.handleId.Load())
 			go p.Close(ctx)
 		case "event":
-			// Handle renegotiations, but ignore other events like selected
-			// substream / temporal layer.
+			// Handle renegotiations and substream changes, but ignore other
+			// events like selected temporal layer.
 			if getPluginStringValue(event.Plugindata, pluginVideoRoom, "configured") == "ok" &&
 				event.Jsep != nil && event.Jsep["type"] == "offer" && event.Jsep["sdp"] != nil {
 				p.listener.OnUpdateOffer(p, event.Jsep)
+			} else {
+				p.handleSubstreamEvent(event)
 			}
 		case "slow_link":
 			// Ignore, processed through "handleSlowLink" in the general events.

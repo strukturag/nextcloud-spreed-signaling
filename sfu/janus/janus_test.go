@@ -928,6 +928,170 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	<-pubDone
 }
 
+func Test_JanusSubscriberSimulcastHold(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	configured := make(chan int, 8)
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.settings.simulcastHold.Store(int64(100 * time.Millisecond))
+	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			if jsep != nil {
+				return &janus.EventMsg{
+					Jsep: api.StringMap{
+						"sdp": mock.MockSdpAnswerAudioAndVideo,
+					},
+				}, nil
+			}
+
+			if substream, ok := body["substream"].(float64); assert.True(ok, "no substream in %+v", body) {
+				configured <- int(substream)
+			}
+			return &janus.EventMsg{
+				Plugindata: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: api.StringMap{
+						"videoroom":  "event",
+						"configured": "ok",
+					},
+				},
+			}, nil
+		},
+		"start": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			return &janus.EventMsg{
+				Plugindata: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: api.StringMap{
+						"room":      room.Id(),
+						"started":   true,
+						"videoroom": "event",
+					},
+				},
+			}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := sfu.NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", sfu.StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	data := &api.MessageClientMessageData{
+		Type: "offer",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}
+	require.NoError(data.CheckValid())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	pub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
+		defer wg.Done()
+		assert.NoError(err)
+	})
+	wg.Wait()
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+	defer sub.Close(context.Background())
+
+	for _, msgType := range []string{"requestoffer", "answer"} {
+		data := &api.MessageClientMessageData{
+			Type: msgType,
+		}
+		if msgType == "answer" {
+			data.Payload = api.StringMap{
+				"sdp": mock.MockSdpAnswerAudioAndVideo,
+			}
+		}
+		require.NoError(data.CheckValid())
+
+		wg.Add(1)
+		sub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
+			defer wg.Done()
+			assert.NoError(err)
+		})
+		wg.Wait()
+	}
+
+	handle := sub.(*janusSubscriber).JanusHandle()
+	pushSubstream := func(substream int) {
+		handle.Events <- &janus.EventMsg{
+			Plugindata: janus.PluginData{
+				Plugin: pluginVideoRoom,
+				Data: api.StringMap{
+					"videoroom": "event",
+					"substream": float64(substream),
+				},
+			},
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	assertNoConfigure := func(wait time.Duration) {
+		select {
+		case substream := <-configured:
+			assert.Fail("unexpected configure", "substream %d", substream)
+		case <-time.After(wait):
+		}
+	}
+
+	// Ramp-up after joining must not be treated as fallback.
+	pushSubstream(0)
+	pushSubstream(1)
+	pushSubstream(2)
+	assertNoConfigure(150 * time.Millisecond)
+
+	pushSubstream(1)
+	assert.Equal(1, <-configured)
+	pushSubstream(1)
+	pushSubstream(0)
+	assert.Equal(0, <-configured)
+	assert.Equal(2, <-configured)
+	assertNoConfigure(150 * time.Millisecond)
+
+	// A client selecting a substream ends the hold.
+	pushSubstream(2)
+	pushSubstream(1)
+	assert.Equal(1, <-configured)
+
+	data = &api.MessageClientMessageData{
+		Type: "selectStream",
+		Payload: api.StringMap{
+			"substream": 1,
+		},
+	}
+	wg.Add(1)
+	sub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
+		defer wg.Done()
+		assert.NoError(err)
+	})
+	wg.Wait()
+	assert.Equal(1, <-configured)
+	assertNoConfigure(150 * time.Millisecond)
+}
+
 func Test_JanusRemotePublisher(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
