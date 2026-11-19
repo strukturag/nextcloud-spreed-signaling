@@ -23,6 +23,8 @@ package etcd
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"slices"
@@ -32,6 +34,7 @@ import (
 
 	"github.com/dlintw/goconf"
 	"go.etcd.io/etcd/client/pkg/v3/srv"
+	"go.etcd.io/etcd/client/pkg/v3/tlsutil"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/zap"
@@ -51,6 +54,9 @@ var (
 type etcdClient struct {
 	logger        log.Logger
 	compatSection string
+
+	// CA pool used to verify the certificates of etcd servers, can be reloaded.
+	caPool atomic.Pointer[x509.CertPool]
 
 	mu     sync.Mutex
 	client atomic.Value
@@ -159,6 +165,12 @@ func (c *etcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 
 				c.logger.Printf("Could not setup TLS configuration, will be disabled (%s)", err)
 			} else {
+				// Verify server certificates against the current CA pool, so it can
+				// be replaced on reload without recreating the client.
+				c.caPool.Store(tlsConfig.RootCAs)
+				tlsConfig.RootCAs = nil
+				tlsConfig.InsecureSkipVerify = true // nolint:gosec // Verification is done in "verifyConnection".
+				tlsConfig.VerifyConnection = c.verifyConnection
 				cfg.TLS = tlsConfig
 			}
 		}
@@ -182,6 +194,45 @@ func (c *etcdClient) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 	}
 
 	return nil
+}
+
+func (c *etcdClient) verifyConnection(cs tls.ConnectionState) error {
+	if len(cs.PeerCertificates) == 0 {
+		return errors.New("etcd server did not provide a certificate")
+	}
+
+	opts := x509.VerifyOptions{
+		Roots:         c.caPool.Load(),
+		DNSName:       cs.ServerName,
+		Intermediates: x509.NewCertPool(),
+	}
+	for _, cert := range cs.PeerCertificates[1:] {
+		opts.Intermediates.AddCert(cert)
+	}
+	_, err := cs.PeerCertificates[0].Verify(opts)
+	return err
+}
+
+func (c *etcdClient) Reload(config *goconf.ConfigFile) {
+	if c.caPool.Load() == nil {
+		// TLS is not enabled.
+		return
+	}
+
+	caCert := c.getConfigStringWithFallback(config, "cacert")
+	if caCert == "" {
+		c.logger.Printf("No etcd CA certificate configured, keeping existing")
+		return
+	}
+
+	pool, err := tlsutil.NewCertPool([]string{caCert})
+	if err != nil {
+		c.logger.Printf("Could not reload etcd CA certificate from %s, keeping existing: %s", caCert, err)
+		return
+	}
+
+	c.caPool.Store(pool)
+	c.logger.Printf("Reloaded etcd CA certificate from %s", caCert)
 }
 
 func (c *etcdClient) Close() error {

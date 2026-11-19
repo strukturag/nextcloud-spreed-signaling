@@ -198,6 +198,9 @@ func (c *testClient) GetServerInfoEtcd() *etcd.BackendServerInfoEtcd {
 	return &etcd.BackendServerInfoEtcd{}
 }
 
+func (c *testClient) Reload(config *goconf.ConfigFile) {
+}
+
 func (c *testClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

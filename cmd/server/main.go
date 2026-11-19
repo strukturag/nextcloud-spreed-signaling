@@ -405,6 +405,7 @@ loop:
 				if config, err := goconf.ReadConfigFile(*configFlag); err != nil {
 					logger.Printf("Could not read configuration from %s: %s", *configFlag, err)
 				} else {
+					etcdClient.Reload(config)
 					hub.Reload(stopCtx, config)
 					server.Reload(config)
 				}
