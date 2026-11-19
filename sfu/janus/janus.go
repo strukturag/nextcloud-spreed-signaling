@@ -59,6 +59,8 @@ const (
 
 	// MCU requests will be cancelled if they take too long.
 	defaultMcuTimeoutSeconds = 10
+
+	defaultSimulcastHold = 10 * time.Second
 )
 
 var (
@@ -213,14 +215,20 @@ func (s *Settings) load(config *goconf.ConfigFile) error {
 		s.blockedCandidates.Store(nil)
 	}
 
-	simulcastHoldSeconds, _ := config.GetInt("mcu", "simulcasthold")
-	if simulcastHoldSeconds > 0 {
-		simulcastHold := time.Duration(simulcastHoldSeconds) * time.Second
-		s.Logger.Printf("Keeping subscribers on a lower simulcast substream for %s after a fallback", simulcastHold)
-		s.simulcastHold.Store(simulcastHold.Nanoseconds())
-	} else {
-		s.simulcastHold.Store(0)
+	simulcastHold := defaultSimulcastHold
+	if value, _ := config.GetString("mcu", "simulcasthold"); value != "" {
+		if seconds, err := strconv.Atoi(value); err != nil || seconds < 0 {
+			s.Logger.Printf("Invalid value \"%s\" for \"simulcasthold\" in section \"mcu\", using default of %s", value, simulcastHold)
+		} else {
+			simulcastHold = time.Duration(seconds) * time.Second
+		}
 	}
+	if simulcastHold > 0 {
+		s.Logger.Printf("Keeping subscribers on a lower simulcast substream for %s after a fallback", simulcastHold)
+	} else {
+		s.Logger.Printf("Not keeping subscribers on a lower simulcast substream after a fallback")
+	}
+	s.simulcastHold.Store(simulcastHold.Nanoseconds())
 
 	return nil
 }
