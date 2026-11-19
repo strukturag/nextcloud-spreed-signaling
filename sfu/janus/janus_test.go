@@ -935,7 +935,7 @@ func Test_JanusSubscriberSimulcastHold(t *testing.T) {
 
 	configured := make(chan int, 8)
 	mcu, gateway := newMcuJanusForTesting(t)
-	mcu.settings.simulcastHold.Store(int64(100 * time.Millisecond))
+	mcu.settings.simulcastHold.Store(int64(time.Hour))
 	gateway.RegisterHandlers(map[string]janustest.JanusHandler{
 		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
 			if jsep != nil {
@@ -1036,7 +1036,8 @@ func Test_JanusSubscriberSimulcastHold(t *testing.T) {
 		wg.Wait()
 	}
 
-	handle := sub.(*janusSubscriber).JanusHandle()
+	subscriber := sub.(*janusSubscriber)
+	handle := subscriber.JanusHandle()
 	pushSubstream := func(substream int) {
 		handle.Events <- &janus.EventMsg{
 			Plugindata: janus.PluginData{
@@ -1047,34 +1048,58 @@ func Test_JanusSubscriberSimulcastHold(t *testing.T) {
 				},
 			},
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	assertNoConfigure := func(wait time.Duration) {
+	nextConfigure := func() int {
+		select {
+		case substream := <-configured:
+			return substream
+		case <-ctx.Done():
+			require.Fail("no configure received")
+			return -1
+		}
+	}
+	releaseHold := func() {
+		subscriber.deferred <- func() {
+			subscriber.releaseSubstreamHold(subscriber.holdGeneration)
+		}
+	}
+	assertNoPendingConfigure := func() {
+		processed := make(chan struct{})
+		subscriber.deferred <- func() {
+			close(processed)
+		}
+		<-processed
 		select {
 		case substream := <-configured:
 			assert.Fail("unexpected configure", "substream %d", substream)
-		case <-time.After(wait):
+		default:
 		}
 	}
 
-	// Ramp-up after joining must not be treated as fallback.
+	// The first configure would be 0 if the ramp-up was treated as a fallback.
 	pushSubstream(0)
 	pushSubstream(1)
 	pushSubstream(2)
-	assertNoConfigure(150 * time.Millisecond)
-
 	pushSubstream(1)
-	assert.Equal(1, <-configured)
+	assert.Equal(1, nextConfigure())
+
 	pushSubstream(1)
 	pushSubstream(0)
-	assert.Equal(0, <-configured)
-	assert.Equal(2, <-configured)
-	assertNoConfigure(150 * time.Millisecond)
+	assert.Equal(0, nextConfigure())
+	releaseHold()
+	assert.Equal(2, nextConfigure())
+	assertNoPendingConfigure()
 
-	// A client selecting a substream ends the hold.
+	mcu.settings.simulcastHold.Store(int64(10 * time.Millisecond))
 	pushSubstream(2)
 	pushSubstream(1)
-	assert.Equal(1, <-configured)
+	assert.Equal(1, nextConfigure())
+	assert.Equal(2, nextConfigure())
+
+	mcu.settings.simulcastHold.Store(int64(time.Hour))
+	pushSubstream(2)
+	pushSubstream(1)
+	assert.Equal(1, nextConfigure())
 
 	data = &api.MessageClientMessageData{
 		Type: "selectStream",
@@ -1088,8 +1113,9 @@ func Test_JanusSubscriberSimulcastHold(t *testing.T) {
 		assert.NoError(err)
 	})
 	wg.Wait()
-	assert.Equal(1, <-configured)
-	assertNoConfigure(150 * time.Millisecond)
+	assert.Equal(1, nextConfigure())
+	releaseHold()
+	assertNoPendingConfigure()
 }
 
 func Test_JanusRemotePublisher(t *testing.T) {
