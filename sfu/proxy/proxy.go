@@ -1514,11 +1514,10 @@ func (s *proxySettings) Reload(config *goconf.ConfigFile) {
 }
 
 type proxySFU struct {
-	logger   log.Logger
-	urlType  string
-	tokenId  string
-	tokenKey *rsa.PrivateKey
-	config   Config
+	logger  log.Logger
+	urlType string
+	token   atomic.Pointer[proxyToken]
+	config  Config
 
 	dialer        *websocket.Dialer
 	connectionsMu sync.RWMutex
@@ -1544,13 +1543,12 @@ type proxySFU struct {
 	rpcClients *grpc.Clients
 }
 
-func NewProxySFU(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd.Client, rpcClients *grpc.Clients, dnsMonitor *dns.Monitor) (sfu.SFU, error) {
-	logger := log.LoggerFromContext(ctx)
-	urlType, _ := config.GetString("mcu", "urltype")
-	if urlType == "" {
-		urlType = proxyUrlTypeStatic
-	}
+type proxyToken struct {
+	id  string
+	key *rsa.PrivateKey
+}
 
+func loadProxyToken(config *goconf.ConfigFile) (*proxyToken, error) {
 	tokenId, _ := config.GetString("mcu", "token_id")
 	if tokenId == "" {
 		return nil, errors.New("no token id configured")
@@ -1568,16 +1566,32 @@ func NewProxySFU(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd
 		return nil, fmt.Errorf("could not parse private key from %s: %s", tokenKeyFilename, err)
 	}
 
+	return &proxyToken{
+		id:  tokenId,
+		key: tokenKey,
+	}, nil
+}
+
+func NewProxySFU(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd.Client, rpcClients *grpc.Clients, dnsMonitor *dns.Monitor) (sfu.SFU, error) {
+	logger := log.LoggerFromContext(ctx)
+	urlType, _ := config.GetString("mcu", "urltype")
+	if urlType == "" {
+		urlType = proxyUrlTypeStatic
+	}
+
+	token, err := loadProxyToken(config)
+	if err != nil {
+		return nil, err
+	}
+
 	settings, err := newProxySettings(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 
 	mcu := &proxySFU{
-		logger:   logger,
-		urlType:  urlType,
-		tokenId:  tokenId,
-		tokenKey: tokenKey,
+		logger:  logger,
+		urlType: urlType,
 
 		dialer: &websocket.Dialer{
 			Proxy:            http.ProxyFromEnvironment,
@@ -1590,6 +1604,7 @@ func NewProxySFU(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd
 
 		rpcClients: rpcClients,
 	}
+	mcu.token.Store(token)
 	mcu.publishersCond.L = &mcu.mu
 	mcu.loadTimeouts(config)
 
@@ -1683,15 +1698,16 @@ func (m *proxySFU) Stop() {
 }
 
 func (m *proxySFU) CreateToken(subject string) (string, error) {
+	tok := m.token.Load()
 	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now()),
-			Issuer:   m.tokenId,
+			Issuer:   tok.id,
 			Subject:  subject,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	tokenString, err := token.SignedString(m.tokenKey)
+	tokenString, err := token.SignedString(tok.key)
 	if err != nil {
 		return "", err
 	}
@@ -1881,6 +1897,12 @@ func (m *proxySFU) loadTimeouts(config *goconf.ConfigFile) {
 }
 
 func (m *proxySFU) Reload(config *goconf.ConfigFile) {
+	if token, err := loadProxyToken(config); err != nil {
+		m.logger.Printf("Could not reload proxy token, keeping existing: %s", err)
+	} else {
+		m.token.Store(token)
+	}
+
 	m.settings.Reload(config)
 	m.loadTimeouts(config)
 
