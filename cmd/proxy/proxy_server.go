@@ -164,8 +164,7 @@ type ProxyServer struct {
 	// +checklocks:clientsLock
 	clientIds map[string]string
 
-	tokenId               string
-	tokenKey              *rsa.PrivateKey
+	remoteToken           atomic.Pointer[remoteToken]
 	remoteTlsConfig       *tls.Config // +checklocksignore: Only written to from constructor.
 	remoteHostname        string
 	remoteConnectionsLock sync.Mutex
@@ -287,24 +286,14 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 	}
 	welcomeMessage, _ := json.Marshal(welcome)
 
-	tokenId, _ := config.GetString("app", "token_id")
-	var tokenKey *rsa.PrivateKey
+	token, err := loadRemoteToken(config)
+	if err != nil {
+		return nil, err
+	}
 	var remoteHostname string
 	var remoteTlsConfig *tls.Config
-	if tokenId != "" {
-		tokenKeyFilename, _ := config.GetString("app", "token_key")
-		if tokenKeyFilename == "" {
-			return nil, errors.New("no token key configured")
-		}
-		tokenKeyData, err := os.ReadFile(tokenKeyFilename)
-		if err != nil {
-			return nil, fmt.Errorf("could not read private key from %s: %s", tokenKeyFilename, err)
-		}
-		tokenKey, err = jwt.ParseRSAPrivateKeyFromPEM(tokenKeyData)
-		if err != nil {
-			return nil, fmt.Errorf("could not parse private key from %s: %s", tokenKeyFilename, err)
-		}
-		logger.Printf("Using \"%s\" as token id for remote streams", tokenId)
+	if token != nil {
+		logger.Printf("Using \"%s\" as token id for remote streams", token.id)
 
 		remoteHostname, _ = config.GetString("app", "hostname")
 		if remoteHostname == "" {
@@ -367,12 +356,14 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		clients:   make(map[string]sfu.Client),
 		clientIds: make(map[string]string),
 
-		tokenId:           tokenId,
-		tokenKey:          tokenKey,
 		remoteTlsConfig:   remoteTlsConfig,
 		remoteHostname:    remoteHostname,
 		remoteConnections: make(map[string]*RemoteConnection),
 		remotePublishers:  make(map[string]map[*proxyRemotePublisher]bool),
+	}
+
+	if token != nil {
+		result.remoteToken.Store(token)
 	}
 
 	if err := result.loadConfig(config, false); err != nil {
@@ -667,10 +658,68 @@ func (s *ProxyServer) getRemoteTimeouts() client.Timeouts {
 	return *s.remoteTimeouts.Load()
 }
 
+type remoteToken struct {
+	id  string
+	key *rsa.PrivateKey
+}
+
+// loadRemoteToken returns the token to use for remote streams or nil if
+// remote streams are not configured.
+func loadRemoteToken(config *goconf.ConfigFile) (*remoteToken, error) {
+	tokenId, _ := config.GetString("app", "token_id")
+	if tokenId == "" {
+		return nil, nil
+	}
+
+	tokenKeyFilename, _ := config.GetString("app", "token_key")
+	if tokenKeyFilename == "" {
+		return nil, errors.New("no token key configured")
+	}
+	tokenKeyData, err := os.ReadFile(tokenKeyFilename)
+	if err != nil {
+		return nil, fmt.Errorf("could not read private key from %s: %s", tokenKeyFilename, err)
+	}
+	tokenKey, err := jwt.ParseRSAPrivateKeyFromPEM(tokenKeyData)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse private key from %s: %s", tokenKeyFilename, err)
+	}
+
+	return &remoteToken{
+		id:  tokenId,
+		key: tokenKey,
+	}, nil
+}
+
+func (s *ProxyServer) reloadRemoteToken(config *goconf.ConfigFile) {
+	if s.remoteToken.Load() == nil {
+		// Remote streams were not enabled on startup.
+		return
+	}
+
+	token, err := loadRemoteToken(config)
+	if err != nil {
+		s.logger.Printf("Could not reload token for remote streams, keeping existing: %s", err)
+		return
+	} else if token == nil {
+		s.logger.Printf("No token id configured for remote streams, keeping existing")
+		return
+	}
+
+	s.remoteToken.Store(token)
+
+	s.remoteConnectionsLock.Lock()
+	defer s.remoteConnectionsLock.Unlock()
+	for _, conn := range s.remoteConnections {
+		conn.setToken(token.id, token.key)
+	}
+}
+
 func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 	if err := s.loadConfig(config, true); err != nil {
 		s.logger.Printf("Error reloading configuration: %s", err)
 	}
+
+	s.reloadRemoteToken(config)
 
 	s.tokens.Reload(config)
 	s.mcu.Reload(config)
@@ -1084,7 +1133,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		if cmd.RemoteUrl != "" {
-			if s.tokenId == "" || s.tokenKey == nil || s.remoteHostname == "" {
+			if s.remoteToken.Load() == nil || s.remoteHostname == "" {
 				session.sendMessage(message.NewErrorServerMessage(RemoteSubscribersNotSupported))
 				return
 			}
@@ -1726,7 +1775,12 @@ func (s *ProxyServer) getRemoteConnection(url string) (*RemoteConnection, error)
 		return conn, nil
 	}
 
-	conn, err := NewRemoteConnection(s, url, s.tokenId, s.tokenKey, s.remoteTlsConfig)
+	token := s.remoteToken.Load()
+	if token == nil {
+		return nil, errors.New("remote streams are not configured")
+	}
+
+	conn, err := NewRemoteConnection(s, url, token.id, token.key, s.remoteTlsConfig)
 	if err != nil {
 		return nil, err
 	}

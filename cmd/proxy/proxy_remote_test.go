@@ -23,19 +23,24 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/proxy"
 )
 
@@ -324,4 +329,99 @@ func Test_ProxyRemoteConnectionCreatePublisher(t *testing.T) {
 		},
 	})
 	assert.ErrorContains(err, UnknownClient.Error())
+}
+
+func Test_ProxyReloadRemoteToken(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+
+	server, key, httpserver := newProxyServerForTest(t)
+	server.remoteToken.Store(&remoteToken{
+		id:  TokenIdForTest,
+		key: key,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	conn, err := server.getRemoteConnection(httpserver.URL)
+	require.NoError(err)
+	t.Cleanup(func() {
+		assert.NoError(conn.SendBye())
+		assert.NoError(conn.Close())
+
+		server.remoteConnectionsLock.Lock()
+		defer server.remoteConnectionsLock.Unlock()
+		delete(server.remoteConnections, httpserver.URL)
+	})
+	assert.NoError(conn.WaitForConnection(ctx))
+
+	parseToken := func(tokenString string, key *rsa.PublicKey) (*proxy.TokenClaims, error) {
+		claims := &proxy.TokenClaims{}
+		_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
+			return key, nil
+		}, jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}))
+		return claims, err
+	}
+
+	newKey, err := rsa.GenerateKey(rand.Reader, KeypairSizeForTest)
+	require.NoError(err)
+	privkeyFile := path.Join(t.TempDir(), "privkey.pem")
+	require.NoError(internal.WritePrivateKey(newKey, privkeyFile))
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "token_id", "new-token")
+	config.AddOption("app", "token_key", privkeyFile)
+	server.reloadRemoteToken(config)
+
+	if token := server.remoteToken.Load(); assert.NotNil(token) {
+		assert.Equal("new-token", token.id)
+		assert.True(newKey.Equal(token.key))
+	}
+
+	// Existing connections use the new token.
+	tokenString, err := conn.createToken("")
+	require.NoError(err)
+	_, err = parseToken(tokenString, &key.PublicKey)
+	assert.Error(err)
+	if claims, err := parseToken(tokenString, &newKey.PublicKey); assert.NoError(err) {
+		assert.Equal("new-token", claims.Issuer)
+	}
+
+	// Invalid configurations keep the existing token.
+	config.AddOption("app", "token_key", path.Join(t.TempDir(), "missing.pem"))
+	server.reloadRemoteToken(config)
+	config.RemoveOption("app", "token_id")
+	server.reloadRemoteToken(config)
+
+	if token := server.remoteToken.Load(); assert.NotNil(token) {
+		assert.Equal("new-token", token.id)
+		assert.True(newKey.Equal(token.key))
+	}
+	tokenString, err = conn.createToken("")
+	require.NoError(err)
+	if claims, err := parseToken(tokenString, &newKey.PublicKey); assert.NoError(err) {
+		assert.Equal("new-token", claims.Issuer)
+	}
+}
+
+func Test_ProxyReloadRemoteTokenDisabled(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	server, _, _ := newProxyServerForTest(t)
+	require.Nil(server.remoteToken.Load())
+
+	key, err := rsa.GenerateKey(rand.Reader, KeypairSizeForTest)
+	require.NoError(err)
+	privkeyFile := path.Join(t.TempDir(), "privkey.pem")
+	require.NoError(internal.WritePrivateKey(key, privkeyFile))
+
+	// Remote streams can't be enabled through a reload.
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "token_id", "new-token")
+	config.AddOption("app", "token_key", privkeyFile)
+	server.reloadRemoteToken(config)
+	require.Nil(server.remoteToken.Load())
 }

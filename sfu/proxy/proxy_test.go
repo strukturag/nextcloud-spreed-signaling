@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/dlintw/goconf"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1837,4 +1838,54 @@ func Test_ProxyPublisherToken(t *testing.T) {
 	require.NoError(err)
 
 	defer sub.Close(context.Background())
+}
+
+func Test_ProxyReloadToken(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	mcu, cfg := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{}, 0, nil)
+
+	parseToken := func(tokenString string, key *rsa.PublicKey) (*proxy.TokenClaims, error) {
+		claims := &proxy.TokenClaims{}
+		_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
+			return key, nil
+		}, jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}))
+		return claims, err
+	}
+
+	oldKey := mcu.token.Load().key
+	tokenString, err := mcu.CreateToken("test")
+	require.NoError(err)
+	if claims, err := parseToken(tokenString, &oldKey.PublicKey); assert.NoError(err) {
+		assert.Equal("test-token-0", claims.Issuer)
+	}
+
+	newKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(err)
+	privkeyFile := path.Join(t.TempDir(), "privkey.pem")
+	require.NoError(internal.WritePrivateKey(newKey, privkeyFile))
+	cfg.AddOption("mcu", "token_id", "test-token-new")
+	cfg.AddOption("mcu", "token_key", privkeyFile)
+	mcu.Reload(cfg)
+
+	tokenString, err = mcu.CreateToken("test")
+	require.NoError(err)
+	_, err = parseToken(tokenString, &oldKey.PublicKey)
+	assert.Error(err)
+	if claims, err := parseToken(tokenString, &newKey.PublicKey); assert.NoError(err) {
+		assert.Equal("test-token-new", claims.Issuer)
+	}
+
+	// Invalid key file keeps the previous token.
+	cfg.AddOption("mcu", "token_id", "test-token-invalid")
+	cfg.AddOption("mcu", "token_key", path.Join(t.TempDir(), "missing.pem"))
+	mcu.Reload(cfg)
+
+	tokenString, err = mcu.CreateToken("test")
+	require.NoError(err)
+	if claims, err := parseToken(tokenString, &newKey.PublicKey); assert.NoError(err) {
+		assert.Equal("test-token-new", claims.Issuer)
+	}
 }

@@ -28,6 +28,7 @@ import (
 	"net/url"
 	"slices"
 
+	"github.com/dlintw/goconf"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -47,6 +48,7 @@ type Client interface {
 	IsConfigured() bool
 	WaitForConnection(ctx context.Context) error
 	GetServerInfoEtcd() *BackendServerInfoEtcd
+	Reload(config *goconf.ConfigFile)
 	Close() error
 
 	AddListener(listener ClientListener)

@@ -160,6 +160,7 @@ func (t *tokensEtcd) load(config *goconf.ConfigFile, ignoreErrors bool) error {
 }
 
 func (t *tokensEtcd) Reload(config *goconf.ConfigFile) {
+	t.client.Reload(config)
 	if err := t.load(config, true); err != nil {
 		t.logger.Printf("Error reloading etcd tokens: %s", err)
 	}

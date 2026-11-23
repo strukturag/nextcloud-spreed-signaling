@@ -25,6 +25,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"net"
 	"net/url"
 	"os"
@@ -419,4 +422,82 @@ func Test_EtcdClient_Watch(t *testing.T) {
 	assert.Equal(clientv3.EventTypeDelete, event.t)
 	assert.Equal("foo/a", event.key)
 	assert.Equal("3", event.prevValue)
+}
+
+func Test_EtcdClientTLS_ReloadCA(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	assert := assert.New(t)
+	require := require.New(t)
+	etcd, keyfile, certfile := NewEtcdForTestWithTls(t, true)
+
+	// Start with a CA that doesn't match the server certificate.
+	otherKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(err)
+	otherCert := internal.GenerateSelfSignedCertificateForTesting(t, "other", otherKey)
+	tmpdir := t.TempDir()
+	otherCertfile := path.Join(tmpdir, "other.pem")
+	require.NoError(internal.WriteCertificate(otherCert, otherCertfile))
+
+	config := goconf.NewConfigFile()
+	config.AddOption("etcd", "endpoints", etcd.Config().ListenClientUrls[0].String())
+	config.AddOption("etcd", "loglevel", "error")
+	config.AddOption("etcd", "clientkey", keyfile)
+	config.AddOption("etcd", "clientcert", certfile)
+	config.AddOption("etcd", "cacert", otherCertfile)
+
+	client, err := NewClient(logger, config, "")
+	require.NoError(err)
+	t.Cleanup(func() {
+		assert.NoError(client.Close())
+	})
+
+	failCtx, failCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer failCancel()
+	_, err = client.Get(failCtx, "foo")
+	assert.Error(err, "should not connect with wrong CA")
+
+	// Reloading with an invalid CA keeps the existing one.
+	config.AddOption("etcd", "cacert", path.Join(tmpdir, "missing.pem"))
+	client.Reload(config)
+
+	config.AddOption("etcd", "cacert", certfile)
+	client.Reload(config)
+
+	SetValue(etcd, "foo", []byte("bar"))
+
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+	require.NoError(client.WaitForConnection(ctx))
+	if response, err := client.Get(ctx, "foo"); assert.NoError(err) && assert.EqualValues(1, response.Count) {
+		assert.Equal("bar", string(response.Kvs[0].Value))
+	}
+
+	// Switching back to the wrong CA will prevent new connections.
+	config.AddOption("etcd", "cacert", otherCertfile)
+	client.Reload(config)
+	ec := client.(*etcdClient)
+	assert.Error(ec.verifyConnection(tls.ConnectionState{
+		ServerName:       "localhost",
+		PeerCertificates: []*x509.Certificate{loadCertificate(t, certfile)},
+	}))
+
+	config.AddOption("etcd", "cacert", certfile)
+	client.Reload(config)
+	assert.NoError(ec.verifyConnection(tls.ConnectionState{
+		ServerName:       "localhost",
+		PeerCertificates: []*x509.Certificate{loadCertificate(t, certfile)},
+	}))
+}
+
+func loadCertificate(t *testing.T, filename string) *x509.Certificate {
+	t.Helper()
+	data, err := os.ReadFile(filename)
+	require.NoError(t, err)
+	block, _ := pem.Decode(data)
+	require.NotNil(t, block)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+	return cert
 }
