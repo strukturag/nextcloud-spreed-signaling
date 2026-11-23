@@ -119,9 +119,8 @@ var (
 
 type ProxyServer struct {
 	version        string
-	country        geoip.Country
 	welcomeMessage string
-	welcomeMsg     *api.WelcomeServerMessage
+	welcomeMsg     atomic.Pointer[api.WelcomeServerMessage]
 	config         *goconf.ConfigFile
 	mcuTimeout     atomic.Int64
 	debug          atomic.Bool
@@ -269,15 +268,11 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		return nil, err
 	}
 
-	countryString, _ := config.GetString("app", "country")
-	country := geoip.Country(strings.ToUpper(countryString))
-	if geoip.IsValidCountry(country) {
-		logger.Printf("Sending %s as country information", country)
-	} else if country != "" {
-		return nil, fmt.Errorf("invalid country: %s", country)
-	} else {
-		logger.Printf("Not sending country information")
+	country, err := loadCountry(config)
+	if err != nil {
+		return nil, err
 	}
+	logCountry(logger, country)
 
 	welcome := map[string]string{
 		"nextcloud-spreed-signaling-proxy": "Welcome",
@@ -304,15 +299,9 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 
 	result := &ProxyServer{
 		version:        version,
-		country:        country,
 		welcomeMessage: string(welcomeMessage) + "\n",
-		welcomeMsg: &api.WelcomeServerMessage{
-			Version:  version,
-			Country:  country,
-			Features: defaultProxyFeatures,
-		},
-		config: config,
-		logger: logger,
+		config:         config,
+		logger:         logger,
 
 		shutdownChannel: make(chan struct{}),
 
@@ -336,6 +325,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		remotePublishers:  make(map[string]map[*proxyRemotePublisher]bool),
 	}
 
+	result.setCountry(country)
 	if token != nil {
 		result.remoteToken.Store(token)
 		result.remoteHostname.Store(&remoteHostname)
@@ -556,6 +546,48 @@ func (s *ProxyServer) ScheduleShutdown() {
 	if !s.HasClients() {
 		go close(s.shutdownChannel)
 	}
+}
+
+func loadCountry(config *goconf.ConfigFile) (geoip.Country, error) {
+	countryString, _ := config.GetString("app", "country")
+	country := geoip.Country(strings.ToUpper(countryString))
+	if country != "" && !geoip.IsValidCountry(country) {
+		return "", fmt.Errorf("invalid country: %s", country)
+	}
+	return country, nil
+}
+
+func logCountry(logger log.Logger, country geoip.Country) {
+	if country != "" {
+		logger.Printf("Sending %s as country information", country)
+	} else {
+		logger.Printf("Not sending country information")
+	}
+}
+
+func (s *ProxyServer) setCountry(country geoip.Country) {
+	s.welcomeMsg.Store(&api.WelcomeServerMessage{
+		Version:  s.version,
+		Country:  country,
+		Features: defaultProxyFeatures,
+	})
+}
+
+// reloadCountry updates the country sent to new sessions. Existing sessions
+// will receive the updated country when they reconnect or resume.
+func (s *ProxyServer) reloadCountry(config *goconf.ConfigFile) {
+	country, err := loadCountry(config)
+	if err != nil {
+		s.logger.Printf("Could not reload country, keeping existing: %s", err)
+		return
+	}
+
+	if s.welcomeMsg.Load().Country == country {
+		return
+	}
+
+	s.setCountry(country)
+	logCountry(s.logger, country)
 }
 
 func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) error {
@@ -801,6 +833,7 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 		s.logger.Printf("Error reloading configuration: %s", err)
 	}
 
+	s.reloadCountry(config)
 	s.reloadRemoteToken(config)
 	s.reloadRemoteTlsConfig(config)
 	s.reloadRemoteHostname(config)
@@ -812,7 +845,7 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 func (s *ProxyServer) setCommonHeaders(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "nextcloud-spreed-signaling-proxy/"+s.version)
-		w.Header().Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Features, ", "))
+		w.Header().Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Load().Features, ", "))
 		f(w, r)
 	}
 }
@@ -830,7 +863,7 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	addr := client.GetRealUserIP(r, s.trustedProxies.Load())
 	header := http.Header{}
 	header.Set("Server", "nextcloud-spreed-signaling-proxy/"+s.version)
-	header.Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Features, ", "))
+	header.Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Load().Features, ", "))
 	conn, err := s.upgrader.Upgrade(w, r, header)
 	if err != nil {
 		s.logger.Printf("Could not upgrade request from %s: %s", addr, err)
@@ -990,7 +1023,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			Hello: &proxy.HelloServerMessage{
 				Version:   api.HelloVersionV1,
 				SessionId: session.PublicId(),
-				Server:    s.welcomeMsg,
+				Server:    s.welcomeMsg.Load(),
 			},
 		}
 		client.SendMessage(response)

@@ -50,6 +50,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
@@ -2280,4 +2281,42 @@ func TestProxyReloadRemoteHostnameDisabled(t *testing.T) {
 	config.AddOption("app", "hostname", "the-host")
 	proxyServer.reloadRemoteHostname(config)
 	assert.Empty(proxyServer.getRemoteHostname())
+}
+
+func TestProxyReloadCountry(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	proxy, key, server := newProxyServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	getCountry := func() geoip.Country {
+		t.Helper()
+		client := NewProxyTestClient(ctx, t, server.URL)
+		defer client.CloseWithBye()
+
+		require.NoError(client.SendHello(key))
+		hello, err := client.RunUntilHello(ctx)
+		require.NoError(err)
+		require.NotNil(hello.Hello.Server)
+		return hello.Hello.Server.Country
+	}
+
+	assert.Empty(getCountry())
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "country", "de")
+	proxy.reloadCountry(config)
+	assert.Equal(geoip.Country("DE"), getCountry())
+
+	// Invalid countries keep the existing value.
+	config.AddOption("app", "country", "loopback")
+	proxy.reloadCountry(config)
+	assert.Equal(geoip.Country("DE"), getCountry())
+
+	config.RemoveOption("app", "country")
+	proxy.reloadCountry(config)
+	assert.Empty(getCountry())
 }
