@@ -84,13 +84,9 @@ func createListener(addr string) (net.Listener, error) {
 	return net.Listen("tcp", addr)
 }
 
-func createTLSListener(addr string, certFile, keyFile string) (net.Listener, error) {
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, err
-	}
+func createTLSListener(addr string, cert *reloadableCertificate) (net.Listener, error) {
 	config := tls.Config{
-		Certificates: []tls.Certificate{cert},
+		GetCertificate: cert.GetCertificate,
 	}
 	if addr[0] == '/' {
 		os.Remove(addr)
@@ -334,18 +330,18 @@ func main() {
 		logger: logger,
 	}
 
+	var httpsCertificate *reloadableCertificate
 	if saddr, _ := config.GetStringOptionWithEnv(cfg, "https", "listen"); saddr != "" {
-		cert, _ := cfg.GetString("https", "certificate")
-		key, _ := cfg.GetString("https", "key")
-		if cert == "" || key == "" {
-			logger.Fatal("Need a certificate and key for the HTTPS listener")
+		httpsCertificate, err = newReloadableCertificate(logger, cfg)
+		if err != nil {
+			logger.Fatal("Could not load HTTPS certificate: ", err)
 		}
 
 		timeouts := client.LoadTimeouts(logger, cfg, "https", client.Timeouts{})
 		for address := range internal.SplitEntries(saddr, " ") {
 			go func(address string) {
 				logger.Println("Listening on", address)
-				listener, err := createTLSListener(address, cert, key)
+				listener, err := createTLSListener(address, httpsCertificate)
 				if err != nil {
 					logger.Fatal("Could not start listening: ", err)
 				}
@@ -406,6 +402,9 @@ loop:
 					logger.Printf("Could not read configuration from %s: %s", *configFlag, err)
 				} else {
 					etcdClient.Reload(config)
+					if httpsCertificate != nil {
+						httpsCertificate.Reload(config)
+					}
 					hub.Reload(stopCtx, config)
 					server.Reload(config)
 				}
