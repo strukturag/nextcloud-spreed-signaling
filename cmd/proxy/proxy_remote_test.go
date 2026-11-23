@@ -41,6 +41,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
+	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/proxy"
 )
 
@@ -424,4 +425,89 @@ func Test_ProxyReloadRemoteTokenDisabled(t *testing.T) {
 	config.AddOption("app", "token_key", privkeyFile)
 	server.reloadRemoteToken(config)
 	require.Nil(server.remoteToken.Load())
+}
+
+func Test_ProxyReloadRemoteTlsConfig(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+
+	server, key, httpserver := newProxyServerForTest(t)
+	server.remoteToken.Store(&remoteToken{
+		id:  TokenIdForTest,
+		key: key,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	conn, err := server.getRemoteConnection(httpserver.URL)
+	require.NoError(err)
+	t.Cleanup(func() {
+		assert.NoError(conn.SendBye())
+		assert.NoError(conn.Close())
+
+		server.remoteConnectionsLock.Lock()
+		defer server.remoteConnectionsLock.Unlock()
+		delete(server.remoteConnections, httpserver.URL)
+	})
+	assert.NoError(conn.WaitForConnection(ctx))
+	assert.Nil(server.remoteTlsConfig.Load())
+	assert.Nil(conn.tlsConfig.Load())
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "skipverify", "true")
+	server.reloadRemoteTlsConfig(config)
+	if tlsConfig := server.remoteTlsConfig.Load(); assert.NotNil(tlsConfig) {
+		assert.True(tlsConfig.InsecureSkipVerify)
+		assert.Same(tlsConfig, conn.tlsConfig.Load())
+	}
+
+	config.RemoveOption("app", "skipverify")
+	server.reloadRemoteTlsConfig(config)
+	assert.Nil(server.remoteTlsConfig.Load())
+	assert.Nil(conn.tlsConfig.Load())
+}
+
+func Test_ProxyReloadRemoteTlsConfigDisabled(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	server, _, _ := newProxyServerForTest(t)
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "skipverify", "true")
+	server.reloadRemoteTlsConfig(config)
+	assert.Nil(server.remoteTlsConfig.Load())
+}
+
+func Test_ProxyRemoteSkipVerifyConfig(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+
+	testcases := []struct {
+		app      string
+		backend  string
+		expected bool
+	}{
+		{"", "", false},
+		{"true", "", true},
+		{"false", "", false},
+		// Compatibility with older versions.
+		{"", "true", true},
+		{"", "false", false},
+		// Section "app" has precedence.
+		{"false", "true", false},
+		{"true", "false", true},
+	}
+	for _, tc := range testcases {
+		config := goconf.NewConfigFile()
+		if tc.app != "" {
+			config.AddOption("app", "skipverify", tc.app)
+		}
+		if tc.backend != "" {
+			config.AddOption("backend", "skipverify", tc.backend)
+		}
+		assert.Equal(t, tc.expected, getRemoteSkipVerify(logger, config), "app=%q backend=%q", tc.app, tc.backend)
+	}
 }

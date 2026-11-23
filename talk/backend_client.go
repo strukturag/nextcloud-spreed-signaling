@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dlintw/goconf"
@@ -58,11 +59,13 @@ var (
 )
 
 type BackendClient struct {
+	logger   log.Logger
 	version  string
 	features FeaturesFunc
 	backends *BackendConfiguration
 
 	pool         *pool.HttpClientPool
+	skipVerify   atomic.Bool
 	capabilities *Capabilities
 	buffers      pool.BufferPool
 }
@@ -89,14 +92,17 @@ func NewBackendClient(ctx context.Context, config *goconf.ConfigFile, maxConcurr
 		return nil, err
 	}
 
-	return &BackendClient{
+	result := &BackendClient{
+		logger:   logger,
 		version:  version,
 		features: emptyFeaturesFunc,
 		backends: backends,
 
 		pool:         pool,
 		capabilities: capabilities,
-	}, nil
+	}
+	result.skipVerify.Store(skipverify)
+	return result, nil
 }
 
 func (b *BackendClient) Close() {
@@ -105,6 +111,16 @@ func (b *BackendClient) Close() {
 
 func (b *BackendClient) Reload(config *goconf.ConfigFile) {
 	b.backends.Reload(config)
+
+	skipVerify, _ := config.GetBool("backend", "skipverify")
+	if prev := b.skipVerify.Swap(skipVerify); prev != skipVerify {
+		if skipVerify {
+			b.logger.Println("WARNING: Backend verification is disabled!")
+		} else {
+			b.logger.Println("Backend verification is enabled")
+		}
+		b.pool.SetSkipVerify(skipVerify)
+	}
 }
 
 func (b *BackendClient) GetCompatBackend() *Backend {

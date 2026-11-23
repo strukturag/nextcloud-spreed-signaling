@@ -165,7 +165,7 @@ type ProxyServer struct {
 	clientIds map[string]string
 
 	remoteToken           atomic.Pointer[remoteToken]
-	remoteTlsConfig       *tls.Config // +checklocksignore: Only written to from constructor.
+	remoteTlsConfig       atomic.Pointer[tls.Config]
 	remoteHostname        string
 	remoteConnectionsLock sync.Mutex
 	// +checklocks:remoteConnectionsLock
@@ -291,7 +291,6 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		return nil, err
 	}
 	var remoteHostname string
-	var remoteTlsConfig *tls.Config
 	if token != nil {
 		logger.Printf("Using \"%s\" as token id for remote streams", token.id)
 
@@ -306,14 +305,6 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 			logger.Printf("WARNING: Could not determine hostname for remote streams, will be disabled. Please configure manually.")
 		} else {
 			logger.Printf("Using \"%s\" as hostname for remote streams", remoteHostname)
-		}
-
-		skipverify, _ := config.GetBool("backend", "skipverify")
-		if skipverify {
-			logger.Println("WARNING: Remote stream requests verification is disabled!")
-			remoteTlsConfig = &tls.Config{
-				InsecureSkipVerify: skipverify,
-			}
 		}
 	} else {
 		logger.Printf("No token id configured, remote streams will be disabled")
@@ -349,7 +340,6 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		clients:   make(map[string]sfu.Client),
 		clientIds: make(map[string]string),
 
-		remoteTlsConfig:   remoteTlsConfig,
 		remoteHostname:    remoteHostname,
 		remoteConnections: make(map[string]*RemoteConnection),
 		remotePublishers:  make(map[string]map[*proxyRemotePublisher]bool),
@@ -357,6 +347,7 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 
 	if token != nil {
 		result.remoteToken.Store(token)
+		result.loadRemoteTlsConfig(config, false)
 	}
 
 	if err := result.loadConfig(config, false); err != nil {
@@ -696,6 +687,63 @@ func loadRemoteToken(config *goconf.ConfigFile) (*remoteToken, error) {
 	}, nil
 }
 
+func getRemoteSkipVerify(logger log.Logger, config *goconf.ConfigFile) bool {
+	if config.HasOption("app", "skipverify") {
+		skipVerify, _ := config.GetBool("app", "skipverify")
+		return skipVerify
+	}
+
+	// Compatibility: older versions read the value from the "backend" section.
+	if config.HasOption("backend", "skipverify") {
+		logger.Println("WARNING: Configuring \"skipverify\" in section \"backend\" is deprecated, use section \"app\" instead")
+		skipVerify, _ := config.GetBool("backend", "skipverify")
+		return skipVerify
+	}
+
+	return false
+}
+
+// loadRemoteTlsConfig loads the TLS configuration for connections to remote
+// proxies and returns true if it changed.
+func (s *ProxyServer) loadRemoteTlsConfig(config *goconf.ConfigFile, fromReload bool) bool {
+	skipVerify := getRemoteSkipVerify(s.logger, config)
+	if prev := s.remoteTlsConfig.Load(); fromReload && (prev != nil) == skipVerify {
+		return false
+	}
+
+	if skipVerify {
+		s.logger.Println("WARNING: Remote stream requests verification is disabled!")
+		s.remoteTlsConfig.Store(&tls.Config{
+			InsecureSkipVerify: true,
+		})
+	} else {
+		if fromReload {
+			s.logger.Println("Remote stream requests verification is enabled")
+		}
+		s.remoteTlsConfig.Store(nil)
+	}
+	return true
+}
+
+func (s *ProxyServer) reloadRemoteTlsConfig(config *goconf.ConfigFile) {
+	if s.remoteToken.Load() == nil {
+		// Remote streams were not enabled on startup.
+		return
+	}
+
+	if !s.loadRemoteTlsConfig(config, true) {
+		return
+	}
+
+	tlsConfig := s.remoteTlsConfig.Load()
+
+	s.remoteConnectionsLock.Lock()
+	defer s.remoteConnectionsLock.Unlock()
+	for _, conn := range s.remoteConnections {
+		conn.setTlsConfig(tlsConfig)
+	}
+}
+
 func (s *ProxyServer) reloadRemoteToken(config *goconf.ConfigFile) {
 	if s.remoteToken.Load() == nil {
 		// Remote streams were not enabled on startup.
@@ -726,6 +774,7 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 	}
 
 	s.reloadRemoteToken(config)
+	s.reloadRemoteTlsConfig(config)
 
 	s.tokens.Reload(config)
 	s.mcu.Reload(config)
@@ -1786,7 +1835,7 @@ func (s *ProxyServer) getRemoteConnection(url string) (*RemoteConnection, error)
 		return nil, errors.New("remote streams are not configured")
 	}
 
-	conn, err := NewRemoteConnection(s, url, token.id, token.key, s.remoteTlsConfig)
+	conn, err := NewRemoteConnection(s, url, token.id, token.key, s.remoteTlsConfig.Load())
 	if err != nil {
 		return nil, err
 	}

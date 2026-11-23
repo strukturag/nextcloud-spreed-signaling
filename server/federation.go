@@ -139,7 +139,7 @@ func NewFederationClient(ctx context.Context, hub *Hub, session *ClientSession, 
 	dialer := &websocket.Dialer{
 		WriteBufferPool: federationWriteBufferPool,
 	}
-	if hub.skipFederationVerify {
+	if hub.skipFederationVerify.Load() {
 		dialer.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}

@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -79,10 +80,20 @@ func newPool(host string, constructor func() *http.Client, size int) (*Pool, err
 	return p, nil
 }
 
+// reloadableTransport forwards requests to a transport that can be replaced
+// while clients using it are in use.
+type reloadableTransport struct {
+	current atomic.Pointer[http.Transport]
+}
+
+func (t *reloadableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return t.current.Load().RoundTrip(req)
+}
+
 type HttpClientPool struct {
 	mu sync.Mutex
 
-	transport *http.Transport
+	transport reloadableTransport
 	// +checklocks:mu
 	clients map[string]*Pool
 
@@ -100,6 +111,16 @@ func NewHttpClientPool(maxConcurrentRequestsPerHost int, skipVerify bool) (*Http
 		return nil, errors.New("can't create empty pool")
 	}
 
+	result := &HttpClientPool{
+		clients: make(map[string]*Pool),
+
+		maxConcurrentRequestsPerHost: maxConcurrentRequestsPerHost,
+	}
+	result.transport.current.Store(newTransport(maxConcurrentRequestsPerHost, skipVerify))
+	return result, nil
+}
+
+func newTransport(maxConcurrentRequestsPerHost int, skipVerify bool) *http.Transport {
 	tlsconfig := &tls.Config{
 		InsecureSkipVerify: skipVerify,
 	}
@@ -129,14 +150,23 @@ func NewHttpClientPool(maxConcurrentRequestsPerHost int, skipVerify bool) (*Http
 		// the server is concurrently tearing down.
 		IdleConnTimeout: idleConnTimeout,
 	}
+	return transport
+}
 
-	result := &HttpClientPool{
-		transport: transport,
-		clients:   make(map[string]*Pool),
+// SetSkipVerify changes if certificates should be validated for new
+// connections. Requests that are currently running are not affected.
+func (p *HttpClientPool) SetSkipVerify(skipVerify bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-		maxConcurrentRequestsPerHost: maxConcurrentRequestsPerHost,
+	if p.transport.current.Load().TLSClientConfig.InsecureSkipVerify == skipVerify {
+		return
 	}
-	return result, nil
+
+	transport := newTransport(p.maxConcurrentRequestsPerHost, skipVerify)
+	if prev := p.transport.current.Swap(transport); prev != nil {
+		prev.CloseIdleConnections()
+	}
 }
 
 func (p *HttpClientPool) getPool(url *url.URL) (*Pool, error) {
@@ -148,7 +178,7 @@ func (p *HttpClientPool) getPool(url *url.URL) (*Pool, error) {
 
 	pool, err := newPool(url.Host, func() *http.Client {
 		return &http.Client{
-			Transport: p.transport,
+			Transport: &p.transport,
 			// Only send body in redirect if going to same scheme / host.
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {

@@ -236,7 +236,7 @@ type Hub struct {
 
 	throttler async.Throttler
 
-	skipFederationVerify bool
+	skipFederationVerify atomic.Bool
 	federationTimeout    atomic.Int64
 
 	allowedCandidates atomic.Pointer[container.IPList]
@@ -373,11 +373,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		return nil, err
 	}
 
-	skipFederationVerify, _ := cfg.GetBool("federation", "skipverify")
-	if skipFederationVerify {
-		logger.Println("WARNING: Federation target verification is disabled!")
-	}
-
 	if !trustedProxiesIps.Empty() {
 		logger.Printf("Trusted proxies: %s", trustedProxiesIps)
 	} else {
@@ -486,8 +481,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		rpcClients: rpcClients,
 
 		throttler: throttler,
-
-		skipFederationVerify: skipFederationVerify,
 	}
 	if value, _ := cfg.GetString("mcu", "allowedcandidates"); value != "" {
 		allowed, err := container.ParseIPList(value)
@@ -515,6 +508,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	hub.trustedProxies.Store(trustedProxiesIps)
 	hub.geoipOverrides.Store(geoipOverrides)
 	hub.loadTimeouts(cfg)
+	hub.loadSkipFederationVerify(cfg, false)
 
 	hub.setWelcomeMessage(&api.ServerMessage{
 		Type:    "welcome",
@@ -636,8 +630,22 @@ func (h *Hub) Stop() {
 	h.throttler.Close()
 }
 
+func (h *Hub) loadSkipFederationVerify(cfg *goconf.ConfigFile, fromReload bool) {
+	skipVerify, _ := cfg.GetBool("federation", "skipverify")
+	if prev := h.skipFederationVerify.Swap(skipVerify); fromReload && prev == skipVerify {
+		return
+	}
+
+	if skipVerify {
+		h.logger.Println("WARNING: Federation target verification is disabled!")
+	} else if fromReload {
+		h.logger.Println("Federation target verification is enabled")
+	}
+}
+
 func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 	h.loadTimeouts(config)
+	h.loadSkipFederationVerify(config, true)
 
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
 	if trustedProxiesIps, err := container.ParseIPList(trustedProxies); err == nil {

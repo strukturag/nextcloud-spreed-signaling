@@ -995,6 +995,25 @@ func TestHubRequestTimeouts(t *testing.T) {
 	assert.Equal(time.Duration(defaultFederationTimeoutSeconds)*time.Second, hub.getFederationTimeout())
 }
 
+func TestHubReloadSkipFederationVerify(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	hub, _, _, server := CreateHubForTest(t)
+	assert.False(hub.skipFederationVerify.Load())
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	config.AddOption("federation", "skipverify", "true")
+	hub.loadSkipFederationVerify(config, true)
+	assert.True(hub.skipFederationVerify.Load())
+
+	config.RemoveOption("federation", "skipverify")
+	hub.loadSkipFederationVerify(config, true)
+	assert.False(hub.skipFederationVerify.Load())
+}
+
 func TestHubDefaultSecretsMatchConfig(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
