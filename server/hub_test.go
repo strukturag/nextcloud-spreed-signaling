@@ -965,6 +965,36 @@ func TestHubWebsocketTimeouts(t *testing.T) {
 	}, hub.getTimeouts(true))
 }
 
+func TestHubRequestTimeouts(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	hub, _, _, server := CreateHubForTest(t)
+	assert.Equal(time.Duration(defaultBackendTimeoutSeconds)*time.Second, hub.getBackendTimeout())
+	assert.Equal(time.Duration(defaultMcuTimeoutSeconds)*time.Second, hub.getMcuTimeout())
+	assert.Equal(time.Duration(defaultFederationTimeoutSeconds)*time.Second, hub.getFederationTimeout())
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	config.AddOption("backend", "timeout", "1")
+	config.AddOption("mcu", "timeout", "2")
+	config.AddOption("federation", "timeout", "3")
+	hub.loadTimeouts(config)
+	assert.Equal(time.Second, hub.getBackendTimeout())
+	assert.Equal(2*time.Second, hub.getMcuTimeout())
+	assert.Equal(3*time.Second, hub.getFederationTimeout())
+
+	// Invalid values fall back to the defaults.
+	config.AddOption("backend", "timeout", "0")
+	config.AddOption("mcu", "timeout", "-1")
+	config.RemoveOption("federation", "timeout")
+	hub.loadTimeouts(config)
+	assert.Equal(time.Duration(defaultBackendTimeoutSeconds)*time.Second, hub.getBackendTimeout())
+	assert.Equal(time.Duration(defaultMcuTimeoutSeconds)*time.Second, hub.getMcuTimeout())
+	assert.Equal(time.Duration(defaultFederationTimeoutSeconds)*time.Second, hub.getFederationTimeout())
+}
+
 func TestHubDefaultSecretsMatchConfig(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)

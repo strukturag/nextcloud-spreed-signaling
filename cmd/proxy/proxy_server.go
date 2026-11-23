@@ -125,7 +125,7 @@ type ProxyServer struct {
 	welcomeMessage string
 	welcomeMsg     *api.WelcomeServerMessage
 	config         *goconf.ConfigFile
-	mcuTimeout     time.Duration
+	mcuTimeout     atomic.Int64
 	logger         log.Logger
 
 	url     string
@@ -319,12 +319,6 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		logger.Printf("No token id configured, remote streams will be disabled")
 	}
 
-	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
-	if mcuTimeoutSeconds <= 0 {
-		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
-	}
-	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
-
 	result := &ProxyServer{
 		version:        version,
 		country:        country,
@@ -334,9 +328,8 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 			Country:  country,
 			Features: defaultProxyFeatures,
 		},
-		config:     config,
-		mcuTimeout: mcuTimeout,
-		logger:     logger,
+		config: config,
+		logger: logger,
 
 		shutdownChannel: make(chan struct{}),
 
@@ -634,6 +627,15 @@ func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) err
 		s.logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for websocket connections", timeouts.PingInterval, timeouts.ReadTimeout, timeouts.WriteTimeout)
 	}
 
+	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
+	if mcuTimeoutSeconds <= 0 {
+		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
+	}
+	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
+	if prev := time.Duration(s.mcuTimeout.Swap(int64(mcuTimeout))); prev != mcuTimeout {
+		s.logger.Printf("Using a timeout of %s for MCU requests", mcuTimeout)
+	}
+
 	remoteTimeouts := client.LoadTimeouts(s.logger, config, "mcu", client.Timeouts{})
 	if prev := s.remoteTimeouts.Swap(&remoteTimeouts); prev == nil || *prev != remoteTimeouts {
 		s.logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for connections to remote proxies", remoteTimeouts.PingInterval, remoteTimeouts.ReadTimeout, remoteTimeouts.WriteTimeout)
@@ -652,6 +654,10 @@ func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) err
 
 func (s *ProxyServer) getTimeouts() client.Timeouts {
 	return *s.timeouts.Load()
+}
+
+func (s *ProxyServer) getMcuTimeout() time.Duration {
+	return time.Duration(s.mcuTimeout.Load())
 }
 
 func (s *ProxyServer) getRemoteTimeouts() client.Timeouts {
@@ -1075,7 +1081,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+		ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 		defer cancel()
 
 		id := uuid.New().String()
@@ -1191,7 +1197,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 
 			s.logger.Printf("Created remote %s subscriber %s as %s for %s on %s", cmd.StreamType, subscriber.Id(), id, session.PublicId(), cmd.RemoteUrl)
 		} else {
-			ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+			ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 			defer cancel()
 
 			subscriber, err = s.mcu.NewSubscriber(ctx2, session, publisherId, cmd.StreamType, &emptyInitiator{})
@@ -1300,7 +1306,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+		ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 		defer cancel()
 
 		if err := publisher.PublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
@@ -1310,7 +1316,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				return
 			}
 
-			ctx2, cancel = context.WithTimeout(ctx, s.mcuTimeout)
+			ctx2, cancel = context.WithTimeout(ctx, s.getMcuTimeout())
 			defer cancel()
 
 			if err := publisher.UnpublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
@@ -1319,7 +1325,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				return
 			}
 
-			ctx2, cancel = context.WithTimeout(ctx, s.mcuTimeout)
+			ctx2, cancel = context.WithTimeout(ctx, s.getMcuTimeout())
 			defer cancel()
 
 			if err := publisher.PublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
@@ -1351,7 +1357,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+		ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 		defer cancel()
 
 		if err := publisher.UnpublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
@@ -1460,7 +1466,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 		return
 	}
 
-	ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+	ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 	defer cancel()
 
 	mcuClient.SendMessage(ctx2, nil, mcuData, func(err error, response api.StringMap) {

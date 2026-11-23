@@ -446,7 +446,7 @@ func (c *FederationClient) reconnect() {
 	}
 
 	ctx := log.NewLoggerContext(context.Background(), c.logger)
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.hub.federationTimeout))
+	ctx, cancel := context.WithTimeout(ctx, c.hub.getFederationTimeout())
 	defer cancel()
 
 	if err := c.connect(ctx); err != nil {

@@ -196,7 +196,7 @@ type Hub struct {
 	decodeCaches []*container.LruCache[*session.SessionIdData]
 
 	mcu                   sfu.SFU
-	mcuTimeout            time.Duration
+	mcuTimeout            atomic.Int64
 	internalClientsSecret []byte
 
 	allowSubscribeAnyStream bool
@@ -222,7 +222,7 @@ type Hub struct {
 	// +checklocks:mu
 	federationClients map[*FederationClient]bool
 
-	backendTimeout time.Duration
+	backendTimeout atomic.Int64
 	backend        *talk.BackendClient
 
 	trustedProxies atomic.Pointer[container.IPList]
@@ -237,7 +237,7 @@ type Hub struct {
 	throttler async.Throttler
 
 	skipFederationVerify bool
-	federationTimeout    time.Duration
+	federationTimeout    atomic.Int64
 
 	allowedCandidates atomic.Pointer[container.IPList]
 	blockedCandidates atomic.Pointer[container.IPList]
@@ -274,10 +274,37 @@ func storeTimeouts(logger log.Logger, cfg *goconf.ConfigFile, section string, de
 	}
 }
 
+func storeRequestTimeout(logger log.Logger, cfg *goconf.ConfigFile, section string, defaultSeconds int, description string, target *atomic.Int64) {
+	seconds, _ := cfg.GetInt(section, "timeout")
+	if seconds <= 0 {
+		seconds = defaultSeconds
+	}
+	timeout := time.Duration(seconds) * time.Second
+	if prev := time.Duration(target.Swap(int64(timeout))); prev != timeout {
+		logger.Printf("Using a timeout of %s for %s", timeout, description)
+	}
+}
+
 func (h *Hub) loadTimeouts(cfg *goconf.ConfigFile) {
 	storeTimeouts(h.logger, cfg, "http", "websocket connections on http listeners", &h.httpTimeouts)
 	storeTimeouts(h.logger, cfg, "https", "websocket connections on https listeners", &h.httpsTimeouts)
 	storeTimeouts(h.logger, cfg, "federation", "federation connections", &h.federationTimeouts)
+
+	storeRequestTimeout(h.logger, cfg, "backend", defaultBackendTimeoutSeconds, "backend requests", &h.backendTimeout)
+	storeRequestTimeout(h.logger, cfg, "mcu", defaultMcuTimeoutSeconds, "MCU requests", &h.mcuTimeout)
+	storeRequestTimeout(h.logger, cfg, "federation", defaultFederationTimeoutSeconds, "federation requests", &h.federationTimeout)
+}
+
+func (h *Hub) getBackendTimeout() time.Duration {
+	return time.Duration(h.backendTimeout.Load())
+}
+
+func (h *Hub) getMcuTimeout() time.Duration {
+	return time.Duration(h.mcuTimeout.Load())
+}
+
+func (h *Hub) getFederationTimeout() time.Duration {
+	return time.Duration(h.federationTimeout.Load())
 }
 
 func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *grpc.Server, rpcClients *grpc.Clients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
@@ -335,19 +362,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	}
 	logger.Printf("Using a maximum of %d concurrent backend connections per host", maxConcurrentRequestsPerHost)
 
-	backendTimeoutSeconds, _ := cfg.GetInt("backend", "timeout")
-	if backendTimeoutSeconds <= 0 {
-		backendTimeoutSeconds = defaultBackendTimeoutSeconds
-	}
-	backendTimeout := time.Duration(backendTimeoutSeconds) * time.Second
-	logger.Printf("Using a timeout of %s for backend connections", backendTimeout)
-
-	mcuTimeoutSeconds, _ := cfg.GetInt("mcu", "timeout")
-	if mcuTimeoutSeconds <= 0 {
-		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
-	}
-	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
-
 	allowSubscribeAnyStream, _ := cfg.GetBool("app", "allowsubscribeany")
 	if allowSubscribeAnyStream {
 		logger.Printf("WARNING: Allow subscribing any streams, this is insecure and should only be enabled for testing")
@@ -363,11 +377,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	if skipFederationVerify {
 		logger.Println("WARNING: Federation target verification is disabled!")
 	}
-	federationTimeoutSeconds, _ := cfg.GetInt("federation", "timeout")
-	if federationTimeoutSeconds <= 0 {
-		federationTimeoutSeconds = defaultFederationTimeoutSeconds
-	}
-	federationTimeout := time.Duration(federationTimeoutSeconds) * time.Second
 
 	if !trustedProxiesIps.Empty() {
 		logger.Printf("Trusted proxies: %s", trustedProxiesIps)
@@ -456,7 +465,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 
 		decodeCaches: decodeCaches,
 
-		mcuTimeout:            mcuTimeout,
 		internalClientsSecret: []byte(internalClientsSecret),
 
 		allowSubscribeAnyStream: allowSubscribeAnyStream,
@@ -469,8 +477,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		federatedSessions:  make(map[*ClientSession]bool),
 		federationClients:  make(map[*FederationClient]bool),
 
-		backendTimeout: backendTimeout,
-		backend:        backend,
+		backend: backend,
 
 		geoip: geoipLookup,
 
@@ -481,7 +488,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		throttler: throttler,
 
 		skipFederationVerify: skipFederationVerify,
-		federationTimeout:    federationTimeout,
 	}
 	if value, _ := cfg.GetString("mcu", "allowedcandidates"); value != "" {
 		allowed, err := container.ParseIPList(value)
@@ -547,7 +553,6 @@ func (h *Hub) SetMcu(mcu sfu.SFU) {
 
 		welcome.Welcome.RemoveFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 	} else {
-		h.logger.Printf("Using a timeout of %s for MCU requests", h.mcuTimeout)
 		h.info.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 		h.infoInternal.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 
@@ -1489,7 +1494,7 @@ func (h *Hub) processHelloV1(ctx context.Context, client ClientWithSession, mess
 	url = url.JoinPath(PathToOcsSignalingBackend)
 
 	// Run in timeout context to prevent blocking too long.
-	ctx, cancel := context.WithTimeout(ctx, h.backendTimeout)
+	ctx, cancel := context.WithTimeout(ctx, h.getBackendTimeout())
 	defer cancel()
 
 	var auth talk.BackendClientResponse
@@ -1544,7 +1549,7 @@ func (h *Hub) parseBackendToken(ctx context.Context, token string, claims jwt.Cl
 		}
 
 		// Run in timeout context to prevent blocking too long.
-		backendCtx, cancel := context.WithTimeout(ctx, h.backendTimeout)
+		backendCtx, cancel := context.WithTimeout(ctx, h.getBackendTimeout())
 		defer cancel()
 
 		keyData, cached, found := h.backend.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
@@ -2014,7 +2019,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		delete(h.anonymousSessions, session)
 		h.mu.Unlock()
 
-		ctx, cancel := context.WithTimeout(requestCtx, h.federationTimeout)
+		ctx, cancel := context.WithTimeout(requestCtx, h.getFederationTimeout())
 		defer cancel()
 
 		client := session.GetFederationClient()
@@ -2134,7 +2139,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		// Run in timeout context to prevent blocking too long. The request is not
 		// cancelled if it is superseded by a newer request, so it is known whether
 		// the backend registered the room session and it must be removed again.
-		ctx, cancel := context.WithTimeout(session.Context(), h.backendTimeout)
+		ctx, cancel := context.WithTimeout(session.Context(), h.getBackendTimeout())
 		defer cancel()
 
 		if message.Room.SessionId != "" {
@@ -2247,7 +2252,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 			count += len(e)
 			go func(roomId string, url *url.URL, entries []talk.BackendPingEntry) {
 				defer wg.Done()
-				sendCtx, cancel := context.WithTimeout(ctx, h.backendTimeout)
+				sendCtx, cancel := context.WithTimeout(ctx, h.getBackendTimeout())
 				defer cancel()
 
 				if err := h.roomPing.SendPings(sendCtx, roomId, url, entries); err != nil {
@@ -2507,7 +2512,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 							}
 
 							h.logger.Printf("Closing screen publisher for %s", session.PublicId())
-							ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
+							ctx, cancel := context.WithTimeout(context.Background(), h.getMcuTimeout())
 							defer cancel()
 							publisher.Close(ctx)
 						}(session)
@@ -2620,7 +2625,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 			// client) to start his stream, so we must not block the active
 			// goroutine.
 			go func() {
-				ctx, cancel := context.WithTimeout(session.Context(), h.mcuTimeout)
+				ctx, cancel := context.WithTimeout(session.Context(), h.getMcuTimeout())
 				defer cancel()
 
 				mc, err := recipient.GetOrCreateSubscriber(ctx, h.mcu, session.PublicId(), sfu.StreamType(clientData.RoomType))
@@ -2863,7 +2868,7 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(session.Context(), h.backendTimeout)
+		ctx, cancel := context.WithTimeout(session.Context(), h.getBackendTimeout())
 		defer cancel()
 
 		virtualSessionId := GetVirtualSessionId(session, msg.SessionId)
@@ -3183,7 +3188,7 @@ func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, re
 }
 
 func (h *Hub) processMcuMessage(session *ClientSession, client_message *api.ClientMessage, message *api.MessageClientMessage, data *api.MessageClientMessageData) {
-	ctx, cancel := context.WithTimeout(session.Context(), h.mcuTimeout)
+	ctx, cancel := context.WithTimeout(session.Context(), h.getMcuTimeout())
 	defer cancel()
 
 	var mc sfu.Client

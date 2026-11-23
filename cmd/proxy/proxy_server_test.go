@@ -346,6 +346,25 @@ func TestWebsocketFeatures(t *testing.T) {
 	assert.NoError(conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}))
 }
 
+func TestProxyMcuTimeout(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	proxy, _, _ := newProxyServerForTest(t)
+
+	assert.Equal(time.Duration(defaultMcuTimeoutSeconds)*time.Second, proxy.getMcuTimeout())
+
+	config := goconf.NewConfigFile()
+	config.AddOption("mcu", "timeout", "2")
+	require.NoError(proxy.loadConfig(config, true))
+	assert.Equal(2*time.Second, proxy.getMcuTimeout())
+
+	// Invalid values fall back to the default.
+	config.AddOption("mcu", "timeout", "0")
+	require.NoError(proxy.loadConfig(config, true))
+	assert.Equal(time.Duration(defaultMcuTimeoutSeconds)*time.Second, proxy.getMcuTimeout())
+}
+
 func TestProxyWebsocketTimeouts(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
