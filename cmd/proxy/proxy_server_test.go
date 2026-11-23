@@ -1164,8 +1164,10 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 	mcu := NewRemoteSubscriberTestMCU(t)
 	proxyServer.mcu = mcu
 	// Unused but must be set so remote subscribing works
-	proxyServer.tokenId = "token"
-	proxyServer.tokenKey = key
+	proxyServer.remoteToken.Store(&remoteToken{
+		id:  "token",
+		key: key,
+	})
 	proxyServer.remoteHostname = "test-hostname"
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -1259,8 +1261,10 @@ func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
 	mcu := NewRemoteSubscriberTestMCU(t)
 	proxyServer.mcu = mcu
 	// Unused but must be set so remote subscribing works
-	proxyServer.tokenId = "token"
-	proxyServer.tokenKey = key
+	proxyServer.remoteToken.Store(&remoteToken{
+		id:  "token",
+		key: key,
+	})
 	proxyServer.remoteHostname = "test-hostname"
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)

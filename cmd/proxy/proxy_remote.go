@@ -65,8 +65,7 @@ type RemoteConnection struct {
 	closeCtx  context.Context
 	closeFunc context.CancelFunc // +checklocksignore: Only written to from constructor.
 
-	tokenId   string
-	tokenKey  *rsa.PrivateKey
+	token     atomic.Pointer[remoteToken]
 	tlsConfig *tls.Config
 	timeouts  client.Timeouts
 
@@ -104,8 +103,6 @@ func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenK
 		closeCtx:  closeCtx,
 		closeFunc: closeFunc,
 
-		tokenId:   tokenId,
-		tokenKey:  tokenKey,
 		tlsConfig: tlsConfig,
 		timeouts:  p.getRemoteTimeouts(),
 
@@ -113,6 +110,7 @@ func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenK
 
 		messageCallbacks: make(map[string]chan *proxy.ServerMessage),
 	}
+	result.setToken(tokenId, tokenKey)
 	result.reconnectInterval.Store(int64(initialReconnectInterval))
 
 	go result.writePump()
@@ -294,16 +292,24 @@ func (c *RemoteConnection) Close() error {
 	return err2
 }
 
+func (c *RemoteConnection) setToken(tokenId string, tokenKey *rsa.PrivateKey) {
+	c.token.Store(&remoteToken{
+		id:  tokenId,
+		key: tokenKey,
+	})
+}
+
 func (c *RemoteConnection) createToken(subject string) (string, error) {
+	tok := c.token.Load()
 	claims := &proxy.TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now()),
-			Issuer:   c.tokenId,
+			Issuer:   tok.id,
 			Subject:  subject,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	tokenString, err := token.SignedString(c.tokenKey)
+	tokenString, err := token.SignedString(tok.key)
 	if err != nil {
 		return "", err
 	}
