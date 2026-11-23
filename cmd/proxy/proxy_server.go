@@ -32,10 +32,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/pprof"
 	"os"
 	"os/signal"
-	runtimepprof "runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -126,6 +124,7 @@ type ProxyServer struct {
 	welcomeMsg     *api.WelcomeServerMessage
 	config         *goconf.ConfigFile
 	mcuTimeout     atomic.Int64
+	debug          atomic.Bool
 	logger         log.Logger
 
 	url     string
@@ -358,25 +357,9 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 
 	statsLoadCurrent.Set(0)
 
-	if debug, _ := config.GetBool("app", "debug"); debug {
-		logger.Println("Installing debug handlers in \"/debug/pprof\"")
-		s := r.PathPrefix("/debug/pprof").Subrouter()
-		s.HandleFunc("", result.setCommonHeaders(result.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/debug/pprof/", http.StatusTemporaryRedirect)
-		})))
-		s.HandleFunc("/", result.setCommonHeaders(result.validateStatsRequest(pprof.Index)))
-		s.HandleFunc("/cmdline", result.setCommonHeaders(result.validateStatsRequest(pprof.Cmdline)))
-		s.HandleFunc("/profile", result.setCommonHeaders(result.validateStatsRequest(pprof.Profile)))
-		s.HandleFunc("/symbol", result.setCommonHeaders(result.validateStatsRequest(pprof.Symbol)))
-		s.HandleFunc("/trace", result.setCommonHeaders(result.validateStatsRequest(pprof.Trace)))
-		for _, profile := range runtimepprof.Profiles() {
-			name := profile.Name()
-			handler := pprof.Handler(name)
-			s.HandleFunc("/"+name, result.setCommonHeaders(result.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
-				handler.ServeHTTP(w, r)
-			})))
-		}
-	}
+	internal.RegisterDebugHandlers(r, result.debug.Load, func(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+		return result.setCommonHeaders(result.validateStatsRequest(f))
+	})
 
 	r.HandleFunc("/welcome", result.setCommonHeaders(result.welcomeHandler)).Methods("GET")
 	r.HandleFunc("/proxy", result.setCommonHeaders(result.proxyHandler)).Methods("GET")
@@ -583,6 +566,15 @@ func (s *ProxyServer) ScheduleShutdown() {
 }
 
 func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) error {
+	debug, _ := config.GetBool("app", "debug")
+	if prev := s.debug.Swap(debug); !fromReload || prev != debug {
+		if debug {
+			s.logger.Println("Debug handlers in \"/debug/pprof\" are enabled")
+		} else if fromReload {
+			s.logger.Println("Debug handlers in \"/debug/pprof\" are disabled")
+		}
+	}
+
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
 	if statsAllowedIps, err := container.ParseIPList(statsAllowed); err == nil {
 		if !statsAllowedIps.Empty() {

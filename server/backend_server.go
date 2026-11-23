@@ -35,11 +35,9 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/pprof"
 	"net/url"
 	"reflect"
 	"regexp"
-	runtimepprof "runtime/pprof"
 	"slices"
 	"strings"
 	"sync"
@@ -85,7 +83,7 @@ type BackendServer struct {
 	roomSessions RoomSessions
 
 	version        string
-	debug          bool
+	debug          atomic.Bool
 	welcomeMessage string
 
 	turn atomic.Pointer[turnSettings]
@@ -181,21 +179,19 @@ func NewBackendServer(ctx context.Context, cfg *goconf.ConfigFile, hub *Hub, ver
 		return nil, err
 	}
 
-	debug, _ := cfg.GetBool("app", "debug")
-
 	result := &BackendServer{
 		logger:       logger,
 		hub:          hub,
 		events:       hub.events,
 		roomSessions: hub.roomSessions,
 		version:      version,
-		debug:        debug,
 
 		invalidSecret: invalidSecret,
 	}
 
 	result.statsAllowedIps.Store(statsAllowedIps)
 	result.turn.Store(turn)
+	result.loadDebug(cfg, false)
 
 	return result, nil
 }
@@ -212,8 +208,22 @@ func (b *BackendServer) reloadTurnSettings(config *goconf.ConfigFile) {
 	}
 }
 
+func (b *BackendServer) loadDebug(cfg *goconf.ConfigFile, fromReload bool) {
+	debug, _ := cfg.GetBool("app", "debug")
+	if prev := b.debug.Swap(debug); fromReload && prev == debug {
+		return
+	}
+
+	if debug {
+		b.logger.Println("Debug handlers in \"/debug/pprof\" are enabled")
+	} else if fromReload {
+		b.logger.Println("Debug handlers in \"/debug/pprof\" are disabled")
+	}
+}
+
 func (b *BackendServer) Reload(config *goconf.ConfigFile) {
 	b.reloadTurnSettings(config)
+	b.loadDebug(config, true)
 
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
 	if statsAllowedIps, err := container.ParseIPList(statsAllowed); err == nil {
@@ -237,25 +247,9 @@ func (b *BackendServer) Start(r *mux.Router) error {
 	welcomeMessage, _ := json.Marshal(welcome)
 	b.welcomeMessage = string(welcomeMessage) + "\n"
 
-	if b.debug {
-		b.logger.Println("Installing debug handlers in \"/debug/pprof\"")
-		s := r.PathPrefix("/debug/pprof").Subrouter()
-		s.HandleFunc("", b.setCommonHeaders(b.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/debug/pprof/", http.StatusTemporaryRedirect)
-		})))
-		s.HandleFunc("/", b.setCommonHeaders(b.validateStatsRequest(pprof.Index)))
-		s.HandleFunc("/cmdline", b.setCommonHeaders(b.validateStatsRequest(pprof.Cmdline)))
-		s.HandleFunc("/profile", b.setCommonHeaders(b.validateStatsRequest(pprof.Profile)))
-		s.HandleFunc("/symbol", b.setCommonHeaders(b.validateStatsRequest(pprof.Symbol)))
-		s.HandleFunc("/trace", b.setCommonHeaders(b.validateStatsRequest(pprof.Trace)))
-		for _, profile := range runtimepprof.Profiles() {
-			name := profile.Name()
-			handler := pprof.Handler(name)
-			s.HandleFunc("/"+name, b.setCommonHeaders(b.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
-				handler.ServeHTTP(w, r)
-			})))
-		}
-	}
+	internal.RegisterDebugHandlers(r, b.debug.Load, func(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+		return b.setCommonHeaders(b.validateStatsRequest(f))
+	})
 
 	s := r.PathPrefix("/api/v1").Subrouter()
 	s.HandleFunc("/welcome", b.setCommonHeaders(b.welcomeFunc)).Methods("GET")

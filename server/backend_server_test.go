@@ -2043,6 +2043,35 @@ func TestBackendServer_TurnCredentialsReload(t *testing.T) {
 	assert.Equal(http.StatusNotFound, code)
 }
 
+func TestBackendServer_DebugHandlersReload(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	config, b, _, _, _, server := CreateBackendServerForTest(t)
+
+	getStatus := func() int {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/debug/pprof/cmdline", nil)
+		require.NoError(err)
+		res, err := http.DefaultClient.Do(request)
+		require.NoError(err)
+		defer res.Body.Close()
+		_, err = io.ReadAll(res.Body)
+		require.NoError(err)
+		return res.StatusCode
+	}
+
+	assert.Equal(http.StatusNotFound, getStatus())
+
+	config.AddOption("app", "debug", "true")
+	b.Reload(config)
+	assert.Equal(http.StatusOK, getStatus())
+
+	config.RemoveOption("app", "debug")
+	b.Reload(config)
+	assert.Equal(http.StatusNotFound, getStatus())
+}
+
 func TestBackendServer_TurnCredentialsInvalid(t *testing.T) {
 	t.Parallel()
 

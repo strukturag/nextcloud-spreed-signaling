@@ -29,7 +29,9 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -363,6 +365,36 @@ func TestProxyMcuTimeout(t *testing.T) {
 	config.AddOption("mcu", "timeout", "0")
 	require.NoError(proxy.loadConfig(config, true))
 	assert.Equal(time.Duration(defaultMcuTimeoutSeconds)*time.Second, proxy.getMcuTimeout())
+}
+
+func TestProxyDebugHandlersReload(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	proxy, _, server := newProxyServerForTest(t)
+
+	getStatus := func() int {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/debug/pprof/cmdline", nil)
+		require.NoError(err)
+		res, err := http.DefaultClient.Do(request)
+		require.NoError(err)
+		defer res.Body.Close()
+		_, err = io.ReadAll(res.Body)
+		require.NoError(err)
+		return res.StatusCode
+	}
+
+	assert.Equal(http.StatusNotFound, getStatus())
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "debug", "true")
+	require.NoError(proxy.loadConfig(config, true))
+	assert.Equal(http.StatusOK, getStatus())
+
+	config.RemoveOption("app", "debug")
+	require.NoError(proxy.loadConfig(config, true))
+	assert.Equal(http.StatusNotFound, getStatus())
 }
 
 func TestProxyWebsocketTimeouts(t *testing.T) {
