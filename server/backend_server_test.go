@@ -1983,6 +1983,66 @@ func TestBackendServer_TurnCredentials(t *testing.T) {
 	assert.Equal(turnServers, cred.URIs)
 }
 
+func TestBackendServer_TurnCredentialsReload(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	config, server, _, _, _, _ := CreateBackendServerForTestWithTurn(t)
+
+	getCredentials := func(key string) (int, *talk.TurnCredentials) {
+		t.Helper()
+		q := make(url.Values)
+		q.Set("service", "turn")
+		q.Set("api", key)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/turn/credentials?"+q.Encode(), nil)
+		w := httptest.NewRecorder()
+		server.getTurnCredentials(w, r)
+		if w.Code != http.StatusOK {
+			return w.Code, nil
+		}
+
+		var cred talk.TurnCredentials
+		require.NoError(json.Unmarshal(w.Body.Bytes(), &cred))
+		return w.Code, &cred
+	}
+	checkPassword := func(cred *talk.TurnCredentials, secret string) {
+		t.Helper()
+		m := hmac.New(sha1.New, []byte(secret))
+		m.Write([]byte(cred.Username)) // nolint
+		assert.Equal(base64.StdEncoding.EncodeToString(m.Sum(nil)), cred.Password)
+	}
+
+	if code, cred := getCredentials(turnApiKey); assert.Equal(http.StatusOK, code) {
+		checkPassword(cred, turnSecret)
+		assert.Equal(turnServers, cred.URIs)
+	}
+
+	newServers := []string{"turn:5.6.7.8:3478?transport=udp"}
+	config.AddOption("turn", "apikey", "new-"+turnApiKey)
+	config.AddOption("turn", "secret", "new-"+turnSecret)
+	config.AddOption("turn", "servers", strings.Join(newServers, ","))
+	server.Reload(config)
+
+	if code, cred := getCredentials("new-" + turnApiKey); assert.Equal(http.StatusOK, code) {
+		checkPassword(cred, "new-"+turnSecret)
+		assert.Equal(newServers, cred.URIs)
+	}
+
+	// Invalid configurations keep the existing settings.
+	config.RemoveOption("turn", "secret")
+	server.Reload(config)
+	if code, cred := getCredentials("new-" + turnApiKey); assert.Equal(http.StatusOK, code) {
+		checkPassword(cred, "new-"+turnSecret)
+		assert.Equal(newServers, cred.URIs)
+	}
+
+	// TURN can be disabled.
+	config.RemoveOption("turn", "servers")
+	server.Reload(config)
+	code, _ := getCredentials("new-" + turnApiKey)
+	assert.Equal(http.StatusNotFound, code)
+}
+
 func TestBackendServer_TurnCredentialsInvalid(t *testing.T) {
 	t.Parallel()
 
