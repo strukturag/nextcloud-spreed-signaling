@@ -824,12 +824,12 @@ func (c *proxyConnection) reconnect() {
 		u.Scheme = "wss"
 	}
 
-	dialer := c.proxy.dialer
+	dialer := c.proxy.dialer.Load()
 	if c.ip != nil {
 		dialer = &websocket.Dialer{
-			Proxy:            http.ProxyFromEnvironment,
-			HandshakeTimeout: c.proxy.dialer.HandshakeTimeout,
-			TLSClientConfig:  c.proxy.dialer.TLSClientConfig,
+			Proxy:            dialer.Proxy,
+			HandshakeTimeout: dialer.HandshakeTimeout,
+			TLSClientConfig:  dialer.TLSClientConfig,
 
 			// Override DNS lookup and connect to custom IP address.
 			NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -1519,7 +1519,8 @@ type proxySFU struct {
 	token   atomic.Pointer[proxyToken]
 	config  Config
 
-	dialer        *websocket.Dialer
+	dialer        atomic.Pointer[websocket.Dialer]
+	skipVerify    atomic.Bool
 	connectionsMu sync.RWMutex
 	// +checklocks:connectionsMu
 	connections []*proxyConnection
@@ -1593,10 +1594,6 @@ func NewProxySFU(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd
 		logger:  logger,
 		urlType: urlType,
 
-		dialer: &websocket.Dialer{
-			Proxy:            http.ProxyFromEnvironment,
-			HandshakeTimeout: settings.Timeout(),
-		},
 		connectionsMap: make(map[string][]*proxyConnection),
 		settings:       settings,
 
@@ -1612,13 +1609,8 @@ func NewProxySFU(ctx context.Context, config *goconf.ConfigFile, etcdClient etcd
 		return nil, err
 	}
 
-	skipverify, _ := config.GetBool("mcu", "skipverify")
-	if skipverify {
-		logger.Println("WARNING: MCU verification is disabled!")
-		mcu.dialer.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: skipverify,
-		}
-	}
+	mcu.loadSkipVerify(config, false)
+	mcu.updateDialer()
 
 	switch urlType {
 	case proxyUrlTypeStatic:
@@ -1896,6 +1888,41 @@ func (m *proxySFU) loadTimeouts(config *goconf.ConfigFile) {
 	}
 }
 
+func (m *proxySFU) loadSkipVerify(config *goconf.ConfigFile, fromReload bool) {
+	skipVerify, _ := config.GetBool("mcu", "skipverify")
+	if prev := m.skipVerify.Swap(skipVerify); fromReload && prev == skipVerify {
+		return
+	}
+
+	if skipVerify {
+		m.logger.Println("WARNING: MCU verification is disabled!")
+	} else if fromReload {
+		m.logger.Println("MCU verification is enabled")
+	}
+}
+
+// updateDialer replaces the dialer used for new connections to proxy servers
+// if any of its settings changed.
+func (m *proxySFU) updateDialer() {
+	timeout := m.settings.Timeout()
+	skipVerify := m.skipVerify.Load()
+	if prev := m.dialer.Load(); prev != nil && prev.HandshakeTimeout == timeout &&
+		(prev.TLSClientConfig != nil) == skipVerify {
+		return
+	}
+
+	dialer := &websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: timeout,
+	}
+	if skipVerify {
+		dialer.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
+	m.dialer.Store(dialer)
+}
+
 func (m *proxySFU) Reload(config *goconf.ConfigFile) {
 	if token, err := loadProxyToken(config); err != nil {
 		m.logger.Printf("Could not reload proxy token, keeping existing: %s", err)
@@ -1906,9 +1933,8 @@ func (m *proxySFU) Reload(config *goconf.ConfigFile) {
 	m.settings.Reload(config)
 	m.loadTimeouts(config)
 
-	if m.settings.Timeout() != m.dialer.HandshakeTimeout {
-		m.dialer.HandshakeTimeout = m.settings.Timeout()
-	}
+	m.loadSkipVerify(config, true)
+	m.updateDialer()
 
 	if err := m.loadContinentsMap(config); err != nil {
 		m.logger.Printf("Error loading continents map: %s", err)

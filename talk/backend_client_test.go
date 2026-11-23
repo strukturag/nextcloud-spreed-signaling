@@ -230,3 +230,46 @@ func TestHandleThrottled(t *testing.T) {
 		assert.ErrorIs(err, ErrThrottledResponse)
 	}
 }
+
+func TestBackendClientReloadSkipVerify(t *testing.T) {
+	t.Parallel()
+	logger := logtest.NewLoggerForTest(t)
+	ctx := log.NewLoggerContext(t.Context(), logger)
+	require := require.New(t)
+	assert := assert.New(t)
+
+	r := mux.NewRouter()
+	r.HandleFunc("/ocs/v2.php/one", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		assert.NoError(err)
+		returnOCS(t, w, body)
+	})
+	server := httptest.NewTLSServer(r)
+	defer server.Close()
+
+	u, err := url.Parse(server.URL + "/ocs/v2.php/one")
+	require.NoError(err)
+
+	config := goconf.NewConfigFile()
+	config.AddOption("backend", "allowed", u.Host)
+	config.AddOption("backend", "secret", string(testBackendSecret))
+	client, err := NewBackendClient(ctx, config, 1, "0.0", nil)
+	require.NoError(err)
+
+	request := map[string]string{
+		"foo": "bar",
+	}
+	var response map[string]string
+	// The test server uses a self-signed certificate.
+	assert.Error(client.PerformJSONRequest(ctx, u, request, &response))
+
+	config.AddOption("backend", "skipverify", "true")
+	client.Reload(config)
+	if assert.NoError(client.PerformJSONRequest(ctx, u, request, &response)) {
+		assert.Equal(request, response)
+	}
+
+	config.RemoveOption("backend", "skipverify")
+	client.Reload(config)
+	assert.Error(client.PerformJSONRequest(ctx, u, request, &response))
+}

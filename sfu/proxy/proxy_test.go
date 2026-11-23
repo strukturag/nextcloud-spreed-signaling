@@ -1889,3 +1889,35 @@ func Test_ProxyReloadToken(t *testing.T) {
 		assert.Equal("test-token-new", claims.Issuer)
 	}
 }
+
+func Test_ProxyReloadSkipVerify(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	mcu, cfg := newMcuProxyForTestWithOptions(t, testserver.ProxyTestOptions{}, 0, nil)
+	dialer := mcu.dialer.Load()
+	if assert.NotNil(dialer) {
+		assert.Nil(dialer.TLSClientConfig)
+		assert.Equal(testTimeout, dialer.HandshakeTimeout)
+	}
+
+	cfg.AddOption("mcu", "skipverify", "true")
+	cfg.AddOption("mcu", "proxytimeout", "3")
+	mcu.Reload(cfg)
+	if dialer := mcu.dialer.Load(); assert.NotNil(dialer) && assert.NotNil(dialer.TLSClientConfig) {
+		assert.True(dialer.TLSClientConfig.InsecureSkipVerify)
+		assert.Equal(3*time.Second, dialer.HandshakeTimeout)
+	}
+
+	// Dialer is not replaced if nothing changed.
+	dialer = mcu.dialer.Load()
+	mcu.Reload(cfg)
+	assert.Same(dialer, mcu.dialer.Load())
+
+	cfg.RemoveOption("mcu", "skipverify")
+	mcu.Reload(cfg)
+	if dialer := mcu.dialer.Load(); assert.NotNil(dialer) {
+		assert.Nil(dialer.TLSClientConfig)
+		assert.Equal(3*time.Second, dialer.HandshakeTimeout)
+	}
+}

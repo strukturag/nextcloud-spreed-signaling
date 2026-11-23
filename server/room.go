@@ -2202,7 +2202,7 @@ func (r *Room) publishActiveSessions() (int, *sync.WaitGroup) {
 		count += len(e)
 		go func(url *url.URL, entries []talk.BackendPingEntry) {
 			defer wg.Done()
-			sendCtx, cancel := context.WithTimeout(ctx, r.hub.backendTimeout)
+			sendCtx, cancel := context.WithTimeout(ctx, r.hub.getBackendTimeout())
 			defer cancel()
 
 			if err := r.hub.roomPing.SendPings(sendCtx, r.id, url, entries); err != nil {

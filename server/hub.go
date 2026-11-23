@@ -196,8 +196,8 @@ type Hub struct {
 	decodeCaches []*container.LruCache[*session.SessionIdData]
 
 	mcu                   sfu.SFU
-	mcuTimeout            time.Duration
-	internalClientsSecret []byte
+	mcuTimeout            atomic.Int64
+	internalClientsSecret atomic.Pointer[internalClientsSecret]
 
 	allowSubscribeAnyStream bool
 
@@ -222,7 +222,7 @@ type Hub struct {
 	// +checklocks:mu
 	federationClients map[*FederationClient]bool
 
-	backendTimeout time.Duration
+	backendTimeout atomic.Int64
 	backend        *talk.BackendClient
 
 	trustedProxies atomic.Pointer[container.IPList]
@@ -236,8 +236,8 @@ type Hub struct {
 
 	throttler async.Throttler
 
-	skipFederationVerify bool
-	federationTimeout    time.Duration
+	skipFederationVerify atomic.Bool
+	federationTimeout    atomic.Int64
 
 	allowedCandidates atomic.Pointer[container.IPList]
 	blockedCandidates atomic.Pointer[container.IPList]
@@ -274,10 +274,37 @@ func storeTimeouts(logger log.Logger, cfg *goconf.ConfigFile, section string, de
 	}
 }
 
+func storeRequestTimeout(logger log.Logger, cfg *goconf.ConfigFile, section string, defaultSeconds int, description string, target *atomic.Int64) {
+	seconds, _ := cfg.GetInt(section, "timeout")
+	if seconds <= 0 {
+		seconds = defaultSeconds
+	}
+	timeout := time.Duration(seconds) * time.Second
+	if prev := time.Duration(target.Swap(int64(timeout))); prev != timeout {
+		logger.Printf("Using a timeout of %s for %s", timeout, description)
+	}
+}
+
 func (h *Hub) loadTimeouts(cfg *goconf.ConfigFile) {
 	storeTimeouts(h.logger, cfg, "http", "websocket connections on http listeners", &h.httpTimeouts)
 	storeTimeouts(h.logger, cfg, "https", "websocket connections on https listeners", &h.httpsTimeouts)
 	storeTimeouts(h.logger, cfg, "federation", "federation connections", &h.federationTimeouts)
+
+	storeRequestTimeout(h.logger, cfg, "backend", defaultBackendTimeoutSeconds, "backend requests", &h.backendTimeout)
+	storeRequestTimeout(h.logger, cfg, "mcu", defaultMcuTimeoutSeconds, "MCU requests", &h.mcuTimeout)
+	storeRequestTimeout(h.logger, cfg, "federation", defaultFederationTimeoutSeconds, "federation requests", &h.federationTimeout)
+}
+
+func (h *Hub) getBackendTimeout() time.Duration {
+	return time.Duration(h.backendTimeout.Load())
+}
+
+func (h *Hub) getMcuTimeout() time.Duration {
+	return time.Duration(h.mcuTimeout.Load())
+}
+
+func (h *Hub) getFederationTimeout() time.Duration {
+	return time.Duration(h.federationTimeout.Load())
 }
 
 func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEvents, rpcServer *grpc.Server, rpcClients *grpc.Clients, etcdClient etcd.Client, r *mux.Router, version string) (*Hub, error) {
@@ -315,38 +342,12 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		return nil, fmt.Errorf("error creating session id codec: %w", err)
 	}
 
-	internalClientsSecret, _ := config.GetStringOptionWithEnv(cfg, "clients", "internalsecret")
-	switch internalClientsSecret {
-	case defaultInternalClientsSecret:
-		logger.Println("WARNING: The shared secret for internal clients has not been changed from the default value, using a random secret. Internal clients will not be able to connect.")
-		internalClientsSecret = internal.RandomString(randomInternalClientsSecretLength)
-	case "":
-		logger.Println("WARNING: No shared secret has been set for internal clients.")
-	}
-
-	maxConcurrentRequestsPerHost, _ := cfg.GetInt("backend", "connectionsperhost")
-	if maxConcurrentRequestsPerHost <= 0 {
-		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
-	}
-
+	maxConcurrentRequestsPerHost := getMaxConcurrentRequestsPerHost(cfg)
 	backend, err := talk.NewBackendClient(ctx, cfg, maxConcurrentRequestsPerHost, version, etcdClient)
 	if err != nil {
 		return nil, err
 	}
 	logger.Printf("Using a maximum of %d concurrent backend connections per host", maxConcurrentRequestsPerHost)
-
-	backendTimeoutSeconds, _ := cfg.GetInt("backend", "timeout")
-	if backendTimeoutSeconds <= 0 {
-		backendTimeoutSeconds = defaultBackendTimeoutSeconds
-	}
-	backendTimeout := time.Duration(backendTimeoutSeconds) * time.Second
-	logger.Printf("Using a timeout of %s for backend connections", backendTimeout)
-
-	mcuTimeoutSeconds, _ := cfg.GetInt("mcu", "timeout")
-	if mcuTimeoutSeconds <= 0 {
-		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
-	}
-	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
 
 	allowSubscribeAnyStream, _ := cfg.GetBool("app", "allowsubscribeany")
 	if allowSubscribeAnyStream {
@@ -358,16 +359,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	if err != nil {
 		return nil, err
 	}
-
-	skipFederationVerify, _ := cfg.GetBool("federation", "skipverify")
-	if skipFederationVerify {
-		logger.Println("WARNING: Federation target verification is disabled!")
-	}
-	federationTimeoutSeconds, _ := cfg.GetInt("federation", "timeout")
-	if federationTimeoutSeconds <= 0 {
-		federationTimeoutSeconds = defaultFederationTimeoutSeconds
-	}
-	federationTimeout := time.Duration(federationTimeoutSeconds) * time.Second
 
 	if !trustedProxiesIps.Empty() {
 		logger.Printf("Trusted proxies: %s", trustedProxiesIps)
@@ -456,9 +447,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 
 		decodeCaches: decodeCaches,
 
-		mcuTimeout:            mcuTimeout,
-		internalClientsSecret: []byte(internalClientsSecret),
-
 		allowSubscribeAnyStream: allowSubscribeAnyStream,
 
 		expiredSessions:    make(map[Session]time.Time),
@@ -469,8 +457,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		federatedSessions:  make(map[*ClientSession]bool),
 		federationClients:  make(map[*FederationClient]bool),
 
-		backendTimeout: backendTimeout,
-		backend:        backend,
+		backend: backend,
 
 		geoip: geoipLookup,
 
@@ -479,9 +466,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		rpcClients: rpcClients,
 
 		throttler: throttler,
-
-		skipFederationVerify: skipFederationVerify,
-		federationTimeout:    federationTimeout,
 	}
 	if value, _ := cfg.GetString("mcu", "allowedcandidates"); value != "" {
 		allowed, err := container.ParseIPList(value)
@@ -509,6 +493,8 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	hub.trustedProxies.Store(trustedProxiesIps)
 	hub.geoipOverrides.Store(geoipOverrides)
 	hub.loadTimeouts(cfg)
+	hub.loadSkipFederationVerify(cfg, false)
+	hub.loadInternalClientsSecret(cfg)
 
 	hub.setWelcomeMessage(&api.ServerMessage{
 		Type:    "welcome",
@@ -547,7 +533,6 @@ func (h *Hub) SetMcu(mcu sfu.SFU) {
 
 		welcome.Welcome.RemoveFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 	} else {
-		h.logger.Printf("Using a timeout of %s for MCU requests", h.mcuTimeout)
 		h.info.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 		h.infoInternal.AddFeature(api.ServerFeatureMcu, api.ServerFeatureSimulcast, api.ServerFeatureUpdateSdp)
 
@@ -631,8 +616,79 @@ func (h *Hub) Stop() {
 	h.throttler.Close()
 }
 
+func (h *Hub) loadSkipFederationVerify(cfg *goconf.ConfigFile, fromReload bool) {
+	skipVerify, _ := cfg.GetBool("federation", "skipverify")
+	if prev := h.skipFederationVerify.Swap(skipVerify); fromReload && prev == skipVerify {
+		return
+	}
+
+	if skipVerify {
+		h.logger.Println("WARNING: Federation target verification is disabled!")
+	} else if fromReload {
+		h.logger.Println("Federation target verification is enabled")
+	}
+}
+
+func getMaxConcurrentRequestsPerHost(cfg *goconf.ConfigFile) int {
+	maxConcurrentRequestsPerHost, _ := cfg.GetInt("backend", "connectionsperhost")
+	if maxConcurrentRequestsPerHost <= 0 {
+		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
+	}
+	return maxConcurrentRequestsPerHost
+}
+
+func (h *Hub) reloadMaxConcurrentRequestsPerHost(cfg *goconf.ConfigFile) {
+	maxConcurrentRequestsPerHost := getMaxConcurrentRequestsPerHost(cfg)
+	if changed, err := h.backend.SetMaxConcurrentRequestsPerHost(maxConcurrentRequestsPerHost); err != nil {
+		h.logger.Printf("Could not update maximum number of concurrent backend connections per host: %s", err)
+	} else if changed {
+		h.logger.Printf("Using a maximum of %d concurrent backend connections per host", maxConcurrentRequestsPerHost)
+	}
+}
+
+type internalClientsSecret struct {
+	// Value as configured.
+	configured string
+	// Secret to use for validating internal clients.
+	secret []byte
+}
+
+func (h *Hub) loadInternalClientsSecret(cfg *goconf.ConfigFile) {
+	configured, _ := config.GetStringOptionWithEnv(cfg, "clients", "internalsecret")
+	if prev := h.internalClientsSecret.Load(); prev != nil && prev.configured == configured {
+		return
+	}
+
+	secret := configured
+	switch configured {
+	case defaultInternalClientsSecret:
+		h.logger.Println("WARNING: The shared secret for internal clients has not been changed from the default value, using a random secret. Internal clients will not be able to connect.")
+		secret = internal.RandomString(randomInternalClientsSecretLength)
+	case "":
+		h.logger.Println("WARNING: No shared secret has been set for internal clients.")
+	default:
+		if h.internalClientsSecret.Load() != nil {
+			h.logger.Println("Using updated shared secret for internal clients")
+		}
+	}
+
+	h.internalClientsSecret.Store(&internalClientsSecret{
+		configured: configured,
+		secret:     []byte(secret),
+	})
+}
+
+func (h *Hub) getInternalClientsSecret() []byte {
+	if secret := h.internalClientsSecret.Load(); secret != nil {
+		return secret.secret
+	}
+	return nil
+}
+
 func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
+	h.loadInternalClientsSecret(config)
 	h.loadTimeouts(config)
+	h.loadSkipFederationVerify(config, true)
 
 	trustedProxies, _ := config.GetString("app", "trustedproxies")
 	if trustedProxiesIps, err := container.ParseIPList(trustedProxies); err == nil {
@@ -677,6 +733,7 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 		h.mcu.Reload(config)
 	}
 	h.backend.Reload(config)
+	h.reloadMaxConcurrentRequestsPerHost(config)
 	h.rpcClients.Reload(config)
 }
 
@@ -1489,7 +1546,7 @@ func (h *Hub) processHelloV1(ctx context.Context, client ClientWithSession, mess
 	url = url.JoinPath(PathToOcsSignalingBackend)
 
 	// Run in timeout context to prevent blocking too long.
-	ctx, cancel := context.WithTimeout(ctx, h.backendTimeout)
+	ctx, cancel := context.WithTimeout(ctx, h.getBackendTimeout())
 	defer cancel()
 
 	var auth talk.BackendClientResponse
@@ -1544,7 +1601,7 @@ func (h *Hub) parseBackendToken(ctx context.Context, token string, claims jwt.Cl
 		}
 
 		// Run in timeout context to prevent blocking too long.
-		backendCtx, cancel := context.WithTimeout(ctx, h.backendTimeout)
+		backendCtx, cancel := context.WithTimeout(ctx, h.getBackendTimeout())
 		defer cancel()
 
 		keyData, cached, found := h.backend.GetStringConfig(backendCtx, url, talk.ConfigGroupSignaling, talk.ConfigKeyHelloV2TokenKey)
@@ -1702,7 +1759,8 @@ func (h *Hub) processHelloClient(client ClientWithSession, message *api.ClientMe
 
 func (h *Hub) processHelloInternal(client ClientWithSession, message *api.ClientMessage) {
 	defer h.startExpectHello(client)
-	if len(h.internalClientsSecret) == 0 {
+	secret := h.getInternalClientsSecret()
+	if len(secret) == 0 {
 		client.SendMessage(message.NewErrorServerMessage(InvalidClientType))
 		return
 	}
@@ -1720,7 +1778,7 @@ func (h *Hub) processHelloInternal(client ClientWithSession, message *api.Client
 
 	// Validate internal connection.
 	rnd := message.Hello.Auth.InternalParams.Random
-	mac := hmac.New(sha256.New, h.internalClientsSecret)
+	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(rnd)) // nolint
 	check := hex.EncodeToString(mac.Sum(nil))
 	if len(rnd) < minTokenRandomLength || check != message.Hello.Auth.InternalParams.Token {
@@ -2014,7 +2072,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		delete(h.anonymousSessions, session)
 		h.mu.Unlock()
 
-		ctx, cancel := context.WithTimeout(requestCtx, h.federationTimeout)
+		ctx, cancel := context.WithTimeout(requestCtx, h.getFederationTimeout())
 		defer cancel()
 
 		client := session.GetFederationClient()
@@ -2134,7 +2192,7 @@ func (h *Hub) processRoom(sess Session, message *api.ClientMessage) {
 		// Run in timeout context to prevent blocking too long. The request is not
 		// cancelled if it is superseded by a newer request, so it is known whether
 		// the backend registered the room session and it must be removed again.
-		ctx, cancel := context.WithTimeout(session.Context(), h.backendTimeout)
+		ctx, cancel := context.WithTimeout(session.Context(), h.getBackendTimeout())
 		defer cancel()
 
 		if message.Room.SessionId != "" {
@@ -2247,7 +2305,7 @@ func (h *Hub) publishFederatedSessions() (int, *sync.WaitGroup) {
 			count += len(e)
 			go func(roomId string, url *url.URL, entries []talk.BackendPingEntry) {
 				defer wg.Done()
-				sendCtx, cancel := context.WithTimeout(ctx, h.backendTimeout)
+				sendCtx, cancel := context.WithTimeout(ctx, h.getBackendTimeout())
 				defer cancel()
 
 				if err := h.roomPing.SendPings(sendCtx, roomId, url, entries); err != nil {
@@ -2507,7 +2565,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 							}
 
 							h.logger.Printf("Closing screen publisher for %s", session.PublicId())
-							ctx, cancel := context.WithTimeout(context.Background(), h.mcuTimeout)
+							ctx, cancel := context.WithTimeout(context.Background(), h.getMcuTimeout())
 							defer cancel()
 							publisher.Close(ctx)
 						}(session)
@@ -2620,7 +2678,7 @@ func (h *Hub) processMessageMsg(sess Session, message *api.ClientMessage) {
 			// client) to start his stream, so we must not block the active
 			// goroutine.
 			go func() {
-				ctx, cancel := context.WithTimeout(session.Context(), h.mcuTimeout)
+				ctx, cancel := context.WithTimeout(session.Context(), h.getMcuTimeout())
 				defer cancel()
 
 				mc, err := recipient.GetOrCreateSubscriber(ctx, h.mcu, session.PublicId(), sfu.StreamType(clientData.RoomType))
@@ -2863,7 +2921,7 @@ func (h *Hub) processInternalMsg(sess Session, message *api.ClientMessage) {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(session.Context(), h.backendTimeout)
+		ctx, cancel := context.WithTimeout(session.Context(), h.getBackendTimeout())
 		defer cancel()
 
 		virtualSessionId := GetVirtualSessionId(session, msg.SessionId)
@@ -3183,7 +3241,7 @@ func (h *Hub) isInSameCall(ctx context.Context, senderSession *ClientSession, re
 }
 
 func (h *Hub) processMcuMessage(session *ClientSession, client_message *api.ClientMessage, message *api.MessageClientMessage, data *api.MessageClientMessageData) {
-	ctx, cancel := context.WithTimeout(session.Context(), h.mcuTimeout)
+	ctx, cancel := context.WithTimeout(session.Context(), h.getMcuTimeout())
 	defer cancel()
 
 	var mc sfu.Client

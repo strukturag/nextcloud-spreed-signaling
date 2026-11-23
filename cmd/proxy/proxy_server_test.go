@@ -29,7 +29,9 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -48,6 +50,7 @@ import (
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/client"
+	"github.com/strukturag/nextcloud-spreed-signaling/v2/geoip"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/internal"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/log"
 	logtest "github.com/strukturag/nextcloud-spreed-signaling/v2/log/test"
@@ -344,6 +347,55 @@ func TestWebsocketFeatures(t *testing.T) {
 	}
 
 	assert.NoError(conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{}))
+}
+
+func TestProxyMcuTimeout(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	proxy, _, _ := newProxyServerForTest(t)
+
+	assert.Equal(time.Duration(defaultMcuTimeoutSeconds)*time.Second, proxy.getMcuTimeout())
+
+	config := goconf.NewConfigFile()
+	config.AddOption("mcu", "timeout", "2")
+	require.NoError(proxy.loadConfig(config, true))
+	assert.Equal(2*time.Second, proxy.getMcuTimeout())
+
+	// Invalid values fall back to the default.
+	config.AddOption("mcu", "timeout", "0")
+	require.NoError(proxy.loadConfig(config, true))
+	assert.Equal(time.Duration(defaultMcuTimeoutSeconds)*time.Second, proxy.getMcuTimeout())
+}
+
+func TestProxyDebugHandlersReload(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	proxy, _, server := newProxyServerForTest(t)
+
+	getStatus := func() int {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/debug/pprof/cmdline", nil)
+		require.NoError(err)
+		res, err := http.DefaultClient.Do(request)
+		require.NoError(err)
+		defer res.Body.Close()
+		_, err = io.ReadAll(res.Body)
+		require.NoError(err)
+		return res.StatusCode
+	}
+
+	assert.Equal(http.StatusNotFound, getStatus())
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "debug", "true")
+	require.NoError(proxy.loadConfig(config, true))
+	assert.Equal(http.StatusOK, getStatus())
+
+	config.RemoveOption("app", "debug")
+	require.NoError(proxy.loadConfig(config, true))
+	assert.Equal(http.StatusNotFound, getStatus())
 }
 
 func TestProxyWebsocketTimeouts(t *testing.T) {
@@ -1168,7 +1220,7 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 		id:  "token",
 		key: key,
 	})
-	proxyServer.remoteHostname = "test-hostname"
+	proxyServer.remoteHostname.Store(new("test-hostname"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1265,7 +1317,7 @@ func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
 		id:  "token",
 		key: key,
 	})
-	proxyServer.remoteHostname = "test-hostname"
+	proxyServer.remoteHostname.Store(new("test-hostname"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -2119,4 +2171,152 @@ func TestScheduleShutdownOnResume(t *testing.T) {
 	<-proxyServer.ShutdownChannel()
 	<-shutdownDone
 	assert.True(readyReceived.Load())
+}
+
+type testRemotePublisherProperties struct {
+	port     int
+	rtcpPort int
+}
+
+func (p *testRemotePublisherProperties) Port() int {
+	return p.port
+}
+
+func (p *testRemotePublisherProperties) RtcpPort() int {
+	return p.rtcpPort
+}
+
+func TestProxyReloadRemoteHostname(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	proxyServer, key, server := newProxyServerForTest(t)
+
+	mcu := NewUnpublishRemoteTestMCU(t)
+	proxyServer.mcu = mcu
+	proxyServer.remoteToken.Store(&remoteToken{
+		id:  TokenIdForTest,
+		key: key,
+	})
+	proxyServer.remoteHostname.Store(new("first-host"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewProxyTestClient(ctx, t, server.URL)
+	defer client.CloseWithBye()
+
+	require.NoError(client.SendHello(key))
+	_, err := client.RunUntilHello(ctx)
+	require.NoError(err)
+	_, err = client.RunUntilLoad(ctx, 0)
+	require.NoError(err)
+
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
+		Id:   "2345",
+		Type: "command",
+		Command: &proxy.CommandClientMessage{
+			Type:        "create-publisher",
+			PublisherId: "the-publisher-id",
+			Sid:         "1234-abcd",
+			StreamType:  sfu.StreamTypeVideo,
+			PublisherSettings: &sfu.NewPublisherSettings{
+				MediaTypes: sfu.MediaTypeAudio | sfu.MediaTypeVideo,
+			},
+		},
+	}))
+
+	var clientId string
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		if err := checkMessageType(message, "command"); assert.NoError(err) {
+			clientId = message.Command.Id
+		}
+	}
+	require.NotEmpty(clientId)
+
+	t.Cleanup(func() {
+		proxyServer.remoteConnectionsLock.Lock()
+		defer proxyServer.remoteConnectionsLock.Unlock()
+		if conn, found := proxyServer.remoteConnections[server.URL]; found {
+			assert.NoError(conn.SendBye())
+			assert.NoError(conn.Close())
+			delete(proxyServer.remoteConnections, server.URL)
+		}
+	})
+
+	controller := &proxyRemotePublisher{
+		proxy:       proxyServer,
+		remoteUrl:   server.URL,
+		publisherId: api.PublicSessionId(clientId),
+	}
+	props := &testRemotePublisherProperties{
+		port:     10001,
+		rtcpPort: 10002,
+	}
+	require.NoError(controller.StartPublishing(ctx, props))
+	if publisher := mcu.publisher.Load(); assert.NotNil(publisher) {
+		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
+			assert.Equal("first-host", remoteData.hostname)
+		}
+	}
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "hostname", "second-host")
+	proxyServer.reloadRemoteHostname(config)
+	assert.Equal("second-host", proxyServer.getRemoteHostname())
+
+	// Unpublishing uses the hostname the stream was published with.
+	require.NoError(controller.StopPublishing(ctx, props))
+	if publisher := mcu.publisher.Load(); assert.NotNil(publisher) {
+		assert.Nil(publisher.getRemoteData())
+	}
+}
+
+func TestProxyReloadRemoteHostnameDisabled(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	proxyServer, _, _ := newProxyServerForTest(t)
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "hostname", "the-host")
+	proxyServer.reloadRemoteHostname(config)
+	assert.Empty(proxyServer.getRemoteHostname())
+}
+
+func TestProxyReloadCountry(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	proxy, key, server := newProxyServerForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	getCountry := func() geoip.Country {
+		t.Helper()
+		client := NewProxyTestClient(ctx, t, server.URL)
+		defer client.CloseWithBye()
+
+		require.NoError(client.SendHello(key))
+		hello, err := client.RunUntilHello(ctx)
+		require.NoError(err)
+		require.NotNil(hello.Hello.Server)
+		return hello.Hello.Server.Country
+	}
+
+	assert.Empty(getCountry())
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "country", "de")
+	proxy.reloadCountry(config)
+	assert.Equal(geoip.Country("DE"), getCountry())
+
+	// Invalid countries keep the existing value.
+	config.AddOption("app", "country", "loopback")
+	proxy.reloadCountry(config)
+	assert.Equal(geoip.Country("DE"), getCountry())
+
+	config.RemoveOption("app", "country")
+	proxy.reloadCountry(config)
+	assert.Empty(getCountry())
 }

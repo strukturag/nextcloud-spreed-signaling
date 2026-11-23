@@ -32,10 +32,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/pprof"
 	"os"
 	"os/signal"
-	runtimepprof "runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -121,11 +119,11 @@ var (
 
 type ProxyServer struct {
 	version        string
-	country        geoip.Country
 	welcomeMessage string
-	welcomeMsg     *api.WelcomeServerMessage
+	welcomeMsg     atomic.Pointer[api.WelcomeServerMessage]
 	config         *goconf.ConfigFile
-	mcuTimeout     time.Duration
+	mcuTimeout     atomic.Int64
+	debug          atomic.Bool
 	logger         log.Logger
 
 	url     string
@@ -165,8 +163,8 @@ type ProxyServer struct {
 	clientIds map[string]string
 
 	remoteToken           atomic.Pointer[remoteToken]
-	remoteTlsConfig       *tls.Config // +checklocksignore: Only written to from constructor.
-	remoteHostname        string
+	remoteTlsConfig       atomic.Pointer[tls.Config]
+	remoteHostname        atomic.Pointer[string]
 	remoteConnectionsLock sync.Mutex
 	// +checklocks:remoteConnectionsLock
 	remoteConnections map[string]*RemoteConnection
@@ -270,15 +268,11 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		return nil, err
 	}
 
-	countryString, _ := config.GetString("app", "country")
-	country := geoip.Country(strings.ToUpper(countryString))
-	if geoip.IsValidCountry(country) {
-		logger.Printf("Sending %s as country information", country)
-	} else if country != "" {
-		return nil, fmt.Errorf("invalid country: %s", country)
-	} else {
-		logger.Printf("Not sending country information")
+	country, err := loadCountry(config)
+	if err != nil {
+		return nil, err
 	}
+	logCountry(logger, country)
 
 	welcome := map[string]string{
 		"nextcloud-spreed-signaling-proxy": "Welcome",
@@ -291,52 +285,23 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		return nil, err
 	}
 	var remoteHostname string
-	var remoteTlsConfig *tls.Config
 	if token != nil {
 		logger.Printf("Using \"%s\" as token id for remote streams", token.id)
 
-		remoteHostname, _ = config.GetString("app", "hostname")
-		if remoteHostname == "" {
-			remoteHostname, err = GetLocalIP()
-			if err != nil {
-				return nil, fmt.Errorf("could not get local ip: %w", err)
-			}
+		remoteHostname, err = loadRemoteHostname(config)
+		if err != nil {
+			return nil, err
 		}
-		if remoteHostname == "" {
-			logger.Printf("WARNING: Could not determine hostname for remote streams, will be disabled. Please configure manually.")
-		} else {
-			logger.Printf("Using \"%s\" as hostname for remote streams", remoteHostname)
-		}
-
-		skipverify, _ := config.GetBool("backend", "skipverify")
-		if skipverify {
-			logger.Println("WARNING: Remote stream requests verification is disabled!")
-			remoteTlsConfig = &tls.Config{
-				InsecureSkipVerify: skipverify,
-			}
-		}
+		logRemoteHostname(logger, remoteHostname)
 	} else {
 		logger.Printf("No token id configured, remote streams will be disabled")
 	}
 
-	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
-	if mcuTimeoutSeconds <= 0 {
-		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
-	}
-	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
-
 	result := &ProxyServer{
 		version:        version,
-		country:        country,
 		welcomeMessage: string(welcomeMessage) + "\n",
-		welcomeMsg: &api.WelcomeServerMessage{
-			Version:  version,
-			Country:  country,
-			Features: defaultProxyFeatures,
-		},
-		config:     config,
-		mcuTimeout: mcuTimeout,
-		logger:     logger,
+		config:         config,
+		logger:         logger,
 
 		shutdownChannel: make(chan struct{}),
 
@@ -356,14 +321,15 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		clients:   make(map[string]sfu.Client),
 		clientIds: make(map[string]string),
 
-		remoteTlsConfig:   remoteTlsConfig,
-		remoteHostname:    remoteHostname,
 		remoteConnections: make(map[string]*RemoteConnection),
 		remotePublishers:  make(map[string]map[*proxyRemotePublisher]bool),
 	}
 
+	result.setCountry(country)
 	if token != nil {
 		result.remoteToken.Store(token)
+		result.remoteHostname.Store(&remoteHostname)
+		result.loadRemoteTlsConfig(config, false)
 	}
 
 	if err := result.loadConfig(config, false); err != nil {
@@ -374,25 +340,9 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 
 	statsLoadCurrent.Set(0)
 
-	if debug, _ := config.GetBool("app", "debug"); debug {
-		logger.Println("Installing debug handlers in \"/debug/pprof\"")
-		s := r.PathPrefix("/debug/pprof").Subrouter()
-		s.HandleFunc("", result.setCommonHeaders(result.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/debug/pprof/", http.StatusTemporaryRedirect)
-		})))
-		s.HandleFunc("/", result.setCommonHeaders(result.validateStatsRequest(pprof.Index)))
-		s.HandleFunc("/cmdline", result.setCommonHeaders(result.validateStatsRequest(pprof.Cmdline)))
-		s.HandleFunc("/profile", result.setCommonHeaders(result.validateStatsRequest(pprof.Profile)))
-		s.HandleFunc("/symbol", result.setCommonHeaders(result.validateStatsRequest(pprof.Symbol)))
-		s.HandleFunc("/trace", result.setCommonHeaders(result.validateStatsRequest(pprof.Trace)))
-		for _, profile := range runtimepprof.Profiles() {
-			name := profile.Name()
-			handler := pprof.Handler(name)
-			s.HandleFunc("/"+name, result.setCommonHeaders(result.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
-				handler.ServeHTTP(w, r)
-			})))
-		}
-	}
+	internal.RegisterDebugHandlers(r, result.debug.Load, func(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+		return result.setCommonHeaders(result.validateStatsRequest(f))
+	})
 
 	r.HandleFunc("/welcome", result.setCommonHeaders(result.welcomeHandler)).Methods("GET")
 	r.HandleFunc("/proxy", result.setCommonHeaders(result.proxyHandler)).Methods("GET")
@@ -598,7 +548,58 @@ func (s *ProxyServer) ScheduleShutdown() {
 	}
 }
 
+func loadCountry(config *goconf.ConfigFile) (geoip.Country, error) {
+	countryString, _ := config.GetString("app", "country")
+	country := geoip.Country(strings.ToUpper(countryString))
+	if country != "" && !geoip.IsValidCountry(country) {
+		return "", fmt.Errorf("invalid country: %s", country)
+	}
+	return country, nil
+}
+
+func logCountry(logger log.Logger, country geoip.Country) {
+	if country != "" {
+		logger.Printf("Sending %s as country information", country)
+	} else {
+		logger.Printf("Not sending country information")
+	}
+}
+
+func (s *ProxyServer) setCountry(country geoip.Country) {
+	s.welcomeMsg.Store(&api.WelcomeServerMessage{
+		Version:  s.version,
+		Country:  country,
+		Features: defaultProxyFeatures,
+	})
+}
+
+// reloadCountry updates the country sent to new sessions. Existing sessions
+// will receive the updated country when they reconnect or resume.
+func (s *ProxyServer) reloadCountry(config *goconf.ConfigFile) {
+	country, err := loadCountry(config)
+	if err != nil {
+		s.logger.Printf("Could not reload country, keeping existing: %s", err)
+		return
+	}
+
+	if s.welcomeMsg.Load().Country == country {
+		return
+	}
+
+	s.setCountry(country)
+	logCountry(s.logger, country)
+}
+
 func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) error {
+	debug, _ := config.GetBool("app", "debug")
+	if prev := s.debug.Swap(debug); !fromReload || prev != debug {
+		if debug {
+			s.logger.Println("Debug handlers in \"/debug/pprof\" are enabled")
+		} else if fromReload {
+			s.logger.Println("Debug handlers in \"/debug/pprof\" are disabled")
+		}
+	}
+
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
 	if statsAllowedIps, err := container.ParseIPList(statsAllowed); err == nil {
 		if !statsAllowedIps.Empty() {
@@ -634,6 +635,15 @@ func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) err
 		s.logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for websocket connections", timeouts.PingInterval, timeouts.ReadTimeout, timeouts.WriteTimeout)
 	}
 
+	mcuTimeoutSeconds, _ := config.GetInt("mcu", "timeout")
+	if mcuTimeoutSeconds <= 0 {
+		mcuTimeoutSeconds = defaultMcuTimeoutSeconds
+	}
+	mcuTimeout := time.Duration(mcuTimeoutSeconds) * time.Second
+	if prev := time.Duration(s.mcuTimeout.Swap(int64(mcuTimeout))); prev != mcuTimeout {
+		s.logger.Printf("Using a timeout of %s for MCU requests", mcuTimeout)
+	}
+
 	remoteTimeouts := client.LoadTimeouts(s.logger, config, "mcu", client.Timeouts{})
 	if prev := s.remoteTimeouts.Swap(&remoteTimeouts); prev == nil || *prev != remoteTimeouts {
 		s.logger.Printf("Using ping interval of %s, read timeout of %s and write timeout of %s for connections to remote proxies", remoteTimeouts.PingInterval, remoteTimeouts.ReadTimeout, remoteTimeouts.WriteTimeout)
@@ -652,6 +662,10 @@ func (s *ProxyServer) loadConfig(config *goconf.ConfigFile, fromReload bool) err
 
 func (s *ProxyServer) getTimeouts() client.Timeouts {
 	return *s.timeouts.Load()
+}
+
+func (s *ProxyServer) getMcuTimeout() time.Duration {
+	return time.Duration(s.mcuTimeout.Load())
 }
 
 func (s *ProxyServer) getRemoteTimeouts() client.Timeouts {
@@ -690,6 +704,106 @@ func loadRemoteToken(config *goconf.ConfigFile) (*remoteToken, error) {
 	}, nil
 }
 
+func getRemoteSkipVerify(logger log.Logger, config *goconf.ConfigFile) bool {
+	if config.HasOption("app", "skipverify") {
+		skipVerify, _ := config.GetBool("app", "skipverify")
+		return skipVerify
+	}
+
+	// Compatibility: older versions read the value from the "backend" section.
+	if config.HasOption("backend", "skipverify") {
+		logger.Println("WARNING: Configuring \"skipverify\" in section \"backend\" is deprecated, use section \"app\" instead")
+		skipVerify, _ := config.GetBool("backend", "skipverify")
+		return skipVerify
+	}
+
+	return false
+}
+
+// loadRemoteTlsConfig loads the TLS configuration for connections to remote
+// proxies and returns true if it changed.
+func (s *ProxyServer) loadRemoteTlsConfig(config *goconf.ConfigFile, fromReload bool) bool {
+	skipVerify := getRemoteSkipVerify(s.logger, config)
+	if prev := s.remoteTlsConfig.Load(); fromReload && (prev != nil) == skipVerify {
+		return false
+	}
+
+	if skipVerify {
+		s.logger.Println("WARNING: Remote stream requests verification is disabled!")
+		s.remoteTlsConfig.Store(&tls.Config{
+			InsecureSkipVerify: true,
+		})
+	} else {
+		if fromReload {
+			s.logger.Println("Remote stream requests verification is enabled")
+		}
+		s.remoteTlsConfig.Store(nil)
+	}
+	return true
+}
+
+func (s *ProxyServer) reloadRemoteTlsConfig(config *goconf.ConfigFile) {
+	if s.remoteToken.Load() == nil {
+		// Remote streams were not enabled on startup.
+		return
+	}
+
+	if !s.loadRemoteTlsConfig(config, true) {
+		return
+	}
+
+	tlsConfig := s.remoteTlsConfig.Load()
+
+	s.remoteConnectionsLock.Lock()
+	defer s.remoteConnectionsLock.Unlock()
+	for _, conn := range s.remoteConnections {
+		conn.setTlsConfig(tlsConfig)
+	}
+}
+
+func loadRemoteHostname(config *goconf.ConfigFile) (string, error) {
+	hostname, _ := config.GetString("app", "hostname")
+	if hostname == "" {
+		var err error
+		if hostname, err = GetLocalIP(); err != nil {
+			return "", fmt.Errorf("could not get local ip: %w", err)
+		}
+	}
+	return hostname, nil
+}
+
+func logRemoteHostname(logger log.Logger, hostname string) {
+	if hostname == "" {
+		logger.Printf("WARNING: Could not determine hostname for remote streams, will be disabled. Please configure manually.")
+	} else {
+		logger.Printf("Using \"%s\" as hostname for remote streams", hostname)
+	}
+}
+
+func (s *ProxyServer) getRemoteHostname() string {
+	if hostname := s.remoteHostname.Load(); hostname != nil {
+		return *hostname
+	}
+	return ""
+}
+
+func (s *ProxyServer) reloadRemoteHostname(config *goconf.ConfigFile) {
+	if s.remoteToken.Load() == nil {
+		// Remote streams were not enabled on startup.
+		return
+	}
+
+	hostname, err := loadRemoteHostname(config)
+	if err != nil {
+		s.logger.Printf("Could not reload hostname for remote streams, keeping existing: %s", err)
+		return
+	}
+
+	if prev := s.remoteHostname.Swap(&hostname); prev == nil || *prev != hostname {
+		logRemoteHostname(s.logger, hostname)
+	}
+}
+
 func (s *ProxyServer) reloadRemoteToken(config *goconf.ConfigFile) {
 	if s.remoteToken.Load() == nil {
 		// Remote streams were not enabled on startup.
@@ -719,7 +833,10 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 		s.logger.Printf("Error reloading configuration: %s", err)
 	}
 
+	s.reloadCountry(config)
 	s.reloadRemoteToken(config)
+	s.reloadRemoteTlsConfig(config)
+	s.reloadRemoteHostname(config)
 
 	s.tokens.Reload(config)
 	s.mcu.Reload(config)
@@ -728,7 +845,7 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 func (s *ProxyServer) setCommonHeaders(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "nextcloud-spreed-signaling-proxy/"+s.version)
-		w.Header().Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Features, ", "))
+		w.Header().Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Load().Features, ", "))
 		f(w, r)
 	}
 }
@@ -746,7 +863,7 @@ func (s *ProxyServer) proxyHandler(w http.ResponseWriter, r *http.Request) {
 	addr := client.GetRealUserIP(r, s.trustedProxies.Load())
 	header := http.Header{}
 	header.Set("Server", "nextcloud-spreed-signaling-proxy/"+s.version)
-	header.Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Features, ", "))
+	header.Set("X-Spreed-Signaling-Features", strings.Join(s.welcomeMsg.Load().Features, ", "))
 	conn, err := s.upgrader.Upgrade(w, r, header)
 	if err != nil {
 		s.logger.Printf("Could not upgrade request from %s: %s", addr, err)
@@ -906,7 +1023,7 @@ func (s *ProxyServer) processMessage(client *ProxyClient, data []byte) {
 			Hello: &proxy.HelloServerMessage{
 				Version:   api.HelloVersionV1,
 				SessionId: session.PublicId(),
-				Server:    s.welcomeMsg,
+				Server:    s.welcomeMsg.Load(),
 			},
 		}
 		client.SendMessage(response)
@@ -942,6 +1059,8 @@ func (i *emptyInitiator) Country() geoip.Country {
 type proxyRemotePublisher struct {
 	proxy     *ProxyServer
 	remoteUrl string
+	// Hostname used when the stream was published.
+	hostname atomic.Pointer[string]
 
 	publisherId api.PublicSessionId
 }
@@ -951,6 +1070,7 @@ func (p *proxyRemotePublisher) PublisherId() api.PublicSessionId {
 }
 
 func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher sfu.RemotePublisherProperties) error {
+	hostname := p.proxy.getRemoteHostname()
 	conn, err := p.proxy.getRemoteConnection(p.remoteUrl)
 	if err != nil {
 		return err
@@ -961,7 +1081,7 @@ func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher sf
 		Command: &proxy.CommandClientMessage{
 			Type:     "publish-remote",
 			ClientId: string(p.publisherId),
-			Hostname: p.proxy.remoteHostname,
+			Hostname: hostname,
 			Port:     publisher.Port(),
 			RtcpPort: publisher.RtcpPort(),
 		},
@@ -969,11 +1089,21 @@ func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher sf
 		return err
 	}
 
+	p.hostname.Store(&hostname)
 	return nil
 }
 
 func (p *proxyRemotePublisher) StopPublishing(ctx context.Context, publisher sfu.RemotePublisherProperties) error {
 	defer p.proxy.removeRemotePublisher(p)
+
+	// The remote proxy identifies the stream by the hostname it was published
+	// with, which might be different from the current one after a reload.
+	var hostname string
+	if h := p.hostname.Load(); h != nil {
+		hostname = *h
+	} else {
+		hostname = p.proxy.getRemoteHostname()
+	}
 
 	conn, err := p.proxy.getRemoteConnection(p.remoteUrl)
 	if err != nil {
@@ -985,7 +1115,7 @@ func (p *proxyRemotePublisher) StopPublishing(ctx context.Context, publisher sfu
 		Command: &proxy.CommandClientMessage{
 			Type:     "unpublish-remote",
 			ClientId: string(p.publisherId),
-			Hostname: p.proxy.remoteHostname,
+			Hostname: hostname,
 			Port:     publisher.Port(),
 			RtcpPort: publisher.RtcpPort(),
 		},
@@ -1075,7 +1205,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+		ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 		defer cancel()
 
 		id := uuid.New().String()
@@ -1133,7 +1263,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		if cmd.RemoteUrl != "" {
-			if s.remoteToken.Load() == nil || s.remoteHostname == "" {
+			if s.remoteToken.Load() == nil || s.getRemoteHostname() == "" {
 				session.sendMessage(message.NewErrorServerMessage(RemoteSubscribersNotSupported))
 				return
 			}
@@ -1191,7 +1321,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 
 			s.logger.Printf("Created remote %s subscriber %s as %s for %s on %s", cmd.StreamType, subscriber.Id(), id, session.PublicId(), cmd.RemoteUrl)
 		} else {
-			ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+			ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 			defer cancel()
 
 			subscriber, err = s.mcu.NewSubscriber(ctx2, session, publisherId, cmd.StreamType, &emptyInitiator{})
@@ -1300,7 +1430,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+		ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 		defer cancel()
 
 		if err := publisher.PublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
@@ -1310,7 +1440,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				return
 			}
 
-			ctx2, cancel = context.WithTimeout(ctx, s.mcuTimeout)
+			ctx2, cancel = context.WithTimeout(ctx, s.getMcuTimeout())
 			defer cancel()
 
 			if err := publisher.UnpublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
@@ -1319,7 +1449,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 				return
 			}
 
-			ctx2, cancel = context.WithTimeout(ctx, s.mcuTimeout)
+			ctx2, cancel = context.WithTimeout(ctx, s.getMcuTimeout())
 			defer cancel()
 
 			if err := publisher.PublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
@@ -1351,7 +1481,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 			return
 		}
 
-		ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+		ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 		defer cancel()
 
 		if err := publisher.UnpublishRemote(ctx2, session.PublicId(), cmd.Hostname, cmd.Port, cmd.RtcpPort); err != nil {
@@ -1460,7 +1590,7 @@ func (s *ProxyServer) processPayload(ctx context.Context, client *ProxyClient, s
 		return
 	}
 
-	ctx2, cancel := context.WithTimeout(ctx, s.mcuTimeout)
+	ctx2, cancel := context.WithTimeout(ctx, s.getMcuTimeout())
 	defer cancel()
 
 	mcuClient.SendMessage(ctx2, nil, mcuData, func(err error, response api.StringMap) {
@@ -1780,7 +1910,7 @@ func (s *ProxyServer) getRemoteConnection(url string) (*RemoteConnection, error)
 		return nil, errors.New("remote streams are not configured")
 	}
 
-	conn, err := NewRemoteConnection(s, url, token.id, token.key, s.remoteTlsConfig)
+	conn, err := NewRemoteConnection(s, url, token.id, token.key, s.remoteTlsConfig.Load())
 	if err != nil {
 		return nil, err
 	}

@@ -1373,7 +1373,7 @@ func (s *ClientSession) processAsyncMessageFromSubject(message *events.AsyncMess
 	case "sendoffer":
 		// Process asynchronously to not block other messages received.
 		go func() {
-			ctx, cancel := context.WithTimeout(s.Context(), s.hub.mcuTimeout)
+			ctx, cancel := context.WithTimeout(s.Context(), s.hub.getMcuTimeout())
 			defer cancel()
 
 			mc, err := s.GetOrCreateSubscriber(ctx, s.hub.mcu, message.SendOffer.SessionId, sfu.StreamType(message.SendOffer.Data.RoomType))

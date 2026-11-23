@@ -66,7 +66,7 @@ type RemoteConnection struct {
 	closeFunc context.CancelFunc // +checklocksignore: Only written to from constructor.
 
 	token     atomic.Pointer[remoteToken]
-	tlsConfig *tls.Config
+	tlsConfig atomic.Pointer[tls.Config]
 	timeouts  client.Timeouts
 
 	// +checklocks:mu
@@ -103,14 +103,14 @@ func NewRemoteConnection(p *ProxyServer, proxyUrl string, tokenId string, tokenK
 		closeCtx:  closeCtx,
 		closeFunc: closeFunc,
 
-		tlsConfig: tlsConfig,
-		timeouts:  p.getRemoteTimeouts(),
+		timeouts: p.getRemoteTimeouts(),
 
 		reconnectTimer: time.NewTimer(0),
 
 		messageCallbacks: make(map[string]chan *proxy.ServerMessage),
 	}
 	result.setToken(tokenId, tokenKey)
+	result.setTlsConfig(tlsConfig)
 	result.reconnectInterval.Store(int64(initialReconnectInterval))
 
 	go result.writePump()
@@ -144,7 +144,7 @@ func (c *RemoteConnection) reconnect() {
 
 	dialer := websocket.Dialer{
 		Proxy:           http.ProxyFromEnvironment,
-		TLSClientConfig: c.tlsConfig,
+		TLSClientConfig: c.tlsConfig.Load(),
 	}
 
 	conn, _, err := dialer.DialContext(c.closeCtx, u.String(), nil)
@@ -297,6 +297,10 @@ func (c *RemoteConnection) setToken(tokenId string, tokenKey *rsa.PrivateKey) {
 		id:  tokenId,
 		key: tokenKey,
 	})
+}
+
+func (c *RemoteConnection) setTlsConfig(tlsConfig *tls.Config) {
+	c.tlsConfig.Store(tlsConfig)
 }
 
 func (c *RemoteConnection) createToken(subject string) (string, error) {

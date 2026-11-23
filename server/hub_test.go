@@ -965,6 +965,55 @@ func TestHubWebsocketTimeouts(t *testing.T) {
 	}, hub.getTimeouts(true))
 }
 
+func TestHubRequestTimeouts(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	hub, _, _, server := CreateHubForTest(t)
+	assert.Equal(time.Duration(defaultBackendTimeoutSeconds)*time.Second, hub.getBackendTimeout())
+	assert.Equal(time.Duration(defaultMcuTimeoutSeconds)*time.Second, hub.getMcuTimeout())
+	assert.Equal(time.Duration(defaultFederationTimeoutSeconds)*time.Second, hub.getFederationTimeout())
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	config.AddOption("backend", "timeout", "1")
+	config.AddOption("mcu", "timeout", "2")
+	config.AddOption("federation", "timeout", "3")
+	hub.loadTimeouts(config)
+	assert.Equal(time.Second, hub.getBackendTimeout())
+	assert.Equal(2*time.Second, hub.getMcuTimeout())
+	assert.Equal(3*time.Second, hub.getFederationTimeout())
+
+	// Invalid values fall back to the defaults.
+	config.AddOption("backend", "timeout", "0")
+	config.AddOption("mcu", "timeout", "-1")
+	config.RemoveOption("federation", "timeout")
+	hub.loadTimeouts(config)
+	assert.Equal(time.Duration(defaultBackendTimeoutSeconds)*time.Second, hub.getBackendTimeout())
+	assert.Equal(time.Duration(defaultMcuTimeoutSeconds)*time.Second, hub.getMcuTimeout())
+	assert.Equal(time.Duration(defaultFederationTimeoutSeconds)*time.Second, hub.getFederationTimeout())
+}
+
+func TestHubReloadSkipFederationVerify(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	hub, _, _, server := CreateHubForTest(t)
+	assert.False(hub.skipFederationVerify.Load())
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	config.AddOption("federation", "skipverify", "true")
+	hub.loadSkipFederationVerify(config, true)
+	assert.True(hub.skipFederationVerify.Load())
+
+	config.RemoveOption("federation", "skipverify")
+	hub.loadSkipFederationVerify(config, true)
+	assert.False(hub.skipFederationVerify.Load())
+}
+
 func TestHubDefaultSecretsMatchConfig(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -1004,9 +1053,9 @@ func TestHubRandomDefaultSecrets(t *testing.T) {
 	hub1, _, _, _ := CreateHubForTestWithConfig(t, getConfig)
 	hub2, _, _, _ := CreateHubForTestWithConfig(t, getConfig)
 
-	assert.Len(hub1.internalClientsSecret, randomInternalClientsSecretLength)
-	assert.NotEqual([]byte(defaultInternalClientsSecret), hub1.internalClientsSecret)
-	assert.NotEqual(hub1.internalClientsSecret, hub2.internalClientsSecret)
+	assert.Len(hub1.getInternalClientsSecret(), randomInternalClientsSecretLength)
+	assert.NotEqual([]byte(defaultInternalClientsSecret), hub1.getInternalClientsSecret())
+	assert.NotEqual(hub1.getInternalClientsSecret(), hub2.getInternalClientsSecret())
 
 	data := &session.SessionIdData{
 		Sid:       1,
@@ -2122,6 +2171,50 @@ func TestClientHelloInternal(t *testing.T) {
 		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 		assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 	}
+}
+
+func TestClientHelloInternalReloadSecret(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	config.AddOption("clients", "internalsecret", "other-secret")
+	hub.loadInternalClientsSecret(config)
+	assert.Equal([]byte("other-secret"), hub.getInternalClientsSecret())
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHelloInternal())
+	_, ok := client1.RunUntilError(ctx, InvalidToken.Code)
+	assert.True(ok)
+
+	config.AddOption("clients", "internalsecret", string(testInternalSecret))
+	hub.loadInternalClientsSecret(config)
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloInternal())
+	if hello, ok := client2.RunUntilHello(ctx); ok {
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+	}
+
+	// A default secret is replaced by a random one which is kept on reloads.
+	config.AddOption("clients", "internalsecret", defaultInternalClientsSecret)
+	hub.loadInternalClientsSecret(config)
+	secret := hub.getInternalClientsSecret()
+	assert.Len(secret, randomInternalClientsSecretLength)
+	hub.loadInternalClientsSecret(config)
+	assert.Equal(secret, hub.getInternalClientsSecret())
+
+	config.RemoveOption("clients", "internalsecret")
+	hub.loadInternalClientsSecret(config)
+	assert.Empty(hub.getInternalClientsSecret())
 }
 
 func TestClientMessageToSessionId(t *testing.T) {

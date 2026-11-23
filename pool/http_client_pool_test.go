@@ -23,6 +23,8 @@ package pool
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -83,13 +85,108 @@ func TestHttpClientPoolIdleConnTimeout(t *testing.T) {
 	pool, err := NewHttpClientPool(1, false)
 	require.NoError(t, err)
 
-	assert.NotZero(pool.transport.IdleConnTimeout,
+	assert.NotZero(pool.transport.current.Load().IdleConnTimeout,
 		"IdleConnTimeout must be set: the zero value means idle connections are "+
 			"pooled forever, so the backend webserver will close them first and "+
 			"requests will intermittently fail with EOF")
 
 	// Apache's default KeepAliveTimeout is 300s and nginx's keepalive_timeout is
 	// 75s; staying well below those keeps the client closing first.
-	assert.Less(pool.transport.IdleConnTimeout, 75*time.Second,
+	assert.Less(pool.transport.current.Load().IdleConnTimeout, 75*time.Second,
 		"IdleConnTimeout must stay below a realistic backend keep-alive timeout")
+}
+
+func TestHttpClientPoolSetSkipVerify(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	u, err := url.Parse(server.URL)
+	require.NoError(err)
+
+	pool, err := NewHttpClientPool(1, false)
+	require.NoError(err)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	doRequest := func() error {
+		client, p, err := pool.Get(ctx, u)
+		require.NoError(err)
+		defer p.Put(client)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		require.NoError(err)
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		return resp.Body.Close()
+	}
+
+	// The test server uses a self-signed certificate.
+	assert.Error(doRequest())
+
+	pool.SetSkipVerify(true)
+	assert.True(pool.transport.current.Load().TLSClientConfig.InsecureSkipVerify)
+	assert.NoError(doRequest())
+
+	pool.SetSkipVerify(false)
+	assert.False(pool.transport.current.Load().TLSClientConfig.InsecureSkipVerify)
+	assert.Error(doRequest())
+}
+
+func TestHttpClientPoolSetMaxConcurrentRequestsPerHost(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	pool, err := NewHttpClientPool(1, false)
+	require.NoError(err)
+
+	u, err := url.Parse("http://localhost/foo/bar")
+	require.NoError(err)
+
+	ctx := t.Context()
+	assertExhausted := func() {
+		t.Helper()
+		ctx2, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+		defer cancel()
+		_, _, err := pool.Get(ctx2, u)
+		assert.ErrorIs(err, context.DeadlineExceeded)
+	}
+
+	client1, pool1, err := pool.Get(ctx, u)
+	require.NoError(err)
+	assertExhausted()
+
+	_, err = pool.SetMaxConcurrentRequestsPerHost(0)
+	assert.Error(err)
+	if changed, err := pool.SetMaxConcurrentRequestsPerHost(1); assert.NoError(err) {
+		assert.False(changed)
+	}
+
+	transport := pool.transport.current.Load()
+	if changed, err := pool.SetMaxConcurrentRequestsPerHost(2); assert.NoError(err) {
+		assert.True(changed)
+	}
+	assert.NotSame(transport, pool.transport.current.Load())
+	assert.Equal(2, pool.transport.current.Load().MaxIdleConnsPerHost)
+
+	// New requests use a new pool with the new size.
+	_, pool2, err := pool.Get(ctx, u)
+	require.NoError(err)
+	assert.NotSame(pool1, pool2)
+	_, _, err = pool.Get(ctx, u)
+	require.NoError(err)
+	assertExhausted()
+
+	// Returning a client to the previous pool doesn't affect the new one.
+	pool1.Put(client1)
+	assertExhausted()
 }

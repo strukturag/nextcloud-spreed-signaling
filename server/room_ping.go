@@ -146,7 +146,7 @@ func (p *RoomPing) publishEntries(ctx context.Context, entries *pingEntries, tim
 func (p *RoomPing) publishActiveSessions(ctx context.Context) {
 	var timeout time.Duration
 	if p.hub != nil {
-		timeout = p.hub.backendTimeout
+		timeout = p.hub.getBackendTimeout()
 	} else {
 		// Running from tests.
 		timeout = time.Second * time.Duration(defaultBackendTimeoutSeconds)

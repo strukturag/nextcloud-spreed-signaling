@@ -22,6 +22,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -34,11 +35,9 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/pprof"
 	"net/url"
 	"reflect"
 	"regexp"
-	runtimepprof "runtime/pprof"
 	"slices"
 	"strings"
 	"sync"
@@ -84,13 +83,10 @@ type BackendServer struct {
 	roomSessions RoomSessions
 
 	version        string
-	debug          bool
+	debug          atomic.Bool
 	welcomeMessage string
 
-	turnapikey  string
-	turnsecret  []byte
-	turnvalid   time.Duration
-	turnservers []string
+	turn atomic.Pointer[turnSettings]
 
 	statsAllowedIps atomic.Pointer[container.IPList]
 	invalidSecret   []byte
@@ -98,28 +94,71 @@ type BackendServer struct {
 	buffers pool.BufferPool
 }
 
-func NewBackendServer(ctx context.Context, cfg *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
-	logger := log.LoggerFromContext(ctx)
-	turnapikey, _ := config.GetStringOptionWithEnv(cfg, "turn", "apikey")
-	turnsecret, _ := config.GetStringOptionWithEnv(cfg, "turn", "secret")
-	turnservers, _ := cfg.GetString("turn", "servers")
-	// TODO(jojo): Make the validity for TURN credentials configurable.
-	turnvalid := 24 * time.Hour
+type turnSettings struct {
+	apikey  string
+	secret  []byte
+	valid   time.Duration
+	servers []string
+}
 
-	turnserverslist := slices.Collect(internal.SplitEntries(turnservers, ","))
-	if len(turnserverslist) != 0 {
-		if turnapikey == "" {
+func (t *turnSettings) Equal(other *turnSettings) bool {
+	if t == other {
+		return true
+	} else if t == nil || other == nil {
+		return false
+	}
+
+	return t.apikey == other.apikey &&
+		bytes.Equal(t.secret, other.secret) &&
+		t.valid == other.valid &&
+		slices.Equal(t.servers, other.servers)
+}
+
+func loadTurnSettings(cfg *goconf.ConfigFile) (*turnSettings, error) {
+	apikey, _ := config.GetStringOptionWithEnv(cfg, "turn", "apikey")
+	secret, _ := config.GetStringOptionWithEnv(cfg, "turn", "secret")
+	servers, _ := cfg.GetString("turn", "servers")
+
+	serverslist := slices.Collect(internal.SplitEntries(servers, ","))
+	if len(serverslist) != 0 {
+		if apikey == "" {
 			return nil, errors.New("need a TURN API key if TURN servers are configured")
 		}
-		if turnsecret == "" {
+		if secret == "" {
 			return nil, errors.New("need a shared TURN secret if TURN servers are configured")
 		}
+	}
 
-		logger.Printf("Using configured TURN API key")
-		logger.Printf("Using configured shared TURN secret")
-		for _, s := range turnserverslist {
-			logger.Printf("Adding \"%s\" as TURN server", s)
-		}
+	return &turnSettings{
+		apikey: apikey,
+		secret: []byte(secret),
+		// TODO(jojo): Make the validity for TURN credentials configurable.
+		valid:   24 * time.Hour,
+		servers: serverslist,
+	}, nil
+}
+
+func logTurnSettings(logger log.Logger, settings *turnSettings) {
+	if len(settings.servers) == 0 {
+		logger.Printf("No TURN servers configured")
+		return
+	}
+
+	logger.Printf("Using configured TURN API key")
+	logger.Printf("Using configured shared TURN secret")
+	for _, s := range settings.servers {
+		logger.Printf("Adding \"%s\" as TURN server", s)
+	}
+}
+
+func NewBackendServer(ctx context.Context, cfg *goconf.ConfigFile, hub *Hub, version string) (*BackendServer, error) {
+	logger := log.LoggerFromContext(ctx)
+	turn, err := loadTurnSettings(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(turn.servers) != 0 {
+		logTurnSettings(logger, turn)
 	}
 
 	statsAllowed, _ := cfg.GetString("stats", "allowed_ips")
@@ -140,30 +179,52 @@ func NewBackendServer(ctx context.Context, cfg *goconf.ConfigFile, hub *Hub, ver
 		return nil, err
 	}
 
-	debug, _ := cfg.GetBool("app", "debug")
-
 	result := &BackendServer{
 		logger:       logger,
 		hub:          hub,
 		events:       hub.events,
 		roomSessions: hub.roomSessions,
 		version:      version,
-		debug:        debug,
-
-		turnapikey:  turnapikey,
-		turnsecret:  []byte(turnsecret),
-		turnvalid:   turnvalid,
-		turnservers: turnserverslist,
 
 		invalidSecret: invalidSecret,
 	}
 
 	result.statsAllowedIps.Store(statsAllowedIps)
+	result.turn.Store(turn)
+	result.loadDebug(cfg, false)
 
 	return result, nil
 }
 
+func (b *BackendServer) reloadTurnSettings(config *goconf.ConfigFile) {
+	turn, err := loadTurnSettings(config)
+	if err != nil {
+		b.logger.Printf("Could not reload TURN settings, keeping existing: %s", err)
+		return
+	}
+
+	if prev := b.turn.Swap(turn); !prev.Equal(turn) {
+		logTurnSettings(b.logger, turn)
+	}
+}
+
+func (b *BackendServer) loadDebug(cfg *goconf.ConfigFile, fromReload bool) {
+	debug, _ := cfg.GetBool("app", "debug")
+	if prev := b.debug.Swap(debug); fromReload && prev == debug {
+		return
+	}
+
+	if debug {
+		b.logger.Println("Debug handlers in \"/debug/pprof\" are enabled")
+	} else if fromReload {
+		b.logger.Println("Debug handlers in \"/debug/pprof\" are disabled")
+	}
+}
+
 func (b *BackendServer) Reload(config *goconf.ConfigFile) {
+	b.reloadTurnSettings(config)
+	b.loadDebug(config, true)
+
 	statsAllowed, _ := config.GetString("stats", "allowed_ips")
 	if statsAllowedIps, err := container.ParseIPList(statsAllowed); err == nil {
 		if !statsAllowedIps.Empty() {
@@ -186,25 +247,9 @@ func (b *BackendServer) Start(r *mux.Router) error {
 	welcomeMessage, _ := json.Marshal(welcome)
 	b.welcomeMessage = string(welcomeMessage) + "\n"
 
-	if b.debug {
-		b.logger.Println("Installing debug handlers in \"/debug/pprof\"")
-		s := r.PathPrefix("/debug/pprof").Subrouter()
-		s.HandleFunc("", b.setCommonHeaders(b.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/debug/pprof/", http.StatusTemporaryRedirect)
-		})))
-		s.HandleFunc("/", b.setCommonHeaders(b.validateStatsRequest(pprof.Index)))
-		s.HandleFunc("/cmdline", b.setCommonHeaders(b.validateStatsRequest(pprof.Cmdline)))
-		s.HandleFunc("/profile", b.setCommonHeaders(b.validateStatsRequest(pprof.Profile)))
-		s.HandleFunc("/symbol", b.setCommonHeaders(b.validateStatsRequest(pprof.Symbol)))
-		s.HandleFunc("/trace", b.setCommonHeaders(b.validateStatsRequest(pprof.Trace)))
-		for _, profile := range runtimepprof.Profiles() {
-			name := profile.Name()
-			handler := pprof.Handler(name)
-			s.HandleFunc("/"+name, b.setCommonHeaders(b.validateStatsRequest(func(w http.ResponseWriter, r *http.Request) {
-				handler.ServeHTTP(w, r)
-			})))
-		}
-	}
+	internal.RegisterDebugHandlers(r, b.debug.Load, func(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+		return b.setCommonHeaders(b.validateStatsRequest(f))
+	})
 
 	s := r.PathPrefix("/api/v1").Subrouter()
 	s.HandleFunc("/welcome", b.setCommonHeaders(b.welcomeFunc)).Methods("GET")
@@ -270,14 +315,15 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if subtle.ConstantTimeCompare([]byte(key), []byte(b.turnapikey)) != 1 {
+	turn := b.turn.Load()
+	if subtle.ConstantTimeCompare([]byte(key), []byte(turn.apikey)) != 1 {
 		throttle(ctx)
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, "Not allowed to access this service.\n") // nolint
 		return
 	}
 
-	if len(b.turnservers) == 0 {
+	if len(turn.servers) == 0 {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, "No TURN servers available.\n") // nolint
 		return
@@ -288,12 +334,12 @@ func (b *BackendServer) getTurnCredentials(w http.ResponseWriter, r *http.Reques
 		username = internal.RandomString(randomUsernameLength)
 	}
 
-	username, password := calculateTurnSecret(username, b.turnsecret, b.turnvalid)
+	username, password := calculateTurnSecret(username, turn.secret, turn.valid)
 	result := talk.TurnCredentials{
 		Username: username,
 		Password: password,
-		TTL:      int64(b.turnvalid.Seconds()),
-		URIs:     b.turnservers,
+		TTL:      int64(turn.valid.Seconds()),
+		URIs:     turn.servers,
 	}
 
 	data, err := json.Marshal(result)

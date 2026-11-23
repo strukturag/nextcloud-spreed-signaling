@@ -221,7 +221,7 @@ func (s *VirtualSession) CloseWithFeedback(session Session, message *api.ClientM
 
 func (s *VirtualSession) notifyBackendRemoved(room *Room, session Session, message *api.ClientMessage) {
 	ctx := log.NewLoggerContext(context.Background(), s.logger)
-	ctx, cancel := context.WithTimeout(ctx, s.hub.backendTimeout)
+	ctx, cancel := context.WithTimeout(ctx, s.hub.getBackendTimeout())
 	defer cancel()
 
 	if options := s.Options(); options != nil && options.ActorId != "" && options.ActorType != "" {
