@@ -87,6 +87,7 @@ jobs:
           context: .
           file: ./docker/server/Dockerfile
           platforms: linux/amd64,linux/arm64
+          sbom: true
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -166,6 +167,7 @@ jobs:
           context: .
           file: ./docker/proxy/Dockerfile
           platforms: linux/amd64,linux/arm64
+          sbom: true
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
