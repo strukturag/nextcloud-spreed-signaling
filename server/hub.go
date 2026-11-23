@@ -197,7 +197,7 @@ type Hub struct {
 
 	mcu                   sfu.SFU
 	mcuTimeout            atomic.Int64
-	internalClientsSecret []byte
+	internalClientsSecret atomic.Pointer[internalClientsSecret]
 
 	allowSubscribeAnyStream bool
 
@@ -342,15 +342,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		return nil, fmt.Errorf("error creating session id codec: %w", err)
 	}
 
-	internalClientsSecret, _ := config.GetStringOptionWithEnv(cfg, "clients", "internalsecret")
-	switch internalClientsSecret {
-	case defaultInternalClientsSecret:
-		logger.Println("WARNING: The shared secret for internal clients has not been changed from the default value, using a random secret. Internal clients will not be able to connect.")
-		internalClientsSecret = internal.RandomString(randomInternalClientsSecretLength)
-	case "":
-		logger.Println("WARNING: No shared secret has been set for internal clients.")
-	}
-
 	maxConcurrentRequestsPerHost := getMaxConcurrentRequestsPerHost(cfg)
 	backend, err := talk.NewBackendClient(ctx, cfg, maxConcurrentRequestsPerHost, version, etcdClient)
 	if err != nil {
@@ -456,8 +447,6 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 
 		decodeCaches: decodeCaches,
 
-		internalClientsSecret: []byte(internalClientsSecret),
-
 		allowSubscribeAnyStream: allowSubscribeAnyStream,
 
 		expiredSessions:    make(map[Session]time.Time),
@@ -505,6 +494,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 	hub.geoipOverrides.Store(geoipOverrides)
 	hub.loadTimeouts(cfg)
 	hub.loadSkipFederationVerify(cfg, false)
+	hub.loadInternalClientsSecret(cfg)
 
 	hub.setWelcomeMessage(&api.ServerMessage{
 		Type:    "welcome",
@@ -656,7 +646,47 @@ func (h *Hub) reloadMaxConcurrentRequestsPerHost(cfg *goconf.ConfigFile) {
 	}
 }
 
+type internalClientsSecret struct {
+	// Value as configured.
+	configured string
+	// Secret to use for validating internal clients.
+	secret []byte
+}
+
+func (h *Hub) loadInternalClientsSecret(cfg *goconf.ConfigFile) {
+	configured, _ := config.GetStringOptionWithEnv(cfg, "clients", "internalsecret")
+	if prev := h.internalClientsSecret.Load(); prev != nil && prev.configured == configured {
+		return
+	}
+
+	secret := configured
+	switch configured {
+	case defaultInternalClientsSecret:
+		h.logger.Println("WARNING: The shared secret for internal clients has not been changed from the default value, using a random secret. Internal clients will not be able to connect.")
+		secret = internal.RandomString(randomInternalClientsSecretLength)
+	case "":
+		h.logger.Println("WARNING: No shared secret has been set for internal clients.")
+	default:
+		if h.internalClientsSecret.Load() != nil {
+			h.logger.Println("Using updated shared secret for internal clients")
+		}
+	}
+
+	h.internalClientsSecret.Store(&internalClientsSecret{
+		configured: configured,
+		secret:     []byte(secret),
+	})
+}
+
+func (h *Hub) getInternalClientsSecret() []byte {
+	if secret := h.internalClientsSecret.Load(); secret != nil {
+		return secret.secret
+	}
+	return nil
+}
+
 func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
+	h.loadInternalClientsSecret(config)
 	h.loadTimeouts(config)
 	h.loadSkipFederationVerify(config, true)
 
@@ -1729,7 +1759,8 @@ func (h *Hub) processHelloClient(client ClientWithSession, message *api.ClientMe
 
 func (h *Hub) processHelloInternal(client ClientWithSession, message *api.ClientMessage) {
 	defer h.startExpectHello(client)
-	if len(h.internalClientsSecret) == 0 {
+	secret := h.getInternalClientsSecret()
+	if len(secret) == 0 {
 		client.SendMessage(message.NewErrorServerMessage(InvalidClientType))
 		return
 	}
@@ -1747,7 +1778,7 @@ func (h *Hub) processHelloInternal(client ClientWithSession, message *api.Client
 
 	// Validate internal connection.
 	rnd := message.Hello.Auth.InternalParams.Random
-	mac := hmac.New(sha256.New, h.internalClientsSecret)
+	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(rnd)) // nolint
 	check := hex.EncodeToString(mac.Sum(nil))
 	if len(rnd) < minTokenRandomLength || check != message.Hello.Auth.InternalParams.Token {

@@ -1053,9 +1053,9 @@ func TestHubRandomDefaultSecrets(t *testing.T) {
 	hub1, _, _, _ := CreateHubForTestWithConfig(t, getConfig)
 	hub2, _, _, _ := CreateHubForTestWithConfig(t, getConfig)
 
-	assert.Len(hub1.internalClientsSecret, randomInternalClientsSecretLength)
-	assert.NotEqual([]byte(defaultInternalClientsSecret), hub1.internalClientsSecret)
-	assert.NotEqual(hub1.internalClientsSecret, hub2.internalClientsSecret)
+	assert.Len(hub1.getInternalClientsSecret(), randomInternalClientsSecretLength)
+	assert.NotEqual([]byte(defaultInternalClientsSecret), hub1.getInternalClientsSecret())
+	assert.NotEqual(hub1.getInternalClientsSecret(), hub2.getInternalClientsSecret())
 
 	data := &session.SessionIdData{
 		Sid:       1,
@@ -2171,6 +2171,50 @@ func TestClientHelloInternal(t *testing.T) {
 		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
 		assert.NotEmpty(hello.Hello.ResumeId, "%+v", hello.Hello)
 	}
+}
+
+func TestClientHelloInternalReloadSecret(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+	hub, _, _, server := CreateHubForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	config, err := getTestConfig(server)
+	require.NoError(err)
+	config.AddOption("clients", "internalsecret", "other-secret")
+	hub.loadInternalClientsSecret(config)
+	assert.Equal([]byte("other-secret"), hub.getInternalClientsSecret())
+
+	client1 := NewTestClient(t, server, hub)
+	defer client1.CloseWithBye()
+	require.NoError(client1.SendHelloInternal())
+	_, ok := client1.RunUntilError(ctx, InvalidToken.Code)
+	assert.True(ok)
+
+	config.AddOption("clients", "internalsecret", string(testInternalSecret))
+	hub.loadInternalClientsSecret(config)
+
+	client2 := NewTestClient(t, server, hub)
+	defer client2.CloseWithBye()
+	require.NoError(client2.SendHelloInternal())
+	if hello, ok := client2.RunUntilHello(ctx); ok {
+		assert.NotEmpty(hello.Hello.SessionId, "%+v", hello.Hello)
+	}
+
+	// A default secret is replaced by a random one which is kept on reloads.
+	config.AddOption("clients", "internalsecret", defaultInternalClientsSecret)
+	hub.loadInternalClientsSecret(config)
+	secret := hub.getInternalClientsSecret()
+	assert.Len(secret, randomInternalClientsSecretLength)
+	hub.loadInternalClientsSecret(config)
+	assert.Equal(secret, hub.getInternalClientsSecret())
+
+	config.RemoveOption("clients", "internalsecret")
+	hub.loadInternalClientsSecret(config)
+	assert.Empty(hub.getInternalClientsSecret())
 }
 
 func TestClientMessageToSessionId(t *testing.T) {
