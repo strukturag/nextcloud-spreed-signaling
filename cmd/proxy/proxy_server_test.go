@@ -1219,7 +1219,7 @@ func TestProxyRemoteSubscriber(t *testing.T) {
 		id:  "token",
 		key: key,
 	})
-	proxyServer.remoteHostname = "test-hostname"
+	proxyServer.remoteHostname.Store(new("test-hostname"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -1316,7 +1316,7 @@ func TestProxyCloseRemoteOnSessionClose(t *testing.T) {
 		id:  "token",
 		key: key,
 	})
-	proxyServer.remoteHostname = "test-hostname"
+	proxyServer.remoteHostname.Store(new("test-hostname"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -2170,4 +2170,114 @@ func TestScheduleShutdownOnResume(t *testing.T) {
 	<-proxyServer.ShutdownChannel()
 	<-shutdownDone
 	assert.True(readyReceived.Load())
+}
+
+type testRemotePublisherProperties struct {
+	port     int
+	rtcpPort int
+}
+
+func (p *testRemotePublisherProperties) Port() int {
+	return p.port
+}
+
+func (p *testRemotePublisherProperties) RtcpPort() int {
+	return p.rtcpPort
+}
+
+func TestProxyReloadRemoteHostname(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
+	proxyServer, key, server := newProxyServerForTest(t)
+
+	mcu := NewUnpublishRemoteTestMCU(t)
+	proxyServer.mcu = mcu
+	proxyServer.remoteToken.Store(&remoteToken{
+		id:  TokenIdForTest,
+		key: key,
+	})
+	proxyServer.remoteHostname.Store(new("first-host"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	client := NewProxyTestClient(ctx, t, server.URL)
+	defer client.CloseWithBye()
+
+	require.NoError(client.SendHello(key))
+	_, err := client.RunUntilHello(ctx)
+	require.NoError(err)
+	_, err = client.RunUntilLoad(ctx, 0)
+	require.NoError(err)
+
+	require.NoError(client.WriteJSON(&proxy.ClientMessage{
+		Id:   "2345",
+		Type: "command",
+		Command: &proxy.CommandClientMessage{
+			Type:        "create-publisher",
+			PublisherId: "the-publisher-id",
+			Sid:         "1234-abcd",
+			StreamType:  sfu.StreamTypeVideo,
+			PublisherSettings: &sfu.NewPublisherSettings{
+				MediaTypes: sfu.MediaTypeAudio | sfu.MediaTypeVideo,
+			},
+		},
+	}))
+
+	var clientId string
+	if message, err := client.RunUntilMessage(ctx); assert.NoError(err) {
+		if err := checkMessageType(message, "command"); assert.NoError(err) {
+			clientId = message.Command.Id
+		}
+	}
+	require.NotEmpty(clientId)
+
+	t.Cleanup(func() {
+		proxyServer.remoteConnectionsLock.Lock()
+		defer proxyServer.remoteConnectionsLock.Unlock()
+		if conn, found := proxyServer.remoteConnections[server.URL]; found {
+			assert.NoError(conn.SendBye())
+			assert.NoError(conn.Close())
+			delete(proxyServer.remoteConnections, server.URL)
+		}
+	})
+
+	controller := &proxyRemotePublisher{
+		proxy:       proxyServer,
+		remoteUrl:   server.URL,
+		publisherId: api.PublicSessionId(clientId),
+	}
+	props := &testRemotePublisherProperties{
+		port:     10001,
+		rtcpPort: 10002,
+	}
+	require.NoError(controller.StartPublishing(ctx, props))
+	if publisher := mcu.publisher.Load(); assert.NotNil(publisher) {
+		if remoteData := publisher.getRemoteData(); assert.NotNil(remoteData) {
+			assert.Equal("first-host", remoteData.hostname)
+		}
+	}
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "hostname", "second-host")
+	proxyServer.reloadRemoteHostname(config)
+	assert.Equal("second-host", proxyServer.getRemoteHostname())
+
+	// Unpublishing uses the hostname the stream was published with.
+	require.NoError(controller.StopPublishing(ctx, props))
+	if publisher := mcu.publisher.Load(); assert.NotNil(publisher) {
+		assert.Nil(publisher.getRemoteData())
+	}
+}
+
+func TestProxyReloadRemoteHostnameDisabled(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+	proxyServer, _, _ := newProxyServerForTest(t)
+
+	config := goconf.NewConfigFile()
+	config.AddOption("app", "hostname", "the-host")
+	proxyServer.reloadRemoteHostname(config)
+	assert.Empty(proxyServer.getRemoteHostname())
 }

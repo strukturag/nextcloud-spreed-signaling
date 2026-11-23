@@ -165,7 +165,7 @@ type ProxyServer struct {
 
 	remoteToken           atomic.Pointer[remoteToken]
 	remoteTlsConfig       atomic.Pointer[tls.Config]
-	remoteHostname        string
+	remoteHostname        atomic.Pointer[string]
 	remoteConnectionsLock sync.Mutex
 	// +checklocks:remoteConnectionsLock
 	remoteConnections map[string]*RemoteConnection
@@ -293,18 +293,11 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 	if token != nil {
 		logger.Printf("Using \"%s\" as token id for remote streams", token.id)
 
-		remoteHostname, _ = config.GetString("app", "hostname")
-		if remoteHostname == "" {
-			remoteHostname, err = GetLocalIP()
-			if err != nil {
-				return nil, fmt.Errorf("could not get local ip: %w", err)
-			}
+		remoteHostname, err = loadRemoteHostname(config)
+		if err != nil {
+			return nil, err
 		}
-		if remoteHostname == "" {
-			logger.Printf("WARNING: Could not determine hostname for remote streams, will be disabled. Please configure manually.")
-		} else {
-			logger.Printf("Using \"%s\" as hostname for remote streams", remoteHostname)
-		}
+		logRemoteHostname(logger, remoteHostname)
 	} else {
 		logger.Printf("No token id configured, remote streams will be disabled")
 	}
@@ -339,13 +332,13 @@ func NewProxyServer(ctx context.Context, r *mux.Router, version string, config *
 		clients:   make(map[string]sfu.Client),
 		clientIds: make(map[string]string),
 
-		remoteHostname:    remoteHostname,
 		remoteConnections: make(map[string]*RemoteConnection),
 		remotePublishers:  make(map[string]map[*proxyRemotePublisher]bool),
 	}
 
 	if token != nil {
 		result.remoteToken.Store(token)
+		result.remoteHostname.Store(&remoteHostname)
 		result.loadRemoteTlsConfig(config, false)
 	}
 
@@ -736,6 +729,49 @@ func (s *ProxyServer) reloadRemoteTlsConfig(config *goconf.ConfigFile) {
 	}
 }
 
+func loadRemoteHostname(config *goconf.ConfigFile) (string, error) {
+	hostname, _ := config.GetString("app", "hostname")
+	if hostname == "" {
+		var err error
+		if hostname, err = GetLocalIP(); err != nil {
+			return "", fmt.Errorf("could not get local ip: %w", err)
+		}
+	}
+	return hostname, nil
+}
+
+func logRemoteHostname(logger log.Logger, hostname string) {
+	if hostname == "" {
+		logger.Printf("WARNING: Could not determine hostname for remote streams, will be disabled. Please configure manually.")
+	} else {
+		logger.Printf("Using \"%s\" as hostname for remote streams", hostname)
+	}
+}
+
+func (s *ProxyServer) getRemoteHostname() string {
+	if hostname := s.remoteHostname.Load(); hostname != nil {
+		return *hostname
+	}
+	return ""
+}
+
+func (s *ProxyServer) reloadRemoteHostname(config *goconf.ConfigFile) {
+	if s.remoteToken.Load() == nil {
+		// Remote streams were not enabled on startup.
+		return
+	}
+
+	hostname, err := loadRemoteHostname(config)
+	if err != nil {
+		s.logger.Printf("Could not reload hostname for remote streams, keeping existing: %s", err)
+		return
+	}
+
+	if prev := s.remoteHostname.Swap(&hostname); prev == nil || *prev != hostname {
+		logRemoteHostname(s.logger, hostname)
+	}
+}
+
 func (s *ProxyServer) reloadRemoteToken(config *goconf.ConfigFile) {
 	if s.remoteToken.Load() == nil {
 		// Remote streams were not enabled on startup.
@@ -767,6 +803,7 @@ func (s *ProxyServer) Reload(config *goconf.ConfigFile) {
 
 	s.reloadRemoteToken(config)
 	s.reloadRemoteTlsConfig(config)
+	s.reloadRemoteHostname(config)
 
 	s.tokens.Reload(config)
 	s.mcu.Reload(config)
@@ -989,6 +1026,8 @@ func (i *emptyInitiator) Country() geoip.Country {
 type proxyRemotePublisher struct {
 	proxy     *ProxyServer
 	remoteUrl string
+	// Hostname used when the stream was published.
+	hostname atomic.Pointer[string]
 
 	publisherId api.PublicSessionId
 }
@@ -998,6 +1037,7 @@ func (p *proxyRemotePublisher) PublisherId() api.PublicSessionId {
 }
 
 func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher sfu.RemotePublisherProperties) error {
+	hostname := p.proxy.getRemoteHostname()
 	conn, err := p.proxy.getRemoteConnection(p.remoteUrl)
 	if err != nil {
 		return err
@@ -1008,7 +1048,7 @@ func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher sf
 		Command: &proxy.CommandClientMessage{
 			Type:     "publish-remote",
 			ClientId: string(p.publisherId),
-			Hostname: p.proxy.remoteHostname,
+			Hostname: hostname,
 			Port:     publisher.Port(),
 			RtcpPort: publisher.RtcpPort(),
 		},
@@ -1016,11 +1056,21 @@ func (p *proxyRemotePublisher) StartPublishing(ctx context.Context, publisher sf
 		return err
 	}
 
+	p.hostname.Store(&hostname)
 	return nil
 }
 
 func (p *proxyRemotePublisher) StopPublishing(ctx context.Context, publisher sfu.RemotePublisherProperties) error {
 	defer p.proxy.removeRemotePublisher(p)
+
+	// The remote proxy identifies the stream by the hostname it was published
+	// with, which might be different from the current one after a reload.
+	var hostname string
+	if h := p.hostname.Load(); h != nil {
+		hostname = *h
+	} else {
+		hostname = p.proxy.getRemoteHostname()
+	}
 
 	conn, err := p.proxy.getRemoteConnection(p.remoteUrl)
 	if err != nil {
@@ -1032,7 +1082,7 @@ func (p *proxyRemotePublisher) StopPublishing(ctx context.Context, publisher sfu
 		Command: &proxy.CommandClientMessage{
 			Type:     "unpublish-remote",
 			ClientId: string(p.publisherId),
-			Hostname: p.proxy.remoteHostname,
+			Hostname: hostname,
 			Port:     publisher.Port(),
 			RtcpPort: publisher.RtcpPort(),
 		},
@@ -1180,7 +1230,7 @@ func (s *ProxyServer) processCommand(ctx context.Context, client *ProxyClient, s
 		}
 
 		if cmd.RemoteUrl != "" {
-			if s.remoteToken.Load() == nil || s.remoteHostname == "" {
+			if s.remoteToken.Load() == nil || s.getRemoteHostname() == "" {
 				session.sendMessage(message.NewErrorServerMessage(RemoteSubscribersNotSupported))
 				return
 			}
