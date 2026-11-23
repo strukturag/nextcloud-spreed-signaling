@@ -36,6 +36,7 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -2682,6 +2683,14 @@ func TestBackendServer_ParticipantsUpdateRaceAcrossCluster(t *testing.T) {
 				},
 			}
 			require.NoError(client1.WriteJSON(joinMsg))
+
+			// Wait until the backend received the join request of client 1, the join
+			// is registered as pending before the request is sent.
+			require.Eventually(func() bool {
+				return slices.ContainsFunc(getRoomRequests(t), func(r *talk.BackendClientRoomRequest) bool {
+					return r.SessionId == roomSessionId1
+				})
+			}, testTimeout, time.Millisecond)
 
 			// The join from client 1 is still pending (from room "test-room-slow"), make
 			// sure any participants update received on other servers in the mean time is
