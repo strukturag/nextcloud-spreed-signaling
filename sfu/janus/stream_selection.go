@@ -27,6 +27,11 @@ import (
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 )
 
+const (
+	noSubstream            = -1
+	defaultSubstreamTarget = 2
+)
+
 type streamSelection struct {
 	substream *int
 	temporal  *int

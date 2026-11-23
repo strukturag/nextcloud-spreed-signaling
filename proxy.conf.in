@@ -104,6 +104,12 @@ url = ws://localhost:8188/
 # List of IP addresses / subnets to filter from candidates received by clients.
 #blockedcandidates = 1.2.3.0/24
 
+# Time in seconds subscribers stay on a lower simulcast substream after Janus
+# fell back to it because the higher one stopped.
+# Set to 0 to switch back as soon as the higher substream returns.
+# Defaults to 10 seconds.
+#simulcasthold = 10
+
 # Read timeout in seconds for websocket connections to other proxy servers
 # (for remote streams). This is the time remote proxy servers have to respond
 # to ping messages.

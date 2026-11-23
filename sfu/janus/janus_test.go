@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,6 +54,32 @@ const (
 func TestMcuJanusStats(t *testing.T) {
 	t.Parallel()
 	metricstest.CollectAndLint(t, janusMcuStats...)
+}
+
+func TestJanusSettingsSimulcastHold(t *testing.T) {
+	t.Parallel()
+
+	testcases := map[string]time.Duration{
+		"":    defaultSimulcastHold,
+		"0":   0,
+		"5":   5 * time.Second,
+		"-1":  defaultSimulcastHold,
+		"foo": defaultSimulcastHold,
+	}
+	for value, expected := range testcases {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			config := goconf.NewConfigFile()
+			if value != "" {
+				config.AddOption("mcu", "simulcasthold", value)
+			}
+			logger := logtest.NewLoggerForTest(t)
+			ctx := log.NewLoggerContext(t.Context(), logger)
+			settings, err := newJanusSettings(ctx, config)
+			require.NoError(t, err)
+			assert.Equal(t, expected, settings.SimulcastHold())
+		})
+	}
 }
 
 func newMcuJanusForTesting(t *testing.T) (*janusSFU, *janustest.JanusGateway) {
@@ -926,6 +953,282 @@ func Test_JanusSubscriberRequestOffer(t *testing.T) {
 	// Also wait for the publisher request to finish, otherwise its
 	// transaction could still be active when the test gateway is checked.
 	<-pubDone
+}
+
+func newSimulcastHoldHandlers(assert *assert.Assertions, configured chan<- int) map[string]janustest.JanusHandler {
+	return map[string]janustest.JanusHandler{
+		"configure": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			if jsep != nil {
+				return &janus.EventMsg{
+					Jsep: api.StringMap{
+						"sdp": mock.MockSdpAnswerAudioAndVideo,
+					},
+				}, nil
+			}
+
+			if substream, ok := body["substream"].(float64); assert.True(ok, "no substream in %+v", body) {
+				configured <- int(substream)
+			}
+			return &janus.EventMsg{
+				Plugindata: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: api.StringMap{
+						"videoroom":  "event",
+						"configured": "ok",
+					},
+				},
+			}, nil
+		},
+		"start": func(room *janustest.JanusRoom, body, jsep api.StringMap) (any, *janus.ErrorMsg) {
+			return &janus.EventMsg{
+				Plugindata: janus.PluginData{
+					Plugin: pluginVideoRoom,
+					Data: api.StringMap{
+						"room":      room.Id(),
+						"started":   true,
+						"videoroom": "event",
+					},
+				},
+			}, nil
+		},
+	}
+}
+
+func sendSubscriberMessage(ctx context.Context, t *testing.T, sub sfu.Subscriber, msg *api.MessageClientMessage, data *api.MessageClientMessageData) {
+	require.NoError(t, data.CheckValid())
+
+	done := make(chan struct{})
+	sub.SendMessage(ctx, msg, data, func(err error, m api.StringMap) {
+		defer close(done)
+		assert.NoError(t, err)
+	})
+	<-done
+}
+
+func runSimulcastHoldTest(ctx context.Context, t *testing.T, mcu *janusSFU, sub sfu.Subscriber, subscriber *janusSubscriber, configured <-chan int) {
+	assert := assert.New(t)
+
+	handle := subscriber.JanusHandle()
+	pushEvent := func(data api.StringMap) {
+		data["videoroom"] = "event"
+		handle.Events <- &janus.EventMsg{
+			Plugindata: janus.PluginData{
+				Plugin: pluginVideoRoom,
+				Data:   data,
+			},
+		}
+	}
+	pushSubstream := func(substream int) {
+		pushEvent(api.StringMap{
+			"substream": float64(substream),
+		})
+	}
+	nextConfigure := func() int {
+		select {
+		case substream := <-configured:
+			return substream
+		case <-ctx.Done():
+			require.Fail(t, "no configure received")
+			return -1
+		}
+	}
+	releaseHold := func() {
+		subscriber.deferred <- func() {
+			subscriber.releaseSubstreamHold(subscriber.holdGeneration)
+		}
+	}
+	assertNoPendingConfigure := func() {
+		processed := make(chan struct{})
+		subscriber.deferred <- func() {
+			close(processed)
+		}
+		<-processed
+		select {
+		case substream := <-configured:
+			assert.Fail("unexpected configure", "substream %d", substream)
+		default:
+		}
+	}
+	selectSubstream := func(substream int) {
+		sendSubscriberMessage(ctx, t, sub, &api.MessageClientMessage{}, &api.MessageClientMessageData{
+			Type: "selectStream",
+			Payload: api.StringMap{
+				"substream": substream,
+			},
+		})
+	}
+
+	// The first configure would be 0 if the ramp-up was treated as a fallback.
+	pushSubstream(0)
+	pushSubstream(1)
+	pushSubstream(2)
+	pushSubstream(1)
+	assert.Equal(1, nextConfigure())
+
+	pushSubstream(1)
+	pushSubstream(0)
+	assert.Equal(0, nextConfigure())
+	releaseHold()
+	assert.Equal(2, nextConfigure())
+	assertNoPendingConfigure()
+
+	mcu.settings.simulcastHold.Store(int64(10 * time.Millisecond))
+	pushSubstream(2)
+	pushSubstream(1)
+	assert.Equal(1, nextConfigure())
+	assert.Equal(2, nextConfigure())
+
+	mcu.settings.simulcastHold.Store(int64(time.Hour))
+	pushSubstream(2)
+	pushEvent(api.StringMap{
+		"temporal": float64(1),
+	})
+	pushEvent(api.StringMap{
+		"substream": "foo",
+	})
+	pushSubstream(1)
+	assert.Equal(1, nextConfigure())
+	pushSubstream(2)
+	pushSubstream(1)
+	assertNoPendingConfigure()
+
+	selectSubstream(1)
+	assert.Equal(1, nextConfigure())
+	releaseHold()
+	assertNoPendingConfigure()
+
+	selectSubstream(1)
+	assert.Equal(1, nextConfigure())
+	pushSubstream(2)
+	pushSubstream(1)
+	assertNoPendingConfigure()
+
+	pushSubstream(0)
+	assert.Equal(0, nextConfigure())
+	releaseHold()
+	assert.Equal(1, nextConfigure())
+	assertNoPendingConfigure()
+}
+
+func Test_JanusSubscriberSimulcastHold(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	configured := make(chan int, 8)
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.settings.simulcastHold.Store(int64(time.Hour))
+	gateway.RegisterHandlers(newSimulcastHoldHandlers(assert.New(t), configured))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	pubId := api.PublicSessionId("publisher-id")
+	listener1 := &TestMcuListener{
+		id: pubId,
+	}
+
+	settings1 := sfu.NewPublisherSettings{}
+	initiator1 := &TestMcuInitiator{
+		country: "DE",
+	}
+
+	pub, err := mcu.NewPublisher(ctx, listener1, pubId, "sid", sfu.StreamTypeVideo, settings1, initiator1)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	data := &api.MessageClientMessageData{
+		Type: "offer",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpOfferAudioAndVideo,
+		},
+	}
+	require.NoError(data.CheckValid())
+
+	done := make(chan struct{})
+	pub.SendMessage(ctx, &api.MessageClientMessage{}, data, func(err error, m api.StringMap) {
+		defer close(done)
+		assert.NoError(t, err)
+	})
+	<-done
+
+	listener2 := &TestMcuListener{
+		id: pubId,
+	}
+
+	initiator2 := &TestMcuInitiator{
+		country: "DE",
+	}
+	sub, err := mcu.NewSubscriber(ctx, listener2, pubId, sfu.StreamTypeVideo, initiator2)
+	require.NoError(err)
+	defer sub.Close(context.Background())
+
+	sendSubscriberMessage(ctx, t, sub, &api.MessageClientMessage{}, &api.MessageClientMessageData{
+		Type: "requestoffer",
+	})
+	sendSubscriberMessage(ctx, t, sub, &api.MessageClientMessage{}, &api.MessageClientMessageData{
+		Type: "answer",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpAnswerAudioAndVideo,
+		},
+	})
+
+	runSimulcastHoldTest(ctx, t, mcu, sub, sub.(*janusSubscriber), configured)
+}
+
+func Test_JanusRemoteSubscriberSimulcastHold(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	configured := make(chan int, 8)
+	mcu, gateway := newMcuJanusForTesting(t)
+	mcu.settings.simulcastHold.Store(int64(time.Hour))
+	handlers := newRemotePublisherHandlers(assert)
+	maps.Copy(handlers, newSimulcastHoldHandlers(assert, configured))
+	gateway.RegisterHandlers(handlers)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	listener1 := &TestMcuListener{
+		id: "publisher-id",
+	}
+
+	controller := &TestMcuController{
+		id: listener1.id,
+	}
+
+	pub, err := mcu.NewRemotePublisher(ctx, listener1, controller, sfu.StreamTypeVideo)
+	require.NoError(err)
+	defer pub.Close(context.Background())
+
+	listener2 := &TestMcuListener{
+		id: "subscriber-id",
+	}
+
+	sub, err := mcu.NewRemoteSubscriber(ctx, listener2, pub)
+	require.NoError(err)
+	defer sub.Close(context.Background())
+
+	msg := &api.MessageClientMessage{
+		Recipient: api.MessageClientMessageRecipient{
+			Type:      "session",
+			SessionId: listener1.id,
+		},
+	}
+	sendSubscriberMessage(ctx, t, sub, msg, &api.MessageClientMessageData{
+		Type:     "requestoffer",
+		RoomType: "video",
+	})
+	sendSubscriberMessage(ctx, t, sub, msg, &api.MessageClientMessageData{
+		Type:     "answer",
+		RoomType: "video",
+		Payload: api.StringMap{
+			"sdp": mock.MockSdpAnswerAudioOnly,
+		},
+	})
+
+	runSimulcastHoldTest(ctx, t, mcu, sub, &sub.(*janusRemoteSubscriber).janusSubscriber, configured)
 }
 
 func Test_JanusRemotePublisher(t *testing.T) {

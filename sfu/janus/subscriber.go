@@ -25,6 +25,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/api"
 	"github.com/strukturag/nextcloud-spreed-signaling/v2/sfu"
@@ -45,6 +46,12 @@ type janusSubscriber struct {
 	// would block until the context deadline and tear down the call.
 	// Returns the new handle and the room id to (re-)join.
 	attachHandle func(ctx context.Context) (*janus.Handle, uint64, error)
+
+	// The following fields are only accessed from the run loop.
+	requestedSubstream int
+	currentSubstream   int
+	heldSubstream      int
+	holdGeneration     uint64
 }
 
 func (p *janusSubscriber) JanusHandle() *janus.Handle {
@@ -80,13 +87,13 @@ func (p *janusSubscriber) handleEvent(event *janus.EventMsg) {
 			p.logger.Printf("Subscriber %d: received updated event with no active media streams, closing", p.handleId.Load())
 			go p.Close(ctx)
 		case "event":
-			// Handle renegotiations, but ignore other events like selected
-			// substream / temporal layer.
+			// Handle renegotiations and substream changes, but ignore other
+			// events like selected temporal layer.
 			if getPluginStringValue(event.Plugindata, pluginVideoRoom, "configured") == "ok" &&
 				event.Jsep != nil && event.Jsep["type"] == "offer" && event.Jsep["sdp"] != nil {
 				p.logger.Printf("Subscriber %d: received updated offer", p.handleId.Load())
 				p.listener.OnUpdateOffer(p, event.Jsep)
-			} else {
+			} else if !p.handleSubstreamEvent(event) {
 				p.logger.Printf("Subscriber %d: received unsupported event %+v", p.handleId.Load(), event)
 			}
 		case "slow_link":
@@ -124,6 +131,108 @@ func (p *janusSubscriber) handleSlowLink(event *janus.SlowLinkMsg) {
 
 func (p *janusSubscriber) handleMedia(event *janus.MediaMsg) {
 	// Only triggered for publishers
+}
+
+func (p *janusSubscriber) resetSubstreamHold() {
+	p.requestedSubstream = noSubstream
+	p.currentSubstream = noSubstream
+	p.heldSubstream = noSubstream
+	p.holdGeneration++
+}
+
+func (p *janusSubscriber) updateRequestedSubstream(stream *streamSelection) {
+	if stream == nil || stream.substream == nil || *stream.substream == p.requestedSubstream {
+		return
+	}
+
+	p.requestedSubstream = *stream.substream
+	p.heldSubstream = noSubstream
+	p.holdGeneration++
+}
+
+func (p *janusSubscriber) targetSubstream() int {
+	if p.requestedSubstream == noSubstream {
+		return defaultSubstreamTarget
+	}
+
+	return p.requestedSubstream
+}
+
+func (p *janusSubscriber) handleSubstreamEvent(event *janus.EventMsg) bool {
+	value := getPluginValue(event.Plugindata, pluginVideoRoom, "substream")
+	if value == nil {
+		return false
+	}
+
+	substream, err := convertIntValue(value)
+	if err != nil {
+		p.logger.Printf("Subscriber %d: invalid substream %+v: %s", p.handleId.Load(), value, err)
+		return true
+	}
+
+	p.handleSubstreamChanged(int(substream))
+	return true
+}
+
+func (p *janusSubscriber) handleSubstreamChanged(substream int) {
+	previous := p.currentSubstream
+	p.currentSubstream = substream
+
+	hold := p.mcu.settings.SimulcastHold()
+	if hold <= 0 || previous == noSubstream || substream >= previous {
+		return
+	}
+
+	if substream >= p.targetSubstream() {
+		return
+	}
+	if p.heldSubstream != noSubstream && substream >= p.heldSubstream {
+		return
+	}
+
+	p.logger.Printf("Subscriber %d: fell back to substream %d (requested %d), keeping it for %s", p.handleId.Load(), substream, p.targetSubstream(), hold)
+	p.heldSubstream = substream
+	p.holdGeneration++
+	generation := p.holdGeneration
+	p.configureSubstream(substream)
+
+	closeChan := p.closeChan
+	time.AfterFunc(hold, func() {
+		select {
+		case p.deferred <- func() {
+			p.releaseSubstreamHold(generation)
+		}:
+		case <-closeChan:
+		}
+	})
+}
+
+func (p *janusSubscriber) releaseSubstreamHold(generation uint64) {
+	if p.heldSubstream == noSubstream || p.holdGeneration != generation {
+		return
+	}
+
+	p.logger.Printf("Subscriber %d: switching back to requested substream %d", p.handleId.Load(), p.targetSubstream())
+	p.heldSubstream = noSubstream
+	p.configureSubstream(p.targetSubstream())
+}
+
+func (p *janusSubscriber) configureSubstream(substream int) {
+	handle := p.handle.Load()
+	if handle == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
+	defer cancel()
+
+	configure_msg := api.StringMap{
+		"request":   "configure",
+		"substream": substream,
+	}
+	if _, err := handle.Message(ctx, configure_msg, nil); err != nil {
+		p.logger.Printf("Subscriber %d: could not configure substream %d: %s", p.handleId.Load(), substream, err)
+	}
 }
 
 func (p *janusSubscriber) NotifyReconnected() {
@@ -332,8 +441,10 @@ func (p *janusSubscriber) SendMessage(ctx context.Context, message *api.MessageC
 			}
 
 			if data.Sid == "" || data.Sid != p.Sid() {
+				p.resetSubstreamHold()
 				p.joinRoom(msgctx, stream, callback)
 			} else {
+				p.updateRequestedSubstream(stream)
 				p.update(msgctx, stream, callback)
 			}
 		}
@@ -394,6 +505,7 @@ func (p *janusSubscriber) SendMessage(ctx context.Context, message *api.MessageC
 			msgctx, cancel := context.WithTimeout(context.Background(), p.mcu.settings.Timeout())
 			defer cancel()
 
+			p.updateRequestedSubstream(stream)
 			p.selectStream(msgctx, stream, callback)
 		}
 	default:

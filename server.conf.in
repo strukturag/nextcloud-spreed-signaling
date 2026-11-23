@@ -224,6 +224,12 @@ connectionsperhost = 8
 # List of IP addresses / subnets to filter from candidates received by clients.
 #blockedcandidates = 1.2.3.0/24
 
+# For type "janus": time in seconds subscribers stay on a lower simulcast
+# substream after Janus fell back to it because the higher one stopped.
+# Set to 0 to switch back as soon as the higher substream returns.
+# Defaults to 10 seconds.
+#simulcasthold = 10
+
 # For type "proxy": timeout in seconds for requests to the proxy server.
 #proxytimeout = 2
 
