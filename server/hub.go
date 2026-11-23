@@ -351,11 +351,7 @@ func NewHub(ctx context.Context, cfg *goconf.ConfigFile, events events.AsyncEven
 		logger.Println("WARNING: No shared secret has been set for internal clients.")
 	}
 
-	maxConcurrentRequestsPerHost, _ := cfg.GetInt("backend", "connectionsperhost")
-	if maxConcurrentRequestsPerHost <= 0 {
-		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
-	}
-
+	maxConcurrentRequestsPerHost := getMaxConcurrentRequestsPerHost(cfg)
 	backend, err := talk.NewBackendClient(ctx, cfg, maxConcurrentRequestsPerHost, version, etcdClient)
 	if err != nil {
 		return nil, err
@@ -643,6 +639,23 @@ func (h *Hub) loadSkipFederationVerify(cfg *goconf.ConfigFile, fromReload bool) 
 	}
 }
 
+func getMaxConcurrentRequestsPerHost(cfg *goconf.ConfigFile) int {
+	maxConcurrentRequestsPerHost, _ := cfg.GetInt("backend", "connectionsperhost")
+	if maxConcurrentRequestsPerHost <= 0 {
+		maxConcurrentRequestsPerHost = defaultMaxConcurrentRequestsPerHost
+	}
+	return maxConcurrentRequestsPerHost
+}
+
+func (h *Hub) reloadMaxConcurrentRequestsPerHost(cfg *goconf.ConfigFile) {
+	maxConcurrentRequestsPerHost := getMaxConcurrentRequestsPerHost(cfg)
+	if changed, err := h.backend.SetMaxConcurrentRequestsPerHost(maxConcurrentRequestsPerHost); err != nil {
+		h.logger.Printf("Could not update maximum number of concurrent backend connections per host: %s", err)
+	} else if changed {
+		h.logger.Printf("Using a maximum of %d concurrent backend connections per host", maxConcurrentRequestsPerHost)
+	}
+}
+
 func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 	h.loadTimeouts(config)
 	h.loadSkipFederationVerify(config, true)
@@ -690,6 +703,7 @@ func (h *Hub) Reload(ctx context.Context, config *goconf.ConfigFile) {
 		h.mcu.Reload(config)
 	}
 	h.backend.Reload(config)
+	h.reloadMaxConcurrentRequestsPerHost(config)
 	h.rpcClients.Reload(config)
 }
 

@@ -97,7 +97,8 @@ type HttpClientPool struct {
 	// +checklocks:mu
 	clients map[string]*Pool
 
-	maxConcurrentRequestsPerHost int // +checklocksignore: Only written to from constructor.
+	// +checklocks:mu
+	maxConcurrentRequestsPerHost int
 }
 
 // idleConnTimeout limits how long an idle backend connection stays in the pool.
@@ -151,6 +152,34 @@ func newTransport(maxConcurrentRequestsPerHost int, skipVerify bool) *http.Trans
 		IdleConnTimeout: idleConnTimeout,
 	}
 	return transport
+}
+
+// SetMaxConcurrentRequestsPerHost changes the maximum number of concurrent
+// requests per host. Requests that are currently running are not affected,
+// they are returned to their previous pool which is no longer used. Returns
+// true if the value was changed.
+func (p *HttpClientPool) SetMaxConcurrentRequestsPerHost(maxConcurrentRequestsPerHost int) (bool, error) {
+	if maxConcurrentRequestsPerHost <= 0 {
+		return false, errors.New("can't create empty pool")
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.maxConcurrentRequestsPerHost == maxConcurrentRequestsPerHost {
+		return false, nil
+	}
+
+	p.maxConcurrentRequestsPerHost = maxConcurrentRequestsPerHost
+	// Pools for the different hosts will be created on demand with the new size.
+	clear(p.clients)
+
+	skipVerify := p.transport.current.Load().TLSClientConfig.InsecureSkipVerify
+	transport := newTransport(maxConcurrentRequestsPerHost, skipVerify)
+	if prev := p.transport.current.Swap(transport); prev != nil {
+		prev.CloseIdleConnections()
+	}
+	return true, nil
 }
 
 // SetSkipVerify changes if certificates should be validated for new

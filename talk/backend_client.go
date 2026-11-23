@@ -123,6 +123,12 @@ func (b *BackendClient) Reload(config *goconf.ConfigFile) {
 	}
 }
 
+// SetMaxConcurrentRequestsPerHost changes the maximum number of concurrent
+// requests per backend host. Returns true if the value was changed.
+func (b *BackendClient) SetMaxConcurrentRequestsPerHost(maxConcurrentRequestsPerHost int) (bool, error) {
+	return b.pool.SetMaxConcurrentRequestsPerHost(maxConcurrentRequestsPerHost)
+}
+
 func (b *BackendClient) GetCompatBackend() *Backend {
 	return b.backends.GetCompatBackend()
 }

@@ -140,3 +140,53 @@ func TestHttpClientPoolSetSkipVerify(t *testing.T) {
 	assert.False(pool.transport.current.Load().TLSClientConfig.InsecureSkipVerify)
 	assert.Error(doRequest())
 }
+
+func TestHttpClientPoolSetMaxConcurrentRequestsPerHost(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	assert := assert.New(t)
+
+	pool, err := NewHttpClientPool(1, false)
+	require.NoError(err)
+
+	u, err := url.Parse("http://localhost/foo/bar")
+	require.NoError(err)
+
+	ctx := t.Context()
+	assertExhausted := func() {
+		t.Helper()
+		ctx2, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+		defer cancel()
+		_, _, err := pool.Get(ctx2, u)
+		assert.ErrorIs(err, context.DeadlineExceeded)
+	}
+
+	client1, pool1, err := pool.Get(ctx, u)
+	require.NoError(err)
+	assertExhausted()
+
+	_, err = pool.SetMaxConcurrentRequestsPerHost(0)
+	assert.Error(err)
+	if changed, err := pool.SetMaxConcurrentRequestsPerHost(1); assert.NoError(err) {
+		assert.False(changed)
+	}
+
+	transport := pool.transport.current.Load()
+	if changed, err := pool.SetMaxConcurrentRequestsPerHost(2); assert.NoError(err) {
+		assert.True(changed)
+	}
+	assert.NotSame(transport, pool.transport.current.Load())
+	assert.Equal(2, pool.transport.current.Load().MaxIdleConnsPerHost)
+
+	// New requests use a new pool with the new size.
+	_, pool2, err := pool.Get(ctx, u)
+	require.NoError(err)
+	assert.NotSame(pool1, pool2)
+	_, _, err = pool.Get(ctx, u)
+	require.NoError(err)
+	assertExhausted()
+
+	// Returning a client to the previous pool doesn't affect the new one.
+	pool1.Put(client1)
+	assertExhausted()
+}
